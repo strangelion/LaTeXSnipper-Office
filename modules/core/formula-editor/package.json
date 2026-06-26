@@ -1,0 +1,37 @@
+{
+  "name": "@latexsnipper/formula-editor",
+  "version": "0.1.0",
+  "description": "MathLive-based formula editor module",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "mathlive": "^0.98.0"
+  },
+  "devDependencies": {
+    "rollup": "^3.28.0",
+    "@rollup/plugin-typescript": "^11.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "typescript": "^5.1.0",
+    "vitest": "^0.34.0"
+  },
+  "peerDependencies": {
+    "mathlive": "^0.98.0"
+  },
+  "keywords": [
+    "latex",
+    "formula",
+    "editor",
+    "mathlive"
+  ],
+  "license": "MIT"
+}

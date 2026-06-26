@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LaTeXSnipper Office</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <h1>LaTeXSnipper Office</h1>
+      <nav class="nav">
+        <button id="editorBtn" class="nav-btn active">编辑器</button>
+        <button id="ocrBtn" class="nav-btn">OCR 识别</button>
+        <button id="settingsBtn" class="nav-btn">设置</button>
+      </nav>
+    </header>
+    
+    <main class="main">
+      <section id="editorSection" class="section active">
+        <div class="editor-container">
+          <div id="mathfieldHost" class="mathfield-host"></div>
+          <textarea id="latexSource" class="latex-source" spellcheck="false" placeholder="输入 LaTeX 公式..."></textarea>
+        </div>
+        
+        <div class="preview-container">
+          <h3>预览</h3>
+          <div id="previewHost" class="preview-host"></div>
+        </div>
+        
+        <div class="options-container">
+          <label>
+            <input type="checkbox" id="displayMode"> 行间公式
+          </label>
+          <label>
+            字体样式：
+            <select id="fontStyle">
+              <option value="tex">TeX</option>
+              <option value="roman">Roman</option>
+              <option value="bold">Bold</option>
+              <option value="italic">Italic</option>
+            </select>
+          </label>
+          <label>
+            字体颜色：
+            <input type="color" id="fontColor" value="#000000">
+          </label>
+        </div>
+        
+        <div class="actions-container">
+          <button id="copyLatex" class="btn">复制 LaTeX</button>
+          <button id="copyMathml" class="btn">复制 MathML</button>
+          <button id="copySvg" class="btn">复制 SVG</button>
+          <button id="copyPng" class="btn">复制 PNG</button>
+        </div>
+      </section>
+      
+      <section id="ocrSection" class="section">
+        <div class="ocr-container">
+          <button id="screenshotBtn" class="btn primary">截图识别</button>
+          <div id="ocrResult" class="ocr-result"></div>
+        </div>
+      </section>
+      
+      <section id="settingsSection" class="section">
+        <div class="settings-container">
+          <h3>设置</h3>
+          <div class="setting-item">
+            <label>默认显示模式：</label>
+            <select id="defaultDisplayMode">
+              <option value="inline">行内</option>
+              <option value="display">行间</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>默认字体样式：</label>
+            <select id="defaultFontStyle">
+              <option value="tex">TeX</option>
+              <option value="roman">Roman</option>
+              <option value="bold">Bold</option>
+              <option value="italic">Italic</option>
+            </select>
+          </div>
+          <div class="setting-item">
+            <label>自动检测平台：</label>
+            <input type="checkbox" id="autoDetectPlatform" checked>
+          </div>
+        </div>
+      </section>
+    </main>
+    
+    <footer class="footer">
+      <span id="statusText">就绪</span>
+      <span id="platformText">平台：检测中...</span>
+    </footer>
+  </div>
+  
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

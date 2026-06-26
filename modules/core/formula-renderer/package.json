@@ -1,0 +1,36 @@
+{
+  "name": "@latexsnipper/formula-renderer",
+  "version": "0.1.0",
+  "description": "MathJax-based formula renderer module",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "mathjax": "^3.2.2"
+  },
+  "devDependencies": {
+    "rollup": "^3.28.0",
+    "@rollup/plugin-typescript": "^11.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "typescript": "^5.1.0",
+    "vitest": "^0.34.0"
+  },
+  "keywords": [
+    "latex",
+    "formula",
+    "renderer",
+    "mathjax",
+    "mathml",
+    "svg"
+  ],
+  "license": "MIT"
+}
