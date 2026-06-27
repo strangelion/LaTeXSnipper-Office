@@ -1,4 +1,4 @@
-use crate::core::{
+use crate::engine::{
     font::{FontHandler, FontStyle},
     renderer::{FormulaRenderer, RenderFormat, RenderOptions},
 };

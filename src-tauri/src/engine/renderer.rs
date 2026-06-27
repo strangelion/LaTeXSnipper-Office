@@ -46,12 +46,12 @@ impl FormulaRenderer {
         })
     }
 
-    pub async fn to_mathml(&self, latex: &str, display: bool) -> Result<String, String> {
+    pub async fn to_mathml(&self, latex: &str, _display: bool) -> Result<String, String> {
         // TODO: Implement MathML conversion
         Ok(format!("<math>{}</math>", latex))
     }
 
-    pub async fn to_svg(&self, latex: &str, display: bool) -> Result<String, String> {
+    pub async fn to_svg(&self, latex: &str, _display: bool) -> Result<String, String> {
         // TODO: Implement SVG conversion
         Ok(format!("<svg>{}</svg>", latex))
     }

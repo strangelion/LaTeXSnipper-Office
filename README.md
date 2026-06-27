@@ -105,4 +105,6 @@ cargo tauri android build
 
 ## 许可证
 
-MIT License
+GNU Affero General Public License v3.0 (AGPL-3.0-only)
+
+本项目采用 AGPL-3.0 许可证，禁止商业使用。

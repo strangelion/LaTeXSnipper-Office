@@ -10,11 +10,11 @@ pub enum FontStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct FontSettings {
     pub color: String,
     pub style: FontStyle,
     pub scale: f64,
-    pub family: String,
 }
 
 impl Default for FontSettings {
@@ -23,7 +23,6 @@ impl Default for FontSettings {
             color: "#000000".to_string(),
             style: FontStyle::TeX,
             scale: 1.0,
-            family: "auto".to_string(),
         }
     }
 }
@@ -48,6 +47,7 @@ impl FontHandler {
         format!("\\color{{{}}}{{{}}}", color, latex)
     }
 
+    #[allow(dead_code)]
     pub fn calculate_scale(base: f64, user: f64, context: f64) -> f64 {
         let scale = base * user * context;
         scale.max(0.1).min(10.0)

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui">
+  <ribbon>
+    <tabs>
+      <tab id="LaTeXSnipperTab" label="LaTeXSnipper" insertBeforeMso="TabAddIns" keytip="L">
+        <group id="LSFormulaGroup" label="Formula">
+          <button id="LSInsertFormula" label="Insert Formula" size="large"
+                  imageMso="EquationInsertGallery"
+                  onAction="LaTeXSnipperRibbon.LSInsertFormula"
+                  supertip="Insert a LaTeX formula" keytip="F"/>
+          <button id="LSLoadSelection" label="Load Selection" size="large"
+                  imageMso="ReviewTrackChanges"
+                  onAction="LaTeXSnipperRibbon.LSLoadSelection"
+                  supertip="Load selected text into editor" keytip="L"/>
+          <button id="LSDeleteSelection" label="Delete" size="large"
+                  imageMso="Delete"
+                  onAction="LaTeXSnipperRibbon.LSDeleteSelection"
+                  supertip="Delete selection" keytip="D"/>
+        </group>
+        <group id="LSConvertGroup" label="Convert">
+          <button id="LSConvertToOLE" label="To OLE" size="large"
+                  imageMso="ConvertTextToTable"
+                  onAction="LaTeXSnipperRibbon.LSConvertToOLE"
+                  supertip="Convert to OLE"/>
+          <button id="LSConvertToWord" label="To Word" size="large"
+                  imageMso="ConvertTextToTable"
+                  onAction="LaTeXSnipperRibbon.LSConvertToWord"
+                  supertip="Convert to Word equation"/>
+        </group>
+        <group id="LSMiscGroup" label="Tools">
+          <button id="LSOpenApp" label="Open App" size="large"
+                  imageMso="FileOpen"
+                  onAction="LaTeXSnipperRibbon.LSOpenApp"
+                  supertip="Open LaTeXSnipper"/>
+          <button id="LSShowHelp" label="Help" size="large"
+                  imageMso="Help"
+                  onAction="LaTeXSnipperRibbon.LSShowHelp"
+                  supertip="Show help"/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

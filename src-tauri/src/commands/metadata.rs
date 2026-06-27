@@ -1,5 +1,5 @@
-use crate::core::metadata::FormulaMetadata;
-use serde::{Deserialize, Serialize};
+use crate::engine::metadata::FormulaMetadata;
+use serde::Serialize;
 use tauri::command;
 
 #[derive(Debug, Serialize)]
@@ -32,22 +32,22 @@ pub async fn create_metadata(
 
     Ok(FormulaMetadata {
         schema_version: 2,
-        identity: crate::core::metadata::FormulaIdentity {
+        identity: crate::engine::metadata::FormulaIdentity {
             document_id,
             equation_id,
             revision: String::new(),
         },
         latex,
-        display_mode: crate::core::metadata::DisplayMode::Inline,
-        numbering_mode: crate::core::metadata::NumberingMode::None,
+        display_mode: crate::engine::metadata::DisplayMode::Inline,
+        numbering_mode: crate::engine::metadata::NumberingMode::None,
         number_text: String::new(),
-        render_engine: crate::core::metadata::RenderEngine::MathJaxSVG,
-        font: crate::core::metadata::FontSettings {
+        render_engine: crate::engine::metadata::RenderEngine::MathJaxSVG,
+        font: crate::engine::metadata::FontSettings {
             color: "#000000".to_string(),
-            style: crate::core::metadata::FontStyle::TeX,
+            style: crate::engine::metadata::FontStyle::TeX,
             scale: 1.0,
         },
-        size: crate::core::metadata::SizeSettings {
+        size: crate::engine::metadata::SizeSettings {
             natural_width: 0.0,
             natural_height: 0.0,
             scale_factor: 1.0,

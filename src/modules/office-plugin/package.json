@@ -1,0 +1,30 @@
+{
+  "name": "@latexsnipper/office-plugin",
+  "version": "1.0.0",
+  "description": "Office Plugin Module - 复刻 LaTeXSnipper Office 插件功能",
+  "main": "index.js",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./formula": "./formula.js",
+    "./edit": "./edit.js",
+    "./convert": "./convert.js",
+    "./crossref": "./crossref.js",
+    "./numbering": "./numbering.js",
+    "./formula-style": "./formula-style.js",
+    "./tools": "./tools.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "latexsnipper",
+    "office",
+    "plugin",
+    "formula",
+    "word",
+    "powerpoint"
+  ],
+  "author": "LaTeXSnipper",
+  "license": "MIT"
+}

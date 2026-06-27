@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>B7C8D9E0-F1A2-3B4C-5D6E-7F8A9B0C1D2E</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>LaTeXSnipper</ProviderName>
+  <DefaultLocale>zh-CN</DefaultLocale>
+  <DisplayName DefaultValue="LaTeXSnipper" />
+  <Description DefaultValue="LaTeX 公式编辑器 - 插入、编辑和管理 Word 中的公式" />
+  <AppDomains>
+    <AppDomain>http://localhost</AppDomain>
+    <AppDomain>localhost</AppDomain>
+  </AppDomains>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="http://localhost:1420/index.html" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <FunctionFile resid="Func.Url" />
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <CustomTab id="LaTeXSnipperTab">
+              <Group id="LSFormulaGroup">
+                <Label resid="Group.Formula.Label" />
+                <Control id="InsertFormula" type="Button">
+                  <Label resid="Btn.Insert.Label" />
+                  <Supertip resid="Btn.Insert.Supertip" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>insertFormula</FunctionName>
+                  </Action>
+                  <Image size="16" resid="Icon.16" />
+                  <Image size="32" resid="Icon.32" />
+                  <Image size="80" resid="Icon.80" />
+                </Control>
+                <Control id="LoadSelection" type="Button">
+                  <Label resid="Btn.Load.Label" />
+                  <Supertip resid="Btn.Load.Supertip" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>loadSelection</FunctionName>
+                  </Action>
+                  <Image size="16" resid="Icon.Load.16" />
+                  <Image size="32" resid="Icon.Load.32" />
+                </Control>
+                <Control id="DeleteSelection" type="Button">
+                  <Label resid="Btn.Delete.Label" />
+                  <Supertip resid="Btn.Delete.Supertip" />
+                  <Action xsi:type="ExecuteFunction">
+                    <FunctionName>deleteSelection</FunctionName>
+                  </Action>
+                  <Image size="16" resid="Icon.Delete.16" />
+                  <Image size="32" resid="Icon.Delete.32" />
+                </Control>
+              </Group>
+              <Group id="LSConvertGroup">
+                <Label resid="Group.Convert.Label" />
+                <Control id="ShowTaskPane" type="Button">
+                  <Label resid="Btn.OpenApp.Label" />
+                  <Supertip resid="Btn.OpenApp.Supertip" />
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>LaTeXSnipperTaskpane</TaskpaneId>
+                  </Action>
+                  <Image size="16" resid="Icon.App.16" />
+                  <Image size="32" resid="Icon.App.32" />
+                </Control>
+              </Group>
+            </CustomTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+      <Host xsi:type="Presentation">
+        <DesktopFormFactor>
+          <FunctionFile resid="Func.Url" />
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <CustomTab id="LaTeXSnipperTabPPT">
+              <Group id="LSFormulaGroupPPT">
+                <Label resid="Group.Formula.Label" />
+                <Control id="ShowTaskPanePPT" type="Button">
+                  <Label resid="Btn.OpenApp.Label" />
+                  <Supertip resid="Btn.OpenApp.Supertip" />
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>LaTeXSnipperTaskpane</TaskpaneId>
+                  </Action>
+                  <Image size="16" resid="Icon.App.16" />
+                  <Image size="32" resid="Icon.App.32" />
+                </Control>
+              </Group>
+            </CustomTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Urls>
+        <bt:Url id="Func.Url" DefaultValue="http://localhost:1420/index.html" />
+        <bt:Url id="TaskPane.Url" DefaultValue="http://localhost:1420/index.html" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Group.Formula.Label" DefaultValue="LaTeXSnipper" />
+        <bt:String id="Group.Convert.Label" DefaultValue="Tools" />
+        <bt:String id="Btn.Insert.Label" DefaultValue="插入公式" />
+        <bt:String id="Btn.Load.Label" DefaultValue="加载所选" />
+        <bt:String id="Btn.Delete.Label" DefaultValue="删除公式" />
+        <bt:String id="Btn.OpenApp.Label" DefaultValue="编辑器" />
+        <bt:String id="Btn.Insert.Supertip" DefaultValue="在光标处插入 LaTeX 公式" />
+        <bt:String id="Btn.Load.Supertip" DefaultValue="将选中公式加载到编辑器" />
+        <bt:String id="Btn.Delete.Supertip" DefaultValue="删除选中的公式" />
+        <bt:String id="Btn.OpenApp.Supertip" DefaultValue="打开 LaTeXSnipper 编辑器" />
+      </bt:ShortStrings>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.32" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.80" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.Load.16" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.Load.32" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.Delete.16" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.Delete.32" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.App.16" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+        <bt:Image id="Icon.App.32" DefaultValue="http://localhost:1420/icons/platforms/office.svg" />
+      </bt:Images>
+    </Resources>
+    <Settings>
+      <Setting id="LocalStorage" DefaultValue="[]" />
+    </Settings>
+    <Metadata>
+      <ProducesItemOverride>
+        <ItemExtension ContentType="word.document" />
+      </ProducesItemOverride>
+    </Metadata>
+  </VersionOverrides>
+</OfficeApp>

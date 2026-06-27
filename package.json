@@ -1,9 +1,12 @@
 {
   "name": "latexsnipper-office",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Independent LaTeX formula editor for Office, Obsidian, WPS, VS Code",
   "scripts": {
+    "dev:vite": "vite",
+    "build:vite": "vite build",
+    "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
     "build:desktop": "tauri build --target universal-apple-darwin",
@@ -14,8 +17,13 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
+    "@tauri-apps/plugin-os": "^2.3.2",
     "@tauri-apps/plugin-shell": "^2.0.0",
-    "mathlive": "^0.98.0"
+    "idb": "^8.0.3",
+    "mathjax": "^3.2.2",
+    "mathlive": "^0.110.0",
+    "temml": "^0.13.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
@@ -32,5 +40,5 @@
     "office",
     "obsidian"
   ],
-  "license": "MIT"
+  "license": "AGPL-3.0-only"
 }

@@ -1,4 +1,4 @@
-use crate::core::renderer::FormulaRenderer;
+use crate::engine::renderer::FormulaRenderer;
 use serde::{Deserialize, Serialize};
 use tauri::command;
 
@@ -53,7 +53,7 @@ pub async fn export_formula(request: ExportFormulaRequest) -> Result<ExportFormu
 }
 
 #[command]
-pub async fn copy_to_clipboard(text: String) -> Result<bool, String> {
+pub async fn copy_to_clipboard(_text: String) -> Result<bool, String> {
     // TODO: Implement clipboard copy
     Ok(true)
 }
