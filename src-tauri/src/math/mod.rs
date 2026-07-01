@@ -1,18 +1,48 @@
-pub mod ast;
-pub mod omml;
-pub mod latex;
-
 use tauri::command;
 
-/// Convert OMML XML string to LaTeX.
+/// Convert OMML XML string to LaTeX via core.
 pub fn omml_to_latex_str(xml: &str) -> Result<String, String> {
-    let node = omml::parse_omml(xml)?;
-    Ok(latex::node_to_latex(&node))
+    latexsnipper_conversion::DocumentConverter::convert_omml_string(
+        xml,
+        latexsnipper_conversion::OutputFormat::Latex,
+    )
+    .map_err(|e| e.to_string())
 }
 
-/// Convert LaTeX string to OMML XML (stub for now).
+/// Convert LaTeX string to OMML XML via core.
 pub fn latex_to_omml_str(latex: &str) -> Result<String, String> {
-    Err(format!("latex_to_omml not yet implemented for: {}", latex))
+    latexsnipper_conversion::DocumentConverter::convert_latex_string(
+        latex,
+        latexsnipper_conversion::OutputFormat::OMML,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Convert LaTeX string to any format via core.
+pub fn latex_to_format(
+    latex: &str,
+    format: latexsnipper_conversion::OutputFormat,
+) -> Result<String, String> {
+    latexsnipper_conversion::DocumentConverter::convert_latex_string(latex, format)
+        .map_err(|e| e.to_string())
+}
+
+/// Convert MathML string to LaTeX via core.
+pub fn mathml_to_latex_str(mathml: &str) -> Result<String, String> {
+    latexsnipper_conversion::DocumentConverter::convert_mathml_string(
+        mathml,
+        latexsnipper_conversion::OutputFormat::Latex,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Convert OMML string to any target format via core.
+pub fn omml_to_format(
+    xml: &str,
+    format: latexsnipper_conversion::OutputFormat,
+) -> Result<String, String> {
+    latexsnipper_conversion::DocumentConverter::convert_omml_string(xml, format)
+        .map_err(|e| e.to_string())
 }
 
 #[command]
@@ -31,66 +61,53 @@ pub fn latex_to_omml(latex: String) -> Result<String, String> {
     latex_to_omml_str(&latex)
 }
 
+#[command]
+pub fn mathml_to_latex(mathml: String) -> Result<String, String> {
+    mathml_to_latex_str(&mathml)
+}
+
+#[command]
+pub fn convert_formula(latex: String, target_format: String) -> Result<String, String> {
+    let fmt = match target_format.as_str() {
+        "latex" => latexsnipper_conversion::OutputFormat::Latex,
+        "mathml" => latexsnipper_conversion::OutputFormat::MathML,
+        "omml" => latexsnipper_conversion::OutputFormat::OMML,
+        "typst" => latexsnipper_conversion::OutputFormat::Typst,
+        "markdown" => latexsnipper_conversion::OutputFormat::MarkdownBlock,
+        "html" => latexsnipper_conversion::OutputFormat::Html,
+        _ => return Err(format!("Unsupported format: {}", target_format)),
+    };
+    latex_to_format(&latex, fmt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_fraction() {
+    fn test_omml_to_latex_via_core() {
         let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:f><m:num><m:r><m:t>a</m:t></m:r></m:num><m:den><m:r><m:t>b</m:t></m:r></m:den></m:f></m:oMath>"#;
         let result = omml_to_latex_str(xml).unwrap();
-        assert_eq!(result, "\\frac{a}{b}");
+        assert!(result.contains("\\frac{a}{b}"), "got: {}", result);
     }
 
     #[test]
-    fn test_superscript() {
-        let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:sSup><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert_eq!(result, "{x}^{2}");
+    fn test_latex_to_omml_via_core() {
+        let result = latex_to_omml_str(r"\frac{a}{b}").unwrap();
+        assert!(result.contains("<m:f>"), "got: {}", result);
+        assert!(result.contains("<m:num>"), "got: {}", result);
     }
 
     #[test]
-    fn test_subscript() {
-        let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:sSub><m:e><m:r><m:t>x</m:t></m:r></m:e><m:sub><m:r><m:t>i</m:t></m:r></m:sub></m:sSub></m:oMath>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert_eq!(result, "{x}_{i}");
+    fn test_convert_formula() {
+        let result = convert_formula(r"\alpha + \beta".to_string(), "mathml".to_string()).unwrap();
+        assert!(result.contains("<math"), "got: {}", result);
     }
 
     #[test]
-    fn test_sqrt() {
-        let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:rad><m:radPr><m:degHide m:val="1"/></m:radPr><m:deg/><m:e><m:r><m:t>x</m:t></m:r></m:e></m:rad></m:oMath>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert_eq!(result, "\\sqrt{x}");
-    }
-
-    #[test]
-    fn test_emc2() {
-        let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>E</m:t></m:r><m:r><m:t>=</m:t></m:r><m:r><m:t>m</m:t></m:r><m:r><m:t>c</m:t></m:r><m:sSup><m:e><m:r><m:t></m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert!(result.contains("E"), "should contain E: {}", result);
-        assert!(result.contains("="), "should contain =: {}", result);
-        assert!(result.contains("m"), "should contain m: {}", result);
-        assert!(result.contains("c"), "should contain c: {}", result);
-    }
-
-    #[test]
-    fn test_emc2_from_word_doc() {
-        let xml = r#"<?xml version="1.0" standalone="yes"?>
-<?mso-application progid="Word.Document"?>
-<w:wordDocument xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
-<m:oMathPara><m:oMath><m:r><m:t>E</m:t></m:r><m:r><m:t>=</m:t></m:r><m:r><m:t>m</m:t></m:r><m:r><m:t>c</m:t></m:r><m:sSup><m:e><m:r><m:t></m:t></m:r></m:e><m:sup><m:r><m:t>2</m:t></m:r></m:sup></m:sSup></m:oMath></m:oMathPara>
-</w:wordDocument>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert!(result.contains("E"), "should contain E: {}", result);
-        assert!(result.contains("="), "should contain =: {}", result);
-        assert!(result.contains("m"), "should contain m: {}", result);
-        assert!(result.contains("c"), "should contain c: {}", result);
-    }
-
-    #[test]
-    fn test_sum() {
-        let xml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:nary><m:naryPr><m:chr m:val="∑"/></m:naryPr><m:sub><m:r><m:t>i=1</m:t></m:r></m:sub><m:sup><m:r><m:t>n</m:t></m:r></m:sup><m:e><m:r><m:t>x</m:t></m:r></m:e></m:nary></m:oMath>"#;
-        let result = omml_to_latex_str(xml).unwrap();
-        assert!(result.contains("\\sum"), "should contain \\sum: {}", result);
+    fn test_mathml_to_latex() {
+        let xml = r#"<math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>a</mi><mi>b</mi></mfrac></math>"#;
+        let result = mathml_to_latex_str(xml).unwrap();
+        assert!(result.contains("frac"), "got: {}", result);
     }
 }

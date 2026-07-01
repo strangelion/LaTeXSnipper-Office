@@ -20,6 +20,7 @@ fn main() {
         .setup(|app| {
             // System tray
             let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("LaTeXSnipper Office")
                 .on_tray_icon_event(|tray_icon, event| {
                     if let TrayIconEvent::Click {
@@ -92,9 +93,15 @@ fn main() {
             platforms::office::unregister_office,
             platforms::office::check_office_registration,
             platforms::office::write_pending_formula,
+            platforms::integrations::install_platform_integration,
+            platforms::integrations::uninstall_platform_integration,
+            platforms::integrations::check_platform_integration,
             math::omml_to_latex,
             math::latex_to_omml,
+            math::mathml_to_latex,
+            math::convert_formula,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

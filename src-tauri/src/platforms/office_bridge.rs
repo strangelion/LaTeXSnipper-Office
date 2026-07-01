@@ -7,7 +7,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::net::TcpListener;
@@ -49,82 +48,44 @@ struct BridgeState {
     pending_renders: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
 }
 
-// ═══════════════════════════════════════════
-// MathML → OMML via Python lxml + MML2OMML.XSL
-// ═══════════════════════════════════════════
+fn fix_omml(omml: &str) -> String {
+    let mut s = omml.to_string();
 
-fn find_mml2omml_xsl() -> Option<String> {
-    let prog_files = std::env::var("ProgramFiles").unwrap_or_default();
-    let prog_x86 = std::env::var("ProgramFiles(x86)").unwrap_or_default();
-    for base in &[prog_files, prog_x86] {
-        for sub in &[
-            r"Microsoft Office\root\Office16\MML2OMML.XSL",
-            r"Microsoft Office\Office16\MML2OMML.XSL",
-            r"Microsoft Office\root\Office15\MML2OMML.XSL",
-            r"Microsoft Office\Office15\MML2OMML.XSL",
-        ] {
-            let p = format!("{}\\{}", base, sub);
-            if std::path::Path::new(&p).exists() {
-                return Some(p);
-            }
+    // Remove XML declaration
+    if let Some(pos) = s.find("<?xml") {
+        if let Some(end) = s[pos..].find("?>") {
+            s.replace_range(..pos + end + 2, "");
         }
     }
-    None
+
+    // Fix empty <m:t/> and whitespace-only text
+    s = s.replace("<m:t/>", "<m:t> </m:t>");
+
+    // Fix XSLT tag typos
+    s = s.replace("<m:eqAr>", "<m:eqArr>");
+    s = s.replace("</m:eqAr>", "</m:eqArr>");
+
+    // Remove mml namespace prefix remnants
+    s = s.replace(" xmlns:mml=\"http://www.w3.org/1998/Math/MathML\"", "");
+
+    // Fix: if OMML only has bare <m:r><m:t>text</m:r> without any math structure,
+    // wrap each run in proper italic formatting
+    if !s.contains("<m:f>") && !s.contains("<m:sSup>") && !s.contains("<m:sSub>")
+       && !s.contains("<m:nary>") && !s.contains("<m:eqArr>") && !s.contains("<m:d>")
+       && !s.contains("<m:rad>") && !s.contains("<m:acc>") {
+        s = s.replace("<m:r><m:t>", "<m:r><m:rPr><w:rPr><w:rFonts w:ascii=\"Cambria Math\" w:h-ansi=\"Cambria Math\"/><w:i/></w:rPr></m:rPr><m:t>");
+        s = s.replace("</m:t></m:r>", "</m:t></m:r>");
+    }
+
+    s.trim().to_string()
 }
 
-fn mathml_to_omml(mathml: &str, font_color: &Option<String>, font_style: &Option<String>) -> Option<String> {
-    let xsl_path = find_mml2omml_xsl()?;
-    let python_paths = ["C:\\Users\\WangWenXuan\\miniconda3\\python.exe", "python"];
-
-    let color_arg = font_color.clone().unwrap_or_default();
-    let style_arg = font_style.clone().unwrap_or_default();
-
-    let script = format!(
-        r#"
-import sys
-from lxml import etree
-
-mathml_data = sys.stdin.buffer.read()
-tree = etree.fromstring(mathml_data)
-
-xslt = etree.parse(r'{}')
-omml = etree.XSLT(xslt)(tree)
-
-sys.stdout.buffer.write(etree.tostring(omml, encoding='utf-8', xml_declaration=True))
-"#,
-        xsl_path.replace('\\', "\\\\")
-    );
-
-    for python_path in &python_paths {
-        let output = Command::new(python_path)
-            .arg("-c")
-            .arg(&script)
-            .arg(&color_arg)
-            .arg(&style_arg)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn();
-
-        match output {
-            Ok(mut child) => {
-                if let Some(mut stdin) = child.stdin.take() {
-                    use std::io::Write;
-                    let _ = stdin.write_all(mathml.as_bytes());
-                }
-                if let Ok(result) = child.wait_with_output() {
-                    if result.status.success() {
-                        let omml = String::from_utf8_lossy(&result.stdout).to_string();
-                        if !omml.is_empty() {
-                            return Some(omml);
-                        }
-                    }
-                }
-            }
-            Err(_) => continue,
-        }
-    }
-    None
+fn latex_to_omml_core(latex: &str) -> Option<String> {
+    latexsnipper_conversion::DocumentConverter::convert_latex_string(
+        latex,
+        latexsnipper_conversion::OutputFormat::OMML,
+    )
+    .ok()
 }
 
 // ═══════════════════════════════════════════
@@ -154,12 +115,104 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
     // Poll for file-based communication from VBA
     let poll_handle = app_handle;
     tokio::spawn(async move {
+        let selection_16 = std::env::temp_dir().join("latexsnipper_selection.16");
+        let selection_bin = std::env::temp_dir().join("latexsnipper_selection.bin");
+        let selection_b64 = std::env::temp_dir().join("latexsnipper_selection.b64");
         let selection_xml = std::env::temp_dir().join("latexsnipper_selection.xml");
         let selection_txt = std::env::temp_dir().join("latexsnipper_selection.txt");
+        let mut utf16_seen = false;
+        let mut bin_seen = false;
+        let mut b64_seen = false;
         let mut xml_seen = false;
         let mut txt_seen = false;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+            // Primary: UTF-16 LE file (VBA native encoding)
+            if let Ok(meta) = fs::metadata(&selection_16) {
+                if meta.len() > 0 && !utf16_seen {
+                    utf16_seen = true;
+                    if let Ok(bytes) = fs::read(&selection_16) {
+                        // Strip BOM (FF FE for UTF-16 LE)
+                        let data = if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+                            &bytes[2..]
+                        } else {
+                            &bytes
+                        };
+                        // Convert UTF-16 LE bytes to u16 slice
+                        let u16s: Vec<u16> = data.chunks(2)
+                            .map(|chunk| {
+                                if chunk.len() == 2 {
+                                    u16::from_le_bytes([chunk[0], chunk[1]])
+                                } else {
+                                    chunk[0] as u16
+                                }
+                            })
+                            .collect();
+                        match String::from_utf16(&u16s) {
+                            Ok(omml) => {
+                                println!("[Bridge] File poll: UTF-16 OMML ({}b)", omml.len());
+                                let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
+                                    "omml": omml,
+                                }));
+                                let _ = poll_handle.emit("office-show-app", ());
+                            }
+                            Err(e) => println!("[Bridge] UTF-16 decode failed: {}", e),
+                        }
+                    }
+                    let _ = fs::remove_file(&selection_16);
+                }
+            } else {
+                utf16_seen = false;
+            }
+
+            // Fallback: binary UTF-8
+            if let Ok(meta) = fs::metadata(&selection_bin) {
+                if meta.len() > 0 && !bin_seen {
+                    bin_seen = true;
+                    if let Ok(bytes) = fs::read(&selection_bin) {
+                        let data = if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+                            &bytes[3..]
+                        } else {
+                            &bytes
+                        };
+                        if let Ok(omml) = String::from_utf8(data.to_vec()) {
+                            println!("[Bridge] File poll: binary OMML ({}b)", omml.len());
+                            let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
+                                "omml": omml,
+                            }));
+                            let _ = poll_handle.emit("office-show-app", ());
+                        }
+                    }
+                    let _ = fs::remove_file(&selection_bin);
+                }
+            } else {
+                bin_seen = false;
+            }
+
+            if let Ok(meta) = fs::metadata(&selection_b64) {
+                if meta.len() > 0 && !b64_seen {
+                    b64_seen = true;
+                    if let Ok(b64_str) = fs::read_to_string(&selection_b64) {
+                        let b64_clean = b64_str.trim();
+                        if !b64_clean.is_empty() {
+                            use base64::Engine;
+                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_clean) {
+                                if let Ok(omml) = String::from_utf8(bytes) {
+                                    println!("[Bridge] File poll: Base64 OMML ({}b)", omml.len());
+                                    let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
+                                        "omml": omml,
+                                    }));
+                                    let _ = poll_handle.emit("office-show-app", ());
+                                }
+                            }
+                        }
+                    }
+                    let _ = fs::remove_file(&selection_b64);
+                }
+            } else {
+                b64_seen = false;
+            }
 
             if let Ok(meta) = fs::metadata(&selection_xml) {
                 if meta.len() > 0 && !xml_seen {
@@ -167,7 +220,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                     if let Ok(raw) = fs::read_to_string(&selection_xml) {
                         let omml = raw.trim_start_matches('\u{FEFF}').trim().to_string();
                         if !omml.is_empty() {
-                            println!("[Bridge] File poll: OMML selection ({}b)", omml.len());
+                            println!("[Bridge] File poll: raw OMML ({}b)", omml.len());
                             let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
                                 "omml": omml,
                             }));
@@ -216,35 +269,28 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
 }
 
 async fn handle_convert(
-    State(state): State<Arc<BridgeState>>,
+    State(_state): State<Arc<BridgeState>>,
     Json(req): Json<ConvertRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Convert: {}", req.latex);
 
-    // Step 1: Frontend converts LaTeX → MathML via Temml
-    let mathml = render_mathml(&state, &req.latex).await;
-
-    if mathml.is_empty() {
-        return Json(ConvertResponse { success: false, omml: String::new() });
-    }
-
-    println!("[Bridge] MathML received ({}b)", mathml.len());
-
-    // Step 2: Python lxml converts MathML → OMML via MML2OMML.XSL
-    let font_color = req.font_color.clone();
-    let font_style = req.font_style.clone();
+    let latex = req.latex.clone();
     let omml = tokio::task::spawn_blocking(move || {
-        mathml_to_omml(&mathml, &font_color, &font_style)
+        latex_to_omml_core(&latex)
     }).await.unwrap_or(None);
 
     match &omml {
-        Some(o) => println!("[Bridge] OMML generated ({}b)", o.len()),
+        Some(o) => {
+            let fixed = fix_omml(o);
+            println!("[Bridge] OMML generated via core ({}b) → fixed ({}b)", o.len(), fixed.len());
+            return Json(ConvertResponse { success: true, omml: fixed });
+        }
         None => println!("[Bridge] OMML conversion failed"),
     }
 
     Json(ConvertResponse {
-        success: omml.is_some(),
-        omml: omml.unwrap_or_default(),
+        success: false,
+        omml: String::new(),
     })
 }
 

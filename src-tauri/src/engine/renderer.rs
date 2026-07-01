@@ -1,3 +1,4 @@
+use latexsnipper_conversion::{DocumentConverter, OutputFormat};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,24 +36,46 @@ impl FormulaRenderer {
     }
 
     pub async fn render(&self, latex: &str, options: &RenderOptions) -> Result<RenderResult, String> {
-        // TODO: Implement MathJax WASM rendering
+        let mut mathml = None;
+        let mut svg = None;
+
+        for fmt in &options.formats {
+            match fmt {
+                RenderFormat::MathML => {
+                    mathml = Some(
+                        DocumentConverter::convert_latex_string(latex, OutputFormat::MathML)
+                            .map_err(|e| e.to_string())?,
+                    );
+                }
+                RenderFormat::OMML => {
+                    let omml = DocumentConverter::convert_latex_string(latex, OutputFormat::OMML)
+                        .map_err(|e| e.to_string())?;
+                    // OMML is stored in svg field for now (reuse existing field)
+                    svg = Some(omml);
+                }
+                RenderFormat::SVG | RenderFormat::PNG => {
+                    // SVG/PNG via MathJax frontend, not core
+                }
+            }
+        }
+
         Ok(RenderResult {
             latex: latex.to_string(),
             display: options.display,
-            mathml: None,
-            svg: None,
+            mathml,
+            svg,
             png: None,
             warnings: vec![],
         })
     }
 
     pub async fn to_mathml(&self, latex: &str, _display: bool) -> Result<String, String> {
-        // TODO: Implement MathML conversion
-        Ok(format!("<math>{}</math>", latex))
+        DocumentConverter::convert_latex_string(latex, OutputFormat::MathML)
+            .map_err(|e| e.to_string())
     }
 
-    pub async fn to_svg(&self, latex: &str, _display: bool) -> Result<String, String> {
-        // TODO: Implement SVG conversion
-        Ok(format!("<svg>{}</svg>", latex))
+    pub async fn to_svg(&self, _latex: &str, _display: bool) -> Result<String, String> {
+        // SVG rendering requires frontend MathJax - return placeholder
+        Ok(String::new())
     }
 }

@@ -1,4 +1,4 @@
-use crate::engine::renderer::FormulaRenderer;
+use latexsnipper_conversion::{DocumentConverter, OutputFormat};
 use serde::{Deserialize, Serialize};
 use tauri::command;
 
@@ -19,21 +19,35 @@ pub struct ExportFormulaResponse {
 
 #[command]
 pub async fn export_formula(request: ExportFormulaRequest) -> Result<ExportFormulaResponse, String> {
-    let renderer = FormulaRenderer::new();
-
-    let content = match request.format.as_str() {
-        "latex" => Ok(request.latex.clone()),
-        "mathml" => renderer.to_mathml(&request.latex, request.display).await,
-        "svg" => renderer.to_svg(&request.latex, request.display).await,
-        _ => Err("Unsupported format".to_string()),
+    let fmt = match request.format.as_str() {
+        "latex" => OutputFormat::Latex,
+        "mathml" => OutputFormat::MathML,
+        "omml" => OutputFormat::OMML,
+        "typst" => OutputFormat::Typst,
+        "markdown" => OutputFormat::MarkdownBlock,
+        "html" => OutputFormat::Html,
+        _ => {
+            return Ok(ExportFormulaResponse {
+                success: false,
+                content: None,
+                mime_type: None,
+                error: Some(format!("Unsupported format: {}", request.format)),
+            });
+        }
     };
+
+    let content = DocumentConverter::convert_latex_string(&request.latex, fmt)
+        .map_err(|e| e.to_string());
 
     match content {
         Ok(c) => {
             let mime_type = match request.format.as_str() {
                 "latex" => "text/plain",
                 "mathml" => "application/mathml+xml",
-                "svg" => "image/svg+xml",
+                "omml" => "application/xml",
+                "typst" => "text/plain",
+                "markdown" => "text/markdown",
+                "html" => "text/html",
                 _ => "text/plain",
             };
             Ok(ExportFormulaResponse {
