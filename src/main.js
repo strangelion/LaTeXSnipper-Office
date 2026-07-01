@@ -1,9 +1,7 @@
-// LaTeXSnipper Office - Main JavaScript
+﻿// LaTeXSnipper Office - Main JavaScript
 
-// ═══════════════════════════════════════════
-// 日志系统
-// ═══════════════════════════════════════════
-const Logger = {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 鏃ュ織绯荤粺
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const Logger = {
   _prefix: '[LaTeXSnipper]',
   
   log(message, ...args) {
@@ -29,99 +27,95 @@ const Logger = {
 
 Logger.info('Application starting...');
 
-// ═══════════════════════════════════════════
-// MathLive 中文翻译
-// ═══════════════════════════════════════════
-const MATHLIVE_I18N = {
-  'keyboard.tooltip.symbols': '符号',
-  'keyboard.tooltip.greek': '希腊字母',
-  'keyboard.tooltip.numeric': '数字',
-  'keyboard.tooltip.alphabetic': '罗马字母',
-  'tooltip.copy to clipboard': '复制到剪贴板',
-  'tooltip.cut to clipboard': '剪切到剪贴板',
-  'tooltip.paste from clipboard': '从剪贴板粘贴',
-  'tooltip.redo': '重做',
-  'tooltip.toggle virtual keyboard': '切换虚拟键盘',
-  'tooltip.menu': '菜单',
-  'tooltip.undo': '撤销',
-  'menu.borders': '矩阵边框',
-  'menu.insert matrix': '插入矩阵',
-  'menu.array.add row above': '上方添加行',
-  'menu.array.add row below': '下方添加行',
-  'menu.array.add column after': '右侧添加列',
-  'menu.array.add column before': '左侧添加列',
-  'menu.array.delete row': '删除行',
-  'menu.array.delete rows': '删除选中行',
-  'menu.array.delete column': '删除列',
-  'menu.array.delete columns': '删除选中列',
-  'menu.mode': '模式',
-  'menu.mode-math': '数学',
-  'menu.mode-text': '文本',
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// MathLive 涓枃缈昏瘧
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const MATHLIVE_I18N = {
+  'keyboard.tooltip.symbols': '绗﹀彿',
+  'keyboard.tooltip.greek': '甯岃厞瀛楁瘝',
+  'keyboard.tooltip.numeric': '鏁板瓧',
+  'keyboard.tooltip.alphabetic': '缃楅┈瀛楁瘝',
+  'tooltip.copy to clipboard': '澶嶅埗鍒板壀璐存澘',
+  'tooltip.cut to clipboard': '鍓垏鍒板壀璐存澘',
+  'tooltip.paste from clipboard': '浠庡壀璐存澘绮樿创',
+  'tooltip.redo': '閲嶅仛',
+  'tooltip.toggle virtual keyboard': '鍒囨崲铏氭嫙閿洏',
+  'tooltip.menu': '鑿滃崟',
+  'tooltip.undo': '鎾ら攢',
+  'menu.borders': '鐭╅樀杈规',
+  'menu.insert matrix': '鎻掑叆鐭╅樀',
+  'menu.array.add row above': '涓婃柟娣诲姞琛?,
+  'menu.array.add row below': '涓嬫柟娣诲姞琛?,
+  'menu.array.add column after': '鍙充晶娣诲姞鍒?,
+  'menu.array.add column before': '宸︿晶娣诲姞鍒?,
+  'menu.array.delete row': '鍒犻櫎琛?,
+  'menu.array.delete rows': '鍒犻櫎閫変腑琛?,
+  'menu.array.delete column': '鍒犻櫎鍒?,
+  'menu.array.delete columns': '鍒犻櫎閫変腑鍒?,
+  'menu.mode': '妯″紡',
+  'menu.mode-math': '鏁板',
+  'menu.mode-text': '鏂囨湰',
   'menu.mode-latex': 'LaTeX',
-  'menu.insert': '插入',
-  'menu.insert.abs': '绝对值',
-  'menu.insert.nth-root': 'n 次根号',
-  'menu.insert.log-base': '对数 (log)',
-  'menu.insert.heading-calculus': '微积分',
-  'menu.insert.derivative': '导数',
-  'menu.insert.nth-derivative': 'n 阶导数',
-  'menu.insert.integral': '积分',
-  'menu.insert.sum': '求和',
-  'menu.insert.product': '乘积',
-  'menu.insert.heading-complex-numbers': '复数',
-  'menu.insert.modulus': '模',
-  'menu.insert.argument': '辐角',
-  'menu.insert.real-part': '实部',
-  'menu.insert.imaginary-part': '虚部',
-  'menu.insert.conjugate': '共轭',
-  'tooltip.blackboard': '黑板粗体',
-  'tooltip.bold': '粗体',
-  'tooltip.italic': '斜体',
-  'tooltip.fraktur': '哥特体',
-  'tooltip.script': '手写体',
-  'tooltip.caligraphic': '书法体',
-  'tooltip.typewriter': '等宽',
-  'tooltip.roman-upright': '罗马正体',
-  'tooltip.row-by-col': '%@ × %@',
-  'menu.font-style': '字体风格',
-  'menu.accent': '重音/修饰',
-  'menu.decoration': '装饰',
-  'menu.color': '颜色',
-  'menu.background-color': '背景',
-  'menu.evaluate': '计算',
-  'menu.simplify': '化简',
-  'menu.solve': '求解',
-  'menu.solve-for': '求解 %@',
-  'menu.cut': '剪切',
-  'menu.copy': '复制',
-  'menu.copy-as-latex': '复制为 LaTeX',
-  'menu.copy-as-typst': '复制为 Typst',
-  'menu.copy-as-ascii-math': '复制为 ASCII Math',
-  'menu.copy-as-mathml': '复制为 MathML',
-  'menu.paste': '粘贴',
-  'menu.select-all': '全选',
-  'color.red': '红色',
-  'color.orange': '橙色',
-  'color.yellow': '黄色',
-  'color.lime': '青柠色',
-  'color.green': '绿色',
-  'color.teal': '蓝绿色',
-  'color.cyan': '青色',
-  'color.blue': '蓝色',
-  'color.indigo': '靛蓝色',
-  'color.purple': '紫色',
-  'color.magenta': '品红色',
-  'color.black': '黑色',
-  'color.dark-grey': '深灰色',
-  'color.grey': '灰色',
-  'color.light-grey': '浅灰色',
-  'color.white': '白色',
+  'menu.insert': '鎻掑叆',
+  'menu.insert.abs': '缁濆鍊?,
+  'menu.insert.nth-root': 'n 娆℃牴鍙?,
+  'menu.insert.log-base': '瀵规暟 (log)',
+  'menu.insert.heading-calculus': '寰Н鍒?,
+  'menu.insert.derivative': '瀵兼暟',
+  'menu.insert.nth-derivative': 'n 闃跺鏁?,
+  'menu.insert.integral': '绉垎',
+  'menu.insert.sum': '姹傚拰',
+  'menu.insert.product': '涔樼Н',
+  'menu.insert.heading-complex-numbers': '澶嶆暟',
+  'menu.insert.modulus': '妯?,
+  'menu.insert.argument': '杈愯',
+  'menu.insert.real-part': '瀹為儴',
+  'menu.insert.imaginary-part': '铏氶儴',
+  'menu.insert.conjugate': '鍏辫江',
+  'tooltip.blackboard': '榛戞澘绮椾綋',
+  'tooltip.bold': '绮椾綋',
+  'tooltip.italic': '鏂滀綋',
+  'tooltip.fraktur': '鍝ョ壒浣?,
+  'tooltip.script': '鎵嬪啓浣?,
+  'tooltip.caligraphic': '涔︽硶浣?,
+  'tooltip.typewriter': '绛夊',
+  'tooltip.roman-upright': '缃楅┈姝ｄ綋',
+  'tooltip.row-by-col': '%@ 脳 %@',
+  'menu.font-style': '瀛椾綋椋庢牸',
+  'menu.accent': '閲嶉煶/淇グ',
+  'menu.decoration': '瑁呴グ',
+  'menu.color': '棰滆壊',
+  'menu.background-color': '鑳屾櫙',
+  'menu.evaluate': '璁＄畻',
+  'menu.simplify': '鍖栫畝',
+  'menu.solve': '姹傝В',
+  'menu.solve-for': '姹傝В %@',
+  'menu.cut': '鍓垏',
+  'menu.copy': '澶嶅埗',
+  'menu.copy-as-latex': '澶嶅埗涓?LaTeX',
+  'menu.copy-as-typst': '澶嶅埗涓?Typst',
+  'menu.copy-as-ascii-math': '澶嶅埗涓?ASCII Math',
+  'menu.copy-as-mathml': '澶嶅埗涓?MathML',
+  'menu.paste': '绮樿创',
+  'menu.select-all': '鍏ㄩ€?,
+  'color.red': '绾㈣壊',
+  'color.orange': '姗欒壊',
+  'color.yellow': '榛勮壊',
+  'color.lime': '闈掓煚鑹?,
+  'color.green': '缁胯壊',
+  'color.teal': '钃濈豢鑹?,
+  'color.cyan': '闈掕壊',
+  'color.blue': '钃濊壊',
+  'color.indigo': '闈涜摑鑹?,
+  'color.purple': '绱壊',
+  'color.magenta': '鍝佺孩鑹?,
+  'color.black': '榛戣壊',
+  'color.dark-grey': '娣辩伆鑹?,
+  'color.grey': '鐏拌壊',
+  'color.light-grey': '娴呯伆鑹?,
+  'color.white': '鐧借壊',
 };
 
-// ═══════════════════════════════════════════
-// Temml 渲染器 (替代 MathJax)
-// ═══════════════════════════════════════════
-class TemmlRenderer {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// Temml 娓叉煋鍣?(鏇夸唬 MathJax)
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class TemmlRenderer {
   constructor() {
     Logger.info('TemmlRenderer initializing...');
     this.loaded = false;
@@ -167,7 +161,7 @@ class TemmlRenderer {
     }
   }
 
-  // LaTeX → MathML (用于 Office 插入)
+  // LaTeX 鈫?MathML (鐢ㄤ簬 Office 鎻掑叆)
   toMathML(latex) {
     if (!this.loaded) return '';
     try {
@@ -195,10 +189,7 @@ class TemmlRenderer {
   }
 }
 
-// ═══════════════════════════════════════════
-// 自定义下拉菜单
-// ═══════════════════════════════════════════
-class CustomSelect {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 鑷畾涔変笅鎷夎彍鍗?// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class CustomSelect {
   constructor(element) {
     this.element = element;
     this.trigger = element.querySelector('.custom-select-trigger');
@@ -263,10 +254,8 @@ class CustomSelect {
   }
 }
 
-// ═══════════════════════════════════════════
-// 公式编辑器 (MathLive)
-// ═══════════════════════════════════════════
-class FormulaEditor {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 鍏紡缂栬緫鍣?(MathLive)
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class FormulaEditor {
   constructor() {
     Logger.info('FormulaEditor initializing...');
     this.mathfield = null;
@@ -278,32 +267,32 @@ class FormulaEditor {
     Logger.debug('FormulaEditor init');
     
     try {
-      // 动态导入 MathLive
+      // 鍔ㄦ€佸鍏?MathLive
       const { MathfieldElement } = await import('mathlive');
       
-      // 创建 MathLive 元素
+      // 鍒涘缓 MathLive 鍏冪礌
       const container = document.getElementById('mathfieldHost');
       if (container) {
         this.mathfield = new MathfieldElement();
         this.mathfield.setAttribute('virtual-keyboard-mode', 'manual');
         container.appendChild(this.mathfield);
         
-        // 监听输入变化
+        // 鐩戝惉杈撳叆鍙樺寲
         this.mathfield.addEventListener('input', () => {
           const latex = this.mathfield.getValue('latex');
           Logger.debug(`MathLive input: ${latex.substring(0, 30)}...`);
           
-          // 同步到 LaTeX 源码
+          // 鍚屾鍒?LaTeX 婧愮爜
           const source = document.getElementById('latexSource');
           if (source) {
             source.value = latex;
           }
           
-          // 更新预览
+          // 鏇存柊棰勮
           this.updatePreview(latex);
         });
 
-        // 监听键盘事件
+        // 鐩戝惉閿洏浜嬩欢
         this.mathfield.addEventListener('keystroke', (e) => {
           Logger.debug(`MathLive keystroke: ${e.key}`);
         });
@@ -311,7 +300,7 @@ class FormulaEditor {
         Logger.info('MathLive editor initialized');
       }
       
-      // 预加载 Temml
+      // 棰勫姞杞?Temml
       this.renderer.init().then(() => {
         Logger.info('Temml preloaded');
       });
@@ -326,14 +315,14 @@ class FormulaEditor {
     if (!previewHost) return;
     
     if (!latex) {
-      previewHost.innerHTML = '<span style="color: var(--muted);">输入公式后预览</span>';
+      previewHost.innerHTML = '<span style="color: var(--muted);">杈撳叆鍏紡鍚庨瑙?/span>';
       return;
     }
 
     const display = document.getElementById('displayMode')?.checked || false;
     Logger.debug(`updatePreview: display=${display}`);
     
-    // 等待 Temml 加载完成
+    // 绛夊緟 Temml 鍔犺浇瀹屾垚
     if (!this.renderer.loaded) {
       Logger.debug('Waiting for Temml to load...');
       await this.renderer.init();
@@ -382,10 +371,7 @@ class FormulaEditor {
   }
 }
 
-// ═══════════════════════════════════════════
-// 公式库
-// ═══════════════════════════════════════════
-class FormulaLibrary {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 鍏紡搴?// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class FormulaLibrary {
   constructor() {
     Logger.info('FormulaLibrary initializing...');
     this.categories = [];
@@ -397,12 +383,11 @@ class FormulaLibrary {
     Logger.debug('Loading formula data...');
     
     try {
-      // 加载分类索引
+      // 鍔犺浇鍒嗙被绱㈠紩
       const indexResponse = await fetch('/formulas/_index.json');
       const indexData = await indexResponse.json();
       
-      // 加载每个分类的公式
-      for (const categoryId of indexData.order) {
+      // 鍔犺浇姣忎釜鍒嗙被鐨勫叕寮?      for (const categoryId of indexData.order) {
         try {
           const response = await fetch(`/formulas/${categoryId}.json`);
           const data = await response.json();
@@ -412,7 +397,7 @@ class FormulaLibrary {
             name: this._getCategoryName(categoryId),
           });
           
-          // 处理数组格式 [label, latex]，跳过 section 对象
+          // 澶勭悊鏁扮粍鏍煎紡 [label, latex]锛岃烦杩?section 瀵硅薄
           this.formulas[categoryId] = (data.items || [])
             .filter(item => Array.isArray(item))
             .map(item => ({
@@ -431,31 +416,31 @@ class FormulaLibrary {
       
     } catch (e) {
       Logger.error('Failed to load formula data:', e);
-      // 使用内置数据作为备用
+      // 浣跨敤鍐呯疆鏁版嵁浣滀负澶囩敤
       this._loadFallbackData();
     }
   }
 
   _getCategoryName(id) {
     const names = {
-      'greek': '希腊字母',
-      'structures': '结构',
-      'delimiters': '定界符',
-      'analysis': '分析',
-      'algebra': '代数',
-      'geometry': '几何',
-      'topology': '拓扑',
-      'numberTheory': '数论',
-      'relations': '关系',
-      'operators': '运算符',
-      'bigops': '大运算符',
-      'arrows': '箭头',
-      'sets': '集合',
-      'functions': '函数',
-      'probability': '概率',
-      'physics': '物理',
-      'chemistry': '化学',
-      'misc': '其他',
+      'greek': '甯岃厞瀛楁瘝',
+      'structures': '缁撴瀯',
+      'delimiters': '瀹氱晫绗?,
+      'analysis': '鍒嗘瀽',
+      'algebra': '浠ｆ暟',
+      'geometry': '鍑犱綍',
+      'topology': '鎷撴墤',
+      'numberTheory': '鏁拌',
+      'relations': '鍏崇郴',
+      'operators': '杩愮畻绗?,
+      'bigops': '澶ц繍绠楃',
+      'arrows': '绠ご',
+      'sets': '闆嗗悎',
+      'functions': '鍑芥暟',
+      'probability': '姒傜巼',
+      'physics': '鐗╃悊',
+      'chemistry': '鍖栧',
+      'misc': '鍏朵粬',
     };
     return names[id] || id;
   }
@@ -463,53 +448,53 @@ class FormulaLibrary {
   _loadFallbackData() {
     Logger.info('Loading fallback formula data...');
     this.categories = [
-      { id: 'greek', name: '希腊字母' },
-      { id: 'structures', name: '结构' },
-      { id: 'operators', name: '运算符' },
-      { id: 'relations', name: '关系' },
-      { id: 'misc', name: '其他' },
+      { id: 'greek', name: '甯岃厞瀛楁瘝' },
+      { id: 'structures', name: '缁撴瀯' },
+      { id: 'operators', name: '杩愮畻绗? },
+      { id: 'relations', name: '鍏崇郴' },
+      { id: 'misc', name: '鍏朵粬' },
     ];
     this.formulas = {
       greek: [
-        { latex: '\\alpha', label: 'α' },
-        { latex: '\\beta', label: 'β' },
-        { latex: '\\gamma', label: 'γ' },
-        { latex: '\\delta', label: 'δ' },
-        { latex: '\\pi', label: 'π' },
-        { latex: '\\sigma', label: 'σ' },
-        { latex: '\\omega', label: 'ω' },
+        { latex: '\\alpha', label: '伪' },
+        { latex: '\\beta', label: '尾' },
+        { latex: '\\gamma', label: '纬' },
+        { latex: '\\delta', label: '未' },
+        { latex: '\\pi', label: '蟺' },
+        { latex: '\\sigma', label: '蟽' },
+        { latex: '\\omega', label: '蠅' },
       ],
       structures: [
-        { latex: '\\frac{a}{b}', label: '分数' },
-        { latex: '\\sqrt{x}', label: '根号' },
-        { latex: 'x^{n}', label: '上标' },
-        { latex: 'x_{n}', label: '下标' },
-        { latex: '\\int_{a}^{b}', label: '积分' },
-        { latex: '\\sum_{i=1}^{n}', label: '求和' },
+        { latex: '\\frac{a}{b}', label: '鍒嗘暟' },
+        { latex: '\\sqrt{x}', label: '鏍瑰彿' },
+        { latex: 'x^{n}', label: '涓婃爣' },
+        { latex: 'x_{n}', label: '涓嬫爣' },
+        { latex: '\\int_{a}^{b}', label: '绉垎' },
+        { latex: '\\sum_{i=1}^{n}', label: '姹傚拰' },
       ],
       operators: [
-        { latex: '+', label: '加' },
-        { latex: '-', label: '减' },
-        { latex: '\\times', label: '乘' },
-        { latex: '\\div', label: '除' },
-        { latex: '\\pm', label: '±' },
-        { latex: '\\infty', label: '无穷' },
+        { latex: '+', label: '鍔? },
+        { latex: '-', label: '鍑? },
+        { latex: '\\times', label: '涔? },
+        { latex: '\\div', label: '闄? },
+        { latex: '\\pm', label: '卤' },
+        { latex: '\\infty', label: '鏃犵┓' },
       ],
       relations: [
-        { latex: '=', label: '等于' },
-        { latex: '\\neq', label: '不等于' },
-        { latex: '<', label: '小于' },
-        { latex: '>', label: '大于' },
-        { latex: '\\leq', label: '≤' },
-        { latex: '\\geq', label: '≥' },
-        { latex: '\\in', label: '∈' },
-        { latex: '\\subset', label: '⊂' },
+        { latex: '=', label: '绛変簬' },
+        { latex: '\\neq', label: '涓嶇瓑浜? },
+        { latex: '<', label: '灏忎簬' },
+        { latex: '>', label: '澶т簬' },
+        { latex: '\\leq', label: '鈮? },
+        { latex: '\\geq', label: '鈮? },
+        { latex: '\\in', label: '鈭? },
+        { latex: '\\subset', label: '鈯? },
       ],
       misc: [
-        { latex: '\\forall', label: '∀' },
-        { latex: '\\exists', label: '∃' },
-        { latex: '\\ldots', label: '…' },
-        { latex: '\\angle', label: '∠' },
+        { latex: '\\forall', label: '鈭€' },
+        { latex: '\\exists', label: '鈭? },
+        { latex: '\\ldots', label: '鈥? },
+        { latex: '\\angle', label: '鈭? },
       ],
     };
     this.loaded = true;
@@ -541,14 +526,13 @@ class FormulaLibrary {
     const label = (formula.label || '').toLowerCase();
     const latex = (formula.latex || '').toLowerCase();
 
-    // 直接匹配标签或 LaTeX
+    // 鐩存帴鍖归厤鏍囩鎴?LaTeX
     if (label.includes(q) || latex.includes(q)) return true;
 
-    // 拼音首字母匹配
-    const py = this._pinyinInitials(query);
+    // 鎷奸煶棣栧瓧姣嶅尮閰?    const py = this._pinyinInitials(query);
     if (py.length >= 2 && (label.includes(py) || latex.includes(py))) return true;
 
-    // 搜索别名匹配
+    // 鎼滅储鍒悕鍖归厤
     const aliases = this._getSearchAliases();
     for (const [cmd, aliasList] of Object.entries(aliases)) {
       if (q.includes(cmd) || cmd.includes(q)) {
@@ -565,23 +549,23 @@ class FormulaLibrary {
 
   _pinyinInitials(str) {
     const map = {
-      '分':'f','数':'s','极':'j','限':'x','积':'j','求':'q','和':'h',
-      '矩':'j','阵':'z','向':'x','量':'l','特':'t','征':'z','值':'z','行':'h',
-      '列':'l','式':'s','秩':'z','逆':'n','转':'z','置':'z','梯':'t','度':'d',
-      '散':'s','旋':'x','拉':'l','普':'p','斯':'s','无':'w','穷':'q','空':'k',
-      '集':'j','属':'s','于':'y','并':'b','交':'j','子':'z','超':'c','非':'f',
-      '对':'d','数':'s','指':'z','正':'z','余':'y','切':'q','双':'s','曲':'q',
-      '反':'f','自':'z','然':'r','最':'z','大':'d','上':'s','确':'q','界':'j',
-      '分':'f','段':'d','行':'h','列':'l','迹':'j','共':'g','轭':'e','偏':'p',
-      '导':'d','欧':'o','米':'m','伽':'j','马':'m','阿':'a','尔':'e','贝':'b',
-      '塔':'t','德':'d','西':'x','斐':'f','陶':'t','卡':'k','克':'k','艾':'a',
-      '泽':'z','普':'p','柔':'r','派':'p','格':'g','推':'t','出':'c','等':'d',
-      '价':'j','负':'f','约':'y','恒':'h','属':'s','包':'b','含':'h','左':'z',
-      '右':'y','箭':'j','头':'t','逻':'l','辑':'j','与':'y','或':'h','不':'b',
-      '粗':'c','黑':'h','板':'b','书':'s','法':'f','哥':'g','特':'t','组':'z',
-      '合':'h','文':'w','本':'b','运':'y','算':'s','符':'f','点':'d','乘':'c',
-      '叉':'c','除':'c','微':'w','三':'s','角':'j','函':'h','几':'j','何':'h',
-      '代':'d','概':'g','率':'l','物':'w','理':'l','化':'h','学':'x',
+      '鍒?:'f','鏁?:'s','鏋?:'j','闄?:'x','绉?:'j','姹?:'q','鍜?:'h',
+      '鐭?:'j','闃?:'z','鍚?:'x','閲?:'l','鐗?:'t','寰?:'z','鍊?:'z','琛?:'h',
+      '鍒?:'l','寮?:'s','绉?:'z','閫?:'n','杞?:'z','缃?:'z','姊?:'t','搴?:'d',
+      '鏁?:'s','鏃?:'x','鎷?:'l','鏅?:'p','鏂?:'s','鏃?:'w','绌?:'q','绌?:'k',
+      '闆?:'j','灞?:'s','浜?:'y','骞?:'b','浜?:'j','瀛?:'z','瓒?:'c','闈?:'f',
+      '瀵?:'d','鏁?:'s','鎸?:'z','姝?:'z','浣?:'y','鍒?:'q','鍙?:'s','鏇?:'q',
+      '鍙?:'f','鑷?:'z','鐒?:'r','鏈€':'z','澶?:'d','涓?:'s','纭?:'q','鐣?:'j',
+      '鍒?:'f','娈?:'d','琛?:'h','鍒?:'l','杩?:'j','鍏?:'g','杞?:'e','鍋?:'p',
+      '瀵?:'d','娆?:'o','绫?:'m','浼?:'j','椹?:'m','闃?:'a','灏?:'e','璐?:'b',
+      '濉?:'t','寰?:'d','瑗?:'x','鏂?:'f','闄?:'t','鍗?:'k','鍏?:'k','鑹?:'a',
+      '娉?:'z','鏅?:'p','鏌?:'r','娲?:'p','鏍?:'g','鎺?:'t','鍑?:'c','绛?:'d',
+      '浠?:'j','璐?:'f','绾?:'y','鎭?:'h','灞?:'s','鍖?:'b','鍚?:'h','宸?:'z',
+      '鍙?:'y','绠?:'j','澶?:'t','閫?:'l','杈?:'j','涓?:'y','鎴?:'h','涓?:'b',
+      '绮?:'c','榛?:'h','鏉?:'b','涔?:'s','娉?:'f','鍝?:'g','鐗?:'t','缁?:'z',
+      '鍚?:'h','鏂?:'w','鏈?:'b','杩?:'y','绠?:'s','绗?:'f','鐐?:'d','涔?:'c',
+      '鍙?:'c','闄?:'c','寰?:'w','涓?:'s','瑙?:'j','鍑?:'h','鍑?:'j','浣?:'h',
+      '浠?:'d','姒?:'g','鐜?:'l','鐗?:'w','鐞?:'l','鍖?:'h','瀛?:'x',
     };
     let r = '';
     for (const ch of str) {
@@ -592,56 +576,54 @@ class FormulaLibrary {
 
   _getSearchAliases() {
     return {
-      frac: ['分数', 'fraction'],
-      sqrt: ['根号', '平方根', 'square root'],
-      lim: ['极限', 'limit'],
-      int: ['积分', 'integral'],
-      sum: ['求和', 'summation'],
-      prod: ['求积', 'product'],
-      vec: ['向量', 'vector'],
-      dot: ['点乘', 'dot'],
-      sin: ['正弦', 'sine'],
-      cos: ['余弦', 'cosine'],
-      tan: ['正切', 'tangent'],
-      log: ['对数', 'logarithm'],
-      ln: ['自然对数'],
-      exp: ['指数', 'exponential'],
-      max: ['最大值', 'maximum'],
-      min: ['最小值', 'minimum'],
-      alpha: ['阿尔法'],
-      beta: ['贝塔'],
-      gamma: ['伽马'],
-      delta: ['德尔塔'],
-      epsilon: ['艾普西隆'],
-      theta: ['西塔'],
-      lambda: ['拉姆达'],
-      mu: ['缪'],
-      pi: ['派'],
-      sigma: ['西格玛'],
-      phi: ['斐'],
-      omega: ['欧米伽'],
-      matrix: ['矩阵', 'matrix'],
-      det: ['行列式', 'determinant'],
-      infty: ['无穷', 'infinity'],
-      emptyset: ['空集', 'empty set'],
-      forall: ['任意', 'for all'],
-      exists: ['存在', 'exists'],
-      subset: ['子集', 'subset'],
-      cup: ['并集', 'union'],
-      cap: ['交集', 'intersection'],
-      in: ['属于', 'element of'],
-      leq: ['小于等于'],
-      geq: ['大于等于'],
-      neq: ['不等于'],
-      approx: ['约等于', 'approximately'],
+      frac: ['鍒嗘暟', 'fraction'],
+      sqrt: ['鏍瑰彿', '骞虫柟鏍?, 'square root'],
+      lim: ['鏋侀檺', 'limit'],
+      int: ['绉垎', 'integral'],
+      sum: ['姹傚拰', 'summation'],
+      prod: ['姹傜Н', 'product'],
+      vec: ['鍚戦噺', 'vector'],
+      dot: ['鐐逛箻', 'dot'],
+      sin: ['姝ｅ鸡', 'sine'],
+      cos: ['浣欏鸡', 'cosine'],
+      tan: ['姝ｅ垏', 'tangent'],
+      log: ['瀵规暟', 'logarithm'],
+      ln: ['鑷劧瀵规暟'],
+      exp: ['鎸囨暟', 'exponential'],
+      max: ['鏈€澶у€?, 'maximum'],
+      min: ['鏈€灏忓€?, 'minimum'],
+      alpha: ['闃垮皵娉?],
+      beta: ['璐濆'],
+      gamma: ['浼介┈'],
+      delta: ['寰峰皵濉?],
+      epsilon: ['鑹炬櫘瑗块殕'],
+      theta: ['瑗垮'],
+      lambda: ['鎷夊杈?],
+      mu: ['缂?],
+      pi: ['娲?],
+      sigma: ['瑗挎牸鐜?],
+      phi: ['鏂?],
+      omega: ['娆х背浼?],
+      matrix: ['鐭╅樀', 'matrix'],
+      det: ['琛屽垪寮?, 'determinant'],
+      infty: ['鏃犵┓', 'infinity'],
+      emptyset: ['绌洪泦', 'empty set'],
+      forall: ['浠绘剰', 'for all'],
+      exists: ['瀛樺湪', 'exists'],
+      subset: ['瀛愰泦', 'subset'],
+      cup: ['骞堕泦', 'union'],
+      cap: ['浜ら泦', 'intersection'],
+      in: ['灞炰簬', 'element of'],
+      leq: ['灏忎簬绛変簬'],
+      geq: ['澶т簬绛変簬'],
+      neq: ['涓嶇瓑浜?],
+      approx: ['绾︾瓑浜?, 'approximately'],
     };
   }
 }
 
-// ═══════════════════════════════════════════
-// 设置管理
-// ═══════════════════════════════════════════
-class SettingsManager {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 璁剧疆绠＄悊
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class SettingsManager {
   constructor() {
     this.defaults = {
       displayMode: 'inline',
@@ -649,7 +631,7 @@ class SettingsManager {
       fontColor: '#000000',
       bridgeUrl: 'http://127.0.0.1:28765',
       theme: 'light',
-      // Tab 启用设置
+      // Tab 鍚敤璁剧疆
       officeEnabled: true,
       ocrEnabled: true,
     };
@@ -682,10 +664,8 @@ class SettingsManager {
   }
 }
 
-// ═══════════════════════════════════════════
-// 导出工具
-// ═══════════════════════════════════════════
-class ExportHelper {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 瀵煎嚭宸ュ叿
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class ExportHelper {
   static downloadFile(content, filename, mimeType) {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -716,10 +696,8 @@ ${latex}
   }
 }
 
-// ═══════════════════════════════════════════
-// 主题管理
-// ═══════════════════════════════════════════
-class ThemeManager {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 涓婚绠＄悊
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class ThemeManager {
   constructor() {
     this.currentTheme = localStorage.getItem('theme') || 'light';
     Logger.info(`Theme: ${this.currentTheme}`);
@@ -731,7 +709,7 @@ class ThemeManager {
     localStorage.setItem('theme', this.currentTheme);
     this.apply();
     this.updateButton();
-    Logger.info(`Theme → ${this.currentTheme}`);
+    Logger.info(`Theme 鈫?${this.currentTheme}`);
   }
 
   apply() {
@@ -750,10 +728,8 @@ class ThemeManager {
   }
 }
 
-// ═══════════════════════════════════════════
-// UnicodeMath → LaTeX 转换
-// ═══════════════════════════════════════════
-function unicodeMathToLatex(s) {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// UnicodeMath 鈫?LaTeX 杞崲
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?function unicodeMathToLatex(s) {
   if (!s) return '';
   const mathItalicA = 0x1D434;
   const mathBoldA = 0x1D400;
@@ -843,10 +819,8 @@ function unicodeMathToLatex(s) {
   return result;
 }
 
-// ═══════════════════════════════════════════
-// Extract OMML math element from Word document XML
-// ═══════════════════════════════════════════
-function extractMathElement(xml) {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// Extract OMML math element from Word document XML
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?function extractMathElement(xml) {
   // Step 1: Decode ALL HTML entities including numeric character references
   let decoded = xml;
   if (xml.indexOf('&lt;') !== -1 || xml.indexOf('&#') !== -1 || xml.indexOf('&amp;') !== -1) {
@@ -904,10 +878,8 @@ function extractMathElement(xml) {
   return decoded;
 }
 
-// ═══════════════════════════════════════════
-// OMML → LaTeX 转换 (纯 JS, 无 Python 依赖)
-// ═══════════════════════════════════════════
-const OMML_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// OMML 鈫?LaTeX 杞崲 (绾?JS, 鏃?Python 渚濊禆)
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?const OMML_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 function ommlToLatex(omml) {
@@ -1160,10 +1132,8 @@ function _walkOmml(node) {
   return Array.from(node.childNodes).map(_walkOmml).join('');
 }
 
-// ═══════════════════════════════════════════
-// MathML → LaTeX 转换
-// ═══════════════════════════════════════════
-function mathmlToLatex(mathml) {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// MathML 鈫?LaTeX 杞崲
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?function mathmlToLatex(mathml) {
   if (!mathml) return '';
   const parser = new DOMParser();
   const doc = parser.parseFromString(
@@ -1363,10 +1333,7 @@ function _getMathmlChildren(node) {
   return result;
 }
 
-// ═══════════════════════════════════════════
-// UI 控制器
-// ═══════════════════════════════════════════
-class UIController {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// UI 鎺у埗鍣?// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?class UIController {
   constructor() {
     Logger.info('UIController initializing...');
     this.currentSection = 'editor';
@@ -1384,7 +1351,7 @@ class UIController {
     this.renderPlatformList();
     this.updateOfficeInsertButton();
 
-    // 初始化历史数据库
+    // 鍒濆鍖栧巻鍙叉暟鎹簱
     this.initHistoryDb();
     
     Logger.info('UIController ready');
@@ -1397,15 +1364,14 @@ class UIController {
   }
 
   initEventListeners() {
-    // 导航
+    // 瀵艰埅
     document.querySelectorAll('.nav-tab').forEach(btn => {
       btn.addEventListener('click', (e) => {
         this.switchSection(e.target.id.replace('Btn', ''));
       });
     });
 
-    // 侧边栏控制
-    const sidebarPanel = document.getElementById('sidebarPanel');
+    // 渚ц竟鏍忔帶鍒?    const sidebarPanel = document.getElementById('sidebarPanel');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
     const sidebarTrigger = document.getElementById('sidebarTrigger');
     const sidebarClose = document.getElementById('sidebarClose');
@@ -1426,14 +1392,13 @@ class UIController {
     sidebarClose?.addEventListener('click', closeSidebar);
     sidebarOverlay?.addEventListener('click', closeSidebar);
 
-    // ESC 键关闭
-    document.addEventListener('keydown', (e) => {
+    // ESC 閿叧闂?    document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && sidebarPanel?.classList.contains('open')) {
         closeSidebar();
       }
     });
 
-    // 触发按钮拖动
+    // 瑙﹀彂鎸夐挳鎷栧姩
     let isDragging = false;
     let dragStartY = 0;
     let triggerStartY = 0;
@@ -1460,7 +1425,7 @@ class UIController {
       isDragging = false;
     });
 
-    // 鼠标靠近右侧边缘自动弹出
+    // 榧犳爣闈犺繎鍙充晶杈圭紭鑷姩寮瑰嚭
     let openTimeout = null;
     let closeTimeout = null;
 
@@ -1493,7 +1458,7 @@ class UIController {
       if (openTimeout) { clearTimeout(openTimeout); openTimeout = null; }
     });
 
-    // 设置列表 → 二级页面导航
+    // 璁剧疆鍒楄〃 鈫?浜岀骇椤甸潰瀵艰埅
     document.querySelectorAll('.settings-item').forEach(item => {
       item.addEventListener('click', () => {
         const pageId = item.dataset.page;
@@ -1503,13 +1468,13 @@ class UIController {
       });
     });
 
-    // 二级页面 → 返回列表
+    // 浜岀骇椤甸潰 鈫?杩斿洖鍒楄〃
     document.querySelectorAll('.settings-back').forEach(btn => {
       btn.addEventListener('click', () => {
         const subpage = btn.closest('.settings-subpage');
-        // 先加返回动画，再切换
+        // 鍏堝姞杩斿洖鍔ㄧ敾锛屽啀鍒囨崲
         subpage.style.animation = 'none';
-        subpage.offsetHeight; // 强制重排
+        subpage.offsetHeight; // 寮哄埗閲嶆帓
         subpage.style.animation = 'fadeSlideLeft 0.25s ease';
         subpage.classList.remove('active');
         const list = document.getElementById('settingsList');
@@ -1521,57 +1486,56 @@ class UIController {
       });
     });
 
-    // 测试 Bridge 连接
+    // 娴嬭瘯 Bridge 杩炴帴
     document.getElementById('testBridgeBtn')?.addEventListener('click', async () => {
       const resultEl = document.getElementById('bridgeTestResult');
       if (resultEl) {
-        resultEl.textContent = '测试中...';
+        resultEl.textContent = '娴嬭瘯涓?..';
         resultEl.className = 'settings-hint';
       }
       
       const connected = await this.connectBridge();
       if (resultEl) {
         if (connected) {
-          resultEl.textContent = '✅ 连接成功';
+          resultEl.textContent = '鉁?杩炴帴鎴愬姛';
           resultEl.className = 'settings-hint success';
         } else {
-          resultEl.textContent = '❌ 连接失败';
+          resultEl.textContent = '鉂?杩炴帴澶辫触';
           resultEl.className = 'settings-hint error';
         }
       }
     });
 
-    // 主题
+    // 涓婚
     document.getElementById('themeToggle')?.addEventListener('click', () => {
       this.themeManager.toggle();
     });
 
-    // 复制
+    // 澶嶅埗
     document.getElementById('copyLatex')?.addEventListener('click', () => this.copyFormula('latex'));
     document.getElementById('copyMathml')?.addEventListener('click', () => this.copyFormula('mathml'));
     document.getElementById('copySvg')?.addEventListener('click', () => this.copyFormula('svg'));
 
-    // 插入到 Word
+    // 鎻掑叆鍒?Word
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
     this.updateOfficeInsertButton();
 
-    // 快速复制（使用已启用平台的格式）
-    document.getElementById('quickCopy')?.addEventListener('click', () => {
+    // 蹇€熷鍒讹紙浣跨敤宸插惎鐢ㄥ钩鍙扮殑鏍煎紡锛?    document.getElementById('quickCopy')?.addEventListener('click', () => {
       const enabledPlatform = this.platforms.find(p => p.enabled);
       if (enabledPlatform) {
         this.copyFormula(enabledPlatform.format);
-        this.showToast(`已复制 ${enabledPlatform.name} 格式`);
+        this.showToast(`宸插鍒?${enabledPlatform.name} 鏍煎紡`);
       } else {
         this.copyFormula('latex');
       }
     });
 
-    // 字体样式
+    // 瀛椾綋鏍峰紡
     document.getElementById('fontStyleSelect')?.addEventListener('change', (e) => {
       this.updateFontStyle(e.detail.value);
     });
 
-    // 字体颜色
+    // 瀛椾綋棰滆壊
     document.getElementById('fontColor')?.addEventListener('input', (e) => {
       this.updateFontColor(e.target.value);
     });
@@ -1580,7 +1544,7 @@ class UIController {
       document.getElementById('fontColor')?.click();
     });
 
-    // 行间公式切换
+    // 琛岄棿鍏紡鍒囨崲
     document.getElementById('displayMode')?.addEventListener('change', (e) => {
       const display = e.target.checked;
       Logger.info(`displayMode: ${display}`);
@@ -1590,48 +1554,45 @@ class UIController {
       }
     });
 
-    // LaTeX 输入同步
+    // LaTeX 杈撳叆鍚屾
     document.getElementById('latexSource')?.addEventListener('input', (e) => {
       let latex = e.target.value;
 
-      // 去掉 $$ 和 $ 分隔符
-      latex = latex.replace(/^\$\$\s*/m, '').replace(/\s*\$\$\s*$/m, '');
+      // 鍘绘帀 $$ 鍜?$ 鍒嗛殧绗?      latex = latex.replace(/^\$\$\s*/m, '').replace(/\s*\$\$\s*$/m, '');
       latex = latex.replace(/^\$\s*/, '').replace(/\s*\$/, '');
 
       this.editor.setLatex(latex);
       this.editor.updatePreview(latex);
     });
 
-    // 键盘快捷键
-    document.addEventListener('keydown', (e) => {
-      // Ctrl/Cmd + Enter: 复制 LaTeX 到剪贴板
+    // 閿洏蹇嵎閿?    document.addEventListener('keydown', (e) => {
+      // Ctrl/Cmd + Enter: 澶嶅埗 LaTeX 鍒板壀璐存澘
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         this.copyFormula('latex');
       }
-      // Ctrl/Cmd + Shift + Enter: 插入公式到编辑器
+      // Ctrl/Cmd + Shift + Enter: 鎻掑叆鍏紡鍒扮紪杈戝櫒
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         const latex = this.editor.getLatex();
         if (latex) {
           navigator.clipboard.writeText(latex).catch(() => {});
           this.switchSection('editor');
-          this.showToast('已复制，可粘贴到目标编辑器');
+          this.showToast('宸插鍒讹紝鍙矘璐村埌鐩爣缂栬緫鍣?);
         }
       }
-      // Ctrl/Cmd + S: 导出 .tex
+      // Ctrl/Cmd + S: 瀵煎嚭 .tex
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
         const latex = this.editor.getLatex();
         if (latex) {
           ExportHelper.exportToTex(latex);
-          this.showToast('已导出 .tex 文件');
+          this.showToast('宸插鍑?.tex 鏂囦欢');
         }
       }
     });
 
-    // 公式库搜索
-    document.getElementById('librarySearch')?.addEventListener('input', (e) => {
+    // 鍏紡搴撴悳绱?    document.getElementById('librarySearch')?.addEventListener('input', (e) => {
       this.searchLibrary(e.target.value);
     });
 
@@ -1646,7 +1607,7 @@ class UIController {
       this.copyOcrResult();
     });
 
-    // 清空历史
+    // 娓呯┖鍘嗗彶
     document.getElementById('clearHistoryBtn')?.addEventListener('click', () => {
       this.clearAllHistory(false);
     });
@@ -1654,8 +1615,7 @@ class UIController {
       this.clearAllHistory(false);
     });
 
-    // 历史筛选
-    document.querySelectorAll('.history-filter').forEach(btn => {
+    // 鍘嗗彶绛涢€?    document.querySelectorAll('.history-filter').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.history-filter').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -1664,7 +1624,7 @@ class UIController {
       });
     });
 
-    // 设置
+    // 璁剧疆
     document.getElementById('defaultDisplayModeSelect')?.addEventListener('change', (e) => {
       this.settingsManager.set('displayMode', e.detail.value);
       Logger.info(`Settings: displayMode = ${e.detail.value}`);
@@ -1678,8 +1638,7 @@ class UIController {
       Logger.info(`Settings: bridgeUrl = ${e.target.value}`);
     });
 
-    // Tab 启用开关
-    document.getElementById('officeEnabledToggle')?.addEventListener('change', (e) => {
+    // Tab 鍚敤寮€鍏?    document.getElementById('officeEnabledToggle')?.addEventListener('change', (e) => {
       this.settingsManager.set('officeEnabled', e.target.checked);
       this.updateTabVisibility();
       Logger.info(`Settings: officeEnabled = ${e.target.checked}`);
@@ -1719,9 +1678,9 @@ class UIController {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         await invoke('write_pending_formula', { latex });
-        this.showToast('已发送到 Word');
+        this.showToast('宸插彂閫佸埌 Word');
       } catch (e) {
-        this.showToast('发送失败: ' + e.message);
+        this.showToast('鍙戦€佸け璐? ' + e.message);
       }
     };
 
@@ -1759,7 +1718,7 @@ class UIController {
         const { latex, type } = event.payload;
         Logger.info(`Bridge: insert formula: ${latex}`);
         this.editor.setLatex(latex);
-        this.showToast(`公式已加载: ${latex}`);
+        this.showToast(`鍏紡宸插姞杞? ${latex}`);
       });
 
       listen('office-load-selection', async (event) => {
@@ -1770,7 +1729,7 @@ class UIController {
           Logger.info(`Bridge: load selection latex: ${latex}`);
           this.switchSection('editor');
           this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
+          this.showToast('宸插姞杞介€変腑鏂囨湰');
         }
       });
 
@@ -1782,7 +1741,7 @@ class UIController {
           Logger.info(`Bridge: load selection latex from mathml: ${latex}`);
           this.switchSection('editor');
           this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
+          this.showToast('宸插姞杞介€変腑鏂囨湰');
         }
       });
 
@@ -1801,7 +1760,7 @@ class UIController {
             if (latex && latex.length > 0) {
               this.switchSection('editor');
               this.editor.setLatex(latex);
-              this.showToast('已加载选中文本');
+              this.showToast('宸插姞杞介€変腑鏂囨湰');
               return;
             }
             Logger.warn('Rust returned empty, trying JS fallback');
@@ -1814,7 +1773,7 @@ class UIController {
           Logger.info(`Bridge: JS ommlToLatex result: '${latex}'`);
           this.switchSection('editor');
           this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
+          this.showToast('宸插姞杞介€変腑鏂囨湰');
         }
       });
 
@@ -2248,7 +2207,7 @@ class UIController {
   async initLibrary() {
     Logger.debug('Initializing formula library...');
 
-    // 加载公式数据
+    // 鍔犺浇鍏紡鏁版嵁
     await this.library.load();
 
     Logger.debug(`Library loaded: ${this.library.categories.length} categories`);
@@ -2262,7 +2221,7 @@ class UIController {
       return;
     }
 
-    // 渲染分类下拉选项
+    // 娓叉煋鍒嗙被涓嬫媺閫夐」
     this.library.getCategories().forEach((cat, i) => {
       const option = document.createElement('div');
       option.className = `custom-select-option${i === 0 ? ' selected' : ''}`;
@@ -2280,7 +2239,7 @@ class UIController {
       categoryDropdown.appendChild(option);
     });
 
-    // 渲染第一个分类的公式
+    // 娓叉煋绗竴涓垎绫荤殑鍏紡
     if (this.library.getCategories().length > 0) {
       const firstCategory = this.library.getCategories()[0];
       categorySelect.querySelector('.custom-select-trigger span').textContent = firstCategory.name;
@@ -2306,7 +2265,7 @@ class UIController {
     grid.innerHTML = '';
 
     if (formulas.length === 0) {
-      grid.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 1rem; grid-column: 1/-1;">暂无公式</div>';
+      grid.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 1rem; grid-column: 1/-1;">鏆傛棤鍏紡</div>';
       return;
     }
 
@@ -2342,14 +2301,14 @@ class UIController {
     grid.innerHTML = '';
 
     if (results.length === 0) {
-      grid.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 1rem; grid-column: 1/-1;">未找到匹配公式</div>';
+      grid.innerHTML = '<div style="color: var(--muted); text-align: center; padding: 1rem; grid-column: 1/-1;">鏈壘鍒板尮閰嶅叕寮?/div>';
       return;
     }
 
     results.forEach(({ formula, category }) => {
       const item = document.createElement('div');
       item.className = 'formula-item';
-      item.title = `${formula.latex}\n分类: ${category}`;
+      item.title = `${formula.latex}\n鍒嗙被: ${category}`;
       item.innerHTML = `
         <div class="formula-label">${formula.label}</div>
         <div class="formula-latex">${formula.latex}</div>
@@ -2364,10 +2323,9 @@ class UIController {
   insertFormula(latex) {
     Logger.info(`insertFormula: ${latex}`);
 
-    // 保存到历史记录
-    this.addHistoryItem(latex);
+    // 淇濆瓨鍒板巻鍙茶褰?    this.addHistoryItem(latex);
 
-    // 将 #? 转换为 MathLive 的占位符格式
+    // 灏?#? 杞崲涓?MathLive 鐨勫崰浣嶇鏍煎紡
     const mfLatex = latex.replace(/#\?/g, '#{}');
 
     if (this.mathfield) {
@@ -2383,13 +2341,11 @@ class UIController {
       this.editor.updatePreview(newLatex);
     }
 
-    this.showToast('已插入公式');
+    this.showToast('宸叉彃鍏ュ叕寮?);
   }
 
-  // ═══════════════════════════════════════════
-  // 历史记录管理 (原生 IndexedDB)
-  // ═══════════════════════════════════════════
-  historyDb = null;
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  // 鍘嗗彶璁板綍绠＄悊 (鍘熺敓 IndexedDB)
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  historyDb = null;
   historyFilter = 'all';
 
   async initHistoryDb() {
@@ -2517,7 +2473,7 @@ class UIController {
       }
     }
     this.renderHistoryList();
-    this.showToast('历史记录已清空');
+    this.showToast('鍘嗗彶璁板綍宸叉竻绌?);
   }
 
   async renderHistoryList() {
@@ -2527,33 +2483,32 @@ class UIController {
     const items = await this.getHistoryItems(this.historyFilter);
 
     if (items.length === 0) {
-      listEl.innerHTML = '<div class="history-empty">暂无历史记录<br>使用编辑器或 OCR 添加公式</div>';
+      listEl.innerHTML = '<div class="history-empty">鏆傛棤鍘嗗彶璁板綍<br>浣跨敤缂栬緫鍣ㄦ垨 OCR 娣诲姞鍏紡</div>';
       return;
     }
 
     listEl.innerHTML = items.map(item => {
       const time = new Date(item.createdAt).toLocaleString('zh-CN');
-      const sourceMap = { editor: '编辑器', ocr: 'OCR', formula: '公式库' };
-      const srcLabel = sourceMap[item.source] || '编辑器';
+      const sourceMap = { editor: '缂栬緫鍣?, ocr: 'OCR', formula: '鍏紡搴? };
+      const srcLabel = sourceMap[item.source] || '缂栬緫鍣?;
       return `
         <div class="history-item-wrap">
           <div class="hi-swipe-bg">
             <div class="hi-swipe-delete">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              删除
+              鍒犻櫎
             </div>
             <div class="hi-swipe-actions">
               <span class="hi-swipe-fav-label">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                已收藏
-              </span>
+                宸叉敹钘?              </span>
               <button class="hi-swipe-btn" data-action="copy">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                复制
+                澶嶅埗
               </button>
               <button class="hi-swipe-btn" data-action="insert">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                插入
+                鎻掑叆
               </button>
             </div>
           </div>
@@ -2562,7 +2517,7 @@ class UIController {
             <div class="hi-meta">
               <span class="hi-tag">${srcLabel}</span>
               <span>${time}</span>
-              <button class="hi-fav ${item.favorite ? 'active' : ''}" data-action="fav" title="收藏">
+              <button class="hi-fav ${item.favorite ? 'active' : ''}" data-action="fav" title="鏀惰棌">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="${item.favorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               </button>
             </div>
@@ -2571,13 +2526,11 @@ class UIController {
       `;
     }).join('');
 
-    // 初始化滑动
-    listEl.querySelectorAll('.history-item').forEach(card => {
+    // 鍒濆鍖栨粦鍔?    listEl.querySelectorAll('.history-item').forEach(card => {
       this.initSwipe(card);
     });
 
-    // 点击空白区域收回所有滑动
-    listEl.addEventListener('click', (e) => {
+    // 鐐瑰嚮绌虹櫧鍖哄煙鏀跺洖鎵€鏈夋粦鍔?    listEl.addEventListener('click', (e) => {
       if (!e.target.closest('.history-item') && !e.target.closest('.hi-swipe-delete') && !e.target.closest('.hi-swipe-btn') && !e.target.closest('.hi-fav')) {
         listEl.querySelectorAll('.history-item').forEach(card => {
           if (card.style.transform && card.style.transform !== 'none') {
@@ -2598,7 +2551,7 @@ class UIController {
       }
     });
 
-    // 收藏按钮
+    // 鏀惰棌鎸夐挳
     listEl.querySelectorAll('.hi-fav').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -2609,10 +2562,8 @@ class UIController {
     });
   }
 
-  // ═══════════════════════════════════════════
-  // 滑动控制器 (学习 LaTeXSnipper_mobile)
-  // ═══════════════════════════════════════════
-  initSwipe(card) {
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  // 婊戝姩鎺у埗鍣?(瀛︿範 LaTeXSnipper_mobile)
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  initSwipe(card) {
     let startX = 0, startY = 0, startTime = 0;
     let tracking = false, currentDx = 0;
 
@@ -2631,24 +2582,23 @@ class UIController {
       const abs = Math.abs(dx);
 
       if (dx > 0) {
-        // 右滑：显示删除
-        if (dz) dz.style.width = Math.round(Math.min(dx, wrapWidth * 0.3)) + 'px';
+        // 鍙虫粦锛氭樉绀哄垹闄?        if (dz) dz.style.width = Math.round(Math.min(dx, wrapWidth * 0.3)) + 'px';
         if (az) { az.style.width = '0'; az.classList.remove('fav-mode'); }
         actionBtns.forEach(b => b.classList.remove('visible'));
         if (favLabel) favLabel.style.opacity = '0';
         if (dz) dz.style.pointerEvents = dx > 50 ? 'auto' : 'none';
       } else if (dx < 0) {
-        // 左滑
+        // 宸︽粦
         if (az) az.style.width = Math.round(Math.min(abs, wrapWidth * 0.5)) + 'px';
         if (dz) dz.style.width = '0';
 
         if (abs > wrapWidth * 0.55) {
-          // 收藏模式：隐藏按钮，显示收藏提示
+          // 鏀惰棌妯″紡锛氶殣钘忔寜閽紝鏄剧ず鏀惰棌鎻愮ず
           if (az) az.classList.add('fav-mode');
           actionBtns.forEach(b => b.classList.remove('visible'));
           if (favLabel) favLabel.style.opacity = '1';
         } else if (abs > wrapWidth * 0.2) {
-          // 操作模式：显示复制和插入按钮
+          // 鎿嶄綔妯″紡锛氭樉绀哄鍒跺拰鎻掑叆鎸夐挳
           if (az) az.classList.remove('fav-mode');
           actionBtns.forEach(b => b.classList.add('visible'));
           if (favLabel) favLabel.style.opacity = '0';
@@ -2693,7 +2643,7 @@ class UIController {
       card.style.transform = `translateX(${pos}px)`;
       if (deleteZone) deleteZone.classList.remove('no-transition');
       if (actionZone) { actionZone.classList.remove('no-transition'); actionZone.classList.remove('fav-mode'); }
-      // 设置固定宽度
+      // 璁剧疆鍥哄畾瀹藉害
       if (dir > 0 && deleteZone) {
         deleteZone.style.width = '100px';
         actionBtns.forEach(b => b.classList.remove('visible'));
@@ -2723,18 +2673,18 @@ class UIController {
       if (!item) return;
       if (action === 'copy') {
         navigator.clipboard.writeText(item.latex);
-        this.showToast('已复制');
+        this.showToast('宸插鍒?);
       } else if (action === 'insert') {
         this.editor.setLatex(item.latex);
         this.editor.updatePreview(item.latex);
         const source = document.getElementById('latexSource');
         if (source) source.value = item.latex;
         this.switchSection('editor');
-        this.showToast('已加载公式');
+        this.showToast('宸插姞杞藉叕寮?);
       }
     };
 
-    // 触摸/鼠标事件
+    // 瑙︽懜/榧犳爣浜嬩欢
     const onStart = (x, y) => {
       startX = x; startY = y; startTime = Date.now();
       tracking = true; currentDx = 0;
@@ -2760,15 +2710,14 @@ class UIController {
       const velocity = Math.abs(currentDx) / duration;
       const wrapWidth = wrap.offsetWidth;
 
-      // 右滑 → 删除
+      // 鍙虫粦 鈫?鍒犻櫎
       if (currentDx > wrapWidth * 0.3) {
         doDelete();
       } else if (currentDx > wrapWidth * 0.12) {
         snapTo(1);
 
-      // 左滑 → 收藏（超过 55% 宽度时切换为收藏模式）
-      } else if (currentDx < -(wrapWidth * 0.55)) {
-        // 已进入收藏模式，直接触发收藏
+      // 宸︽粦 鈫?鏀惰棌锛堣秴杩?55% 瀹藉害鏃跺垏鎹负鏀惰棌妯″紡锛?      } else if (currentDx < -(wrapWidth * 0.55)) {
+        // 宸茶繘鍏ユ敹钘忔ā寮忥紝鐩存帴瑙﹀彂鏀惰棌
         const id = Number(card.dataset.id);
         this.toggleFavoriteHistory(id).then(() => {
           this.renderHistoryList();
@@ -2777,13 +2726,13 @@ class UIController {
       } else if (currentDx < -(wrapWidth * 0.2)) {
         snapTo(-1);
 
-      // 未达阈值 → 回弹
+      // 鏈揪闃堝€?鈫?鍥炲脊
       } else {
         returnToOrigin(true);
       }
     };
 
-    // 鼠标事件
+    // 榧犳爣浜嬩欢
     card.addEventListener('mousedown', (e) => {
       if (e.target.closest('.hi-fav')) return;
       onStart(e.clientX, e.clientY);
@@ -2796,7 +2745,7 @@ class UIController {
       if (tracking) onEnd();
     });
 
-    // 触摸事件
+    // 瑙︽懜浜嬩欢
     card.addEventListener('touchstart', (e) => {
       if (e.target.closest('.hi-fav')) return;
       onStart(e.touches[0].clientX, e.touches[0].clientY);
@@ -2806,7 +2755,7 @@ class UIController {
     }, { passive: true });
     card.addEventListener('touchend', () => onEnd());
 
-    // 滑动按钮点击
+    // 婊戝姩鎸夐挳鐐瑰嚮
     actionBtns.forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2839,7 +2788,7 @@ class UIController {
 
     this.currentSection = section;
 
-    // 公式库触发按钮只在编辑器页面显示
+    // 鍏紡搴撹Е鍙戞寜閽彧鍦ㄧ紪杈戝櫒椤甸潰鏄剧ず
     const sidebarTrigger = document.getElementById('sidebarTrigger');
     const sidebarPanel = document.getElementById('sidebarPanel');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -2852,23 +2801,23 @@ class UIController {
       sidebarOverlay?.classList.remove('visible');
     }
 
-    // 切换到历史时渲染列表
+    // 鍒囨崲鍒板巻鍙叉椂娓叉煋鍒楄〃
     if (section === 'history') {
       this.renderHistoryList();
     }
 
-    // 切换到设置时渲染平台列表
+    // 鍒囨崲鍒拌缃椂娓叉煋骞冲彴鍒楄〃
     if (section === 'settings') {
       this.renderPlatformList();
     }
 
-    // 切换到 OCR 时检测 Bridge 连接
+    // 鍒囨崲鍒?OCR 鏃舵娴?Bridge 杩炴帴
     if (section === 'ocr') {
       this.checkBridgeStatus();
     }
   }
 
-  // 根据设置更新 Tab 显示/隐藏
+  // 鏍规嵁璁剧疆鏇存柊 Tab 鏄剧ず/闅愯棌
   updateTabVisibility() {
     Logger.debug('Updating tab visibility...');
     const settings = this.settingsManager.settings;
@@ -2888,10 +2837,10 @@ class UIController {
 
     const connected = await this.connectBridge();
     if (connected) {
-      statusEl.textContent = '✅ 已连接到桌面端 LaTeXSnipper';
+      statusEl.textContent = '鉁?宸茶繛鎺ュ埌妗岄潰绔?LaTeXSnipper';
       statusEl.style.color = 'var(--accent)';
     } else {
-      statusEl.textContent = '❌ 未检测到桌面端，请先启动 LaTeXSnipper';
+      statusEl.textContent = '鉂?鏈娴嬪埌妗岄潰绔紝璇峰厛鍚姩 LaTeXSnipper';
       statusEl.style.color = '#ef4444';
     }
   }
@@ -2900,7 +2849,7 @@ class UIController {
     Logger.info(`copyFormula: ${format}`);
     const latex = this.editor.getLatex();
     if (!latex) {
-      this.showStatus('请先输入公式');
+      this.showStatus('璇峰厛杈撳叆鍏紡');
       return;
     }
 
@@ -2914,7 +2863,7 @@ class UIController {
         textToCopy = svg || latex;
       }
 
-      // 使用 textarea 降级复制（兼容性最好）
+      // 浣跨敤 textarea 闄嶇骇澶嶅埗锛堝吋瀹规€ф渶濂斤級
       const textarea = document.createElement('textarea');
       textarea.value = textToCopy;
       textarea.style.position = 'fixed';
@@ -2927,21 +2876,21 @@ class UIController {
       document.body.removeChild(textarea);
 
       if (ok) {
-        this.showToast(`已复制 ${format.toUpperCase()}`);
+        this.showToast(`宸插鍒?${format.toUpperCase()}`);
         Logger.info(`Copy successful: ${format}`);
       } else {
-        this.showToast('复制失败');
+        this.showToast('澶嶅埗澶辫触');
       }
     } catch (e) {
       Logger.error('Copy failed:', e);
-      this.showToast('复制失败');
+      this.showToast('澶嶅埗澶辫触');
     }
   }
 
   async insertToWord() {
     const latex = this.editor.getLatex();
     if (!latex) {
-      this.showStatus('请先输入公式');
+      this.showStatus('璇峰厛杈撳叆鍏紡');
       return;
     }
     try {
@@ -2949,9 +2898,9 @@ class UIController {
       const fontStyle = document.getElementById('fontStyleSelect')?.value || 'tex';
       const fontColor = document.getElementById('fontColor')?.value || '#000000';
       const result = await invoke('write_pending_formula', { latex, fontColor, fontStyle });
-      this.showToast(result.message || '已发送到 Word，请在 Word 中点击 Insert Formula');
+      this.showToast(result.message || '宸插彂閫佸埌 Word锛岃鍦?Word 涓偣鍑?Insert Formula');
     } catch (e) {
-      this.showToast('发送失败: ' + e.message);
+      this.showToast('鍙戦€佸け璐? ' + e.message);
     }
   }
 
@@ -2966,7 +2915,7 @@ class UIController {
   updateFontStyle(style) {
     Logger.info(`fontStyle: ${style}`);
     
-    // 更新预览字体样式
+    // 鏇存柊棰勮瀛椾綋鏍峰紡
     const previewHost = document.getElementById('previewHost');
     if (previewHost) {
       previewHost.style.fontStyle = style === 'italic' ? 'italic' : 'normal';
@@ -2974,19 +2923,19 @@ class UIController {
       previewHost.style.fontFamily = style === 'roman' ? 'serif' : '';
     }
     
-    this.showStatus(`字体样式: ${style}`);
+    this.showStatus(`瀛椾綋鏍峰紡: ${style}`);
   }
 
   updateFontColor(color) {
     Logger.info(`fontColor: ${color}`);
     
-    // 更新预览颜色
+    // 鏇存柊棰勮棰滆壊
     const previewHost = document.getElementById('previewHost');
     if (previewHost) {
       previewHost.style.color = color;
     }
     
-    this.showStatus(`颜色已更新`);
+    this.showStatus(`棰滆壊宸叉洿鏂癭);
   }
 
   showStatus(message) {
@@ -2994,7 +2943,7 @@ class UIController {
     const statusText = document.getElementById('statusText');
     if (statusText) {
       statusText.textContent = message;
-      setTimeout(() => { statusText.textContent = '就绪'; }, 2000);
+      setTimeout(() => { statusText.textContent = '灏辩华'; }, 2000);
     }
   }
 
@@ -3008,10 +2957,8 @@ class UIController {
     }, duration);
   }
 
-  // ═══════════════════════════════════════════
-  // 平台管理
-  // ═══════════════════════════════════════════
-  platforms = [
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  // 骞冲彴绠＄悊
+  // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?  platforms = [
     {
       id: 'office',
       name: 'Microsoft Office',
@@ -3025,7 +2972,7 @@ class UIController {
     {
       id: 'obsidian',
       name: 'Obsidian',
-      desc: 'Markdown 笔记编辑器',
+      desc: 'Markdown 绗旇缂栬緫鍣?,
       icon: '/icons/platforms/obsidian.svg',
       color: '#7c3aed',
       enabled: false,
@@ -3035,7 +2982,7 @@ class UIController {
     {
       id: 'vscode',
       name: 'VS Code',
-      desc: '代码编辑器',
+      desc: '浠ｇ爜缂栬緫鍣?,
       icon: '/icons/platforms/vscode.svg',
       color: '#007acc',
       enabled: false,
@@ -3045,7 +2992,7 @@ class UIController {
     {
       id: 'wps',
       name: 'WPS Office',
-      desc: '办公套件',
+      desc: '鍔炲叕濂椾欢',
       icon: '/icons/platforms/wps.svg',
       color: '#00a651',
       enabled: false,
@@ -3055,7 +3002,7 @@ class UIController {
     {
       id: 'typora',
       name: 'Typora',
-      desc: 'Markdown 编辑器',
+      desc: 'Markdown 缂栬緫鍣?,
       icon: '/icons/platforms/typora.svg',
       color: '#4a90d9',
       enabled: false,
@@ -3065,7 +3012,7 @@ class UIController {
     {
       id: 'notion',
       name: 'Notion',
-      desc: '知识管理工具',
+      desc: '鐭ヨ瘑绠＄悊宸ュ叿',
       icon: '/icons/platforms/notion.svg',
       color: '#000000',
       enabled: false,
@@ -3075,7 +3022,7 @@ class UIController {
     {
       id: 'libreoffice',
       name: 'LibreOffice',
-      desc: '开源办公套件',
+      desc: '寮€婧愬姙鍏浠?,
       icon: '/icons/platforms/libreoffice.svg',
       color: '#18a303',
       enabled: false,
@@ -3117,7 +3064,7 @@ class UIController {
         </div>
         <div class="platform-info">
           <div class="platform-name">${p.name}</div>
-          <div class="platform-desc">${p.desc}${p.enabled ? ' · 已启用' : ''}</div>
+          <div class="platform-desc">${p.desc}${p.enabled ? ' 路 宸插惎鐢? : ''}</div>
         </div>
         <label class="custom-toggle">
           <input type="checkbox" class="platform-toggle" data-platform="${p.id}" ${p.enabled ? 'checked' : ''}>
@@ -3126,8 +3073,7 @@ class UIController {
       </div>
     `).join('');
 
-    // 绑定开关事件
-    listEl.querySelectorAll('.platform-toggle').forEach(toggle => {
+    // 缁戝畾寮€鍏充簨浠?    listEl.querySelectorAll('.platform-toggle').forEach(toggle => {
       toggle.addEventListener('change', async (e) => {
         const platformId = e.target.dataset.platform;
         const platform = this.platforms.find(p => p.id === platformId);
@@ -3146,75 +3092,56 @@ class UIController {
     });
   }
 
-  // 平台支持状态
+  // Platform integration support state.
   platformSupport = {
-    office: { ready: true, message: '' },
-    obsidian: { ready: false, message: 'Obsidian 插件开发中，敬请期待' },
-    vscode: { ready: false, message: 'VS Code 扩展开发中，敬请期待' },
-    wps: { ready: false, message: 'WPS 插件开发中，敬请期待' },
-    typora: { ready: false, message: 'Typora 集成开发中，敬请期待' },
-    notion: { ready: false, message: 'Notion 集成开发中，敬请期待' },
-    libreoffice: { ready: false, message: 'LibreOffice 扩展开发中，敬请期待' },
+    office: { ready: true, message: 'Office uses the native VSTO plugin from LaTeXSnipper/office_plugin.' },
+    obsidian: { ready: true, message: 'Obsidian plugin package can be prepared automatically.' },
+    vscode: { ready: true, message: 'VS Code unpacked extension can be installed automatically.' },
+    wps: { ready: true, message: 'WPS uses the WpsAddIn JSAddIn package when available.' },
+    typora: { ready: true, message: 'Typora uses Markdown clipboard integration.' },
+    notion: { ready: true, message: 'Notion uses clipboard integration.' },
+    libreoffice: { ready: true, message: 'LibreOffice integration scaffold can be prepared automatically.' },
   };
 
   async registerPlatform(platform) {
     Logger.info(`Registering platform: ${platform.name}`);
-    const support = this.platformSupport[platform.id];
-    if (support && !support.ready) {
-      this.showToast(support.message);
-      platform.enabled = false;
-      this.savePlatforms();
-      return;
-    }
-
-    // Office .dotm 注册：复制到 Word STARTUP 文件夹
-    if (platform.id === 'office') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('register_office');
-        if (result.success) {
-          this.showToast('Office 插件已安装，请重启 Word 加载插件');
-          Logger.info(`Office registered: ${result.message}`);
-        } else {
-          this.showToast(`注册失败: ${result.message}`);
-          platform.enabled = false;
-          this.savePlatforms();
-        }
-      } catch (e) {
-        Logger.error('Office registration failed:', e);
-        this.showToast('注册失败');
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke('install_platform_integration', { platformId: platform.id });
+      if (result.success) {
+        this.showToast(result.message || `${platform.name} enabled`, 3500);
+        Logger.info(`${platform.id} integration installed: ${result.message}`);
+      } else {
+        this.showToast(result.message || `${platform.name} enable failed`, 3500);
         platform.enabled = false;
         this.savePlatforms();
       }
-      return;
+    } catch (e) {
+      Logger.error(`${platform.id} registration failed:`, e);
+      this.showToast(`${platform.name} enable failed: ${e.message || e}`, 3500);
+      platform.enabled = false;
+      this.savePlatforms();
     }
-
-    this.showToast(`${platform.name} 已注册`);
   }
 
   async unregisterPlatform(platform) {
     Logger.info(`Unregistering platform: ${platform.name}`);
-
-    if (platform.id === 'office') {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('unregister_office');
-        if (result.success) {
-          this.showToast('Office 已取消注册，请重启 Word');
-          Logger.info(`Office unregistered: ${result.message}`);
-        } else {
-          this.showToast(`取消注册失败: ${result.message}`);
-        }
-      } catch (e) {
-        Logger.error('Office unregister failed:', e);
-        this.showToast('取消注册失败');
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke('uninstall_platform_integration', { platformId: platform.id });
+      if (result.success) {
+        this.showToast(result.message || `${platform.name} disabled`, 3500);
+        Logger.info(`${platform.id} integration removed: ${result.message}`);
+      } else {
+        this.showToast(result.message || `${platform.name} disable failed`, 3500);
       }
-      return;
+    } catch (e) {
+      Logger.error(`${platform.id} unregister failed:`, e);
+      this.showToast(`${platform.name} disable failed: ${e.message || e}`, 3500);
     }
-
-    this.showToast(`${platform.name} 已取消注册`);
   }
-  // ═══════════════════════════════════════════
+
+  // Runtime state.
   ocrLatex = '';
   bridgeConfig = null;
 
@@ -3225,7 +3152,7 @@ class UIController {
         signal: AbortSignal.timeout(3000),
       });
       const data = await response.json();
-      // Bridge 返回格式: { ok: true, result: { bridge_url, token } }
+      // Bridge 杩斿洖鏍煎紡: { ok: true, result: { bridge_url, token } }
       const result = data.result || data;
       this.bridgeConfig = {
         url: result.bridge_url || 'http://127.0.0.1:28765',
@@ -3242,16 +3169,15 @@ class UIController {
 
   async startScreenshot() {
     Logger.info('startScreenshot');
-    this.showStatus('正在连接桌面端...');
+    this.showStatus('姝ｅ湪杩炴帴妗岄潰绔?..');
 
     const connected = await this.connectBridge();
     if (!connected) {
-      this.showStatus('无法连接 LaTeXSnipper，请确保桌面端正在运行');
+      this.showStatus('鏃犳硶杩炴帴 LaTeXSnipper锛岃纭繚妗岄潰绔鍦ㄨ繍琛?);
       return;
     }
 
-    // 先取消可能存在的旧请求
-    try {
+    // 鍏堝彇娑堝彲鑳藉瓨鍦ㄧ殑鏃ц姹?    try {
       await fetch('/bridge/recognize/screenshot/cancel', {
         method: 'POST',
         headers: {
@@ -3265,7 +3191,7 @@ class UIController {
       Logger.debug('No previous request to cancel');
     }
 
-    this.showStatus('已发起截图请求，请切换到桌面端操作截图');
+    this.showStatus('宸插彂璧锋埅鍥捐姹傦紝璇峰垏鎹㈠埌妗岄潰绔搷浣滄埅鍥?);
 
     try {
       const response = await fetch('/bridge/recognize/screenshot', {
@@ -3288,20 +3214,20 @@ class UIController {
         const ocrInsertBtn = document.getElementById('ocrInsertBtn');
         const ocrCopyBtn = document.getElementById('ocrCopyBtn');
 
-        if (ocrResult) ocrResult.textContent = this.ocrLatex || '未识别到公式';
+        if (ocrResult) ocrResult.textContent = this.ocrLatex || '鏈瘑鍒埌鍏紡';
         if (ocrInsertBtn) ocrInsertBtn.disabled = !this.ocrLatex;
         if (ocrCopyBtn) ocrCopyBtn.disabled = !this.ocrLatex;
 
-        this.showStatus(this.ocrLatex ? '识别完成' : '未识别到公式');
+        this.showStatus(this.ocrLatex ? '璇嗗埆瀹屾垚' : '鏈瘑鍒埌鍏紡');
         Logger.info(`OCR result: ${this.ocrLatex}`);
       } else {
-        const errMsg = data.error?.message || '识别失败';
+        const errMsg = data.error?.message || '璇嗗埆澶辫触';
         this.showStatus(errMsg);
         Logger.error('OCR failed:', errMsg);
       }
     } catch (e) {
       Logger.error('Screenshot OCR failed:', e);
-      this.showStatus('截图识别失败，请确保桌面端正在运行');
+      this.showStatus('鎴浘璇嗗埆澶辫触锛岃纭繚妗岄潰绔鍦ㄨ繍琛?);
     }
   }
 
@@ -3317,7 +3243,7 @@ class UIController {
     Logger.info('copyOcrResult');
     if (this.ocrLatex) {
       this.editor.copyToClipboard(this.ocrLatex);
-      this.showStatus('已复制 LaTeX');
+      this.showStatus('宸插鍒?LaTeX');
     }
   }
 
@@ -3325,20 +3251,19 @@ class UIController {
     const settings = this.settingsManager.settings;
     Logger.debug('Applying settings:', settings);
 
-    // 应用 Bridge URL
+    // 搴旂敤 Bridge URL
     const bridgeInput = document.getElementById('bridgeUrlInput');
     if (bridgeInput && settings.bridgeUrl) {
       bridgeInput.value = settings.bridgeUrl;
     }
 
-    // 应用默认显示模式
+    // 搴旂敤榛樿鏄剧ず妯″紡
     const displayMode = document.getElementById('displayMode');
     if (displayMode) {
       displayMode.checked = settings.displayMode === 'display';
     }
 
-    // 应用 Tab 开关状态
-    const officeToggle = document.getElementById('officeEnabledToggle');
+    // 搴旂敤 Tab 寮€鍏崇姸鎬?    const officeToggle = document.getElementById('officeEnabledToggle');
     if (officeToggle) {
       officeToggle.checked = settings.officeEnabled;
     }
@@ -3347,15 +3272,12 @@ class UIController {
       ocrToggle.checked = settings.ocrEnabled;
     }
 
-    // 更新 Tab 显示/隐藏
+    // 鏇存柊 Tab 鏄剧ず/闅愯棌
     this.updateTabVisibility();
   }
 }
 
-// ═══════════════════════════════════════════
-// 初始化
-// ═══════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?// 鍒濆鍖?// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?document.addEventListener('DOMContentLoaded', () => {
   Logger.info('DOM loaded');
   new UIController();
   Logger.info('App ready');

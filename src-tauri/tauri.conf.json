@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.latexsnipper.office",
   "build": {
-    "frontendDist": "../src",
+    "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev:vite",
     "beforeBuildCommand": "npm run build:vite"
@@ -21,11 +21,6 @@
     ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true,
-      "tooltip": "LaTeXSnipper Office"
     }
   },
   "bundle": {

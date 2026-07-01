@@ -3,6 +3,7 @@ import { resolve } from 'path';
 
 export default defineConfig({
   root: 'src',
+  base: './',
   server: {
     port: 1420,
     strictPort: true,
@@ -12,7 +13,7 @@ export default defineConfig({
         resolve(__dirname, 'src'),
       ],
     },
-    // 代理 Bridge 请求，绕过 CORS
+    // Proxy Bridge requests during development.
     proxy: {
       '/bridge': {
         target: 'http://127.0.0.1:28765',
@@ -34,3 +35,5 @@ export default defineConfig({
     include: ['mathlive', 'mathjax'],
   },
 });
+
+

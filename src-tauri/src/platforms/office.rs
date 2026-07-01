@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,30 +17,6 @@ pub struct RegisterResult {
     pub message: String,
 }
 
-fn get_word_startup_dir() -> Option<PathBuf> {
-    dirs_next::data_dir().map(|d| d.join("Microsoft").join("Word").join("STARTUP"))
-}
-
-fn find_dotm_source() -> Option<PathBuf> {
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-
-    // 1. Next to exe
-    let p1 = exe_dir.join("LaTeXSnipper.dotm");
-    if p1.exists() { return Some(p1); }
-
-    // 2. In resources
-    let p2 = exe_dir.join("resources").join("LaTeXSnipper.dotm");
-    if p2.exists() { return Some(p2); }
-
-    // 3. Development: project scripts/out
-    if let Ok(cargo) = std::env::var("CARGO_MANIFEST_DIR") {
-        let p3 = PathBuf::from(cargo).join("..").join("scripts").join("out").join("LaTeXSnipper.dotm");
-        if p3.exists() { return Some(p3); }
-    }
-
-    None
-}
-
 #[tauri::command]
 pub fn detect_office() -> OfficeStatus {
     let mut status = OfficeStatus {
@@ -57,59 +32,23 @@ pub fn detect_office() -> OfficeStatus {
     status
 }
 
-/// Register: copy .dotm to Word STARTUP folder
 #[tauri::command]
 pub fn register_office() -> RegisterResult {
-    let startup = match get_word_startup_dir() {
-        Some(d) => d,
-        None => return RegisterResult { success: false, message: "Word STARTUP dir not found".into() },
-    };
-    let _ = fs::create_dir_all(&startup);
-
-    let src = match find_dotm_source() {
-        Some(p) => p,
-        None => return RegisterResult { success: false, message: "LaTeXSnipper.dotm not found. Run scripts/build_dotm.py first.".into() },
-    };
-
-    let dest = startup.join("LaTeXSnipper.dotm");
-    match fs::copy(&src, &dest) {
-        Ok(_) => RegisterResult { success: true, message: format!("Installed to {}\nRestart Word to load.", dest.display()) },
-        Err(e) => RegisterResult { success: false, message: format!("Copy failed: {}", e) },
-    }
+    let result = super::integrations::install_platform_integration("office".to_string());
+    RegisterResult { success: result.success, message: result.message }
 }
 
-/// Unregister: remove .dotm from STARTUP
 #[tauri::command]
 pub fn unregister_office() -> RegisterResult {
-    let startup = match get_word_startup_dir() {
-        Some(d) => d,
-        None => return RegisterResult { success: false, message: "Word STARTUP dir not found".into() },
-    };
-    let dotm = startup.join("LaTeXSnipper.dotm");
-    if !dotm.exists() {
-        return RegisterResult { success: true, message: "Already removed".into() };
-    }
-    match fs::remove_file(&dotm) {
-        Ok(_) => RegisterResult { success: true, message: "Removed. Restart Word.".into() },
-        Err(e) => RegisterResult { success: false, message: format!("Failed: {}", e) },
-    }
+    let result = super::integrations::uninstall_platform_integration("office".to_string());
+    RegisterResult { success: result.success, message: result.message }
 }
 
 #[tauri::command]
 pub fn check_office_registration() -> RegisterResult {
-    match get_word_startup_dir() {
-        Some(d) => {
-            let dotm = d.join("LaTeXSnipper.dotm");
-            if dotm.exists() {
-                RegisterResult { success: true, message: format!("Registered: {}", dotm.display()) }
-            } else {
-                RegisterResult { success: false, message: "Not registered".into() }
-            }
-        }
-        None => RegisterResult { success: false, message: "Word STARTUP dir not found".into() },
-    }
+    let result = super::integrations::check_platform_integration("office".to_string());
+    RegisterResult { success: result.success, message: result.message }
 }
-
 #[tauri::command]
 pub fn write_pending_formula(latex: String, font_color: Option<String>, font_style: Option<String>) -> RegisterResult {
     let path = std::env::temp_dir().join("latexsnipper_pending.txt");
@@ -123,3 +62,5 @@ pub fn write_pending_formula(latex: String, font_color: Option<String>, font_sty
         Err(e) => RegisterResult { success: false, message: format!("Failed: {}", e) },
     }
 }
+
+
