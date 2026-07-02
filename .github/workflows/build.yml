@@ -32,6 +32,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Clone latexsnipper-core
+        shell: bash
+        run: |
+          git clone https://github.com/strangelion/latexsnipper-core.git src-tauri/latexsnipper-core
+
       - name: Auto bump version
         if: github.event_name == 'workflow_dispatch'
         shell: pwsh
@@ -71,6 +76,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone latexsnipper-core
+        run: git clone https://github.com/strangelion/latexsnipper-core.git src-tauri/latexsnipper-core
+
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
@@ -88,6 +97,10 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Clone latexsnipper-core
+        run: git clone https://github.com/strangelion/latexsnipper-core.git src-tauri/latexsnipper-core
+
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
