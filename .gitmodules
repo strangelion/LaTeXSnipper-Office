@@ -1,3 +1,4 @@
 [submodule "src-tauri/latexsnipper-core"]
 	path = src-tauri/latexsnipper-core
 	url = https://github.com/strangelion/latexsnipper-core.git
+	branch = main
