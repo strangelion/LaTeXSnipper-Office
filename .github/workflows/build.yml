@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type'
+        description: '版本号递增方式（如当前 0.1.0）'
         required: true
         default: 'patch'
         type: choice
@@ -15,6 +15,11 @@ on:
           - patch
           - minor
           - major
+      bump_override:
+        description: '直接指定版本号（留空则按上方递增，如 1.2.3）'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: write
@@ -32,21 +37,32 @@ jobs:
         shell: pwsh
         run: |
           $bump = '${{ inputs.bump }}'
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $override = '${{ inputs.bump_override }}'.Trim()
+          $confPath = "src-tauri/tauri.conf.json"
+          $cargoPath = "src-tauri/Cargo.toml"
+          $conf = Get-Content $confPath -Raw | ConvertFrom-Json
           $ver = [version]$conf.version
-          switch ($bump) {
-            'major' { $newVer = "$($ver.Major + 1).0.0" }
-            'minor' { $newVer = "$($ver.Major).$($ver.Minor + 1).0" }
-            'patch' { $newVer = "$($ver.Major).$($ver.Minor).$($ver.Build + 1)" }
+
+          if ($override -ne '') {
+            $newVer = $override
+            Write-Host "Using override version: $newVer"
+          } else {
+            switch ($bump) {
+              'major' { $newVer = "$($ver.Major + 1).0.0" }
+              'minor' { $newVer = "$($ver.Major).$($ver.Minor + 1).0" }
+              'patch' { $newVer = "$($ver.Major).$($ver.Minor).$($ver.Build + 1)" }
+            }
+            Write-Host "Auto bumped $bump: $($conf.version) -> $newVer"
           }
+
+          # Update tauri.conf.json
           $conf.version = $newVer
-          $conf | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.conf.json -Encoding UTF8
-          # Also update Cargo.toml version
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          $cargo = $cargo -replace 'version = ".*"', "version = `"$newVer`""
-          Set-Content src-tauri/Cargo.toml $cargo -Encoding UTF8
+          $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
+          # Update Cargo.toml
+          $cargo = Get-Content $cargoPath -Raw
+          $cargo = $cargo -replace '(?m)^version = ".*"', "version = `"$newVer`""
+          Set-Content $cargoPath $cargo -NoNewline -Encoding UTF8
           echo "VERSION=$newVer" >> $env:GITHUB_ENV
-          Write-Host "Bumped to $newVer"
 
       - name: Read version for tag
         if: github.event_name == 'push'
