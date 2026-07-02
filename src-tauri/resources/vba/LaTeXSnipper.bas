@@ -89,11 +89,20 @@ Private Function CleanOmml(s As String) As String
     s = Replace(s, "<?xml version=""1.0"" encoding=""utf-8""?>", "")
     s = Replace(s, " xmlns:mml=""http://www.w3.org/1998/Math/MathML""", "")
     s = DecodeHtmlEntities(s)
-    s = Trim(s)
 
     s = Replace(s, "<m:eqAr>", "<m:eqArr>")
     s = Replace(s, "</m:eqAr>", "</m:eqArr>")
     s = Replace(s, "<m:t/>", "<m:t> </m:t>")
+
+    ' Remove all newlines and extra whitespace (Word InsertXML needs compact XML)
+    s = Replace(s, vbCrLf, " ")
+    s = Replace(s, vbCr, " ")
+    s = Replace(s, vbLf, " ")
+    ' Collapse multiple spaces
+    Do While InStr(s, "  ") > 0
+        s = Replace(s, "  ", " ")
+    Loop
+    s = Trim(s)
 
     Dim a As Long, b As Long
     a = InStr(s, "<m:oMathPara")
@@ -118,7 +127,34 @@ End Function
 
 Private Function BuildFlatOpc(oMathXml As String) As String
     Dim mathBody As String
-    If InStr(oMathXml, "<m:oMathPara") > 0 Then
+    Dim a As Long, b As Long
+    Dim mStart As Long, mEnd As Long
+
+    ' Extract <m:oMath> from <m:oMathPara> if present
+    a = InStr(oMathXml, "<m:oMathPara")
+    If a > 0 Then
+        mStart = InStr(oMathXml, "<m:oMath>")
+        If mStart > 0 Then
+            mEnd = InStr(mStart, oMathXml, "</m:oMath>")
+            If mEnd > mStart Then
+                mathBody = Mid$(oMathXml, mStart, mEnd + Len("</m:oMath>") - mStart)
+            Else
+                mathBody = oMathXml
+            End If
+        Else
+            mStart = InStr(oMathXml, "<m:oMath ")
+            If mStart > 0 Then
+                mEnd = InStr(mStart, oMathXml, "</m:oMath>")
+                If mEnd > mStart Then
+                    mathBody = Mid$(oMathXml, mStart, mEnd + Len("</m:oMath>") - mStart)
+                Else
+                    mathBody = oMathXml
+                End If
+            Else
+                mathBody = oMathXml
+            End If
+        End If
+    ElseIf InStr(oMathXml, "<m:oMath>") > 0 Then
         mathBody = oMathXml
     Else
         mathBody = "<w:r>" & oMathXml & "</w:r>"
@@ -195,9 +231,23 @@ Private Sub InsertFormulaCore(displayMode As Boolean, numbered As Boolean)
     Call ReadPendingFormula(latex, fontColor, fontStyle)
 
     If Len(latex) = 0 Then
-        latex = InputBox("Enter LaTeX:", "LaTeXSnipper", "E=mc^2")
+        ' No pending formula — open Tauri app and wait for user to click "Insert to Word"
+        LaTeXShowApp
+
+        ' Poll for pending formula (max 120 seconds)
+        Dim waited As Long
+        waited = 0
+        Do While waited < 120000
+            Application.Wait Now + TimeValue("0:00:00") + 500 / 86400000  ' 500ms
+            waited = waited + 500
+            Call ReadPendingFormula(latex, fontColor, fontStyle)
+            If Len(latex) > 0 Then Exit Do
+        Loop
+
+        If Len(latex) = 0 Then
+            Exit Sub  ' User cancelled or timed out
+        End If
     End If
-    If Len(latex) = 0 Then Exit Sub
 
     On Error GoTo HttpErr
     Dim resp As String

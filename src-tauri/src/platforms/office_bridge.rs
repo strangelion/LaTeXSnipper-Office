@@ -1,9 +1,4 @@
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    routing::post,
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -28,6 +23,16 @@ pub struct ConvertRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadSelectionRequest {
     pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadLatexRequest {
+    pub latex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadOmmlRequest {
+    pub omml: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,9 +75,15 @@ fn fix_omml(omml: &str) -> String {
 
     // Fix: if OMML only has bare <m:r><m:t>text</m:r> without any math structure,
     // wrap each run in proper italic formatting
-    if !s.contains("<m:f>") && !s.contains("<m:sSup>") && !s.contains("<m:sSub>")
-       && !s.contains("<m:nary>") && !s.contains("<m:eqArr>") && !s.contains("<m:d>")
-       && !s.contains("<m:rad>") && !s.contains("<m:acc>") {
+    if !s.contains("<m:f>")
+        && !s.contains("<m:sSup>")
+        && !s.contains("<m:sSub>")
+        && !s.contains("<m:nary>")
+        && !s.contains("<m:eqArr>")
+        && !s.contains("<m:d>")
+        && !s.contains("<m:rad>")
+        && !s.contains("<m:acc>")
+    {
         s = s.replace("<m:r><m:t>", "<m:r><m:rPr><w:rPr><w:rFonts w:ascii=\"Cambria Math\" w:h-ansi=\"Cambria Math\"/><w:i/></w:rPr></m:rPr><m:t>");
         s = s.replace("</m:t></m:r>", "</m:t></m:r>");
     }
@@ -103,6 +114,14 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/render-formula", post(handle_render_formula))
         .route("/api/office/render-result", post(handle_render_result))
         .route("/api/office/load-selection", post(handle_load_selection))
+        .route(
+            "/api/office/load-selection-latex",
+            post(handle_load_selection_latex),
+        )
+        .route(
+            "/api/office/load-selection-omml",
+            post(handle_load_selection_omml),
+        )
         .route("/api/office/show-app", post(handle_show_app))
         .layer(
             tower_http::cors::CorsLayer::permissive()
@@ -140,7 +159,8 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                             &bytes
                         };
                         // Convert UTF-16 LE bytes to u16 slice
-                        let u16s: Vec<u16> = data.chunks(2)
+                        let u16s: Vec<u16> = data
+                            .chunks(2)
                             .map(|chunk| {
                                 if chunk.len() == 2 {
                                     u16::from_le_bytes([chunk[0], chunk[1]])
@@ -152,9 +172,12 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                         match String::from_utf16(&u16s) {
                             Ok(omml) => {
                                 println!("[Bridge] File poll: UTF-16 OMML ({}b)", omml.len());
-                                let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
-                                    "omml": omml,
-                                }));
+                                let _ = poll_handle.emit(
+                                    "office-load-selection-omml",
+                                    serde_json::json!({
+                                        "omml": omml,
+                                    }),
+                                );
                                 let _ = poll_handle.emit("office-show-app", ());
                             }
                             Err(e) => println!("[Bridge] UTF-16 decode failed: {}", e),
@@ -171,16 +194,23 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                 if meta.len() > 0 && !bin_seen {
                     bin_seen = true;
                     if let Ok(bytes) = fs::read(&selection_bin) {
-                        let data = if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+                        let data = if bytes.len() >= 3
+                            && bytes[0] == 0xEF
+                            && bytes[1] == 0xBB
+                            && bytes[2] == 0xBF
+                        {
                             &bytes[3..]
                         } else {
                             &bytes
                         };
                         if let Ok(omml) = String::from_utf8(data.to_vec()) {
                             println!("[Bridge] File poll: binary OMML ({}b)", omml.len());
-                            let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
-                                "omml": omml,
-                            }));
+                            let _ = poll_handle.emit(
+                                "office-load-selection-omml",
+                                serde_json::json!({
+                                    "omml": omml,
+                                }),
+                            );
                             let _ = poll_handle.emit("office-show-app", ());
                         }
                     }
@@ -197,12 +227,17 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                         let b64_clean = b64_str.trim();
                         if !b64_clean.is_empty() {
                             use base64::Engine;
-                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_clean) {
+                            if let Ok(bytes) =
+                                base64::engine::general_purpose::STANDARD.decode(b64_clean)
+                            {
                                 if let Ok(omml) = String::from_utf8(bytes) {
                                     println!("[Bridge] File poll: Base64 OMML ({}b)", omml.len());
-                                    let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
-                                        "omml": omml,
-                                    }));
+                                    let _ = poll_handle.emit(
+                                        "office-load-selection-omml",
+                                        serde_json::json!({
+                                            "omml": omml,
+                                        }),
+                                    );
                                     let _ = poll_handle.emit("office-show-app", ());
                                 }
                             }
@@ -221,9 +256,12 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                         let omml = raw.trim_start_matches('\u{FEFF}').trim().to_string();
                         if !omml.is_empty() {
                             println!("[Bridge] File poll: raw OMML ({}b)", omml.len());
-                            let _ = poll_handle.emit("office-load-selection-omml", serde_json::json!({
-                                "omml": omml,
-                            }));
+                            let _ = poll_handle.emit(
+                                "office-load-selection-omml",
+                                serde_json::json!({
+                                    "omml": omml,
+                                }),
+                            );
                             let _ = poll_handle.emit("office-show-app", ());
                         }
                     }
@@ -240,9 +278,12 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                         let trimmed = text.trim_start_matches('\u{FEFF}').trim().to_string();
                         if !trimmed.is_empty() {
                             println!("[Bridge] File poll: text selection ({}b)", trimmed.len());
-                            let _ = poll_handle.emit("office-load-selection", serde_json::json!({
-                                "text": trimmed,
-                            }));
+                            let _ = poll_handle.emit(
+                                "office-load-selection",
+                                serde_json::json!({
+                                    "text": trimmed,
+                                }),
+                            );
                             let _ = poll_handle.emit("office-show-app", ());
                         }
                     }
@@ -275,15 +316,22 @@ async fn handle_convert(
     println!("[Bridge] Convert: {}", req.latex);
 
     let latex = req.latex.clone();
-    let omml = tokio::task::spawn_blocking(move || {
-        latex_to_omml_core(&latex)
-    }).await.unwrap_or(None);
+    let omml = tokio::task::spawn_blocking(move || latex_to_omml_core(&latex))
+        .await
+        .unwrap_or(None);
 
     match &omml {
         Some(o) => {
             let fixed = fix_omml(o);
-            println!("[Bridge] OMML generated via core ({}b) → fixed ({}b)", o.len(), fixed.len());
-            return Json(ConvertResponse { success: true, omml: fixed });
+            println!(
+                "[Bridge] OMML generated via core ({}b) → fixed ({}b)",
+                o.len(),
+                fixed.len()
+            );
+            return Json(ConvertResponse {
+                success: true,
+                omml: fixed,
+            });
         }
         None => println!("[Bridge] OMML conversion failed"),
     }
@@ -328,36 +376,87 @@ async fn handle_load_selection(
     let path = std::env::temp_dir().join("latexsnipper_selection.txt");
     let _ = fs::write(&path, &req.text);
 
-    let _ = state.app_handle.emit("office-load-selection", serde_json::json!({
-        "text": req.text,
-    }));
+    let _ = state.app_handle.emit(
+        "office-load-selection",
+        serde_json::json!({
+            "text": req.text,
+        }),
+    );
 
-    Json(OfficeResponse { success: true, message: "ok".into() })
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
 }
 
-async fn handle_show_app(
+async fn handle_load_selection_latex(
     State(state): State<Arc<BridgeState>>,
+    Json(req): Json<LoadLatexRequest>,
 ) -> impl IntoResponse {
+    println!("[Bridge] Load selection latex: {}", req.latex);
+
+    let _ = state.app_handle.emit(
+        "office-load-selection-latex",
+        serde_json::json!({
+            "latex": req.latex,
+        }),
+    );
+
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_load_selection_omml(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<LoadOmmlRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Load selection OMML ({}b)", req.omml.len());
+
+    let _ = state.app_handle.emit(
+        "office-load-selection-omml",
+        serde_json::json!({
+            "omml": req.omml,
+        }),
+    );
+
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_show_app(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
     let _ = state.app_handle.emit("office-show-app", ());
-    Json(OfficeResponse { success: true, message: "ok".into() })
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
 }
 
 async fn render_mathml(state: &BridgeState, latex: &str) -> String {
     let (tx, rx) = oneshot::channel::<String>();
-    let request_id = format!("rnd_{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis());
+    let request_id = format!(
+        "rnd_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
 
     {
         let mut pending = state.pending_renders.lock().await;
         pending.insert(request_id.clone(), tx);
     }
 
-    let _ = state.app_handle.emit("office-render-formula", serde_json::json!({
-        "id": request_id,
-        "latex": latex,
-    }));
+    let _ = state.app_handle.emit(
+        "office-render-formula",
+        serde_json::json!({
+            "id": request_id,
+            "latex": latex,
+        }),
+    );
 
     match tokio::time::timeout(std::time::Duration::from_secs(10), rx).await {
         Ok(Ok(m)) => {

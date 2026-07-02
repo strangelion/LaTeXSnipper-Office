@@ -302,6 +302,11 @@ a:hover { color: var(--accent-hover); }
 .custom-toggle input:checked + .toggle-track::after {
   transform: translateX(16px);
 }
+.custom-toggle.is-busy,
+.custom-toggle input:disabled + .toggle-track {
+  cursor: wait;
+  opacity: 0.65;
+}
 
 /* ═══════════════════════════════════════════
    Top Nav
@@ -1318,6 +1323,9 @@ a:hover { color: var(--accent-hover); }
   border-bottom: 1px solid var(--border-color);
 }
 .platform-item:last-child { border-bottom: none; }
+.platform-item.is-busy {
+  opacity: 0.75;
+}
 .platform-icon {
   width: 32px;
   height: 32px;
@@ -1523,5 +1531,4 @@ a:hover { color: var(--accent-hover); }
 
 .office-btn.danger svg {
   color: #ef4444;
-}
 }

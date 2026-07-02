@@ -36,15 +36,6 @@ pub fn mathml_to_latex_str(mathml: &str) -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
-/// Convert OMML string to any target format via core.
-pub fn omml_to_format(
-    xml: &str,
-    format: latexsnipper_conversion::OutputFormat,
-) -> Result<String, String> {
-    latexsnipper_conversion::DocumentConverter::convert_omml_string(xml, format)
-        .map_err(|e| e.to_string())
-}
-
 #[command]
 pub fn omml_to_latex(xml: String) -> Result<String, String> {
     println!("[Math] omml_to_latex called, input length: {}", xml.len());

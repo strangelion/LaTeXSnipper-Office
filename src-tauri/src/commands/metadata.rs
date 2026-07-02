@@ -9,7 +9,9 @@ pub struct ValidateMetadataResponse {
 }
 
 #[command]
-pub async fn validate_metadata(metadata: FormulaMetadata) -> Result<ValidateMetadataResponse, String> {
+pub async fn validate_metadata(
+    metadata: FormulaMetadata,
+) -> Result<ValidateMetadataResponse, String> {
     match metadata.validate() {
         Ok(()) => Ok(ValidateMetadataResponse {
             valid: true,

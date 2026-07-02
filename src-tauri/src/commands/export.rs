@@ -6,7 +6,6 @@ use tauri::command;
 pub struct ExportFormulaRequest {
     pub latex: String,
     pub format: String,
-    pub display: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -18,7 +17,9 @@ pub struct ExportFormulaResponse {
 }
 
 #[command]
-pub async fn export_formula(request: ExportFormulaRequest) -> Result<ExportFormulaResponse, String> {
+pub async fn export_formula(
+    request: ExportFormulaRequest,
+) -> Result<ExportFormulaResponse, String> {
     let fmt = match request.format.as_str() {
         "latex" => OutputFormat::Latex,
         "mathml" => OutputFormat::MathML,
@@ -36,8 +37,8 @@ pub async fn export_formula(request: ExportFormulaRequest) -> Result<ExportFormu
         }
     };
 
-    let content = DocumentConverter::convert_latex_string(&request.latex, fmt)
-        .map_err(|e| e.to_string());
+    let content =
+        DocumentConverter::convert_latex_string(&request.latex, fmt).map_err(|e| e.to_string());
 
     match content {
         Ok(c) => {

@@ -1,7 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::process::Command as ProcessCommand;
 use tauri::command;
 
+use base64::Engine;
+
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertFormulaRequest {
     pub formula_type: String,
     pub latex: String,
@@ -14,20 +19,99 @@ pub struct OfficeCommandResponse {
 }
 
 #[command]
-pub async fn insert_formula(request: InsertFormulaRequest) -> Result<OfficeCommandResponse, String> {
-    Logger::info(format!("Inserting {} formula: {}", request.formula_type, request.latex));
-    
-    // TODO: Implement Office COM interop to insert formula
-    Ok(OfficeCommandResponse {
-        success: true,
-        message: format!("已插入{}公式", request.formula_type),
-    })
+pub async fn insert_formula(
+    request: InsertFormulaRequest,
+) -> Result<OfficeCommandResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || insert_formula_sync(request))
+        .await
+        .map_err(|err| format!("Office insert task failed: {err}"))?
 }
 
+fn insert_formula_sync(request: InsertFormulaRequest) -> Result<OfficeCommandResponse, String> {
+    Logger::info(format!(
+        "Inserting {} formula: {}",
+        request.formula_type, request.latex
+    ));
+
+    let latex_b64 = base64::engine::general_purpose::STANDARD.encode(request.latex.as_bytes());
+    let formula_type = request
+        .formula_type
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+        .collect::<String>();
+    let formula_type = if formula_type.is_empty() {
+        "display".to_string()
+    } else {
+        formula_type
+    };
+
+    let script = format!(
+        r#"$ErrorActionPreference = 'Stop'
+$latex = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{latex_b64}'))
+$formulaType = '{formula_type}'
+$word = $null
+try {{
+  $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
+}} catch {{
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $true
+}}
+if ($null -eq $word) {{
+  throw 'Word.Application is not available.'
+}}
+$word.Visible = $true
+$addin = $word.COMAddIns.Item('LaTeXSnipper.Office')
+if ($null -eq $addin) {{
+  throw 'LaTeXSnipper.Office add-in is not registered.'
+}}
+if (-not $addin.Connect) {{
+  $addin.Connect = $true
+  Start-Sleep -Milliseconds 500
+}}
+if ($null -eq $addin.Object) {{
+  throw 'LaTeXSnipper.Office add-in object is not available. Restart Word and try again.'
+}}
+$display = $formulaType -ne 'inline'
+$numbered = $formulaType -eq 'numbered'
+[void]$addin.Object.InsertLatex($latex, [bool]$display, [bool]$numbered)
+$word.Activate()
+Write-Output 'Inserted'
+"#
+    );
+
+    let script_path = std::env::temp_dir().join(format!(
+        "latexsnipper_insert_word_{}.ps1",
+        std::process::id()
+    ));
+    fs::write(&script_path, script).map_err(|err| format!("Failed to write script: {err}"))?;
+
+    let output = ProcessCommand::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script_path)
+        .output()
+        .map_err(|err| format!("Failed to start PowerShell: {err}"));
+
+    let _ = fs::remove_file(&script_path);
+    let output = output?;
+    if !output.status.success() {
+        return Err(format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .trim()
+        .to_string());
+    }
+
+    Ok(OfficeCommandResponse {
+        success: true,
+        message: "已插入到 Word".to_string(),
+    })
+}
 #[command]
 pub async fn load_selection() -> Result<Option<String>, String> {
     Logger::info("Loading selection...");
-    
+
     // TODO: Implement Office COM interop to load selected formula
     Ok(None)
 }
@@ -35,7 +119,7 @@ pub async fn load_selection() -> Result<Option<String>, String> {
 #[command]
 pub async fn delete_selection() -> Result<OfficeCommandResponse, String> {
     Logger::info("Deleting selection...");
-    
+
     // TODO: Implement Office COM interop to delete selected formula
     Ok(OfficeCommandResponse {
         success: true,
@@ -46,7 +130,7 @@ pub async fn delete_selection() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn convert_to_ole() -> Result<OfficeCommandResponse, String> {
     Logger::info("Converting to OLE...");
-    
+
     // TODO: Implement Office COM interop to convert to OLE format
     Ok(OfficeCommandResponse {
         success: true,
@@ -57,7 +141,7 @@ pub async fn convert_to_ole() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn convert_to_word() -> Result<OfficeCommandResponse, String> {
     Logger::info("Converting to Word...");
-    
+
     // TODO: Implement Office COM interop to convert to Word format
     Ok(OfficeCommandResponse {
         success: true,
@@ -68,7 +152,7 @@ pub async fn convert_to_word() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn insert_reference() -> Result<OfficeCommandResponse, String> {
     Logger::info("Inserting reference...");
-    
+
     // TODO: Implement Office COM interop to insert cross-reference
     Ok(OfficeCommandResponse {
         success: true,
@@ -79,7 +163,7 @@ pub async fn insert_reference() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn add_number() -> Result<OfficeCommandResponse, String> {
     Logger::info("Adding number...");
-    
+
     // TODO: Implement Office COM interop to add number
     Ok(OfficeCommandResponse {
         success: true,
@@ -90,7 +174,7 @@ pub async fn add_number() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn renumber() -> Result<OfficeCommandResponse, String> {
     Logger::info("Renumbering...");
-    
+
     // TODO: Implement Office COM interop to renumber
     Ok(OfficeCommandResponse {
         success: true,
@@ -101,7 +185,7 @@ pub async fn renumber() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn insert_chapter_separator() -> Result<OfficeCommandResponse, String> {
     Logger::info("Inserting chapter separator...");
-    
+
     // TODO: Implement Office COM interop to insert chapter separator
     Ok(OfficeCommandResponse {
         success: true,
@@ -112,7 +196,7 @@ pub async fn insert_chapter_separator() -> Result<OfficeCommandResponse, String>
 #[command]
 pub async fn insert_section_separator() -> Result<OfficeCommandResponse, String> {
     Logger::info("Inserting section separator...");
-    
+
     // TODO: Implement Office COM interop to insert section separator
     Ok(OfficeCommandResponse {
         success: true,
@@ -123,7 +207,7 @@ pub async fn insert_section_separator() -> Result<OfficeCommandResponse, String>
 #[command]
 pub async fn format_selection() -> Result<OfficeCommandResponse, String> {
     Logger::info("Formatting selection...");
-    
+
     // TODO: Implement Office COM interop to format selection
     Ok(OfficeCommandResponse {
         success: true,
@@ -134,7 +218,7 @@ pub async fn format_selection() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn format_all() -> Result<OfficeCommandResponse, String> {
     Logger::info("Formatting all formulas...");
-    
+
     // TODO: Implement Office COM interop to format all formulas
     Ok(OfficeCommandResponse {
         success: true,
@@ -145,7 +229,7 @@ pub async fn format_all() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn toggle_status_pane() -> Result<OfficeCommandResponse, String> {
     Logger::info("Toggling status pane...");
-    
+
     // TODO: Implement Office COM interop to toggle status pane
     Ok(OfficeCommandResponse {
         success: true,
@@ -156,7 +240,7 @@ pub async fn toggle_status_pane() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn open_settings() -> Result<OfficeCommandResponse, String> {
     Logger::info("Opening settings...");
-    
+
     // TODO: Implement Office COM interop to open settings
     Ok(OfficeCommandResponse {
         success: true,
@@ -167,7 +251,7 @@ pub async fn open_settings() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn show_help() -> Result<OfficeCommandResponse, String> {
     Logger::info("Showing help...");
-    
+
     // TODO: Implement Office COM interop to show help
     Ok(OfficeCommandResponse {
         success: true,

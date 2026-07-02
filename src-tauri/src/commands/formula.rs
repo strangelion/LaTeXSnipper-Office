@@ -20,7 +20,9 @@ pub struct RenderFormulaResponse {
 }
 
 #[command]
-pub async fn render_formula(request: RenderFormulaRequest) -> Result<RenderFormulaResponse, String> {
+pub async fn render_formula(
+    request: RenderFormulaRequest,
+) -> Result<RenderFormulaResponse, String> {
     let renderer = FormulaRenderer::new();
 
     let formats: Vec<RenderFormat> = request

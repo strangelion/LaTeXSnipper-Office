@@ -6,6 +6,7 @@
   "scripts": {
     "dev:vite": "vite",
     "build:vite": "vite build",
+    "build:office-addin": "powershell -NoProfile -ExecutionPolicy Bypass -File plugin/Office/LightweightAddIn/stage-for-tauri.ps1",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
@@ -27,10 +28,11 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
+    "esbuild": "^0.28.1",
     "eslint": "^8.45.0",
     "prettier": "^3.0.0",
     "typescript": "^5.1.0",
-    "vite": "^4.4.0"
+    "vite": "^4.5.14"
   },
   "keywords": [
     "latex",

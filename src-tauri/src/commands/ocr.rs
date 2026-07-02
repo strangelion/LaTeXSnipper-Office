@@ -33,8 +33,8 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
         .map_err(|e| format!("Failed to write temp file: {}", e))?;
 
     // Process with SDK
-    let snipper = Snipper::from_file(&temp_path)
-        .map_err(|e| format!("Failed to process image: {}", e))?;
+    let snipper =
+        Snipper::from_file(&temp_path).map_err(|e| format!("Failed to process image: {}", e))?;
 
     // Get results
     let latex = snipper

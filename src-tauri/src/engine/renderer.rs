@@ -35,7 +35,11 @@ impl FormulaRenderer {
         Self
     }
 
-    pub async fn render(&self, latex: &str, options: &RenderOptions) -> Result<RenderResult, String> {
+    pub async fn render(
+        &self,
+        latex: &str,
+        options: &RenderOptions,
+    ) -> Result<RenderResult, String> {
         let mut mathml = None;
         let mut svg = None;
 
@@ -69,11 +73,13 @@ impl FormulaRenderer {
         })
     }
 
+    #[allow(dead_code)]
     pub async fn to_mathml(&self, latex: &str, _display: bool) -> Result<String, String> {
         DocumentConverter::convert_latex_string(latex, OutputFormat::MathML)
             .map_err(|e| e.to_string())
     }
 
+    #[allow(dead_code)]
     pub async fn to_svg(&self, _latex: &str, _display: bool) -> Result<String, String> {
         // SVG rendering requires frontend MathJax - return placeholder
         Ok(String::new())

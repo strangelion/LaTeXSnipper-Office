@@ -1,10 +1,10 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod engine;
 mod commands;
-mod platforms;
+mod engine;
 mod math;
+mod platforms;
 
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -38,6 +38,17 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Exit app when main window is closed
+            let handle = app.handle().clone();
+            if let Some(window) = app.get_webview_window("main") {
+                let h = handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        h.exit(0);
+                    }
+                });
+            }
+
             // Global shortcut
             let handle = app.handle().clone();
             let shortcut = if cfg!(target_os = "macos") {
@@ -46,14 +57,15 @@ fn main() {
                 "Control+Shift+L"
             };
 
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
-                if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    if let Some(window) = handle.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
+            app.global_shortcut()
+                .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(window) = handle.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
-                }
-            })?;
+                })?;
 
             // Start HTTP bridge server for VBA communication
             let app_handle = app.handle().clone();
@@ -104,4 +116,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

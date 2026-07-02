@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build:vite"
+    "beforeBuildCommand": "npm run build:office-addin && npm run build:vite"
   },
   "app": {
     "windows": [
@@ -29,6 +29,11 @@
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
+    ],
+    "resources": [
+      "resources/*",
+      "resources/Office/LightweightAddIn/*",
+      "resources/vba/*"
     ],
     "windows": {
       "webviewInstallMode": {
