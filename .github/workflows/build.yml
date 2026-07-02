@@ -28,10 +28,25 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
+      # SUBMODULES_TOKEN: fine-grained PAT with Contents: Read for
+      # strangelion/latexsnipper-core (and this repository if it is private).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN }}
+          persist-credentials: true
+
+      - name: Verify submodule checkout
+        shell: pwsh
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --force --recursive
+          git submodule status --recursive
+          $coreManifest = 'src-tauri/latexsnipper-core/Cargo.toml'
+          if (-not (Test-Path $coreManifest)) {
+            throw "Submodule was not populated: $coreManifest is missing. Check SUBMODULES_TOKEN and .gitmodules."
+          }
 
       - name: Auto bump version
         if: github.event_name == 'workflow_dispatch'
@@ -73,7 +88,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN }}
+          persist-credentials: true
+
+      - name: Verify submodule checkout
+        shell: bash
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --force --recursive
+          git submodule status --recursive
+          test -f src-tauri/latexsnipper-core/Cargo.toml
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
@@ -93,7 +119,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN }}
+          persist-credentials: true
+
+      - name: Verify submodule checkout
+        shell: bash
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --force --recursive
+          git submodule status --recursive
+          test -f src-tauri/latexsnipper-core/Cargo.toml
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
@@ -116,6 +153,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      # Required: this job reads tauri.conf.json, but every job starts with an empty workspace.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Read version
         shell: bash
         run: echo "VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
