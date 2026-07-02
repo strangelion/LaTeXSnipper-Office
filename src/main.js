@@ -2519,6 +2519,22 @@ class UIController {
 
     listEl.querySelectorAll('.history-item').forEach(card => {
       this.initSwipe(card);
+      // Click to quickly insert formula to editor
+      card.addEventListener('click', async (e) => {
+        if (e.target.closest('.hi-fav')) return;
+        // Skip if card is in swiped position
+        if (card.style.transform && card.style.transform !== 'none' && card.style.transform !== '') return;
+        const id = Number(card.dataset.id);
+        const items = await this.getHistoryItems();
+        const item = items.find(x => x.id === id);
+        if (!item) return;
+        this.editor.setLatex(item.latex);
+        this.editor.updatePreview(item.latex);
+        const source = document.getElementById('latexSource');
+        if (source) source.value = item.latex;
+        this.switchSection('editor');
+        this.showToast('已加载公式');
+      });
     });
 
     listEl.addEventListener('click', (e) => {
@@ -2775,7 +2791,15 @@ class UIController {
 
     if (section === 'editor') {
       sidebarTrigger?.classList.remove('hidden');
+      // Restore sidebar open state if it was open before leaving
+      if (this._sidebarWasOpen) {
+        sidebarPanel?.classList.add('open');
+        sidebarOverlay?.classList.add('visible');
+        this._sidebarWasOpen = false;
+      }
     } else {
+      // Save sidebar state before hiding
+      this._sidebarWasOpen = sidebarPanel?.classList.contains('open') || false;
       sidebarTrigger?.classList.add('hidden');
       sidebarPanel?.classList.remove('open');
       sidebarOverlay?.classList.remove('visible');
@@ -2851,6 +2875,7 @@ class UIController {
 
       if (ok) {
         this.showToast(`已复制 ${format.toUpperCase()}`);
+        this.addHistoryItem(latex);
         Logger.info(`Copy successful: ${format}`);
       } else {
         this.showToast('复制失败');
@@ -2881,10 +2906,12 @@ class UIController {
           }
         });
         this.showToast(result.message || '已插入到 Word');
+        this.addHistoryItem(latex);
       } catch (directError) {
         Logger.warn('Direct Word insert failed, falling back to pending file:', directError);
         const result = await invoke('write_pending_formula', { latex, fontColor, fontStyle });
         this.showToast(result.message || '已发送到 Word，请在 Word 中点击 Insert Formula');
+        this.addHistoryItem(latex);
       }
     } catch (e) {
       this.showToast('发送失败: ' + (e.message || e));
