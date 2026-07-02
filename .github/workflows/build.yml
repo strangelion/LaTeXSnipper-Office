@@ -25,7 +25,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,62 +42,97 @@ jobs:
           $cargoPath = "src-tauri/Cargo.toml"
           $conf = Get-Content $confPath -Raw | ConvertFrom-Json
           $ver = [version]$conf.version
-
-          if ($override -ne '') {
-            $newVer = $override
-            Write-Host "Using override version: $newVer"
-          } else {
-            switch ($bump) {
-              'major' { $newVer = "$($ver.Major + 1).0.0" }
-              'minor' { $newVer = "$($ver.Major).$($ver.Minor + 1).0" }
-              'patch' { $newVer = "$($ver.Major).$($ver.Minor).$($ver.Build + 1)" }
-            }
-            Write-Host "Auto bumped $bump: $($conf.version) -> $newVer"
+          if ($override -ne '') { $newVer = $override } else {
+            switch ($bump) { 'major' { $newVer = "$($ver.Major+1).0.0" } 'minor' { $newVer = "$($ver.Major).$($ver.Minor+1).0" } 'patch' { $newVer = "$($ver.Major).$($ver.Minor).$($ver.Build+1)" } }
           }
+          $conf.version = $newVer; $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
+          $cargo = Get-Content $cargoPath -Raw; $cargo = $cargo -replace '(?m)^version = ".*"', "version = `"$newVer`""; Set-Content $cargoPath $cargo -NoNewline -Encoding UTF8
+          echo "VERSION=$newVer" >> $env:GITHUB_ENV; Write-Host "Version: $newVer"
 
-          # Update tauri.conf.json
-          $conf.version = $newVer
-          $conf | ConvertTo-Json -Depth 10 | Set-Content $confPath -Encoding UTF8
-          # Update Cargo.toml
-          $cargo = Get-Content $cargoPath -Raw
-          $cargo = $cargo -replace '(?m)^version = ".*"', "version = `"$newVer`""
-          Set-Content $cargoPath $cargo -NoNewline -Encoding UTF8
-          echo "VERSION=$newVer" >> $env:GITHUB_ENV
-
-      - name: Read version for tag
+      - name: Read version
         if: github.event_name == 'push'
         shell: pwsh
+        run: echo "VERSION=$((Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version)" >> $env:GITHUB_ENV
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: src-tauri/target/release/bundle/**/*.{msi,exe}
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-apple-darwin,x86_64-apple-darwin }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build --target universal-apple-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: src-tauri/target/release/bundle/**/*.{dmg,app}
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - name: Install system dependencies
         run: |
-          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          echo "VERSION=$($conf.version)" >> $env:GITHUB_ENV
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build
+      - uses: actions/upload-artifact@v4
         with:
-          node-version: 20
-          cache: npm
+          name: linux
+          path: src-tauri/target/release/bundle/**/*.{deb,AppImage,rpm}
 
-      - name: Install frontend dependencies
-        run: npm ci
+  release:
+    needs: [build-windows, build-macos, build-linux]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read version
+        shell: bash
+        run: echo "VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\(.*\)".*/\1/')" >> $GITHUB_ENV
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri -> target
+      - name: List artifacts
+        run: find artifacts -type f | head -30
 
-      - name: Build Tauri app
-        run: npx tauri build
-
-      - name: Create GitHub Release
-        if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
-          files: |
-            src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/bundle/nsis/*.exe
+          files: artifacts/**/*
           generate_release_notes: true
+          body: |
+            ## LaTeXSnipper Office v${{ env.VERSION }}
+
+            ### 下载
+            - **Windows**: MSI / NSIS 安装包（包含 Word 插件自动注册）
+            - **macOS**: DMG 安装包（Word 插件暂不支持，仅使用编辑器功能）
+            - **Linux**: DEB / AppImage（Word 插件暂不支持，仅使用编辑器功能）
+
+            ### Word 插件
+            仅 Windows 版本包含 Word COM 加载项。首次运行会自动注册。
+            macOS / Linux 用户可使用 LaTeXSnipper 编辑器，手动复制公式到 Word。
