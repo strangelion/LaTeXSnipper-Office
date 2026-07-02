@@ -16,4 +16,4 @@ plugin/Office/**/.vs/
 plugin/Office/**/bin/
 plugin/Office/**/obj/
 plugin/Office/**/*.pfx
-src-tauri/resources/Office/LightweightAddIn/
+src-tauri/resources/Office/LightweightAddIn/*.dll
