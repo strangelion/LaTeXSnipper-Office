@@ -107,10 +107,10 @@ jobs:
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: rustup target add aarch64-apple-darwin
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
-      - run: npx tauri build --target universal-apple-darwin
+      - run: npx tauri build --target aarch64-apple-darwin
       - uses: actions/upload-artifact@v4
         with:
           name: macos
