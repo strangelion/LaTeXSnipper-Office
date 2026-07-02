@@ -168,17 +168,28 @@ namespace LaTeXSnipper.OfficeAddIn
 
         public void OnLoadSelection(object control)
         {
-            Log("OnLoadSelection");
-            LoadSelection();
+            Log("OnLoadSelection called");
+            try
+            {
+                bool result = LoadSelection();
+                Log("OnLoadSelection result=" + result);
+            }
+            catch (Exception ex)
+            {
+                Log("OnLoadSelection exception: " + ex);
+                ShowMessage("Load Selection error: " + ex.Message);
+            }
         }
 
         public bool LoadSelection()
         {
             try
             {
+                Log("LoadSelection start");
                 object selection = GetProperty(wordApplication, "Selection");
                 object range = GetProperty(selection, "Range");
                 string latex = ReadLatexMetadataFromSelection(selection, range);
+                Log("LoadSelection latex=" + (latex == null ? "null" : latex));
                 if (!string.IsNullOrWhiteSpace(latex))
                 {
                     PostJson("/api/office/load-selection-latex", "{\"latex\":\"" + JsonEscape(latex) + "\"}", 5000);
@@ -187,6 +198,7 @@ namespace LaTeXSnipper.OfficeAddIn
                 }
 
                 string xml = Convert.ToString(GetProperty(range, "WordOpenXML"));
+                Log("LoadSelection xml length=" + (xml == null ? 0 : xml.Length));
                 if (!string.IsNullOrWhiteSpace(xml) && xml.IndexOf("<m:oMath", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     PostJson("/api/office/load-selection-omml", "{\"omml\":\"" + JsonEscape(xml) + "\"}", 5000);
@@ -195,6 +207,7 @@ namespace LaTeXSnipper.OfficeAddIn
                 }
 
                 string text = Convert.ToString(GetProperty(selection, "Text"));
+                Log("LoadSelection text=" + (text == null ? "null" : text));
                 if (string.IsNullOrWhiteSpace(text))
                 {
                     ShowMessage("Please select a formula or text first.");
@@ -253,23 +266,45 @@ namespace LaTeXSnipper.OfficeAddIn
                     return;
                 }
 
+                string cleaned = CleanOmml(omml);
+                Log("OMML raw (" + omml.Length + "b): " + omml.Substring(0, Math.Min(200, omml.Length)));
+                Log("OMML cleaned (" + cleaned.Length + "b): " + cleaned.Substring(0, Math.Min(200, cleaned.Length)));
+
                 object selection = GetProperty(wordApplication, "Selection");
                 object document = GetProperty(wordApplication, "ActiveDocument");
                 object controls = GetProperty(document, "ContentControls");
-                object range = GetProperty(selection, "Range");
-                int start = Convert.ToInt32(GetProperty(range, "Start"));
-                Invoke(range, "InsertXML", BuildFlatOpc(CleanOmml(omml)));
-                int end = Convert.ToInt32(GetProperty(range, "End"));
-                if (end <= start)
+
+                object selRange = GetProperty(selection, "Range");
+
+                // Insert FlatOpc
+                Invoke(selRange, "InsertXML", BuildFlatOpc(cleaned));
+
+                // After InsertXML, cursor is after the formula.
+                // Get the paragraph containing the cursor.
+                object curRange = GetProperty(selection, "Range");
+                object curPara = GetProperty(curRange, "Paragraphs");
+                object para = Invoke(curPara, "Item", 1);
+                object paraRange = GetProperty(para, "Range");
+
+                int paraStart = Convert.ToInt32(GetProperty(paraRange, "Start"));
+                int paraEnd = Convert.ToInt32(GetProperty(paraRange, "End"));
+                // Exclude trailing paragraph mark (\r)
+                int ccEnd = paraEnd - 1;
+                int ccStart = paraStart;
+                if (ccEnd <= ccStart) ccEnd = ccStart + 1;
+
+                if (display)
                 {
-                    object selectionRange = GetProperty(selection, "Range");
-                    end = Convert.ToInt32(GetProperty(selectionRange, "End"));
+                    try
+                    {
+                        object displayRange = Invoke(document, "Range", ccStart, ccEnd);
+                        object paragraph = GetProperty(displayRange, "ParagraphFormat");
+                        SetProperty(paragraph, "Alignment", 1);
+                    }
+                    catch { }
                 }
-                if (end <= start)
-                {
-                    end = start + 1;
-                }
-                object insertedRange = Invoke(document, "Range", start, end);
+
+                object insertedRange = Invoke(document, "Range", ccStart, ccEnd);
                 object contentControl = Invoke(controls, "Add", 0, insertedRange);
                 SetProperty(contentControl, "Title", "LaTeXSnipper Formula");
                 SetProperty(contentControl, "Tag", BuildFormulaTag(latex, display, numbered));
@@ -396,12 +431,37 @@ namespace LaTeXSnipper.OfficeAddIn
             s = s.Replace("<?xml version=\"1.0\" encoding=\"utf-8\"?>", "");
             s = s.Replace(" xmlns:mml=\"http://www.w3.org/1998/Math/MathML\"", "");
             s = s.Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ").Trim();
-            int start = s.IndexOf("<m:oMath", StringComparison.OrdinalIgnoreCase);
-            if (start > 0)
+            int startIdx = s.IndexOf("<m:oMath", StringComparison.OrdinalIgnoreCase);
+            if (startIdx > 0)
             {
-                s = s.Substring(start);
+                s = s.Substring(startIdx);
             }
+            // Word InsertXML does not support m:oMathPara; convert to m:oMath
+            s = ConvertMathParaToMath(s);
+            // Remove empty text runs like <m:r><m:t></m:t></m:r>
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:r>\s*<m:t\s*/>\s*</m:r>", "");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:r>\s*<m:t></m:t>\s*</m:r>", "");
+            // Trim leading spaces inside <m:t> content
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:t>(\s+)", "<m:t>");
             return s;
+        }
+
+        /// <summary>
+        /// Replace &lt;m:oMathPara&gt;...&lt;/m:oMathPara&gt; with &lt;m:oMath&gt;...&lt;/m:oMath&gt;
+        /// so that Word Range.InsertXML accepts the OMML.
+        /// </summary>
+        private static string ConvertMathParaToMath(string omml)
+        {
+            int openIdx = omml.IndexOf("<m:oMathPara", StringComparison.OrdinalIgnoreCase);
+            if (openIdx < 0) return omml;
+
+            // Find the matching close tag
+            int closeIdx = omml.IndexOf("</m:oMathPara>", StringComparison.OrdinalIgnoreCase);
+            if (closeIdx < 0) return omml;
+
+            string inner = omml.Substring(openIdx + "<m:oMathPara".Length,
+                                          closeIdx - openIdx - "<m:oMathPara".Length);
+            return "<m:oMath" + inner + "</m:oMath>";
         }
 
         private static string BuildFlatOpc(string mathBody)
