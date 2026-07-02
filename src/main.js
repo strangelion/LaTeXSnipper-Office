@@ -1521,6 +1521,7 @@ class UIController {
     document.getElementById('copySvg')?.addEventListener('click', () => this.copyFormula('svg'));
 
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
+    document.getElementById('loadFromWord')?.addEventListener('click', () => this.loadFromWord());
     this.updateOfficeInsertButton();
 
     document.getElementById('quickCopy')?.addEventListener('click', () => {
@@ -2868,12 +2869,14 @@ class UIController {
     }
     try {
       const { invoke } = await import('@tauri-apps/api/core');
+      const isDisplay = document.getElementById('displayMode')?.checked || false;
+      const formulaType = isDisplay ? 'display' : 'inline';
       const fontStyle = document.getElementById('fontStyleSelect')?.value || 'tex';
       const fontColor = document.getElementById('fontColor')?.value || '#000000';
       try {
         const result = await invoke('insert_formula', {
           request: {
-            formulaType: 'display',
+            formulaType,
             latex
           }
         });
@@ -2887,11 +2890,28 @@ class UIController {
       this.showToast('发送失败: ' + (e.message || e));
     }
   }
+
+  async loadFromWord() {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      this.showToast('正在从 Word 加载选中公式...');
+      const result = await invoke('load_selection');
+      this.showToast(result.message || '加载完成');
+    } catch (e) {
+      Logger.error('loadFromWord failed:', e);
+      this.showToast('加载失败: ' + (e.message || e));
+    }
+  }
+
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find(p => p.id === 'office');
     const btn = document.getElementById('insertToWord');
     if (btn) {
       btn.style.display = officePlatform?.enabled ? '' : 'none';
+    }
+    const loadBtn = document.getElementById('loadFromWord');
+    if (loadBtn) {
+      loadBtn.style.display = officePlatform?.enabled ? '' : 'none';
     }
   }
 

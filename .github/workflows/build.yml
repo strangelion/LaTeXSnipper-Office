@@ -1,0 +1,87 @@
+name: Build & Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auto bump version
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $bump = '${{ inputs.bump }}'
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $ver = [version]$conf.version
+          switch ($bump) {
+            'major' { $newVer = "$($ver.Major + 1).0.0" }
+            'minor' { $newVer = "$($ver.Major).$($ver.Minor + 1).0" }
+            'patch' { $newVer = "$($ver.Major).$($ver.Minor).$($ver.Build + 1)" }
+          }
+          $conf.version = $newVer
+          $conf | ConvertTo-Json -Depth 10 | Set-Content src-tauri/tauri.conf.json -Encoding UTF8
+          # Also update Cargo.toml version
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          $cargo = $cargo -replace 'version = ".*"', "version = `"$newVer`""
+          Set-Content src-tauri/Cargo.toml $cargo -Encoding UTF8
+          echo "VERSION=$newVer" >> $env:GITHUB_ENV
+          Write-Host "Bumped to $newVer"
+
+      - name: Read version for tag
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          echo "VERSION=$($conf.version)" >> $env:GITHUB_ENV
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build Tauri app
+        run: npx tauri build
+
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          files: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+          generate_release_notes: true

@@ -53,13 +53,16 @@ $word = $null
 try {{
   $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
 }} catch {{
-  $word = New-Object -ComObject Word.Application
-  $word.Visible = $true
+  throw 'Word is not running. Please open Word first, then try again.'
 }}
 if ($null -eq $word) {{
   throw 'Word.Application is not available.'
 }}
 $word.Visible = $true
+# Ensure a document is open
+if ($word.Documents.Count -eq 0) {{
+  [void]$word.Documents.Add()
+}}
 $addin = $word.COMAddIns.Item('LaTeXSnipper.Office')
 if ($null -eq $addin) {{
   throw 'LaTeXSnipper.Office add-in is not registered.'
@@ -109,11 +112,70 @@ Write-Output 'Inserted'
     })
 }
 #[command]
-pub async fn load_selection() -> Result<Option<String>, String> {
-    Logger::info("Loading selection...");
+pub async fn load_selection() -> Result<OfficeCommandResponse, String> {
+    tauri::async_runtime::spawn_blocking(|| load_selection_sync())
+        .await
+        .map_err(|err| format!("Office load selection task failed: {err}"))?
+}
 
-    // TODO: Implement Office COM interop to load selected formula
-    Ok(None)
+fn load_selection_sync() -> Result<OfficeCommandResponse, String> {
+    Logger::info("Loading selection via PowerShell COM...");
+
+    let script = r#"$ErrorActionPreference = 'Stop'
+$word = $null
+try {
+  $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
+} catch {
+  throw 'Word.Application is not running.'
+}
+if ($null -eq $word) {
+  throw 'Word.Application is not available.'
+}
+$word.Visible = $true
+$addin = $word.COMAddIns.Item('LaTeXSnipper.Office')
+if ($null -eq $addin) {
+  throw 'LaTeXSnipper.Office add-in is not registered.'
+}
+if (-not $addin.Connect) {
+  $addin.Connect = $true
+  Start-Sleep -Milliseconds 500
+}
+if ($null -eq $addin.Object) {
+  throw 'LaTeXSnipper.Office add-in object is not available. Restart Word and try again.'
+}
+$result = [bool]$addin.Object.LoadSelection()
+if ($result) {
+  Write-Output 'Selection loaded'
+} else {
+  Write-Output 'No formula selected or load failed'
+}
+"#;
+
+    let script_path = std::env::temp_dir().join(format!(
+        "latexsnipper_load_selection_{}.ps1",
+        std::process::id()
+    ));
+    fs::write(&script_path, script).map_err(|err| format!("Failed to write script: {err}"))?;
+
+    let output = ProcessCommand::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script_path)
+        .output()
+        .map_err(|err| format!("Failed to start PowerShell: {err}"));
+
+    let _ = fs::remove_file(&script_path);
+    let output = output?;
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if !output.status.success() {
+        return Err(format!("{}{}", stdout, stderr));
+    }
+
+    Ok(OfficeCommandResponse {
+        success: true,
+        message: if stdout.is_empty() { "Selection loaded".to_string() } else { stdout },
+    })
 }
 
 #[command]

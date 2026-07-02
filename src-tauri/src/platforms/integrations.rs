@@ -476,6 +476,69 @@ fn office_com_addin_registered() -> bool {
     addin_ok && com_ok
 }
 
+/// Auto-register the COM add-in on first run (called from app setup).
+pub async fn auto_register_office_addin(_app_handle: &tauri::AppHandle) {
+    if office_com_addin_registered() {
+        println!("[Office] COM add-in already registered, skipping.");
+        return;
+    }
+
+    println!("[Office] COM add-in not registered, attempting auto-registration...");
+
+    // Find the DLL in bundled resources
+    let dll_path = bundled_com_dll();
+    let Some(path) = dll_path else {
+        println!("[Office] COM DLL not found in resources, skipping auto-registration.");
+        return;
+    };
+
+    // Find regasm
+    let regasm = find_regasm();
+    let Some(regasm_path) = regasm else {
+        println!("[Office] regasm.exe not found, skipping auto-registration.");
+        return;
+    };
+
+    // Write PS1 script for registration (requires admin via UAC)
+    let script_path = std::env::temp_dir().join("latexsnipper_auto_register.ps1");
+    let script_content = format!(
+        r#"
+# Write Word add-in registry entries
+$addinKey = 'HKCU:\Software\Microsoft\Office\Word\Addins\LaTeXSnipper.Office'
+New-Item -Path $addinKey -Force | Out-Null
+Set-ItemProperty -Path $addinKey -Name 'FriendlyName' -Value 'LaTeXSnipper Office'
+Set-ItemProperty -Path $addinKey -Name 'Description' -Value 'LaTeXSnipper Office formula add-in'
+Set-ItemProperty -Path $addinKey -Name 'LoadBehavior' -Value 3 -Type DWord
+Set-ItemProperty -Path $addinKey -Name 'CommandLineSafe' -Value 0 -Type DWord
+
+# Register COM DLL via regasm
+& '{regasm}' '{dll}' /codebase /tlb
+Write-Output 'Registration complete.'
+"#,
+        regasm = regasm_path.to_string_lossy(),
+        dll = path.to_string_lossy()
+    );
+
+    if let Err(e) = std::fs::write(&script_path, &script_content) {
+        println!("[Office] Failed to write registration script: {}", e);
+        return;
+    }
+
+    // Run with UAC elevation
+    let _ = Command::new("powershell")
+        .args([
+            "-ExecutionPolicy",
+            "Bypass",
+            "-WindowStyle",
+            "Hidden",
+            "-File",
+            &script_path.to_string_lossy(),
+        ])
+        .spawn();
+
+    println!("[Office] Registration script launched (UAC prompt may appear).");
+}
+
 #[allow(dead_code)]
 fn office_vsto_registered() -> bool {
     let roots = [
@@ -650,27 +713,35 @@ fn unregister_com_dll() -> String {
 fn bundled_com_dll() -> Option<PathBuf> {
     let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
 
-    // Check relative to exe (bundled resources)
-    let bundled = exe_dir
+    // Check relative to exe (bundled resources) - try both names
+    let bundled_new = exe_dir
+        .join("resources")
+        .join("Office")
+        .join("LightweightAddIn")
+        .join("LaTeXSnipper.OfficeAddIn.dll");
+    if bundled_new.exists() {
+        return Some(bundled_new);
+    }
+
+    let bundled_old = exe_dir
         .join("resources")
         .join("LaTeXSnipper.OfficePlugin.dll");
-    if bundled.exists() {
-        return Some(bundled);
+    if bundled_old.exists() {
+        return Some(bundled_old);
     }
 
     // Check relative to source tree (dev mode)
-    if let Some(github_root) = github_root_from_manifest() {
-        let src = github_root
-            .join("LaTeXSnipper-Office")
-            .join("plugin")
-            .join("src")
-            .join("LaTeXSnipper.OfficePlugin")
-            .join("bin")
-            .join("Release")
-            .join("LaTeXSnipper.OfficePlugin.dll");
-        if src.exists() {
-            return Some(src);
-        }
+    let dev_dll = std::env::current_dir()
+        .ok()?
+        .join("src-tauri")
+        .join("target")
+        .join("debug")
+        .join("resources")
+        .join("Office")
+        .join("LightweightAddIn")
+        .join("LaTeXSnipper.OfficeAddIn.dll");
+    if dev_dll.exists() {
+        return Some(dev_dll);
     }
 
     None

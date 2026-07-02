@@ -127,14 +127,26 @@ namespace LaTeXSnipper.OfficeAddIn
   <ribbon>
     <tabs>
       <tab id=""LaTeXSnipperTab"" label=""LaTeXSnipper"" insertAfterMso=""TabReferences"">
-        <group id=""InsertGroup"" label=""Insert"">
-          <button id=""InsertInline"" label=""Inline Formula"" size=""large"" onAction=""OnInsertInline"" imageMso=""EquationInsertInline"" />
-          <button id=""InsertDisplay"" label=""Display Formula"" size=""large"" onAction=""OnInsertDisplay"" imageMso=""EquationInsertGallery"" />
-          <button id=""InsertNumbered"" label=""Numbered Equation"" size=""large"" onAction=""OnInsertNumbered"" imageMso=""EquationProfessional"" />
+        <group id=""InsertGroup"" label=""插入"">
+          <button id=""InsertInline"" label=""行内公式"" size=""large"" onAction=""OnInsertInline"" imageMso=""EquationInsertInline"" />
+          <button id=""InsertDisplay"" label=""显示公式"" size=""large"" onAction=""OnInsertDisplay"" imageMso=""EquationInsertGallery"" />
+          <button id=""InsertNumbered"" label=""编号公式"" size=""large"" onAction=""OnInsertNumbered"" imageMso=""EquationProfessional"" />
         </group>
-        <group id=""SelectionGroup"" label=""Selection"">
-          <button id=""LoadSelection"" label=""Load Selection"" size=""large"" onAction=""OnLoadSelection"" imageMso=""EquationOptions"" />
-          <button id=""ShowApp"" label=""Show App"" size=""large"" onAction=""OnShowApp"" imageMso=""WindowSwitch"" />
+        <group id=""EditGroup"" label=""编辑"">
+          <button id=""LoadSel"" label=""加载公式"" size=""large"" onAction=""OnLoadSelection"" imageMso=""ReviewDisplayForReview"" />
+          <button id=""DeleteSel"" label=""删除公式"" size=""large"" onAction=""OnDeleteSelection"" imageMso=""Delete"" />
+        </group>
+        <group id=""NumberingGroup"" label=""编号"">
+          <button id=""AutoNumber"" label=""自动编号"" size=""large"" onAction=""OnAutoNumber"" imageMso=""Numbering"" />
+          <button id=""Renumber"" label=""重新编号"" size=""large"" onAction=""OnRenumber"" imageMso=""NumberingRestart"" />
+        </group>
+        <group id=""FormattingGroup"" label=""格式"">
+          <button id=""FormatSelected"" label=""格式化选中"" size=""large"" onAction=""OnFormatSelected"" imageMso=""FormatPainter"" />
+          <button id=""FormatAll"" label=""格式化全部"" size=""large"" onAction=""OnFormatAll"" imageMso=""FontDialog"" />
+        </group>
+        <group id=""ToolsGroup"" label=""工具"">
+          <button id=""ShowAppBtn"" label=""打开应用"" size=""large"" onAction=""OnShowApp"" imageMso=""ReviewingPane"" />
+          <button id=""HelpBtn"" label=""帮助"" size=""large"" onAction=""OnHelp"" imageMso=""Help"" />
         </group>
       </tab>
     </tabs>
@@ -177,8 +189,84 @@ namespace LaTeXSnipper.OfficeAddIn
             catch (Exception ex)
             {
                 Log("OnLoadSelection exception: " + ex);
-                ShowMessage("Load Selection error: " + ex.Message);
+                ShowMessage("加载失败: " + ex.Message);
             }
+        }
+
+        public void OnDeleteSelection(object control)
+        {
+            Log("OnDeleteSelection");
+            try
+            {
+                DeleteSelection();
+            }
+            catch (Exception ex)
+            {
+                Log("OnDeleteSelection error: " + ex);
+                ShowMessage("删除失败: " + ex.Message);
+            }
+        }
+
+        public void OnAutoNumber(object control)
+        {
+            Log("OnAutoNumber");
+            try
+            {
+                AutoNumberSelected();
+            }
+            catch (Exception ex)
+            {
+                Log("OnAutoNumber error: " + ex);
+                ShowMessage("自动编号失败: " + ex.Message);
+            }
+        }
+
+        public void OnRenumber(object control)
+        {
+            Log("OnRenumber");
+            try
+            {
+                RenumberAll();
+            }
+            catch (Exception ex)
+            {
+                Log("OnRenumber error: " + ex);
+                ShowMessage("重新编号失败: " + ex.Message);
+            }
+        }
+
+        public void OnFormatSelected(object control)
+        {
+            Log("OnFormatSelected");
+            try
+            {
+                FormatSelected();
+            }
+            catch (Exception ex)
+            {
+                Log("OnFormatSelected error: " + ex);
+                ShowMessage("格式化失败: " + ex.Message);
+            }
+        }
+
+        public void OnFormatAll(object control)
+        {
+            Log("OnFormatAll");
+            try
+            {
+                FormatAll();
+            }
+            catch (Exception ex)
+            {
+                Log("OnFormatAll error: " + ex);
+                ShowMessage("格式化全部失败: " + ex.Message);
+            }
+        }
+
+        public void OnHelp(object control)
+        {
+            Log("OnHelp");
+            ShowMessage("LaTeXSnipper Word 加载项\n从 LaTeXSnipper 应用插入公式到 Word。\n\n功能：\n  行内/显示/编号公式插入\n  加载已有公式到编辑器\n  删除公式\n  自动编号 / 重新编号\n  格式化公式");
         }
 
         public bool LoadSelection()
@@ -197,8 +285,11 @@ namespace LaTeXSnipper.OfficeAddIn
                     return true;
                 }
 
-                string xml = Convert.ToString(GetProperty(range, "WordOpenXML"));
-                Log("LoadSelection xml length=" + (xml == null ? 0 : xml.Length));
+                // Try expanding selection to find math element
+                object expandedRange = GetProperty(selection, "Range");
+                try { Invoke(expandedRange, "Expand", 6); } catch { } // wdParagraph=6
+                string xml = Convert.ToString(GetProperty(expandedRange, "WordOpenXML"));
+                Log("LoadSelection expanded xml length=" + (xml == null ? 0 : xml.Length));
                 if (!string.IsNullOrWhiteSpace(xml) && xml.IndexOf("<m:oMath", StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     PostJson("/api/office/load-selection-omml", "{\"omml\":\"" + JsonEscape(xml) + "\"}", 5000);
@@ -210,7 +301,7 @@ namespace LaTeXSnipper.OfficeAddIn
                 Log("LoadSelection text=" + (text == null ? "null" : text));
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    ShowMessage("Please select a formula or text first.");
+                    ShowMessage("请先选中公式或文本。");
                     return false;
                 }
 
@@ -221,7 +312,7 @@ namespace LaTeXSnipper.OfficeAddIn
             catch (Exception ex)
             {
                 Log("OnLoadSelection failed: " + ex);
-                ShowMessage("Load selection failed: " + ex.Message);
+                ShowMessage("加载失败: " + ex.Message);
                 return false;
             }
         }
@@ -239,7 +330,7 @@ namespace LaTeXSnipper.OfficeAddIn
             if (string.IsNullOrWhiteSpace(latex))
             {
                 ShowApp();
-                ShowMessage("Formula editor is ready. Send a formula from LaTeXSnipper, then click Insert again.");
+                ShowMessage("编辑器已就绪。从 LaTeXSnipper 发送公式后，再次点击插入按钮。");
                 return;
             }
 
@@ -250,7 +341,7 @@ namespace LaTeXSnipper.OfficeAddIn
         {
             if (string.IsNullOrWhiteSpace(latex))
             {
-                ShowMessage("Formula is empty.");
+                ShowMessage("公式为空。");
                 return;
             }
 
@@ -262,7 +353,7 @@ namespace LaTeXSnipper.OfficeAddIn
                 string omml = ExtractOmml(json);
                 if (string.IsNullOrWhiteSpace(omml))
                 {
-                    ShowMessage("Failed to convert formula.");
+                    ShowMessage("公式转换失败。");
                     return;
                 }
 
@@ -276,47 +367,261 @@ namespace LaTeXSnipper.OfficeAddIn
 
                 object selRange = GetProperty(selection, "Range");
 
-                // Insert FlatOpc
-                Invoke(selRange, "InsertXML", BuildFlatOpc(cleaned));
-
-                // After InsertXML, cursor is after the formula.
-                // Get the paragraph containing the cursor.
-                object curRange = GetProperty(selection, "Range");
-                object curPara = GetProperty(curRange, "Paragraphs");
-                object para = Invoke(curPara, "Item", 1);
-                object paraRange = GetProperty(para, "Range");
-
-                int paraStart = Convert.ToInt32(GetProperty(paraRange, "Start"));
-                int paraEnd = Convert.ToInt32(GetProperty(paraRange, "End"));
-                // Exclude trailing paragraph mark (\r)
-                int ccEnd = paraEnd - 1;
-                int ccStart = paraStart;
-                if (ccEnd <= ccStart) ccEnd = ccStart + 1;
-
                 if (display)
                 {
+                    // Display/numbered: paragraph-merge, then center
+                    int originalPos = Convert.ToInt32(GetProperty(selRange, "Start"));
+
+                    Invoke(selection, "TypeParagraph");
+                    object tempSelRange = GetProperty(selection, "Range");
+                    Invoke(tempSelRange, "InsertXML", BuildFlatOpc(cleaned));
+
+                    // Delete paragraph mark to merge
+                    object pMark = Invoke(document, "Range", originalPos, originalPos + 1);
+                    Invoke(pMark, "Delete", 1, 1);
+
+                    // Center the paragraph
                     try
                     {
+                        object curRange = GetProperty(selection, "Range");
+                        object curPara = GetProperty(curRange, "Paragraphs");
+                        object para = Invoke(curPara, "Item", 1);
+                        object paraRange = GetProperty(para, "Range");
+                        int paraStart = Convert.ToInt32(GetProperty(paraRange, "Start"));
+                        int paraEnd = Convert.ToInt32(GetProperty(paraRange, "End"));
+                        int ccEnd = paraEnd - 1;
+                        int ccStart = paraStart;
+                        if (ccEnd <= ccStart) ccEnd = ccStart + 1;
                         object displayRange = Invoke(document, "Range", ccStart, ccEnd);
                         object paragraph = GetProperty(displayRange, "ParagraphFormat");
                         SetProperty(paragraph, "Alignment", 1);
                     }
                     catch { }
-                }
 
-                object insertedRange = Invoke(document, "Range", ccStart, ccEnd);
-                object contentControl = Invoke(controls, "Add", 0, insertedRange);
-                SetProperty(contentControl, "Title", "LaTeXSnipper Formula");
-                SetProperty(contentControl, "Tag", BuildFormulaTag(latex, display, numbered));
-                if (numbered)
+                    if (numbered)
+                    {
+                        Invoke(selection, "TypeText", " " + NextEquationNumber());
+                    }
+                }
+                else
                 {
-                    Invoke(selection, "TypeText", " " + NextEquationNumber());
+                    // Inline: paragraph-merge without ContentControl (clean, no dividing line)
+                    int originalPos = Convert.ToInt32(GetProperty(selRange, "Start"));
+
+                    Invoke(selection, "TypeParagraph");
+                    object tempSelRange = GetProperty(selection, "Range");
+                    Invoke(tempSelRange, "InsertXML", BuildFlatOpc(cleaned));
+
+                    // Delete the paragraph mark to merge into original paragraph
+                    object pMark = Invoke(document, "Range", originalPos, originalPos + 1);
+                    Invoke(pMark, "Delete", 1, 1);
                 }
             }
             catch (Exception ex)
             {
                 Log("InsertFormula failed: " + ex);
-                ShowMessage("Insert failed: " + ex.Message);
+                ShowMessage("插入失败: " + ex.Message);
+            }
+        }
+
+        // ═══ Delete Selection ═══
+        private void DeleteSelection()
+        {
+            object selection = GetProperty(wordApplication, "Selection");
+            object range = GetProperty(selection, "Range");
+            object document = GetProperty(wordApplication, "ActiveDocument");
+
+            // Try to find and delete ContentControl containing the cursor
+            object controls = GetProperty(document, "ContentControls");
+            int count = Convert.ToInt32(GetProperty(controls, "Count"));
+            for (int i = 1; i <= count; i++)
+            {
+                object cc = Invoke(controls, "Item", i);
+                object ccRange = GetProperty(cc, "Range");
+                int ccStart = Convert.ToInt32(GetProperty(ccRange, "Start"));
+                int ccEnd = Convert.ToInt32(GetProperty(ccRange, "End"));
+                int curPos = Convert.ToInt32(GetProperty(range, "Start"));
+                if (curPos >= ccStart && curPos <= ccEnd)
+                {
+                    string tag = Convert.ToString(GetProperty(cc, "Tag"));
+                    if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                    {
+                        Invoke(ccRange, "Delete");
+                        ShowMessage("公式已删除。");
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: try to delete the current math element
+            try
+            {
+                object mathRange = GetProperty(selection, "Range");
+                object math = Invoke(mathRange, "OMaths", null);
+                int mathCount = Convert.ToInt32(GetProperty(math, "Count"));
+                if (mathCount > 0)
+                {
+                    object firstMath = Invoke(math, "Item", 1);
+                    object mathParentRange = GetProperty(firstMath, "Range");
+                    Invoke(mathParentRange, "Delete");
+                        ShowMessage("公式已删除。");
+                    return;
+                }
+            }
+            catch { }
+
+            ShowMessage("光标位置未找到公式。");
+        }
+
+        // ═══ Auto Number ═══
+        private void AutoNumberSelected()
+        {
+            object selection = GetProperty(wordApplication, "Selection");
+            object range = GetProperty(selection, "Range");
+            object document = GetProperty(wordApplication, "ActiveDocument");
+
+            // Find ContentControl with formula tag
+            object controls = GetProperty(document, "ContentControls");
+            int count = Convert.ToInt32(GetProperty(controls, "Count"));
+            for (int i = 1; i <= count; i++)
+            {
+                object cc = Invoke(controls, "Item", i);
+                object ccRange = GetProperty(cc, "Range");
+                int ccStart = Convert.ToInt32(GetProperty(ccRange, "Start"));
+                int ccEnd = Convert.ToInt32(GetProperty(ccRange, "End"));
+                int curPos = Convert.ToInt32(GetProperty(range, "Start"));
+                if (curPos >= ccStart && curPos <= ccEnd)
+                {
+                    string tag = Convert.ToString(GetProperty(cc, "Tag"));
+                    if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                    {
+                        // Add equation number after the formula
+                        object afterRange = Invoke(document, "Range", ccEnd, ccEnd);
+                        string num = NextEquationNumber();
+                        Invoke(selection, "TypeText", " " + num);
+                        ShowMessage("已添加编号: " + num);
+                        return;
+                    }
+                }
+            }
+
+            ShowMessage("光标位置未找到公式。");
+        }
+
+        // ═══ Renumber All ═══
+        private void RenumberAll()
+        {
+            object selection = GetProperty(wordApplication, "Selection");
+            object document = GetProperty(wordApplication, "ActiveDocument");
+
+            // Find all ContentControls with LaTeXSnipper tags and renumber
+            object controls = GetProperty(document, "ContentControls");
+            int count = Convert.ToInt32(GetProperty(controls, "Count"));
+            int eqNum = 1;
+
+            for (int i = 1; i <= count; i++)
+            {
+                object cc = Invoke(controls, "Item", i);
+                string tag = Convert.ToString(GetProperty(cc, "Tag"));
+                if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                {
+                    string tagContent = Encoding.UTF8.GetString(Convert.FromBase64String(tag.Substring("latexsnipper:".Length)));
+                    if (tagContent.Contains("\"numbered\":true"))
+                    {
+                        // Find the equation number text after this ContentControl
+                        object ccRange = GetProperty(cc, "Range");
+                        int ccEnd = Convert.ToInt32(GetProperty(ccRange, "End"));
+                        object nextRange = Invoke(document, "Range", ccEnd, ccEnd + 20);
+                        string nextText = Convert.ToString(GetProperty(nextRange, "Text"));
+
+                        // Look for existing number pattern like (1), (2), etc.
+                        var numMatch = System.Text.RegularExpressions.Regex.Match(nextText, @"\(\d+\)");
+                        if (numMatch.Success)
+                        {
+                            object numRange = Invoke(document, "Range", ccEnd, ccEnd + numMatch.Length);
+                            Invoke(numRange, "Delete");
+                            string newNum = "(" + eqNum + ")";
+                            Invoke(selection, "TypeText", newNum);
+                            eqNum++;
+                        }
+                    }
+                }
+            }
+
+            // Reset equation counter
+            try
+            {
+                object variables = GetProperty(document, "Variables");
+                object variable = Invoke(variables, "Item", "LaTeXSnipperEqNum");
+                SetProperty(variable, "Value", (eqNum - 1).ToString());
+            }
+            catch
+            {
+                try
+                {
+                    object variables = GetProperty(document, "Variables");
+                    Invoke(variables, "Add", "LaTeXSnipperEqNum", (eqNum - 1).ToString());
+                }
+                catch { }
+            }
+
+            ShowMessage("已重新编号 " + (eqNum - 1) + " 个公式。");
+        }
+
+        // ═══ Format Selected ═══
+        private void FormatSelected()
+        {
+            object selection = GetProperty(wordApplication, "Selection");
+            object range = GetProperty(selection, "Range");
+
+            // Apply consistent formatting to math elements in selection
+            try
+            {
+                object math = Invoke(range, "OMaths", null);
+                int mathCount = Convert.ToInt32(GetProperty(math, "Count"));
+                if (mathCount > 0)
+                {
+                    for (int i = 1; i <= mathCount; i++)
+                    {
+                        object m = Invoke(math, "Item", i);
+                        object mRange = GetProperty(m, "Range");
+                        object font = GetProperty(mRange, "Font");
+                        SetProperty(font, "Name", "Cambria Math");
+                        SetProperty(font, "Size", 12);
+                    }
+                    ShowMessage("已格式化 " + mathCount + " 个公式。");
+                    return;
+                }
+            }
+            catch { }
+
+            ShowMessage("选中范围内未找到公式。");
+        }
+
+        // ═══ Format All ═══
+        private void FormatAll()
+        {
+            object selection = GetProperty(wordApplication, "Selection");
+            object document = GetProperty(wordApplication, "ActiveDocument");
+            object wholeRange = GetProperty(document, "Content");
+
+            try
+            {
+                object math = Invoke(wholeRange, "OMaths", null);
+                int mathCount = Convert.ToInt32(GetProperty(math, "Count"));
+                for (int i = 1; i <= mathCount; i++)
+                {
+                    object m = Invoke(math, "Item", i);
+                    object mRange = GetProperty(m, "Range");
+                    object font = GetProperty(mRange, "Font");
+                    SetProperty(font, "Name", "Cambria Math");
+                    SetProperty(font, "Size", 12);
+                }
+                ShowMessage("已格式化 " + mathCount + " 个公式。");
+            }
+            catch (Exception ex)
+            {
+                ShowMessage("格式化全部失败: " + ex.Message);
             }
         }
 
@@ -438,12 +743,57 @@ namespace LaTeXSnipper.OfficeAddIn
             }
             // Word InsertXML does not support m:oMathPara; convert to m:oMath
             s = ConvertMathParaToMath(s);
+            // Fix double-encoded UTF-8 characters throughout the OMML string
+            s = FixDoubleEncodedUtf8(s);
             // Remove empty text runs like <m:r><m:t></m:t></m:r>
             s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:r>\s*<m:t\s*/>\s*</m:r>", "");
             s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:r>\s*<m:t></m:t>\s*</m:r>", "");
             // Trim leading spaces inside <m:t> content
             s = System.Text.RegularExpressions.Regex.Replace(s, @"<m:t>(\s+)", "<m:t>");
             return s;
+        }
+
+        /// <summary>
+        /// Fix double-encoded UTF-8 throughout the string.
+        /// Detects consecutive chars in 0x80-0xFF range, tries to decode as UTF-8.
+        /// </summary>
+        private static string FixDoubleEncodedUtf8(string input)
+        {
+            var result = new System.Text.StringBuilder(input.Length);
+            int i = 0;
+            while (i < input.Length)
+            {
+                char c = input[i];
+                if (c >= 0x80 && c <= 0xFF)
+                {
+                    // Collect consecutive high-byte chars
+                    var raw = new System.Collections.Generic.List<byte>();
+                    int j = i;
+                    while (j < input.Length && input[j] >= 0x80 && input[j] <= 0xFF)
+                    {
+                        raw.Add((byte)input[j]);
+                        j++;
+                    }
+                    if (raw.Count >= 2)
+                    {
+                        try
+                        {
+                            string decoded = System.Text.Encoding.UTF8.GetString(raw.ToArray());
+                            // Only use if it decoded to fewer characters (was double-encoded)
+                            if (decoded.Length < raw.Count && decoded.Length > 0)
+                            {
+                                result.Append(decoded);
+                                i = j;
+                                continue;
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                result.Append(c);
+                i++;
+            }
+            return result.ToString();
         }
 
         /// <summary>
@@ -475,6 +825,19 @@ namespace LaTeXSnipper.OfficeAddIn
                 "<pkg:part pkg:name=\"/word/document.xml\" pkg:contentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\">" +
                 "<pkg:xmlData><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">" +
                 "<w:body><w:p>" + mathBody + "</w:p></w:body></w:document></pkg:xmlData></pkg:part></pkg:package>";
+        }
+
+        private static string BuildFlatOpcInline(string mathBody)
+        {
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                "<pkg:package xmlns:pkg=\"http://schemas.microsoft.com/office/2006/xmlPackage\">" +
+                "<pkg:part pkg:name=\"/_rels/.rels\" pkg:contentType=\"application/vnd.openxmlformats-package.relationships+xml\" pkg:padding=\"512\">" +
+                "<pkg:xmlData><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
+                "</Relationships></pkg:xmlData></pkg:part>" +
+                "<pkg:part pkg:name=\"/word/document.xml\" pkg:contentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\">" +
+                "<pkg:xmlData><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">" +
+                "<w:body><w:r>" + mathBody + "</w:r></w:body></w:document></pkg:xmlData></pkg:part></pkg:package>";
         }
 
         private string NextEquationNumber()

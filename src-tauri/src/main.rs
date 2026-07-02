@@ -73,6 +73,12 @@ fn main() {
                 platforms::office_bridge::start_bridge_server(app_handle).await;
             });
 
+            // Auto-register COM add-in on first run
+            let app_handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                platforms::integrations::auto_register_office_addin(&app_handle2).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

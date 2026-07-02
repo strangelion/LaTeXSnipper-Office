@@ -73,6 +73,9 @@ fn fix_omml(omml: &str) -> String {
     // Remove mml namespace prefix remnants
     s = s.replace(" xmlns:mml=\"http://www.w3.org/1998/Math/MathML\"", "");
 
+    // Fix double-encoded UTF-8: replace known corrupted character sequences
+    s = fix_double_encoded_utf8(&s);
+
     // Fix: if OMML only has bare <m:r><m:t>text</m:r> without any math structure,
     // wrap each run in proper italic formatting
     if !s.contains("<m:f>")
@@ -89,6 +92,44 @@ fn fix_omml(omml: &str) -> String {
     }
 
     s.trim().to_string()
+}
+
+/// Fix double-encoded UTF-8: when each byte of a multi-byte UTF-8 character
+/// is treated as a Latin-1 codepoint and re-encoded to UTF-8.
+/// E.g., ∫ (E2 88 AB) becomes âˆ« (C3A2 C288 C2AB).
+fn fix_double_encoded_utf8(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let cp = chars[i] as u32;
+        // Collect consecutive chars where codepoint is in Latin-1 range (0x80..0xFF)
+        // These are likely double-encoded bytes
+        if cp >= 0x80 && cp <= 0xFF {
+            let mut raw_bytes = Vec::new();
+            let mut j = i;
+            while j < chars.len() {
+                let c = chars[j] as u32;
+                if c >= 0x80 && c <= 0xFF {
+                    raw_bytes.push(c as u8);
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+            // Try to interpret the collected bytes as valid UTF-8
+            if raw_bytes.len() >= 2 {
+                if let Ok(decoded) = std::str::from_utf8(&raw_bytes) {
+                    result.push_str(decoded);
+                    i = j;
+                    continue;
+                }
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+    result
 }
 
 fn latex_to_omml_core(latex: &str) -> Option<String> {

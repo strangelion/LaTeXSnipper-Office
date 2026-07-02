@@ -1,12 +1,8 @@
 use tauri::command;
 
-/// Convert OMML XML string to LaTeX via core.
+/// Convert OMML XML string to LaTeX via core (formula only, no document wrapper).
 pub fn omml_to_latex_str(xml: &str) -> Result<String, String> {
-    latexsnipper_conversion::DocumentConverter::convert_omml_string(
-        xml,
-        latexsnipper_conversion::OutputFormat::Latex,
-    )
-    .map_err(|e| e.to_string())
+    latexsnipper_conversion::omml_parser::parse_omml_to_latex(xml)
 }
 
 /// Convert LaTeX string to OMML XML via core.
