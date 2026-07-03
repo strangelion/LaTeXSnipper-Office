@@ -76,8 +76,7 @@ namespace LaTeXSnipper.OfficeAddIn
     [ComVisible(true)]
     [Guid("71CE99BB-D608-45D7-B837-ABDE82B9B61A")]
     [ProgId("LaTeXSnipper.Office")]
-    [ClassInterface(ClassInterfaceType.None)]
-    [ComDefaultInterface(typeof(ILaTeXSnipperAutomation))]
+    [ClassInterface(ClassInterfaceType.AutoDual)]
     public sealed class LaTeXSnipperOfficeAddIn : IDTExtensibility2, IRibbonExtensibility, ILaTeXSnipperAutomation
     {
         private const string BridgeUrl = "http://127.0.0.1:19876";
