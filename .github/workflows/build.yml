@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: '版本号递增方式（如当前 0.1.0）'
+        description: '版本号递增（如当前 0.1.0 → patch=0.1.1 / minor=0.2.0 / major=1.0.0）'
         required: true
         default: 'patch'
         type: choice
