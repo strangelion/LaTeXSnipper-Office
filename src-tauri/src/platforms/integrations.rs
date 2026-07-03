@@ -524,17 +524,24 @@ Write-Output 'Registration complete.'
         return;
     }
 
-    // Run with UAC elevation
-    let _ = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            &script_path.to_string_lossy(),
-        ])
-        .spawn();
+    // Run with UAC elevation, hide console window
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
 
     println!("[Office] Registration script launched (UAC prompt may appear).");
 }
