@@ -166,10 +166,29 @@ fn detect_powerpoint() -> OfficeAppStatus {
 }
 
 fn detect_wps() -> bool {
-    query_reg(r"HKLM\SOFTWARE\Kingsoft\Office", "InstallPath").is_some()
-        || PathBuf::from(dirs_next::data_dir().unwrap_or_default())
-            .join("kingsoft")
-            .exists()
+    // Check registry
+    if query_reg(r"HKLM\SOFTWARE\Kingsoft\Office", "InstallPath").is_some() {
+        return true;
+    }
+    // Check common installation paths
+    let appdata = dirs_next::data_dir().unwrap_or_default();
+    let paths = [
+        PathBuf::from(&appdata).join("kingsoft"),
+        PathBuf::from(r"C:\Program Files\Kingsoft\Office6"),
+        PathBuf::from(r"C:\Program Files (x86)\Kingsoft\Office6"),
+        PathBuf::from(r"C:\Users\Public\Kingsoft\Office6"),
+    ];
+    for p in &paths {
+        if p.exists() {
+            return true;
+        }
+    }
+    // Check for WPS JS API plugin
+    let wps_addin = PathBuf::from(&appdata)
+        .join("kingsoft")
+        .join("wps")
+        .join("addin");
+    wps_addin.exists()
 }
 
 fn word_startup_dir() -> String {

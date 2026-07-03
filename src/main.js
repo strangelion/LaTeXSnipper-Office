@@ -1364,6 +1364,7 @@ class UIController {
     this.loadPlatforms();
     this.renderPlatformList();
     this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
 
     this.initHistoryDb();
     
@@ -1519,10 +1520,13 @@ class UIController {
     document.getElementById('copyLatex')?.addEventListener('click', () => this.copyFormula('latex'));
     document.getElementById('copyMathml')?.addEventListener('click', () => this.copyFormula('mathml'));
     document.getElementById('copySvg')?.addEventListener('click', () => this.copyFormula('svg'));
+    document.getElementById('copyMd')?.addEventListener('click', () => this.copyFormula('md'));
 
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
     document.getElementById('loadFromWord')?.addEventListener('click', () => this.loadFromWord());
     this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
+    this.updateMdCopyButton();
 
     document.getElementById('quickCopy')?.addEventListener('click', () => {
       const enabledPlatform = this.platforms.find(p => p.enabled);
@@ -2860,6 +2864,9 @@ class UIController {
       } else if (format === 'svg') {
         const svg = await this.editor.renderer.render(latex, false);
         textToCopy = svg || latex;
+      } else if (format === 'md') {
+        const isDisplay = document.getElementById('displayMode')?.checked || false;
+        textToCopy = isDisplay ? `$$\n${latex}\n$$` : `$${latex}$`;
       }
 
       const textarea = document.createElement('textarea');
@@ -2873,8 +2880,9 @@ class UIController {
       const ok = document.execCommand('copy');
       document.body.removeChild(textarea);
 
+      const labelMap = { latex: 'LaTeX', mathml: 'MathML', svg: 'SVG', md: 'Markdown' };
       if (ok) {
-        this.showToast(`已复制 ${format.toUpperCase()}`);
+        this.showToast(`已复制 ${labelMap[format] || format.toUpperCase()}`);
         this.addHistoryItem(latex);
         Logger.info(`Copy successful: ${format}`);
       } else {
@@ -2939,6 +2947,14 @@ class UIController {
     const loadBtn = document.getElementById('loadFromWord');
     if (loadBtn) {
       loadBtn.style.display = officePlatform?.enabled ? '' : 'none';
+    }
+  }
+
+  updateMdCopyButton() {
+    const hasMdPlatform = this.platforms.some(p => p.enabled && p.copyAsMd);
+    const btn = document.getElementById('copyMd');
+    if (btn) {
+      btn.style.display = hasMdPlatform ? '' : 'none';
     }
   }
 
@@ -3007,6 +3023,7 @@ class UIController {
       color: '#7c3aed',
       enabled: false,
       format: 'markdown_inline',
+      copyAsMd: true,
       shortcut: null,
     },
     {
@@ -3022,11 +3039,12 @@ class UIController {
     {
       id: 'wps',
       name: 'WPS Office',
-      desc: '办公套件',
+      desc: '办公套件（自动检测）',
       icon: '/icons/platforms/wps.svg',
       color: '#00a651',
       enabled: false,
       format: 'omml',
+      copyAsMd: true,
       shortcut: null,
     },
     {
@@ -3047,6 +3065,7 @@ class UIController {
       color: '#000000',
       enabled: false,
       format: 'latex',
+      copyAsMd: true,
       shortcut: null,
     },
     {
@@ -3057,6 +3076,7 @@ class UIController {
       color: '#18a303',
       enabled: false,
       format: 'mathml',
+      copyAsMd: true,
       shortcut: null,
     },
   ];
@@ -3193,6 +3213,7 @@ class UIController {
           this.platformOperations.delete(platformId);
           await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
           this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
         }
       });
     });
