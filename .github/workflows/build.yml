@@ -37,6 +37,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Bump version
+        id: version
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
@@ -61,6 +62,7 @@ jobs:
           echo "Bumped $OLD -> $NEW"
 
       - name: Read version
+        id: version
         if: github.event_name == 'push'
         run: |
           VER=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\(.*\)".*/\1/')
