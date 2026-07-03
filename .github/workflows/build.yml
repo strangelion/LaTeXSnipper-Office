@@ -28,7 +28,7 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
+      version: ${{ steps.resolve.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,37 +36,34 @@ jobs:
           submodules: recursive
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump version
-        id: version
-        if: github.event_name == 'workflow_dispatch'
+      - name: Resolve version
+        id: resolve
         shell: bash
         run: |
-          BUMP="${{ inputs.bump }}"
-          OVERRIDE="${{ inputs.bump_override }}"
           CONF="src-tauri/tauri.conf.json"
           CARGO="src-tauri/Cargo.toml"
-          OLD=$(grep '"version"' $CONF | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
-          if [ -n "$OVERRIDE" ]; then
-            NEW="$OVERRIDE"
-          elif [ "$BUMP" = "major" ]; then
-            NEW="$((MAJOR+1)).0.0"
-          elif [ "$BUMP" = "minor" ]; then
-            NEW="$MAJOR.$((MINOR+1)).0"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BUMP="${{ inputs.bump }}"
+            OVERRIDE="${{ inputs.bump_override }}"
+            OLD=$(grep '"version"' $CONF | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
+            if [ -n "$OVERRIDE" ]; then
+              NEW="$OVERRIDE"
+            elif [ "$BUMP" = "major" ]; then
+              NEW="$((MAJOR+1)).0.0"
+            elif [ "$BUMP" = "minor" ]; then
+              NEW="$MAJOR.$((MINOR+1)).0"
+            else
+              NEW="$MAJOR.$MINOR.$((PATCH+1))"
+            fi
+            sed -i "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" $CONF
+            sed -i "s/^version = .*/version = \"$NEW\"/" $CARGO
+            echo "Bumped $OLD -> $NEW"
           else
-            NEW="$MAJOR.$MINOR.$((PATCH+1))"
+            NEW=$(grep '"version"' $CONF | head -1 | sed 's/.*"\(.*\)".*/\1/')
           fi
-          sed -i "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" $CONF
-          sed -i "s/^version = .*/version = \"$NEW\"/" $CARGO
           echo "version=$NEW" >> $GITHUB_OUTPUT
-          echo "Bumped $OLD -> $NEW"
-
-      - name: Read version
-        id: version
-        if: github.event_name == 'push'
-        run: |
-          VER=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "Version: $NEW"
 
       - name: Commit version bump
         if: github.event_name == 'workflow_dispatch'
