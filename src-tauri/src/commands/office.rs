@@ -22,6 +22,9 @@ pub struct OfficeCommandResponse {
 pub async fn insert_formula(
     request: InsertFormulaRequest,
 ) -> Result<OfficeCommandResponse, String> {
+    #[cfg(not(target_os = "windows"))]
+    return Err("Word 插入功能仅支持 Windows 系统".to_string());
+    #[cfg(target_os = "windows")]
     tauri::async_runtime::spawn_blocking(move || insert_formula_sync(request))
         .await
         .map_err(|err| format!("Office insert task failed: {err}"))?
@@ -88,11 +91,26 @@ Write-Output 'Inserted'
     ));
     fs::write(&script_path, script).map_err(|err| format!("Failed to write script: {err}"))?;
 
-    let output = ProcessCommand::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script_path)
-        .output()
-        .map_err(|err| format!("Failed to start PowerShell: {err}"));
+    let output = {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            ProcessCommand::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            ProcessCommand::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .output()
+        }
+    }
+    .map_err(|err| format!("Failed to start PowerShell: {err}"));
 
     let _ = fs::remove_file(&script_path);
     let output = output?;
@@ -113,6 +131,9 @@ Write-Output 'Inserted'
 }
 #[command]
 pub async fn load_selection() -> Result<OfficeCommandResponse, String> {
+    #[cfg(not(target_os = "windows"))]
+    return Err("Word 加载功能仅支持 Windows 系统".to_string());
+    #[cfg(target_os = "windows")]
     tauri::async_runtime::spawn_blocking(|| load_selection_sync())
         .await
         .map_err(|err| format!("Office load selection task failed: {err}"))?
@@ -157,11 +178,26 @@ if ($result) {
     ));
     fs::write(&script_path, script).map_err(|err| format!("Failed to write script: {err}"))?;
 
-    let output = ProcessCommand::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script_path)
-        .output()
-        .map_err(|err| format!("Failed to start PowerShell: {err}"));
+    let output = {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            ProcessCommand::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            ProcessCommand::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .output()
+        }
+    }
+    .map_err(|err| format!("Failed to start PowerShell: {err}"));
 
     let _ = fs::remove_file(&script_path);
     let output = output?;

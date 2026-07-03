@@ -478,6 +478,12 @@ fn office_com_addin_registered() -> bool {
 
 /// Auto-register the COM add-in on first run (called from app setup).
 pub async fn auto_register_office_addin(_app_handle: &tauri::AppHandle) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        println!("[Office] COM add-in registration skipped (not Windows).");
+        return;
+    }
+
     if office_com_addin_registered() {
         println!("[Office] COM add-in already registered, skipping.");
         return;
