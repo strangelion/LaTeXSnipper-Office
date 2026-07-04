@@ -30,9 +30,11 @@ function setEditorContent(text: string) {
   if (el) el.value = text;
 }
 
-function getInsertMode(): 'inline' | 'display' | 'numbered' {
+function getInsertMode(): 'inline' | 'display' | 'display-numbered' {
   const sel = document.getElementById('modeSelect') as HTMLSelectElement;
-  return (sel?.value as 'inline' | 'display' | 'numbered') || 'display';
+  const val = sel?.value;
+  if (val === 'numbered') return 'display-numbered';
+  return (val as 'inline' | 'display' | 'display-numbered') || 'display';
 }
 
 /**
@@ -87,7 +89,7 @@ async function handleInsert() {
           type: 'equation',
           math: { type: 'latex', content },
           display: mode !== 'inline',
-          numbered: mode === 'numbered',
+          numbered: mode === 'display-numbered',
         }],
       },
       mode,

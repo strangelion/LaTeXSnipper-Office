@@ -32,8 +32,8 @@
     ],
     "resources": [
       "resources/DirectML.dll",
-      "resources/LaTeXSnipper.dotm",
-      "resources/OfficeJS/*"
+      "resources/OfficeJS/*",
+      "resources/OfficeJS/taskpane/*"
     ],
     "windows": {
       "webviewInstallMode": {

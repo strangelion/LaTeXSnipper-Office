@@ -6,15 +6,14 @@
   "scripts": {
     "dev": "vite --mode development",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cert:dev": "node scripts/generate-dev-cert.mjs",
+    "cert:trust": "certutil -addstore -user Root cert/localhost.crt"
   },
-  "dependencies": {
-    "office-js": "^1.0.0",
-    "@microsoft/office-js-helpers": "^1.0.1"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@types/office-js": "^1.0.400",
     "typescript": "^5.4.0",
-    "vite": "^5.4.0",
-    "vite-plugin-static-copy": "^1.0.0"
+    "vite": "^5.4.0"
   }
 }

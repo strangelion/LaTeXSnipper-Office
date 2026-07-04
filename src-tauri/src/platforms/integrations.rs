@@ -90,7 +90,7 @@ pub(crate) fn uninstall_platform_integration_sync(
     platform_id: String,
 ) -> PlatformIntegrationResult {
     match platform_id.as_str() {
-        "office" => uninstall_office_vsto(),
+        "office" => uninstall_office_addin(),
         "obsidian" => remove_generated_dir("obsidian", "plugin", obsidian_staging_dir()),
         "vscode" => remove_generated_dir("vscode", "plugin", vscode_extension_dir()),
         "wps" => uninstall_wps(),
@@ -129,7 +129,7 @@ pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrat
 
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
     match platform_id.as_str() {
-        "office" => check_office_vsto(),
+        "office" => check_office_addin(),
         "obsidian" => check_path(
             "obsidian",
             "plugin",
@@ -1018,71 +1018,69 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
     None
 }
 
-fn uninstall_office_vsto() -> PlatformIntegrationResult {
-    cleanup_legacy_office_com_addins();
+fn uninstall_office_addin() -> PlatformIntegrationResult {
+    // Remove Office.js manifest from Wef directories
+    let wef_paths = if cfg!(target_os = "windows") {
+        let local_appdata = std::env::var("LOCALAPPDATA").ok()
+            .or_else(|| dirs_next::data_dir().map(|d| d.to_string_lossy().to_string()))
+            .unwrap_or_default();
+        vec![
+            PathBuf::from(&local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef"),
+        ]
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME").unwrap_or_default();
+        vec![
+            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Word").join("Data").join("Documents").join("wef"),
+            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Excel").join("Data").join("Documents").join("wef"),
+            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Powerpoint").join("Data").join("Documents").join("wef"),
+        ]
+    } else {
+        return PlatformIntegrationResult::fail("office", "wef", "不支持的操作系统");
+    };
 
-    for app in ["Word", "Excel", "PowerPoint"] {
-        for key in office_addin_registry_roots(app) {
-            reg_delete_tree(&key);
+    let mut removed = false;
+    for wef_dir in &wef_paths {
+        let manifest_path = wef_dir.join("LaTeXSnipper.xml");
+        if manifest_path.exists() {
+            if std::fs::remove_file(&manifest_path).is_ok() {
+                println!("[Office] Removed manifest: {}", manifest_path.display());
+                removed = true;
+            }
         }
     }
 
-    unregister_hkcu_office_com_addin();
-
-    let startup = office_startup_dotm();
-    if startup.exists() {
-        let backup_dir = office_backup_dir();
-        let _ = fs::create_dir_all(&backup_dir);
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let backup_path = backup_dir.join(format!("LaTeXSnipper_legacy_{timestamp}.dotm"));
-        let _ = fs::rename(&startup, &backup_path).or_else(|_| fs::remove_file(&startup));
+    if removed {
+        PlatformIntegrationResult::ok("office", "office-js", "Office.js 加载项已卸载。重启 Word 后生效。", true)
+    } else {
+        PlatformIntegrationResult::ok("office", "office-js", "未找到已安装的 Office.js 加载项。", false)
     }
-
-    PlatformIntegrationResult::ok(
-        "office",
-        "com-addin",
-        "新的 Office 加载项注册已卸载，旧 .dotm 残留也已清理。请在 UAC 中确认后重启 Word。",
-        true,
-    )
 }
 
-fn check_office_vsto() -> PlatformIntegrationResult {
-    let startup = office_startup_dotm();
+fn check_office_addin() -> PlatformIntegrationResult {
     let status = super::office::detect_office_cached();
+    if !status.installed {
+        return PlatformIntegrationResult::fail("office", "not_found", "未检测到 Microsoft Office。");
+    }
 
-    if office_com_addin_registered() {
-        PlatformIntegrationResult::ok(
-            "office",
-            "com-addin",
-            "新的 Office COM 加载项已注册。",
-            false,
-        )
-    } else if startup.exists() {
-        PlatformIntegrationResult::fail(
-            "office",
-            "legacy-dotm",
-            format!(
-                "检测到旧 .dotm 残留: {}。关闭开关可清理旧残留。",
-                startup.display()
-            ),
-        )
-    } else if !status.installed {
-        PlatformIntegrationResult::fail("office", "not_found", "未检测到 Microsoft Office。")
-    } else if let Some(dll) = new_office_addin_dll() {
-        PlatformIntegrationResult::fail(
-            "office",
-            "com-addin",
-            format!("新的 Office 加载项尚未注册。DLL: {}", dll.display()),
-        )
+    // Check if Office.js manifest exists in Wef directory
+    let manifest_exists = if cfg!(target_os = "windows") {
+        let local_appdata = std::env::var("LOCALAPPDATA").ok()
+            .or_else(|| dirs_next::data_dir().map(|d| d.to_string_lossy().to_string()))
+            .unwrap_or_default();
+        let wef_dir = PathBuf::from(&local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef");
+        wef_dir.join("LaTeXSnipper.xml").exists()
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let wef_dir = PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Word").join("Data").join("Documents").join("wef");
+        wef_dir.join("LaTeXSnipper.xml").exists()
     } else {
-        PlatformIntegrationResult::fail(
-            "office",
-            "com-addin",
-            "新的 Office 加载项尚未编译。打开开关会尝试自动编译并注册。",
-        )
+        false
+    };
+
+    if manifest_exists {
+        PlatformIntegrationResult::ok("office", "office-js", "Office.js 加载项已安装。重启 Word 后生效。", false)
+    } else {
+        PlatformIntegrationResult::fail("office", "office-js", "Office.js 加载项未安装。请启用 Office 平台。")
     }
 }
 

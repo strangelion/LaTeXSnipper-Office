@@ -110,7 +110,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
     return {
       host: 'word',
       platform,
-      version: Office.version || '0.0.0',
+      version: (Office && Office.context && Office.context.diagnostics) ? Office.context.diagnostics.version : '0.0.0',
     };
   }
 

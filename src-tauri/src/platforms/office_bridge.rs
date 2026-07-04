@@ -1,4 +1,4 @@
-use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
+use axum::{extract::State, response::IntoResponse, routing::get, routing::post, Json, Router};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -6,6 +6,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
+use tauri::Manager;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
 use tower_http::services::ServeDir;
@@ -138,28 +139,45 @@ fn fix_double_encoded_utf8(s: &str) -> String {
 }
 
 /// Find the Office.js taskpane dist directory.
-fn find_office_js_dist() -> String {
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let dist_dir = exe_dir.join("taskpane");
-            if dist_dir.exists() {
-                return dist_dir.to_string_lossy().to_string();
+fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
+    // 1. Try resource_dir/OfficeJS/taskpane (production bundle)
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let taskpane_dir = resource_dir.join("OfficeJS").join("taskpane");
+        if taskpane_dir.join("index.html").exists() {
+            return taskpane_dir.to_string_lossy().to_string();
+        }
+        // Fallback: try resources/OfficeJS/taskpane next to the exe
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let alt = exe_dir.join("resources").join("OfficeJS").join("taskpane");
+                if alt.join("index.html").exists() {
+                    return alt.to_string_lossy().to_string();
+                }
             }
         }
     }
+    // 2. Try project dist directory (dev mode)
     let dev_dist = PathBuf::from("dist");
-    if dev_dist.exists() {
+    if dev_dist.join("index.html").exists() {
         return dev_dist.to_string_lossy().to_string();
     }
+    // 3. Try apps/office-addin/dist
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let dist_dir = PathBuf::from(&manifest_dir)
-            .parent()
-            .map(|p| p.join("dist"))
-            .unwrap_or(dev_dist);
-        if dist_dir.exists() {
-            return dist_dir.to_string_lossy().to_string();
+        let addin_dist = PathBuf::from(&manifest_dir).parent().map(|p| p.join("apps").join("office-addin").join("dist"));
+        if let Some(dir) = addin_dist {
+            if dir.join("index.html").exists() {
+                return dir.to_string_lossy().to_string();
+            }
+        }
+        // 4. Fallback: root dist/
+        let root_dist = PathBuf::from(&manifest_dir).parent().map(|p| p.join("dist"));
+        if let Some(dir) = root_dist {
+            if dir.join("index.html").exists() {
+                return dir.to_string_lossy().to_string();
+            }
         }
     }
+    eprintln!("[Bridge] WARNING: Office.js taskpane not found. Use build:office-addin first.");
     String::from("dist")
 }
 
@@ -181,9 +199,11 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         pending_renders: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    // Try to serve Office.js taskpane files from dist/
-    let dist_path = find_office_js_dist();
+    // Try to serve Office.js taskpane files from resource dir
+    let dist_path = find_office_js_dist(&app_handle);
+    println!("[Bridge] Serving Office.js taskpane from: {}", dist_path);
     let app = Router::new()
+        .route("/health", get(|| async { Json(serde_json::json!({"status": "ok", "service": "latexsnipper-bridge"})) }))
         .route("/api/office/convert", post(handle_convert))
         .route("/api/office/render-formula", post(handle_render_formula))
         .route("/api/office/render-result", post(handle_render_result))

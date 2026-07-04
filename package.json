@@ -6,7 +6,7 @@
   "scripts": {
     "dev:vite": "vite",
     "build:vite": "vite build",
-    "build:office-addin": "echo 'COM add-in removed, using Office.js instead'",
+    "build:office-addin": "npm --prefix apps/office-addin run build && node scripts/stage-office-addin.mjs",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",
