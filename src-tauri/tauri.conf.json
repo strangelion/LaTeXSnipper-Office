@@ -31,9 +31,11 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/*",
-      "resources/Office/LightweightAddIn/*",
-      "resources/vba/*"
+      "resources/DirectML.dll",
+      "resources/LaTeXSnipper.dotm",
+      "resources/LaTeXSnipper.OfficePlugin.dll",
+      "resources/Office/LightweightAddIn/*.dll",
+      "resources/vba/*.bas"
     ],
     "windows": {
       "webviewInstallMode": {

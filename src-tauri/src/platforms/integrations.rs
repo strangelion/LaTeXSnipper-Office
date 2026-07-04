@@ -235,12 +235,28 @@ fn build_new_office_addin() -> Result<PathBuf, String> {
         return Err("新的 Office 加载项 build.ps1 不存在。".to_string());
     };
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(&script)
-        .args(["-Platform", "x64"])
-        .output()
-        .map_err(|err| format!("启动 Office 加载项编译失败: {err}"))?;
+    let output = {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script)
+                .args(["-Platform", "x64"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script)
+                .args(["-Platform", "x64"])
+                .output()
+        }
+    }
+    .map_err(|err| format!("启动 Office 加载项编译失败: {err}"))?;
 
     if !output.status.success() {
         return Err(format!(
@@ -297,19 +313,41 @@ fn spawn_regasm(dll: &Path, unregister: bool) -> Result<(), String> {
         escape_ps_path(&regasm),
         args.replace('"', "`\"")
     );
-    Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            &script,
-        ])
-        .spawn()
-        .map(|_| ())
-        .map_err(|err| format!("启动 RegAsm 失败: {err}"))
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("启动 RegAsm 失败: {err}"))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &script,
+            ])
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| format!("启动 RegAsm 失败: {err}"))
+    }
 }
 
 fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
@@ -662,16 +700,35 @@ fn register_com_dll() -> String {
     }
 
     // Fire-and-forget — UAC dialog appears but app continues
-    let _ = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            &script_path.to_string_lossy(),
-        ])
-        .spawn();
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = Command::new("powershell")
+            .args([
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("powershell")
+            .args([
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .spawn();
+    }
 
     "COM registration started (UAC will appear).".to_string()
 }
@@ -708,16 +765,35 @@ fn unregister_com_dll() -> String {
     );
 
     let _ = fs::write(&script_path, &script_content);
-    let _ = Command::new("powershell")
-        .args([
-            "-ExecutionPolicy",
-            "Bypass",
-            "-WindowStyle",
-            "Hidden",
-            "-File",
-            &script_path.to_string_lossy(),
-        ])
-        .spawn();
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = Command::new("powershell")
+            .args([
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = Command::new("powershell")
+            .args([
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-File",
+                &script_path.to_string_lossy(),
+            ])
+            .spawn();
+    }
 
     "COM unregistration started.".to_string()
 }
