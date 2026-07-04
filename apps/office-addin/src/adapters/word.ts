@@ -64,7 +64,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Insert a formula into the current selection
    */
   async insertFormula(request: InsertFormulaRequest): Promise<void> {
-    const ooxml = this.buildFormulaOoxml(request);
+    const ooxml = await this.buildFormulaOoxml(request);
 
     return Word.run(async (context) => {
       const selection = context.document.getSelection();
@@ -77,7 +77,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Replace the selected formula
    */
   async replaceSelectedFormula(request: ReplaceFormulaRequest): Promise<void> {
-    const ooxml = this.buildEquationOoxml(request.formula);
+    const ooxml = await this.buildEquationOoxml(request.formula);
 
     return Word.run(async (context) => {
       const selection = context.document.getSelection();
@@ -179,11 +179,33 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   }
 
   /**
-   * Extract formula from OOXML
+   * Extract formula from OOXML using Bridge API
    */
-  private extractFormulaFromOoxml(_xml: string): EquationBlock | null {
-    // TODO: Implement full OMML → MathIR → LaTeX conversion
-    return null;
+  private async extractFormulaFromOoxml(xml: string): Promise<EquationBlock | null> {
+    const mathMatch = xml.match(/<m:oMath[^>]*>.*?<\/m:oMath>/s);
+    if (!mathMatch) return null;
+
+    const omml = mathMatch[0];
+    const display = xml.includes('<m:oMathPara');
+
+    try {
+      // Convert OMML to LaTeX via Bridge
+      const bridgeUrl = 'http://127.0.0.1:19876';
+      const response = await fetch(`${bridgeUrl}/api/office/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latex: omml, display }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.latex) {
+          return { math: { type: 'latex' as const, content: data.latex }, display, numbered: false };
+        }
+      }
+    } catch {}
+
+    // Fallback: return raw OMML
+    return { math: { type: 'omml' as const, content: omml }, display, numbered: false };
   }
 
   /**
@@ -200,12 +222,12 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   /**
    * Build OOXML from a formula insert request
    */
-  private buildFormulaOoxml(request: InsertFormulaRequest): string {
+  private async buildFormulaOoxml(request: InsertFormulaRequest): Promise<string> {
     if (request.mode === 'display-numbered') {
       return this.buildNumberedEquationOoxml(request);
     }
 
-    const mathContent = this.extractOmml(request.fragment);
+    const mathContent = await this.extractOmml(request.fragment);
     const mathTag = request.mode === 'display' ? 'm:oMathPara' : 'm:oMath';
 
     return this.wrapInFlatOpc(`<w:p><${mathTag}>${mathContent}</${mathTag}></w:p>`);
@@ -214,8 +236,8 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   /**
    * Build a numbered equation using 3-column table layout
    */
-  private buildNumberedEquationOoxml(request: InsertFormulaRequest): string {
-    const mathContent = this.extractOmml(request.fragment);
+  private async buildNumberedEquationOoxml(request: InsertFormulaRequest): Promise<string> {
+    const mathContent = await this.extractOmml(request.fragment);
     return this.wrapInFlatOpc(
       `<w:tbl><w:tr>` +
       `<w:tc><w:p><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p></w:tc>` +
@@ -228,30 +250,66 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   /**
    * Build OOXML for a single equation
    */
-  private buildEquationOoxml(formula: EquationBlock): string {
+  private async buildEquationOoxml(formula: EquationBlock): Promise<string> {
     const mathTag = formula.display ? 'm:oMathPara' : 'm:oMath';
-    const content = formula.math.type === 'latex'
-      ? `<m:r><m:t>${this.escapeXml(formula.math.content)}</m:t></m:r>`
-      : formula.math.content;
+    let content: string;
+
+    if (formula.math.type === 'omml') {
+      content = formula.math.content;
+    } else if (formula.math.type === 'latex') {
+      content = await this.latexToOmml(formula.math.content, formula.display);
+    } else {
+      content = `<m:r><m:t>${this.escapeXml(formula.math.content)}</m:t></m:r>`;
+    }
 
     return this.wrapInFlatOpc(`<w:p><${mathTag}>${content}</${mathTag}></w:p>`);
   }
 
   /**
-   * Extract OMML from a DocumentFragment
+   * Extract OMML from a DocumentFragment, converting LaTeX via Bridge if needed
    */
-  private extractOmml(fragment: DocumentFragment): string {
+  private async extractOmml(fragment: DocumentFragment): Promise<string> {
     for (const block of fragment.blocks) {
       if (block.type === 'equation') {
         if (block.math.type === 'omml') {
           return block.math.content;
         }
-        // For LaTeX and MathML, we need conversion via WASM
-        // Currently placeholder
+        if (block.math.type === 'latex') {
+          // Convert LaTeX to OMML via Bridge API
+          const omml = await this.latexToOmml(block.math.content, block.display);
+          return omml;
+        }
+        // MathML fallback
         return `<m:r><m:t>${this.escapeXml(block.math.content)}</m:t></m:r>`;
       }
     }
     return '';
+  }
+
+  /**
+   * Call Bridge API to convert LaTeX to OMML
+   */
+  private async latexToOmml(latex: string, display: boolean): Promise<string> {
+    const bridgeUrl = 'http://127.0.0.1:19876';
+    try {
+      const response = await fetch(`${bridgeUrl}/api/office/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latex, display }),
+      });
+      if (!response.ok) return this.fallbackOmml(latex);
+      const data = await response.json();
+      return data.omml || this.fallbackOmml(latex);
+    } catch {
+      return this.fallbackOmml(latex);
+    }
+  }
+
+  /**
+   * Fallback when Bridge is unreachable: wrap LaTeX in text run
+   */
+  private fallbackOmml(latex: string): string {
+    return `<m:r><m:t>${this.escapeXml(latex)}</m:t></m:r>`;
   }
 
   /**

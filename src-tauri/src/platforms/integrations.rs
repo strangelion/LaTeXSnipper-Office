@@ -995,9 +995,10 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let candidates = [
+                exe_dir.join("resources").join("OfficeJS").join("manifest.word.desktop.xml"),
+                exe_dir.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
                 exe_dir.join("resources").join("OfficeJS").join("manifest.xml"),
-                exe_dir.join("resources").join("officejs").join("manifest.xml"),
-                exe_dir.join("officejs").join("manifest.xml"),
+                exe_dir.join("resources").join("officejs").join("manifest.word.desktop.xml"),
             ];
             for p in &candidates {
                 if p.exists() {
@@ -1008,10 +1009,16 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
     }
 
     // Check relative to CWD (dev mode)
-    for rel in &["resources/OfficeJS/manifest.xml", "resources/officejs/manifest.xml"] {
-        let p = std::env::current_dir().ok()?.join(rel);
-        if p.exists() {
-            return Some(p);
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidates = [
+            cwd.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
+            cwd.join("resources").join("OfficeJS").join("manifest.xml"),
+            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.local.xml"),
+        ];
+        for p in &candidates {
+            if p.exists() {
+                return Some(p.clone());
+            }
         }
     }
 

@@ -18,3 +18,5 @@ plugin/Office/**/obj/
 plugin/Office/**/*.pfx
 src-tauri/resources/Office/LightweightAddIn/*.dll
 scripts/sync-core.ps1
+apps/office-addin/cert/localhost.key
+apps/office-addin/cert/localhost.crt

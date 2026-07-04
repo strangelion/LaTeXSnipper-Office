@@ -22,6 +22,8 @@ pub struct ConvertRequest {
     pub font_style: Option<String>,
     #[serde(default)]
     pub font_color: Option<String>,
+    #[serde(default)]
+    pub omml: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,8 @@ pub struct FormulaActionRequest {
 pub struct ConvertResponse {
     pub success: bool,
     pub omml: String,
+    #[serde(default)]
+    pub latex: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -416,8 +420,31 @@ async fn handle_convert(
     State(_state): State<Arc<BridgeState>>,
     Json(req): Json<ConvertRequest>,
 ) -> impl IntoResponse {
-    println!("[Bridge] Convert: {}", req.latex);
+    // OMML → LaTeX conversion
+    if let Some(ref omml_input) = req.omml {
+        let omml_clone = omml_input.clone();
+        let latex = tokio::task::spawn_blocking(move || {
+            latexsnipper_conversion::omml_parser::parse_omml_to_latex(&omml_clone).ok()
+        })
+        .await
+        .unwrap_or(None);
 
+        return match latex {
+            Some(l) => Json(ConvertResponse {
+                success: true,
+                omml: omml_input.clone(),
+                latex: Some(l),
+            }),
+            None => Json(ConvertResponse {
+                success: false,
+                omml: String::new(),
+                latex: None,
+            }),
+        };
+    }
+
+    // LaTeX → OMML conversion
+    println!("[Bridge] Convert: {}", req.latex);
     let latex = req.latex.clone();
     let omml = tokio::task::spawn_blocking(move || latex_to_omml_core(&latex))
         .await
@@ -434,6 +461,7 @@ async fn handle_convert(
             return Json(ConvertResponse {
                 success: true,
                 omml: fixed,
+                latex: Some(req.latex),
             });
         }
         None => println!("[Bridge] OMML conversion failed"),
@@ -442,6 +470,7 @@ async fn handle_convert(
     Json(ConvertResponse {
         success: false,
         omml: String::new(),
+        latex: None,
     })
 }
 

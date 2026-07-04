@@ -17,7 +17,10 @@ const root = path.resolve(__dirname, '..');
 
 const src = {
   dist: path.resolve(root, 'apps', 'office-addin', 'dist'),
-  manifest: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.local.xml'),
+  manifest: {
+    local: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.local.xml'),
+    desktop: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.desktop.xml'),
+  },
 };
 
 const dest = {
@@ -43,9 +46,19 @@ if (!fs.existsSync(taskpaneDist)) {
 fs.cpSync(taskpaneDist, dest.taskpaneDir, { recursive: true });
 console.log(`[stage] Copied taskpane: ${taskpaneDist} → ${dest.taskpaneDir}`);
 
-// 3. Copy manifest
-fs.mkdirSync(path.dirname(dest.manifestOut), { recursive: true });
-fs.copyFileSync(src.manifest, dest.manifestOut);
-console.log(`[stage] Copied manifest: ${src.manifest} → ${dest.manifestOut}`);
+// 3. Copy manifests
+const manifestDir = path.dirname(dest.manifestOut);
+fs.mkdirSync(manifestDir, { recursive: true });
+
+// Copy dev manifest
+fs.copyFileSync(src.manifest.local, dest.manifestOut);
+console.log(`[stage] Copied local manifest: ${src.manifest.local} → ${dest.manifestOut}`);
+
+// Copy desktop manifest (for production/bundled use)
+if (fs.existsSync(src.manifest.desktop)) {
+  const desktopDest = path.resolve(manifestDir, 'manifest.word.desktop.xml');
+  fs.copyFileSync(src.manifest.desktop, desktopDest);
+  console.log(`[stage] Copied desktop manifest: ${src.manifest.desktop} → ${desktopDest}`);
+}
 
 console.log('[stage] Office.js add-in staged successfully');

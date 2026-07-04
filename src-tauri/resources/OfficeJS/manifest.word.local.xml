@@ -2,18 +2,19 @@
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:bt="http://schemas.microsoft.com/office/2017/03/taskpane"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xsi:type="TaskPaneApp">
 
   <Id>9a7b3c4d-5e6f-7890-abcd-ef1234567890</Id>
-  <Version>1.0.0</Version>
+  <Version>1.0.1.0</Version>
   <ProviderName>LaTeXSnipper</ProviderName>
   <DefaultLocale>zh-CN</DefaultLocale>
+
   <DisplayName DefaultValue="LaTeXSnipper"/>
-  <Description DefaultValue="LaTeX formula editor for Word - 跨平台公式编辑器"/>
+  <Description DefaultValue="LaTeXSnipper Word 公式编辑器"/>
 
   <AppDomains>
-    <AppDomain>localhost</AppDomain>
+    <AppDomain>https://localhost:3000</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -22,30 +23,53 @@
 
   <DefaultSettings>
     <SourceLocation DefaultValue="https://localhost:3000/taskpane/index.html"/>
-    <RequestedHeight>400</RequestedHeight>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
 
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+  <VersionOverrides
+    xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+    xsi:type="VersionOverridesV1_0">
+
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.3">
+        <bt:Set Name="WordApi"/>
+      </bt:Sets>
+    </Requirements>
+
     <Hosts>
       <Host xsi:type="Document">
         <DesktopFormFactor>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <CustomTab id="LaTeXSnipperTab">
-              <Group id="LaTeXSnipperGroup">
-                <Control xsi:type="Button" id="ToggleTaskpaneButton">
-                  <Label resid="TaskpaneButton.Label"/>
+            <CustomTab id="com.latexsnipper.word.tab">
+              <Label resid="Tab.Label"/>
+
+              <Group id="com.latexsnipper.word.group">
+                <Label resid="Group.Label"/>
+
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+
+                <Control xsi:type="Button"
+                         id="com.latexsnipper.word.openTaskpane">
+                  <Label resid="Open.Label"/>
+
                   <Supertip>
-                    <Title resid="TaskpaneButton.Label"/>
-                    <Description resid="TaskpaneButton.Desc"/>
+                    <Title resid="Open.Label"/>
+                    <Description resid="Open.Description"/>
                   </Supertip>
+
                   <Icon>
                     <bt:Image size="16" resid="Icon.16"/>
                     <bt:Image size="32" resid="Icon.32"/>
                     <bt:Image size="80" resid="Icon.80"/>
                   </Icon>
+
                   <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>LaTeXSnipperTaskpane</TaskpaneId>
                     <SourceLocation resid="Taskpane.Url"/>
                   </Action>
                 </Control>
@@ -55,20 +79,26 @@
         </DesktopFormFactor>
       </Host>
     </Hosts>
+
     <Resources>
       <bt:Images>
         <bt:Image id="Icon.16" DefaultValue="https://localhost:3000/assets/icon-16.png"/>
         <bt:Image id="Icon.32" DefaultValue="https://localhost:3000/assets/icon-32.png"/>
         <bt:Image id="Icon.80" DefaultValue="https://localhost:3000/assets/icon-80.png"/>
       </bt:Images>
+
       <bt:Urls>
         <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane/index.html"/>
       </bt:Urls>
+
       <bt:ShortStrings>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="LaTeXSnipper"/>
+        <bt:String id="Tab.Label" DefaultValue="LaTeXSnipper"/>
+        <bt:String id="Group.Label" DefaultValue="公式工具"/>
+        <bt:String id="Open.Label" DefaultValue="打开编辑器"/>
       </bt:ShortStrings>
+
       <bt:LongStrings>
-        <bt:String id="TaskpaneButton.Desc" DefaultValue="打开 LaTeXSnipper 公式编辑器"/>
+        <bt:String id="Open.Description" DefaultValue="打开 LaTeXSnipper 公式编辑器"/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>
