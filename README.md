@@ -85,24 +85,6 @@ cargo tauri ios build
 cargo tauri android build
 ```
 
-## 文档
-
-- [架构设计](docs/architecture.md)
-- [模块结构](docs/module-structure.md)
-- [字体修复计划](docs/font-fix.md)
-- [元数据规范化](docs/metadata.md)
-- [多平台集成](docs/multi-platform.md)
-- [公式库整合](docs/formula-library.md)
-- [实施计划](docs/implementation.md)
-
-## 已安装的 Skills
-
-| Skill | 用途 | 状态 |
-|-------|------|------|
-| `web-development` | Web 前端开发规范 | ✅ |
-| `ah-rust-pro` | Rust 编程最佳实践 | ✅ |
-| `nextjs-to-tauri` | Tauri 2 桌面/移动端打包 | ✅ |
-
 ## 许可证
 
 GNU Affero General Public License v3.0 (AGPL-3.0-only)

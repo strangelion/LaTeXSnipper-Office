@@ -632,7 +632,7 @@ class SettingsManager {
       displayMode: 'inline',
       fontStyle: 'tex',
       fontColor: '#000000',
-      bridgeUrl: 'http://127.0.0.1:28765',
+      bridgeUrl: 'http://127.0.0.1:19876',
       theme: 'light',
       officeEnabled: true,
       ocrEnabled: true,
@@ -2903,23 +2903,46 @@ class UIController {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
-      const formulaType = isDisplay ? 'display' : 'inline';
-      const fontStyle = document.getElementById('fontStyleSelect')?.value || 'tex';
-      const fontColor = document.getElementById('fontColor')?.value || '#000000';
+
+      // Use Bridge API for direct insertion
+      const bridgeUrl = this.settingsManager?.settings?.bridgeUrl || 'http://127.0.0.1:19876';
       try {
-        const result = await invoke('insert_formula', {
-          request: {
-            formulaType,
-            latex
-          }
+        const response = await fetch(`${bridgeUrl}/api/office/insert-direct`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latex, display: isDisplay })
         });
-        this.showToast(result.message || '已插入到 Word');
-        this.addHistoryItem(latex);
-      } catch (directError) {
-        Logger.warn('Direct Word insert failed, falling back to pending file:', directError);
-        const result = await invoke('write_pending_formula', { latex, fontColor, fontStyle });
-        this.showToast(result.message || '已发送到 Word，请在 Word 中点击 Insert Formula');
-        this.addHistoryItem(latex);
+        const result = await response.json();
+        if (result.success) {
+          this.showToast(result.message || '已插入到 Word');
+          this.addHistoryItem(latex);
+        } else {
+          // Fallback to Tauri command
+          try {
+            const formulaType = isDisplay ? 'display' : 'inline';
+            const tauriResult = await invoke('insert_formula', {
+              request: { formulaType, latex }
+            });
+            this.showToast(tauriResult.message || '已插入到 Word');
+            this.addHistoryItem(latex);
+          } catch (tauriError) {
+            Logger.warn('Tauri insert also failed:', tauriError);
+            this.showToast('插入失败: ' + (result.message || '未知错误'));
+          }
+        }
+      } catch (fetchError) {
+        Logger.warn('Bridge insert failed, trying Tauri:', fetchError);
+        try {
+          const formulaType = isDisplay ? 'display' : 'inline';
+          const result = await invoke('insert_formula', {
+            request: { formulaType, latex }
+          });
+          this.showToast(result.message || '已插入到 Word');
+          this.addHistoryItem(latex);
+        } catch (tauriError) {
+          Logger.error('All insert methods failed:', tauriError);
+          this.showToast('插入失败，请确保 Word 已打开');
+        }
       }
     } catch (e) {
       this.showToast('发送失败: ' + (e.message || e));
@@ -3141,11 +3164,11 @@ class UIController {
     if (officePlatform && officeStatus) {
       if (officeStatus.installed) {
         const parts = [];
-        if (officeStatus.word.available) parts.push('Word');
-        if (officeStatus.powerpoint.available) parts.push('PowerPoint');
-        if (officeStatus.wps) parts.push('WPS');
+        if (officeStatus.word && officeStatus.word.available) parts.push('Word');
+        if (officeStatus.excel && officeStatus.excel.available) parts.push('Excel');
+        if (officeStatus.powerpoint && officeStatus.powerpoint.available) parts.push('PowerPoint');
         officePlatform.desc = parts.join(' / ');
-        if (officeStatus.word.plugin_installed) officePlatform.desc += ' · 已安装';
+        if (officeStatus.word && officeStatus.word.plugin_installed) officePlatform.desc += ' · 已安装';
       } else {
         officePlatform.desc = '未检测到 Office';
       }
@@ -3221,11 +3244,11 @@ class UIController {
 
   platformSupport = {
     office: { ready: true, message: '' },
-    obsidian: { ready: false, message: 'Obsidian 插件开发中，敬请期待' },
+    obsidian: { ready: true, message: 'Obsidian 插件开发中，敬请期待' },
     vscode: { ready: false, message: 'VS Code 扩展开发中，敬请期待' },
     wps: { ready: true, message: '' },
-    typora: { ready: false, message: 'Typora 集成开发中，敬请期待' },
-    notion: { ready: false, message: 'Notion 集成开发中，敬请期待' },
+    typora: { ready: true, message: 'Typora 集成开发中，敬请期待' },
+    notion: { ready: true, message: 'Notion 集成开发中，敬请期待' },
     libreoffice: { ready: false, message: 'LibreOffice 扩展开发中，敬请期待' },
   };
 

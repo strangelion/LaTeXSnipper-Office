@@ -63,7 +63,7 @@ namespace LaTeXSnipper.OfficeAddIn
 
     [ComVisible(true)]
     [Guid("1B9F2D6D-3C6B-4654-A4C1-7EB83393C944")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+    [InterfaceType(ComInterfaceType.InterfaceIsDual)]
     public interface ILaTeXSnipperAutomation
     {
         [DispId(1)]
@@ -71,6 +71,35 @@ namespace LaTeXSnipper.OfficeAddIn
 
         [DispId(2)]
         bool LoadSelection();
+
+        [DispId(3)]
+        bool DeleteSelection();
+
+        [DispId(4)]
+        bool AutoNumberSelected();
+
+        [DispId(5)]
+        bool RenumberAll();
+
+        [DispId(6)]
+        bool FormatSelected();
+
+        [DispId(7)]
+        bool FormatAll();
+
+        [DispId(8)]
+        string GetVersion();
+
+        [DispId(9)]
+        string LoadTable();
+    }
+
+    public enum OfficeHostApp
+    {
+        Word,
+        Excel,
+        PowerPoint,
+        Unknown
     }
 
     [ComVisible(true)]
@@ -81,26 +110,84 @@ namespace LaTeXSnipper.OfficeAddIn
     {
         private const string BridgeUrl = "http://127.0.0.1:19876";
         private const string PendingFileName = "latexsnipper_pending.txt";
-        private object wordApplication;
+        private object officeApplication;
+        private OfficeHostApp hostApp = OfficeHostApp.Unknown;
 
         public void OnConnection(object application, ext_ConnectMode connectMode, object addInInst, ref Array custom)
         {
             Log("OnConnection mode=" + connectMode);
-            wordApplication = application;
+            officeApplication = application;
+
+            // Detect host application type
+            hostApp = DetectHostApplication(application);
+
+            Log("Host application: " + hostApp);
+
             try
             {
                 SetProperty(addInInst, "Object", (ILaTeXSnipperAutomation)this);
             }
             catch (Exception ex)
             {
-                Log("Failed to expose add-in object: " + ex.Message);
+                LogError("OnConnection failed", ex);
             }
         }
 
         public void OnDisconnection(ext_DisconnectMode removeMode, ref Array custom)
         {
             Log("OnDisconnection mode=" + removeMode);
-            wordApplication = null;
+            officeApplication = null;
+        }
+
+        private OfficeHostApp DetectHostApplication(object application)
+        {
+            try
+            {
+                string appTypeName = application.GetType().Name;
+                string appFullName = application.GetType().FullName ?? "";
+                Log("Detecting host: type=" + appTypeName + ", full=" + appFullName);
+
+                // Check by namespace first (most reliable)
+                if (appFullName.Contains("Microsoft.Office.Interop.Word"))
+                    return OfficeHostApp.Word;
+                if (appFullName.Contains("Microsoft.Office.Interop.Excel"))
+                    return OfficeHostApp.Excel;
+                if (appFullName.Contains("Microsoft.Office.Interop.PowerPoint"))
+                    return OfficeHostApp.PowerPoint;
+
+                // Check by type name
+                if (appTypeName.Contains("Word") || appTypeName == "_Application")
+                    return OfficeHostApp.Word;
+                if (appTypeName.Contains("Excel"))
+                    return OfficeHostApp.Excel;
+                if (appTypeName.Contains("PowerPoint"))
+                    return OfficeHostApp.PowerPoint;
+
+                // For __ComObject, try to check the COM ProgID
+                if (appTypeName == "__ComObject")
+                {
+                    // Try to get the COM ProgID
+                    try
+                    {
+                        string progId = application.GetType().InvokeMember("ProgID", 
+                            System.Reflection.BindingFlags.GetProperty, null, application, null) as string ?? "";
+                        Log("COM ProgID: " + progId);
+                        if (progId.Contains("Word"))
+                            return OfficeHostApp.Word;
+                        if (progId.Contains("Excel"))
+                            return OfficeHostApp.Excel;
+                        if (progId.Contains("PowerPoint"))
+                            return OfficeHostApp.PowerPoint;
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError("DetectHostApplication failed", ex);
+            }
+
+            return OfficeHostApp.Unknown;
         }
 
         public void OnAddInsUpdate(ref Array custom)
@@ -273,7 +360,7 @@ namespace LaTeXSnipper.OfficeAddIn
             try
             {
                 Log("LoadSelection start");
-                object selection = GetProperty(wordApplication, "Selection");
+                object selection = GetProperty(officeApplication, "Selection");
                 object range = GetProperty(selection, "Range");
                 string latex = ReadLatexMetadataFromSelection(selection, range);
                 Log("LoadSelection latex=" + (latex == null ? "null" : latex));
@@ -310,7 +397,7 @@ namespace LaTeXSnipper.OfficeAddIn
             }
             catch (Exception ex)
             {
-                Log("OnLoadSelection failed: " + ex);
+                LogError("OnLoadSelection failed", ex);
                 ShowMessage("加载失败: " + ex.Message);
                 return false;
             }
@@ -346,7 +433,7 @@ namespace LaTeXSnipper.OfficeAddIn
 
             try
             {
-                Log("InsertFormulaFromLatex display=" + display + " numbered=" + numbered);
+                Log("InsertFormulaFromLatex display=" + display + " numbered=" + numbered + " hostApp=" + hostApp);
                 string body = "{\"latex\":\"" + JsonEscape(latex) + "\",\"display\":" + display.ToString().ToLowerInvariant() + "}";
                 string json = PostJson("/api/office/convert", body, 15000);
                 string omml = ExtractOmml(json);
@@ -360,9 +447,48 @@ namespace LaTeXSnipper.OfficeAddIn
                 Log("OMML raw (" + omml.Length + "b): " + omml.Substring(0, Math.Min(200, omml.Length)));
                 Log("OMML cleaned (" + cleaned.Length + "b): " + cleaned.Substring(0, Math.Min(200, cleaned.Length)));
 
-                object selection = GetProperty(wordApplication, "Selection");
-                object document = GetProperty(wordApplication, "ActiveDocument");
-                object controls = GetProperty(document, "ContentControls");
+                switch (hostApp)
+                {
+                    case OfficeHostApp.Word:
+                        InsertFormulaWord(cleaned, display, numbered);
+                        break;
+                    case OfficeHostApp.Excel:
+                        InsertFormulaExcel(cleaned, display);
+                        break;
+                    case OfficeHostApp.PowerPoint:
+                        InsertFormulaPowerPoint(cleaned, display);
+                        break;
+                    default:
+                        InsertFormulaWord(cleaned, display, numbered);
+                        break;
+                }
+
+                // Replace placeholders with actual Word objects (Word only)
+                if (hostApp == OfficeHostApp.Word)
+                {
+                    ReplacePlaceholders();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError("InsertFormula failed", ex);
+                ShowMessage("插入失败: " + ex.Message);
+            }
+        }
+
+        private void InsertFormulaWord(string cleaned, bool display, bool numbered)
+        {
+            try
+            {
+                // Only run for Word application
+                if (hostApp != OfficeHostApp.Word)
+                {
+                    Log("InsertFormulaWord skipped - not Word application");
+                    return;
+                }
+
+                object selection = GetProperty(officeApplication, "Selection");
+                object document = GetProperty(officeApplication, "ActiveDocument");
 
                 object selRange = GetProperty(selection, "Range");
 
@@ -415,20 +541,111 @@ namespace LaTeXSnipper.OfficeAddIn
                     object pMark = Invoke(document, "Range", originalPos, originalPos + 1);
                     Invoke(pMark, "Delete", 1, 1);
                 }
+
+                // Replace placeholders with actual Word objects
+                ReplacePlaceholders();
             }
             catch (Exception ex)
             {
-                Log("InsertFormula failed: " + ex);
+                LogError("InsertFormulaWord failed", ex);
                 ShowMessage("插入失败: " + ex.Message);
             }
         }
 
-        // ═══ Delete Selection ═══
-        private void DeleteSelection()
+        private void ReplacePlaceholders()
         {
-            object selection = GetProperty(wordApplication, "Selection");
+            try
+            {
+                object document = GetProperty(officeApplication, "ActiveDocument");
+                object selection = GetProperty(officeApplication, "Selection");
+
+                // Replace [^footnote] with actual footnote
+                object selRange = GetProperty(selection, "Range");
+                object findObj = selRange.GetType().InvokeMember("Find", BindingFlags.GetProperty, null, selRange, null);
+                findObj.GetType().InvokeMember("ClearFormatting", BindingFlags.InvokeMethod, null, findObj, null);
+                findObj.GetType().InvokeMember("Text", BindingFlags.SetProperty, null, findObj, new object[] { "[^footnote]" });
+                findObj.GetType().InvokeMember("Forward", BindingFlags.SetProperty, null, findObj, new object[] { true });
+                findObj.GetType().InvokeMember("Wrap", BindingFlags.SetProperty, null, findObj, new object[] { 0 });
+                bool found = Convert.ToBoolean(findObj.GetType().InvokeMember("Execute", BindingFlags.InvokeMethod, null, findObj, null));
+
+                while (found)
+                {
+                    try
+                    {
+                        object footnotes = GetProperty(document, "Footnotes");
+                        Invoke(footnotes, "Add", GetProperty(selection, "Range"), "Footnote from LaTeXSnipper");
+                        Log("Replaced [^footnote] placeholder");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("Failed to insert footnote: " + ex.Message);
+                    }
+                    found = Convert.ToBoolean(findObj.GetType().InvokeMember("Execute", BindingFlags.InvokeMethod, null, findObj, null));
+                }
+
+                Log("Placeholder replacement completed");
+            }
+            catch (Exception ex)
+            {
+                LogError("ReplacePlaceholders failed", ex);
+            }
+        }
+
+        private void InsertFormulaExcel(string cleaned, bool display)
+        {
+            try
+            {
+                object selection = GetProperty(officeApplication, "Selection");
+                object activeCell = GetProperty(selection, "ActiveCell");
+
+                // Insert formula as text with OMML marker
+                SetProperty(activeCell, "Value", ".Formula: " + cleaned.Substring(0, Math.Min(50, cleaned.Length)));
+
+                Log("Excel formula inserted at cell");
+            }
+            catch (Exception ex)
+            {
+                LogError("InsertFormulaExcel failed", ex);
+                ShowMessage("Excel 插入失败: " + ex.Message);
+            }
+        }
+
+        private void InsertFormulaPowerPoint(string cleaned, bool display)
+        {
+            try
+            {
+                object selection = GetProperty(officeApplication, "Selection");
+                object slide = GetProperty(selection, "SlideRange");
+                object shapes = GetProperty(slide, "Shapes");
+
+                // Add a text box for the formula
+                object left = 100;
+                object top = 100;
+                object width = 300;
+                object height = 50;
+
+                object shape = Invoke(shapes, "AddTextbox", 1, left, top, width, height);
+                object textFrame = GetProperty(shape, "TextFrame");
+                object textRange = GetProperty(textFrame, "TextRange");
+
+                // Insert the formula as text
+                SetProperty(textRange, "Text", "Formula: " + cleaned.Substring(0, Math.Min(50, cleaned.Length)));
+
+                Log("PowerPoint formula inserted");
+            }
+            catch (Exception ex)
+            {
+                LogError("InsertFormulaPowerPoint failed", ex);
+                ShowMessage("PowerPoint 插入失败: " + ex.Message);
+            }
+        }
+
+        // ═══ Delete Selection ═══
+        public bool DeleteSelection()
+        {
+            object selection = GetProperty(officeApplication, "Selection");
             object range = GetProperty(selection, "Range");
-            object document = GetProperty(wordApplication, "ActiveDocument");
+            object document = GetProperty(officeApplication, "ActiveDocument");
 
             // Try to find and delete ContentControl containing the cursor
             object controls = GetProperty(document, "ContentControls");
@@ -447,7 +664,7 @@ namespace LaTeXSnipper.OfficeAddIn
                     {
                         Invoke(ccRange, "Delete");
                         ShowMessage("公式已删除。");
-                        return;
+                        return true;
                     }
                 }
             }
@@ -464,20 +681,21 @@ namespace LaTeXSnipper.OfficeAddIn
                     object mathParentRange = GetProperty(firstMath, "Range");
                     Invoke(mathParentRange, "Delete");
                         ShowMessage("公式已删除。");
-                    return;
+                    return true;
                 }
             }
             catch { }
 
             ShowMessage("光标位置未找到公式。");
+            return false;
         }
 
         // ═══ Auto Number ═══
-        private void AutoNumberSelected()
+        public bool AutoNumberSelected()
         {
-            object selection = GetProperty(wordApplication, "Selection");
+            object selection = GetProperty(officeApplication, "Selection");
             object range = GetProperty(selection, "Range");
-            object document = GetProperty(wordApplication, "ActiveDocument");
+            object document = GetProperty(officeApplication, "ActiveDocument");
 
             // Find ContentControl with formula tag
             object controls = GetProperty(document, "ContentControls");
@@ -499,19 +717,20 @@ namespace LaTeXSnipper.OfficeAddIn
                         string num = NextEquationNumber();
                         Invoke(selection, "TypeText", " " + num);
                         ShowMessage("已添加编号: " + num);
-                        return;
+                        return true;
                     }
                 }
             }
 
             ShowMessage("光标位置未找到公式。");
+            return false;
         }
 
         // ═══ Renumber All ═══
-        private void RenumberAll()
+        public bool RenumberAll()
         {
-            object selection = GetProperty(wordApplication, "Selection");
-            object document = GetProperty(wordApplication, "ActiveDocument");
+            object selection = GetProperty(officeApplication, "Selection");
+            object document = GetProperty(officeApplication, "ActiveDocument");
 
             // Find all ContentControls with LaTeXSnipper tags and renumber
             object controls = GetProperty(document, "ContentControls");
@@ -565,12 +784,13 @@ namespace LaTeXSnipper.OfficeAddIn
             }
 
             ShowMessage("已重新编号 " + (eqNum - 1) + " 个公式。");
+            return true;
         }
 
         // ═══ Format Selected ═══
-        private void FormatSelected()
+        public bool FormatSelected()
         {
-            object selection = GetProperty(wordApplication, "Selection");
+            object selection = GetProperty(officeApplication, "Selection");
             object range = GetProperty(selection, "Range");
 
             // Apply consistent formatting to math elements in selection
@@ -589,19 +809,20 @@ namespace LaTeXSnipper.OfficeAddIn
                         SetProperty(font, "Size", 12);
                     }
                     ShowMessage("已格式化 " + mathCount + " 个公式。");
-                    return;
+                    return true;
                 }
             }
             catch { }
 
             ShowMessage("选中范围内未找到公式。");
+            return false;
         }
 
         // ═══ Format All ═══
-        private void FormatAll()
+        public bool FormatAll()
         {
-            object selection = GetProperty(wordApplication, "Selection");
-            object document = GetProperty(wordApplication, "ActiveDocument");
+            object selection = GetProperty(officeApplication, "Selection");
+            object document = GetProperty(officeApplication, "ActiveDocument");
             object wholeRange = GetProperty(document, "Content");
 
             try
@@ -617,11 +838,13 @@ namespace LaTeXSnipper.OfficeAddIn
                     SetProperty(font, "Size", 12);
                 }
                 ShowMessage("已格式化 " + mathCount + " 个公式。");
+                return true;
             }
             catch (Exception ex)
             {
                 ShowMessage("格式化全部失败: " + ex.Message);
             }
+            return false;
         }
 
         private static string ReadPendingFormula()
@@ -703,29 +926,76 @@ namespace LaTeXSnipper.OfficeAddIn
             }
             catch (Exception ex)
             {
-                Log("ReadLatexFromContentControl failed: " + ex.Message);
+                LogError("ReadLatexFromContentControl failed", ex);
                 return string.Empty;
             }
         }
 
         private static string PostJson(string endpoint, string body, int timeoutMs)
         {
-            byte[] data = Encoding.UTF8.GetBytes(body);
-            var request = (HttpWebRequest)WebRequest.Create(BridgeUrl + endpoint);
-            request.Method = "POST";
-            request.ContentType = "application/json";
-            request.Timeout = timeoutMs;
-            request.ReadWriteTimeout = timeoutMs;
-            request.ContentLength = data.Length;
-            using (Stream stream = request.GetRequestStream())
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            int maxRetries = 2;
+            int retryCount = 0;
+
+            while (retryCount <= maxRetries)
             {
-                stream.Write(data, 0, data.Length);
+                try
+                {
+                    byte[] data = Encoding.UTF8.GetBytes(body);
+                    var request = (HttpWebRequest)WebRequest.Create(BridgeUrl + endpoint);
+                    request.Method = "POST";
+                    request.ContentType = "application/json";
+                    request.Timeout = timeoutMs;
+                    request.ReadWriteTimeout = timeoutMs;
+                    request.ContentLength = data.Length;
+
+                    using (Stream stream = request.GetRequestStream())
+                    {
+                        stream.Write(data, 0, data.Length);
+                    }
+
+                    using (var response = (HttpWebResponse)request.GetResponse())
+                    using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
+                    {
+                        string result = reader.ReadToEnd();
+                        stopwatch.Stop();
+                        Log(string.Format("[HTTP] {0} -> {1} ({2}ms)", endpoint, (int)response.StatusCode, stopwatch.ElapsedMilliseconds));
+                        return result;
+                    }
+                }
+                catch (WebException ex)
+                {
+                    stopwatch.Stop();
+                    var response = ex.Response as HttpWebResponse;
+                    int statusCode = response != null ? (int)response.StatusCode : 0;
+                    Log(string.Format("[HTTP ERROR] {0} -> {1} ({2}ms): {3}", endpoint, statusCode, stopwatch.ElapsedMilliseconds, ex.Message));
+
+                    // Don't retry on client errors (4xx)
+                    if (statusCode >= 400 && statusCode < 500)
+                    {
+                        throw;
+                    }
+
+                    retryCount++;
+                    if (retryCount <= maxRetries)
+                    {
+                        Log(string.Format("[HTTP RETRY] {0} attempt {1}/{2}", endpoint, retryCount, maxRetries));
+                        System.Threading.Thread.Sleep(100 * retryCount); // Exponential backoff
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    Log(string.Format("[HTTP ERROR] {0} ({1}ms): {2}", endpoint, stopwatch.ElapsedMilliseconds, ex.Message));
+                    throw;
+                }
             }
-            using (var response = (HttpWebResponse)request.GetResponse())
-            using (var reader = new StreamReader(response.GetResponseStream(), Encoding.UTF8))
-            {
-                return reader.ReadToEnd();
-            }
+
+            throw new Exception("Max retries exceeded");
         }
 
         private static string CleanOmml(string omml)
@@ -843,7 +1113,7 @@ namespace LaTeXSnipper.OfficeAddIn
         {
             try
             {
-                object doc = GetProperty(wordApplication, "ActiveDocument");
+                object doc = GetProperty(officeApplication, "ActiveDocument");
                 object variables = GetProperty(doc, "Variables");
                 int next = 1;
                 try
@@ -907,14 +1177,204 @@ namespace LaTeXSnipper.OfficeAddIn
             catch { }
         }
 
-        private static void Log(string message)
+        public string GetVersion()
+        {
+            return "0.2.0";
+        }
+
+        public string LoadTable()
+        {
+            try
+            {
+                Log("LoadTable start");
+                string appName = officeApplication.GetType().Name;
+                Log("Host application: " + appName);
+
+                if (appName.Contains("Excel"))
+                    return LoadTableExcel();
+                else if (appName.Contains("PowerPoint"))
+                    return LoadTablePowerPoint();
+                else
+                    return LoadTableWord();
+            }
+            catch (Exception ex)
+            {
+                LogError("LoadTable failed", ex);
+                return "{}";
+            }
+        }
+
+        private string LoadTableWord()
+        {
+            object selection = GetProperty(officeApplication, "Selection");
+            object range = GetProperty(selection, "Range");
+
+            object tables = Invoke(range, "Tables", null);
+            int tableCount = Convert.ToInt32(GetProperty(tables, "Count"));
+
+            if (tableCount == 0)
+            {
+                Log("No table found in Word selection");
+                return "0\t0\n";
+            }
+
+            object table = Invoke(tables, "Item", 1);
+            int rows = Convert.ToInt32(GetProperty(table, "Rows"));
+            int cols = Convert.ToInt32(GetProperty(table, "Columns"));
+
+                Log(string.Format("Word table: {0} rows x {1} cols", rows, cols));
+
+            var result = new System.Text.StringBuilder();
+            result.Append(rows);
+            result.Append("\t");
+            result.Append(cols);
+            result.Append("\n");
+
+            for (int r = 1; r <= rows; r++)
+            {
+                for (int c = 1; c <= cols; c++)
+                {
+                    if (c > 1) result.Append("\t");
+                    object cell = Invoke(table, "Cell", r, c);
+                    object cellRange = GetProperty(cell, "Range");
+                    string text = Convert.ToString(GetProperty(cellRange, "Text"));
+                    text = text.TrimEnd('\r', '\n');
+                    text = text.Replace("\t", " ").Replace("\n", " ");
+                    result.Append(text);
+                }
+                result.Append("\n");
+            }
+
+            return result.ToString();
+        }
+
+        private string LoadTableExcel()
+        {
+            object selection = GetProperty(officeApplication, "Selection");
+            object range = GetProperty(selection, "Range");
+
+            int rows = Convert.ToInt32(GetProperty(range, "Rows"));
+            int cols = Convert.ToInt32(GetProperty(range, "Columns"));
+
+                Log(string.Format("Excel range: {0} rows x {1} cols", rows, cols));
+
+            var result = new System.Text.StringBuilder();
+            result.Append(rows);
+            result.Append("\t");
+            result.Append(cols);
+            result.Append("\n");
+
+            for (int r = 1; r <= rows; r++)
+            {
+                for (int c = 1; c <= cols; c++)
+                {
+                    if (c > 1) result.Append("\t");
+                    object cell = Invoke(range, "Cells", r, c);
+                    string text = "";
+                    try
+                    {
+                        object val = GetProperty(cell, "Text");
+                        text = Convert.ToString(val);
+                    }
+                    catch { }
+                    text = text.Replace("\t", " ").Replace("\n", " ");
+                    result.Append(text);
+                }
+                result.Append("\n");
+            }
+
+            return result.ToString();
+        }
+
+        private string LoadTablePowerPoint()
+        {
+            object selection = GetProperty(officeApplication, "Selection");
+            object shapeRange = GetProperty(selection, "ShapeRange");
+
+            int shapeCount = Convert.ToInt32(GetProperty(shapeRange, "Count"));
+            Log("PowerPoint shapes: " + shapeCount);
+
+            for (int i = 1; i <= shapeCount; i++)
+            {
+                object shape = Invoke(shapeRange, "Item", i);
+                int shapeType = Convert.ToInt32(GetProperty(shape, "Type"));
+
+                // ppTable = 19
+                if (shapeType == 19)
+                {
+                    object table = GetProperty(shape, "Table");
+                    int rows = Convert.ToInt32(GetProperty(table, "Rows"));
+                    int cols = Convert.ToInt32(GetProperty(table, "Columns"));
+
+                    Log(string.Format("PPT table: {0} rows x {1} cols", rows, cols));
+
+                    var result = new System.Text.StringBuilder();
+                    result.Append(rows);
+                    result.Append("\t");
+                    result.Append(cols);
+                    result.Append("\n");
+
+                    for (int r = 1; r <= rows; r++)
+                    {
+                        for (int c = 1; c <= cols; c++)
+                        {
+                            if (c > 1) result.Append("\t");
+                            object cell = Invoke(table, "Cell", r, c);
+                            object cellShape = GetProperty(cell, "Shape");
+                            object textFrame = GetProperty(cellShape, "TextFrame");
+                            object textRange = GetProperty(textFrame, "TextRange");
+                            string text = Convert.ToString(GetProperty(textRange, "Text"));
+                            text = text.TrimEnd('\r', '\n');
+                            text = text.Replace("\t", " ").Replace("\n", " ");
+                            result.Append(text);
+                        }
+                        result.Append("\n");
+                    }
+
+                    return result.ToString();
+                }
+            }
+
+            Log("No table shape found in PowerPoint selection");
+            return "0\t0\n";
+        }
+
+        private static void Log(string message, string level = "INFO")
         {
             try
             {
                 string path = Path.Combine(Path.GetTempPath(), "latexsnipper-office-addin.log");
-                File.AppendAllText(path, DateTime.Now.ToString("O") + " " + message + Environment.NewLine, Encoding.UTF8);
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                string logLine = string.Format("[{0}] [{1}] {2}{3}", timestamp, level, message, Environment.NewLine);
+
+                // Rotate log file if it's too large (> 1MB)
+                if (File.Exists(path))
+                {
+                    var fileInfo = new FileInfo(path);
+                    if (fileInfo.Length > 1024 * 1024)
+                    {
+                        string backupPath = path + ".old";
+                        if (File.Exists(backupPath))
+                        {
+                            File.Delete(backupPath);
+                        }
+                        File.Move(path, backupPath);
+                    }
+                }
+
+                File.AppendAllText(path, logLine, Encoding.UTF8);
             }
             catch { }
+        }
+
+        private static void LogError(string message, Exception ex = null)
+        {
+                string fullMessage = ex != null ? string.Format("{0}: {1}", message, ex.Message) : message;
+            Log(fullMessage, "ERROR");
+            if (ex != null && ex.InnerException != null)
+            {
+                Log(string.Format("  Inner: {0}", ex.InnerException.Message), "ERROR");
+            }
         }
     }
 }

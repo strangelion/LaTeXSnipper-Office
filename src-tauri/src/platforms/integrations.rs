@@ -468,15 +468,22 @@ fn register_hkcu_office_com_addin(dll: &Path) -> Result<(), String> {
 }
 
 fn unregister_hkcu_office_com_addin() {
+    // Clean HKCU
     reg_delete_tree(&hkcu_classes_key("LaTeXSnipper.Office"));
     reg_delete_tree(&hkcu_classes_key(&format!(
         r"CLSID\{}",
         office_addin_clsid()
     )));
+    // Also clean HKCR (in case regsvr32 registered there)
+    reg_delete_tree(&format!(
+        r"HKCR\CLSID\{}",
+        office_addin_clsid()
+    ));
+    reg_delete_tree(r"HKCR\LaTeXSnipper.Office");
 }
 
 fn cleanup_legacy_office_com_addins() {
-    for app in ["Word", "PowerPoint"] {
+    for app in ["Word", "Excel", "PowerPoint"] {
         reg_delete_tree(&format!(
             r"HKCU\Software\Microsoft\Office\{}\Addins\ComAddin.Connect",
             app
@@ -493,16 +500,19 @@ fn cleanup_legacy_office_com_addins() {
 }
 
 fn office_com_addin_registered() -> bool {
-    let addin_ok = Command::new("reg")
-        .args([
-            "query",
-            r"HKCU\Software\Microsoft\Office\Word\Addins\LaTeXSnipper.Office",
-            "/v",
-            "LoadBehavior",
-        ])
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false);
+    // Check if registered for any Office app (Word, Excel, or PowerPoint)
+    let addin_ok = ["Word", "Excel", "PowerPoint"].iter().any(|app| {
+        Command::new("reg")
+            .args([
+                "query",
+                &format!(r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.Office", app),
+                "/v",
+                "LoadBehavior",
+            ])
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    });
 
     let com_key = hkcu_classes_key(&format!(r"CLSID\{}\InprocServer32", office_addin_clsid()));
     let com_ok = Command::new("reg")
@@ -547,13 +557,15 @@ pub async fn auto_register_office_addin(_app_handle: &tauri::AppHandle) {
     let script_path = std::env::temp_dir().join("latexsnipper_auto_register.ps1");
     let script_content = format!(
         r#"
-# Write Word add-in registry entries
-$addinKey = 'HKCU:\Software\Microsoft\Office\Word\Addins\LaTeXSnipper.Office'
-New-Item -Path $addinKey -Force | Out-Null
-Set-ItemProperty -Path $addinKey -Name 'FriendlyName' -Value 'LaTeXSnipper Office'
-Set-ItemProperty -Path $addinKey -Name 'Description' -Value 'LaTeXSnipper Office formula add-in'
-Set-ItemProperty -Path $addinKey -Name 'LoadBehavior' -Value 3 -Type DWord
-Set-ItemProperty -Path $addinKey -Name 'CommandLineSafe' -Value 0 -Type DWord
+# Write add-in registry entries for Word, Excel, and PowerPoint
+foreach ($app in @('Word', 'Excel', 'PowerPoint')) {{
+    $addinKey = "HKCU:\Software\Microsoft\Office\$app\Addins\LaTeXSnipper.Office"
+    New-Item -Path $addinKey -Force | Out-Null
+    Set-ItemProperty -Path $addinKey -Name 'FriendlyName' -Value 'LaTeXSnipper Office'
+    Set-ItemProperty -Path $addinKey -Name 'Description' -Value 'LaTeXSnipper Office formula add-in'
+    Set-ItemProperty -Path $addinKey -Name 'LoadBehavior' -Value 3 -Type DWord
+    Set-ItemProperty -Path $addinKey -Name 'CommandLineSafe' -Value 0 -Type DWord
+}}
 
 # Register COM DLL via regasm
 & '{regasm}' '{dll}' /codebase /tlb
@@ -595,10 +607,14 @@ fn office_vsto_registered() -> bool {
     let roots = [
         r"HKCU\Software\Microsoft\Office\Word\Addins",
         r"HKCU\Software\Microsoft\Office\16.0\Word\Addins",
+        r"HKCU\Software\Microsoft\Office\Excel\Addins",
+        r"HKCU\Software\Microsoft\Office\16.0\Excel\Addins",
         r"HKCU\Software\Microsoft\Office\PowerPoint\Addins",
         r"HKCU\Software\Microsoft\Office\16.0\PowerPoint\Addins",
         r"HKLM\Software\Microsoft\Office\Word\Addins",
         r"HKLM\Software\Microsoft\Office\16.0\Word\Addins",
+        r"HKLM\Software\Microsoft\Office\Excel\Addins",
+        r"HKLM\Software\Microsoft\Office\16.0\Excel\Addins",
         r"HKLM\Software\Microsoft\Office\PowerPoint\Addins",
         r"HKLM\Software\Microsoft\Office\16.0\PowerPoint\Addins",
     ];
@@ -861,24 +877,28 @@ fn install_office_vsto() -> PlatformIntegrationResult {
         );
     }
 
+    // Clean up old registrations first
     cleanup_legacy_office_com_addins();
+    unregister_hkcu_office_com_addin();
 
     let dll = match build_new_office_addin() {
         Ok(path) => path,
         Err(err) => return PlatformIntegrationResult::fail("office", "com-addin", err),
     };
 
-    for key in office_addin_registry_roots("Word") {
-        if let Err(err) = reg_add_string(&key, "FriendlyName", "LaTeXSnipper Office") {
-            return PlatformIntegrationResult::fail(
-                "office",
-                "com-addin",
-                format!("写入 Word 加载项注册表失败: {err}"),
-            );
+    for app in ["Word", "Excel", "PowerPoint"] {
+        for key in office_addin_registry_roots(app) {
+            if let Err(err) = reg_add_string(&key, "FriendlyName", "LaTeXSnipper Office") {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "com-addin",
+                    format!("写入 {} 加载项注册表失败: {}", app, err),
+                );
+            }
+            let _ = reg_add_string(&key, "Description", "LaTeXSnipper Office formula add-in");
+            let _ = reg_add_dword(&key, "LoadBehavior", 3);
+            let _ = reg_add_dword(&key, "CommandLineSafe", 0);
         }
-        let _ = reg_add_string(&key, "Description", "LaTeXSnipper Office formula add-in");
-        let _ = reg_add_dword(&key, "LoadBehavior", 3);
-        let _ = reg_add_dword(&key, "CommandLineSafe", 0);
     }
 
     if let Err(err) = register_hkcu_office_com_addin(&dll) {
@@ -899,7 +919,7 @@ fn install_office_vsto() -> PlatformIntegrationResult {
 fn uninstall_office_vsto() -> PlatformIntegrationResult {
     cleanup_legacy_office_com_addins();
 
-    for app in ["Word", "PowerPoint"] {
+    for app in ["Word", "Excel", "PowerPoint"] {
         for key in office_addin_registry_roots(app) {
             reg_delete_tree(&key);
         }
@@ -1051,10 +1071,23 @@ fn uninstall_office() -> PlatformIntegrationResult {
 
         if vsto_check {
             if let Some(clean) = find_office_force_clean() {
-                let _ = Command::new("powershell")
-                    .args(["-ExecutionPolicy", "Bypass", "-File"])
-                    .arg(&clean)
-                    .spawn();
+                #[cfg(target_os = "windows")]
+                {
+                    use std::os::windows::process::CommandExt;
+                    const CREATE_NO_WINDOW: u32 = 0x08000000;
+                    let _ = Command::new("powershell")
+                        .args(["-ExecutionPolicy", "Bypass", "-File"])
+                        .arg(&clean)
+                        .creation_flags(CREATE_NO_WINDOW)
+                        .spawn();
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let _ = Command::new("powershell")
+                        .args(["-ExecutionPolicy", "Bypass", "-File"])
+                        .arg(&clean)
+                        .spawn();
+                }
             }
             return PlatformIntegrationResult::ok(
                 "office",

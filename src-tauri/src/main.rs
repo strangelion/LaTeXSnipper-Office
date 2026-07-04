@@ -103,6 +103,7 @@ fn main() {
             commands::office::insert_section_separator,
             commands::office::format_selection,
             commands::office::format_all,
+            commands::office::load_table,
             commands::office::toggle_status_pane,
             commands::office::open_settings,
             commands::office::show_help,

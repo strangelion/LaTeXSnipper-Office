@@ -23,6 +23,7 @@ pub struct RenderResult {
     pub latex: String,
     pub display: bool,
     pub mathml: Option<String>,
+    pub omml: Option<String>,
     pub svg: Option<String>,
     pub png: Option<String>,
     pub warnings: Vec<String>,
@@ -41,6 +42,7 @@ impl FormulaRenderer {
         options: &RenderOptions,
     ) -> Result<RenderResult, String> {
         let mut mathml = None;
+        let mut omml = None;
         let mut svg = None;
 
         for fmt in &options.formats {
@@ -52,10 +54,10 @@ impl FormulaRenderer {
                     );
                 }
                 RenderFormat::OMML => {
-                    let omml = DocumentConverter::convert_latex_string(latex, OutputFormat::OMML)
-                        .map_err(|e| e.to_string())?;
-                    // OMML is stored in svg field for now (reuse existing field)
-                    svg = Some(omml);
+                    omml = Some(
+                        DocumentConverter::convert_latex_string(latex, OutputFormat::OMML)
+                            .map_err(|e| e.to_string())?,
+                    );
                 }
                 RenderFormat::SVG | RenderFormat::PNG => {
                     // SVG/PNG via MathJax frontend, not core
@@ -67,6 +69,7 @@ impl FormulaRenderer {
             latex: latex.to_string(),
             display: options.display,
             mathml,
+            omml,
             svg,
             png: None,
             warnings: vec![],

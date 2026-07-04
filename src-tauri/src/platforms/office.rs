@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 pub struct OfficeStatus {
     pub installed: bool,
     pub word: OfficeAppStatus,
+    pub excel: OfficeAppStatus,
     pub powerpoint: OfficeAppStatus,
-    pub wps: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +42,13 @@ pub async fn detect_office() -> OfficeStatus {
                 version: None,
                 plugin_installed: false,
             },
+            excel: OfficeAppStatus {
+                available: false,
+                install_path: None,
+                startup_path: None,
+                version: None,
+                plugin_installed: false,
+            },
             powerpoint: OfficeAppStatus {
                 available: false,
                 install_path: None,
@@ -49,7 +56,6 @@ pub async fn detect_office() -> OfficeStatus {
                 version: None,
                 plugin_installed: false,
             },
-            wps: false,
         })
 }
 
@@ -59,15 +65,66 @@ pub(crate) fn detect_office_cached() -> OfficeStatus {
 
 fn detect_office_impl() -> OfficeStatus {
     let word_status = detect_word();
+    let excel_status = detect_excel();
     let ppt_status = detect_powerpoint();
-    let wps = detect_wps();
 
     OfficeStatus {
-        installed: word_status.available || ppt_status.available || wps,
+        installed: word_status.available || excel_status.available || ppt_status.available,
         word: word_status,
+        excel: excel_status,
         powerpoint: ppt_status,
-        wps,
     }
+}
+
+fn detect_excel() -> OfficeAppStatus {
+    let mut status = OfficeAppStatus {
+        available: false,
+        install_path: None,
+        startup_path: None,
+        version: None,
+        plugin_installed: false,
+    };
+
+    // Try ClickToRun (Office 365 / 2016+)
+    if let Some(path) = query_reg(
+        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+        "InstallationPath",
+    ) {
+        status.available = true;
+        status.install_path = Some(path);
+        status.version = query_reg(
+            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+            "ProductReleaseIds",
+        );
+    }
+
+    // Try MSI install
+    if !status.available {
+        if let Some(path) = query_reg(
+            r"HKLM\SOFTWARE\Microsoft\Office\16.0\Excel\InstallRoot",
+            "Path",
+        ) {
+            status.available = true;
+            status.install_path = Some(path);
+        }
+    }
+
+    // Try Office 15 (2013)
+    if !status.available {
+        if let Some(path) = query_reg(
+            r"HKLM\SOFTWARE\Microsoft\Office\15.0\Excel\InstallRoot",
+            "Path",
+        ) {
+            status.available = true;
+            status.install_path = Some(path);
+            status.version = Some("2013".to_string());
+        }
+    }
+
+    // Check plugin registration
+    status.plugin_installed = office_addin_registered("Excel");
+
+    status
 }
 
 fn detect_word() -> OfficeAppStatus {

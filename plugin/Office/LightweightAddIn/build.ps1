@@ -33,6 +33,7 @@ $output = Join-Path $outDir "LaTeXSnipper.OfficeAddIn.dll"
     /reference:System.Core.dll `
     /reference:System.Web.Extensions.dll `
     /reference:System.Windows.Forms.dll `
+    /unsafe `
     $source
 
 if ($LASTEXITCODE -ne 0) {

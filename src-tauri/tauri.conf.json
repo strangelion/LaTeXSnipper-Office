@@ -40,6 +40,11 @@
     "windows": {
       "webviewInstallMode": {
         "type": "embedBootstrapper"
+      },
+      "nsis": {
+        "displayLanguageSelector": true,
+        "installMode": "both",
+        "languages": ["english"]
       }
     },
     "macOS": {

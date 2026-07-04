@@ -1,4 +1,5 @@
 use axum::{extract::State, response::IntoResponse, routing::post, Json, Router};
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -33,6 +34,12 @@ pub struct LoadLatexRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoadOmmlRequest {
     pub omml: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FormulaActionRequest {
+    #[serde(default)]
+    pub formula_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -164,6 +171,14 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             post(handle_load_selection_omml),
         )
         .route("/api/office/show-app", post(handle_show_app))
+        .route("/api/office/delete-formula", post(handle_delete_formula))
+        .route("/api/office/auto-number", post(handle_auto_number))
+        .route("/api/office/renumber", post(handle_renumber))
+        .route("/api/office/format-selection", post(handle_format_selection))
+        .route("/api/office/format-all", post(handle_format_all))
+        .route("/api/office/load-table", post(handle_load_table))
+        .route("/api/office/insert-table", post(handle_insert_table))
+        .route("/api/office/insert-direct", post(handle_insert_direct))
         .layer(
             tower_http::cors::CorsLayer::permissive()
                 .allow_origin(tower_http::cors::Any)
@@ -507,6 +522,298 @@ async fn render_mathml(state: &BridgeState, latex: &str) -> String {
         _ => {
             let _ = state.pending_renders.lock().await.remove(&request_id);
             String::new()
+        }
+    }
+}
+
+async fn handle_delete_formula(
+    State(state): State<Arc<BridgeState>>,
+    Json(_req): Json<FormulaActionRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Delete formula");
+    let _ = state.app_handle.emit("office-delete-formula", ());
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_auto_number(
+    State(state): State<Arc<BridgeState>>,
+    Json(_req): Json<FormulaActionRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Auto number");
+    let _ = state.app_handle.emit("office-auto-number", ());
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_renumber(
+    State(state): State<Arc<BridgeState>>,
+    Json(_req): Json<FormulaActionRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Renumber");
+    let _ = state.app_handle.emit("office-renumber", ());
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_format_selection(
+    State(state): State<Arc<BridgeState>>,
+    Json(_req): Json<FormulaActionRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Format selection");
+    let _ = state.app_handle.emit("office-format-selection", ());
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+async fn handle_format_all(
+    State(state): State<Arc<BridgeState>>,
+    Json(_req): Json<FormulaActionRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Format all");
+    let _ = state.app_handle.emit("office-format-all", ());
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+/// Strongly-typed table data structure.
+/// Replaces raw JSON/TSV string for type safety.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableData {
+    /// Table rows, each row is a vector of cell values.
+    pub rows: Vec<Vec<String>>,
+    /// Number of rows.
+    pub row_count: u32,
+    /// Number of columns.
+    pub col_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadTableResponse {
+    pub success: bool,
+    #[serde(flatten)]
+    pub table: Option<TableData>,
+}
+
+async fn handle_load_table(
+    State(state): State<Arc<BridgeState>>,
+) -> impl IntoResponse {
+    println!("[Bridge] Load table");
+    let _ = state.app_handle.emit("office-load-table", ());
+    Json(LoadTableResponse {
+        success: true,
+        table: None,
+    })
+}
+
+/// Parse TSV string from C# plugin into strongly-typed TableData.
+pub fn parse_tsv_to_table_data(tsv: &str) -> Option<TableData> {
+    let lines: Vec<&str> = tsv.lines().collect();
+    if lines.is_empty() {
+        return None;
+    }
+
+    // First line: rows\tcols
+    let header: Vec<&str> = lines[0].split('\t').collect();
+    if header.len() < 2 {
+        return None;
+    }
+
+    let row_count: u32 = header[0].parse().ok()?;
+    let col_count: u32 = header[1].parse().ok()?;
+
+    let mut rows = Vec::new();
+    for line in &lines[1..] {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let cells: Vec<String> = line.split('\t').map(|s| s.to_string()).collect();
+        rows.push(cells);
+    }
+
+    if rows.is_empty() {
+        return None;
+    }
+
+    Some(TableData {
+        rows,
+        row_count,
+        col_count,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableDataRequest {
+    pub latex: String,
+}
+
+async fn handle_insert_table(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<TableDataRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Insert table: {}", req.latex);
+    let _ = state.app_handle.emit("office-insert-table", serde_json::json!({
+        "latex": req.latex,
+    }));
+    Json(OfficeResponse {
+        success: true,
+        message: "ok".into(),
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InsertDirectRequest {
+    pub latex: String,
+    #[serde(default)]
+    pub display: bool,
+}
+
+async fn handle_insert_direct(
+    State(_state): State<Arc<BridgeState>>,
+    Json(req): Json<InsertDirectRequest>,
+) -> impl IntoResponse {
+    println!("[Bridge] Insert direct: {}", req.latex);
+
+    // Convert LaTeX to OMML
+    let omml = latex_to_omml_core(&req.latex);
+    let Some(omml) = omml else {
+        return Json(OfficeResponse {
+            success: false,
+            message: "公式转换失败".into(),
+        });
+    };
+
+    let fixed = fix_omml(&omml);
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, fixed.as_bytes());
+    let display = req.display;
+
+    // Execute PowerShell to insert directly into Word
+    let script = format!(
+        r#"$ErrorActionPreference = 'Stop'
+$ommlB64 = '{b64}'
+$display = ${display}
+$omml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ommlB64))
+
+$word = $null
+try {{
+  $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
+}} catch {{
+  throw 'Word is not running.'
+}}
+$word.Visible = $true
+if ($word.Documents.Count -eq 0) {{
+  [void]$word.Documents.Add()
+}}
+
+$selection = $word.Selection
+$selRange = $selection.Range
+
+# Build Flat OPC wrapper for InsertXML
+$flatOpc = '<?xml version=""1.0"" encoding=""UTF-8""?>' +
+  '<pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">' +
+  '<pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"" pkg:padding=""512"">' +
+  '<pkg:xmlData><Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">' +
+  '<Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>' +
+  '</Relationships></pkg:xmlData></pkg:part>' +
+  '<pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">' +
+  '<pkg:xmlData><w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"" xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">' +
+  '<w:body><w:p>' + $omml + '</w:p></w:body></w:document></pkg:xmlData></pkg:part></pkg:package>'
+
+if ($display) {{
+  # Display mode: new paragraph, insert, merge back
+  $originalPos = $selRange.Start
+  [void]$selection.TypeParagraph()
+  $tempRange = $selection.Range
+  [void]$tempRange.InsertXML($flatOpc)
+  # Delete paragraph mark to merge
+  $pMark = $word.Range($originalPos, $originalPos + 1)
+  [void]$pMark.Delete(1, 1)
+  # Center
+  try {{
+    $curRange = $selection.Range
+    $curPara = $curRange.Paragraphs(1)
+    $curPara.Range.ParagraphFormat.Alignment = 1
+  }} catch {{}}
+}} else {{
+  # Inline mode
+  $originalPos = $selRange.Start
+  [void]$selection.TypeParagraph()
+  $tempRange = $selection.Range
+  [void]$tempRange.InsertXML($flatOpc)
+  $pMark = $word.Range($originalPos, $originalPos + 1)
+  [void]$pMark.Delete(1, 1)
+}}
+
+$word.Activate()
+Write-Output 'Inserted'
+"#
+    );
+
+    let script_path = std::env::temp_dir().join(format!(
+        "latexsnipper_direct_insert_{}.ps1",
+        std::process::id()
+    ));
+    if let Err(e) = std::fs::write(&script_path, &script) {
+        return Json(OfficeResponse {
+            success: false,
+            message: format!("Failed to write script: {}", e),
+        });
+    }
+
+    let output = {
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::process::Command::new("powershell")
+                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+                .arg(&script_path)
+                .output()
+        }
+    };
+
+    let _ = std::fs::remove_file(&script_path);
+
+    match output {
+        Ok(out) if out.status.success() => {
+            println!("[Bridge] Direct insert succeeded");
+            Json(OfficeResponse {
+                success: true,
+                message: "已插入到 Word".into(),
+            })
+        }
+        Ok(out) => {
+            let err = String::from_utf8_lossy(&out.stderr).to_string();
+            println!("[Bridge] Direct insert failed: {}", err);
+            Json(OfficeResponse {
+                success: false,
+                message: format!("插入失败: {}", err),
+            })
+        }
+        Err(e) => {
+            println!("[Bridge] PowerShell execution failed: {}", e);
+            Json(OfficeResponse {
+                success: false,
+                message: format!("PowerShell 执行失败: {}", e),
+            })
         }
     }
 }
