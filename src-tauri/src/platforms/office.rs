@@ -259,7 +259,7 @@ fn word_startup_dir() -> String {
 }
 
 fn query_reg(key: &str, value_name: &str) -> Option<String> {
-    let output = Command::new("reg")
+    let output = super::process::background_command("reg.exe")
         .args(["query", key, "/v", value_name])
         .output()
         .ok()?;
@@ -291,7 +291,7 @@ fn office_addin_registered(app: &str) -> bool {
     ];
     names.iter().any(|name| {
         let key = format!(r"HKCU\Software\Microsoft\Office\{}\Addins\{}", app, name);
-        Command::new("reg")
+        super::process::background_command("reg.exe")
             .args(["query", &key])
             .output()
             .map(|out| out.status.success())

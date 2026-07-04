@@ -5,7 +5,7 @@
   "identifier": "com.latexsnipper.office",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:2100",
     "beforeDevCommand": "npm run dev:vite",
     "beforeBuildCommand": "npm run build:office-addin && npm run build:vite"
   },
@@ -33,9 +33,7 @@
     "resources": [
       "resources/DirectML.dll",
       "resources/LaTeXSnipper.dotm",
-      "resources/LaTeXSnipper.OfficePlugin.dll",
-      "resources/Office/LightweightAddIn/*.dll",
-      "resources/vba/*.bas"
+      "resources/OfficeJS/*"
     ],
     "windows": {
       "webviewInstallMode": {

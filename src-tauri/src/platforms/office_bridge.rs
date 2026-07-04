@@ -3,10 +3,12 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
+use tower_http::services::ServeDir;
 
 pub const BRIDGE_PORT: u16 = 19876;
 
@@ -111,7 +113,6 @@ fn fix_double_encoded_utf8(s: &str) -> String {
     while i < chars.len() {
         let cp = chars[i] as u32;
         // Collect consecutive chars where codepoint is in Latin-1 range (0x80..0xFF)
-        // These are likely double-encoded bytes
         if cp >= 0x80 && cp <= 0xFF {
             let mut raw_bytes = Vec::new();
             let mut j = i;
@@ -120,11 +121,8 @@ fn fix_double_encoded_utf8(s: &str) -> String {
                 if c >= 0x80 && c <= 0xFF {
                     raw_bytes.push(c as u8);
                     j += 1;
-                } else {
-                    break;
-                }
+                } else { break; }
             }
-            // Try to interpret the collected bytes as valid UTF-8
             if raw_bytes.len() >= 2 {
                 if let Ok(decoded) = std::str::from_utf8(&raw_bytes) {
                     result.push_str(decoded);
@@ -137,6 +135,32 @@ fn fix_double_encoded_utf8(s: &str) -> String {
         i += 1;
     }
     result
+}
+
+/// Find the Office.js taskpane dist directory.
+fn find_office_js_dist() -> String {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let dist_dir = exe_dir.join("taskpane");
+            if dist_dir.exists() {
+                return dist_dir.to_string_lossy().to_string();
+            }
+        }
+    }
+    let dev_dist = PathBuf::from("dist");
+    if dev_dist.exists() {
+        return dev_dist.to_string_lossy().to_string();
+    }
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let dist_dir = PathBuf::from(&manifest_dir)
+            .parent()
+            .map(|p| p.join("dist"))
+            .unwrap_or(dev_dist);
+        if dist_dir.exists() {
+            return dist_dir.to_string_lossy().to_string();
+        }
+    }
+    String::from("dist")
 }
 
 fn latex_to_omml_core(latex: &str) -> Option<String> {
@@ -157,6 +181,8 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         pending_renders: Arc::new(Mutex::new(HashMap::new())),
     };
 
+    // Try to serve Office.js taskpane files from dist/
+    let dist_path = find_office_js_dist();
     let app = Router::new()
         .route("/api/office/convert", post(handle_convert))
         .route("/api/office/render-formula", post(handle_render_formula))
@@ -179,6 +205,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/load-table", post(handle_load_table))
         .route("/api/office/insert-table", post(handle_insert_table))
         .route("/api/office/insert-direct", post(handle_insert_direct))
+        .nest_service("/taskpane", ServeDir::new(&dist_path))
         .layer(
             tower_http::cors::CorsLayer::permissive()
                 .allow_origin(tower_http::cors::Any)

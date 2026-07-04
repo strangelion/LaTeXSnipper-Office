@@ -2814,7 +2814,7 @@ class UIController {
     }
 
     if (section === 'settings') {
-      this.renderPlatformList({ refreshStatus: true });
+      this.renderPlatformList();
     }
 
     if (section === 'ocr') {
@@ -2903,49 +2903,16 @@ class UIController {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
-
-      // Use Bridge API for direct insertion
-      const bridgeUrl = this.settingsManager?.settings?.bridgeUrl || 'http://127.0.0.1:19876';
-      try {
-        const response = await fetch(`${bridgeUrl}/api/office/insert-direct`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ latex, display: isDisplay })
-        });
-        const result = await response.json();
-        if (result.success) {
-          this.showToast(result.message || '已插入到 Word');
-          this.addHistoryItem(latex);
-        } else {
-          // Fallback to Tauri command
-          try {
-            const formulaType = isDisplay ? 'display' : 'inline';
-            const tauriResult = await invoke('insert_formula', {
-              request: { formulaType, latex }
-            });
-            this.showToast(tauriResult.message || '已插入到 Word');
-            this.addHistoryItem(latex);
-          } catch (tauriError) {
-            Logger.warn('Tauri insert also failed:', tauriError);
-            this.showToast('插入失败: ' + (result.message || '未知错误'));
-          }
-        }
-      } catch (fetchError) {
-        Logger.warn('Bridge insert failed, trying Tauri:', fetchError);
-        try {
-          const formulaType = isDisplay ? 'display' : 'inline';
-          const result = await invoke('insert_formula', {
-            request: { formulaType, latex }
-          });
-          this.showToast(result.message || '已插入到 Word');
-          this.addHistoryItem(latex);
-        } catch (tauriError) {
-          Logger.error('All insert methods failed:', tauriError);
-          this.showToast('插入失败，请确保 Word 已打开');
-        }
-      }
-    } catch (e) {
-      this.showToast('发送失败: ' + (e.message || e));
+      const result = await invoke('insert_formula', {
+        request: {
+          formulaType: isDisplay ? 'display' : 'inline',
+          latex,
+        },
+      });
+      this.showToast(result.message || '已插入到 Word');
+      this.addHistoryItem(latex);
+    } catch (error) {
+      this.showToast(`插入失败: ${error.message || error}`);
     }
   }
 

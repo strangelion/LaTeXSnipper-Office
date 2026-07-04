@@ -477,16 +477,6 @@ impl Logger {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
         println!("[{}] [INFO] [Office] {}", timestamp, message);
     }
-
-    fn warn(message: impl std::fmt::Display) {
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        eprintln!("[{}] [WARN] [Office] {}", timestamp, message);
-    }
-
-    fn error(message: impl std::fmt::Display) {
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-        eprintln!("[{}] [ERROR] [Office] {}", timestamp, message);
-    }
 }
 
 /// Generate and run a PowerShell script that calls a COM add-in method.

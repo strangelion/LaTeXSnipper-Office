@@ -6,7 +6,7 @@
   "scripts": {
     "dev:vite": "vite",
     "build:vite": "vite build",
-    "build:office-addin": "node -e \"if(process.platform==='win32'){require('child_process').execSync('powershell -NoProfile -ExecutionPolicy Bypass -File plugin/Office/LightweightAddIn/stage-for-tauri.ps1',{stdio:'inherit'})}else{console.log('Skipping C# DLL build (Windows only)')}\"",
+    "build:office-addin": "echo 'COM add-in removed, using Office.js instead'",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",

@@ -6,7 +6,7 @@ export default defineConfig({
   base: './',
   server: {
     host: '127.0.0.1',
-    port: 1420,
+    port: 2100,
     strictPort: true,
     fs: {
       allow: [

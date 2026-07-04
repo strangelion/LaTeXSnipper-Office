@@ -50,21 +50,25 @@ pub async fn install_platform_integration(platform_id: String) -> PlatformIntegr
 }
 
 pub(crate) fn install_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
-    match platform_id.as_str() {
-        "office" => install_office_vsto(),
-        "obsidian" => install_obsidian(),
-        "vscode" => install_vscode(),
-        "wps" => install_wps(),
-        "typora" => install_clipboard_platform(
-            "typora",
-            "Typora uses Markdown math via clipboard: inline $...$ or display $$...$$.",
-        ),
-        "notion" => install_clipboard_platform(
-            "notion",
-            "Notion has no local plugin API. LaTeXSnipper will use clipboard equations for Notion.",
-        ),
-        "libreoffice" => install_libreoffice(),
-        other => PlatformIntegrationResult::fail(other, "unknown", "Unsupported platform."),
+    // For office, install Office.js manifest
+    if platform_id == "office" {
+        install_office_js_addin()
+    } else {
+        match platform_id.as_str() {
+            "obsidian" => install_obsidian(),
+            "vscode" => install_vscode(),
+            "wps" => install_wps(),
+            "typora" => install_clipboard_platform(
+                "typora",
+                "Typora uses Markdown math via clipboard: inline $...$ or display $$...$$.",
+            ),
+            "notion" => install_clipboard_platform(
+                "notion",
+                "Notion has no local plugin API. LaTeXSnipper will use clipboard equations for Notion.",
+            ),
+            "libreoffice" => install_libreoffice(),
+            other => PlatformIntegrationResult::fail(other, "unknown", "Unsupported platform."),
+        }
     }
 }
 
@@ -351,7 +355,7 @@ fn spawn_regasm(dll: &Path, unregister: bool) -> Result<(), String> {
 }
 
 fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
-    let mut command = Command::new("reg");
+    let mut command = super::process::background_command("reg.exe");
     command.args(["add", key]);
     if name.is_empty() {
         command.arg("/ve");
@@ -376,7 +380,7 @@ fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
 
 fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
     let value = value.to_string();
-    let output = Command::new("reg")
+    let output = super::process::background_command("reg.exe")
         .args([
             "add",
             key,
@@ -400,7 +404,7 @@ fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
 }
 
 fn reg_delete_tree(key: &str) {
-    let _ = Command::new("reg").args(["delete", key, "/f"]).output();
+    let _ = super::process::background_command("reg.exe").args(["delete", key, "/f"]).output();
 }
 
 fn office_addin_clsid() -> &'static str {
@@ -502,7 +506,7 @@ fn cleanup_legacy_office_com_addins() {
 fn office_com_addin_registered() -> bool {
     // Check if registered for any Office app (Word, Excel, or PowerPoint)
     let addin_ok = ["Word", "Excel", "PowerPoint"].iter().any(|app| {
-        Command::new("reg")
+        super::process::background_command("reg.exe")
             .args([
                 "query",
                 &format!(r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.Office", app),
@@ -515,7 +519,7 @@ fn office_com_addin_registered() -> bool {
     });
 
     let com_key = hkcu_classes_key(&format!(r"CLSID\{}\InprocServer32", office_addin_clsid()));
-    let com_ok = Command::new("reg")
+    let com_ok = super::process::background_command("reg.exe")
         .args(["query", &com_key, "/v", "CodeBase"])
         .output()
         .map(|out| out.status.success())
@@ -619,7 +623,7 @@ fn office_vsto_registered() -> bool {
         r"HKLM\Software\Microsoft\Office\16.0\PowerPoint\Addins",
     ];
     roots.iter().any(|root| {
-        Command::new("reg")
+        super::process::background_command("reg.exe")
             .args(["query", root, "/s"])
             .output()
             .map(|out| {
@@ -683,7 +687,7 @@ fn bundled_dotm() -> Option<PathBuf> {
 fn register_com_dll() -> String {
     // Check if already registered
     let guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
-    let check = Command::new("reg")
+    let check = super::process::background_command("reg.exe")
         .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)])
         .output();
 
@@ -752,7 +756,7 @@ fn register_com_dll() -> String {
 #[allow(dead_code)]
 fn unregister_com_dll() -> String {
     let guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
-    let check = Command::new("reg")
+    let check = super::process::background_command("reg.exe")
         .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)])
         .output();
 
@@ -916,6 +920,104 @@ fn install_office_vsto() -> PlatformIntegrationResult {
     )
 }
 
+/// Sideload the Office.js manifest so Word can find the add-in.
+/// Windows: copies to %LOCALAPPDATA%\Microsoft\Office\16.0\Wef\
+/// macOS: copies to ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
+fn install_office_js_addin() -> PlatformIntegrationResult {
+    // Find manifest.xml from bundled resources
+    let manifest_source = bundled_office_js_manifest()
+        .or_else(|| {
+            // Fallback: source tree (dev mode)
+            let source = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default())
+                .parent()
+                .map(|p| p.join("apps").join("office-addin").join("manifest.xml"))
+                .unwrap_or_default();
+            if source.exists() { Some(source) } else { None }
+        });
+
+    let Some(source) = manifest_source else {
+        return PlatformIntegrationResult::fail("office", "office-js", "找不到 manifest.xml");
+    };
+
+    let content = match std::fs::read_to_string(&source) {
+        Ok(c) => c,
+        Err(e) => return PlatformIntegrationResult::fail("office", "office-js", format!("读取 manifest 失败: {e}")),
+    };
+
+    // Determine target directory
+    let target = if cfg!(target_os = "windows") {
+        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
+            dirs_next::data_dir()
+                .unwrap_or_else(std::env::temp_dir)
+                .to_string_lossy()
+                .to_string()
+        });
+        let wef_dir = PathBuf::from(local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef");
+        if let Err(e) = std::fs::create_dir_all(&wef_dir) {
+            return PlatformIntegrationResult::fail("office", "office-js", format!("创建 Wef 目录失败: {e}"));
+        }
+        Some(wef_dir.join("LaTeXSnipper.xml"))
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let wef_dir = PathBuf::from(&home)
+            .join("Library")
+            .join("Containers")
+            .join("com.microsoft.Word")
+            .join("Data")
+            .join("Documents")
+            .join("wef");
+        if let Err(e) = std::fs::create_dir_all(&wef_dir) {
+            return PlatformIntegrationResult::fail("office", "office-js", format!("创建 wef 目录失败: {e}"));
+        }
+        Some(wef_dir.join("LaTeXSnipper.xml"))
+    } else {
+        None
+    };
+
+    let Some(target_path) = target else {
+        return PlatformIntegrationResult::fail("office", "office-js", "不支持的操作系统");
+    };
+
+    if let Err(e) = std::fs::write(&target_path, &content) {
+        return PlatformIntegrationResult::fail("office", "office-js", format!("写入 manifest 失败: {e}"));
+    }
+
+    PlatformIntegrationResult::ok(
+        "office",
+        "office-js",
+        format!("Office.js 加载项已安装到: {}", target_path.display()),
+        true,
+    )
+}
+
+fn bundled_office_js_manifest() -> Option<PathBuf> {
+    // Check relative to the running executable (production)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidates = [
+                exe_dir.join("resources").join("OfficeJS").join("manifest.xml"),
+                exe_dir.join("resources").join("officejs").join("manifest.xml"),
+                exe_dir.join("officejs").join("manifest.xml"),
+            ];
+            for p in &candidates {
+                if p.exists() {
+                    return Some(p.clone());
+                }
+            }
+        }
+    }
+
+    // Check relative to CWD (dev mode)
+    for rel in &["resources/OfficeJS/manifest.xml", "resources/officejs/manifest.xml"] {
+        let p = std::env::current_dir().ok()?.join(rel);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+
+    None
+}
+
 fn uninstall_office_vsto() -> PlatformIntegrationResult {
     cleanup_legacy_office_com_addins();
 
@@ -1063,7 +1165,7 @@ fn uninstall_office() -> PlatformIntegrationResult {
 
     if !startup.exists() {
         // Also clean up old VSTO registration if present
-        let vsto_check = Command::new("reg")
+        let vsto_check = super::process::background_command("reg.exe")
             .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"])
             .output()
             .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
@@ -1153,7 +1255,7 @@ fn check_office() -> PlatformIntegrationResult {
         )
     } else {
         // Check for old VSTO registration
-        let vsto = Command::new("reg")
+        let vsto = super::process::background_command("reg.exe")
             .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"])
             .output()
             .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
