@@ -49,15 +49,19 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Get the selected table (if any)
    */
   async getSelectedTable(): Promise<TableIR | null> {
-    return Word.run(async (context) => {
-      const selection = context.document.getSelection();
-      const tables = selection.tables;
-      await context.sync();
+    try {
+      return await Word.run(async (context) => {
+        const selection = context.document.getSelection();
+        const tables = selection.tables;
+        await context.sync();
 
-      if (tables.items.length === 0) return null;
+        if (tables.items.length === 0) return null;
 
-      return this.extractTableData(tables.items[0], context);
-    });
+        return this.extractTableData(tables.items[0], context);
+      });
+    } catch {
+      return null; // Table extraction not yet implemented
+    }
   }
 
   /**
@@ -189,12 +193,11 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
     const display = xml.includes('<m:oMathPara');
 
     try {
-      // Convert OMML to LaTeX via Bridge
-      const bridgeUrl = 'http://127.0.0.1:19876';
-      const response = await fetch(`${bridgeUrl}/api/office/convert`, {
+      // Convert OMML to LaTeX via Bridge (same origin)
+      const response = await fetch('/api/office/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latex: omml, display }),
+        body: JSON.stringify({ omml, display }),
       });
       if (response.ok) {
         const data = await response.json();
@@ -210,13 +213,13 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
 
   /**
    * Extract table data from Word Table object
+   * NOTE: Not yet implemented. Requires table.getOoxml() → Rust OOXML Table Parser → TableIR.
    */
   private async extractTableData(
     _table: Word.Table,
     _context: Word.RequestContext
   ): Promise<TableIR> {
-    // TODO: Implement using table.getOoxml() + Core parser
-    return { rows: [] };
+    throw new Error('Table extraction is not yet implemented');
   }
 
   /**
@@ -230,7 +233,11 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
     const mathContent = await this.extractOmml(request.fragment);
     const mathTag = request.mode === 'display' ? 'm:oMathPara' : 'm:oMath';
 
-    return this.wrapInFlatOpc(`<w:p><${mathTag}>${mathContent}</${mathTag}></w:p>`);
+    // Wrap in content control so deleteCurrentBlock() can find parentContentControl
+    const body = this.wrapInSdt(
+      `<w:p><${mathTag}>${mathContent}</${mathTag}></w:p>`
+    );
+    return this.wrapInFlatOpc(body);
   }
 
   /**
@@ -238,13 +245,14 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    */
   private async buildNumberedEquationOoxml(request: InsertFormulaRequest): Promise<string> {
     const mathContent = await this.extractOmml(request.fragment);
-    return this.wrapInFlatOpc(
+    const body = this.wrapInSdt(
       `<w:tbl><w:tr>` +
       `<w:tc><w:p><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p></w:tc>` +
       `<w:tc><w:tcPr><w:jc w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><m:oMathPara>${mathContent}</m:oMathPara></w:p></w:tc>` +
       `<w:tc><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> SEQ \\* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:tc>` +
       `</w:tr></w:tbl>`
     );
+    return this.wrapInFlatOpc(body);
   }
 
   /**
@@ -262,7 +270,8 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
       content = `<m:r><m:t>${this.escapeXml(formula.math.content)}</m:t></m:r>`;
     }
 
-    return this.wrapInFlatOpc(`<w:p><${mathTag}>${content}</${mathTag}></w:p>`);
+    const body = this.wrapInSdt(`<w:p><${mathTag}>${content}</${mathTag}></w:p>`);
+    return this.wrapInFlatOpc(body);
   }
 
   /**
@@ -290,9 +299,8 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Call Bridge API to convert LaTeX to OMML
    */
   private async latexToOmml(latex: string, display: boolean): Promise<string> {
-    const bridgeUrl = 'http://127.0.0.1:19876';
     try {
-      const response = await fetch(`${bridgeUrl}/api/office/convert`, {
+      const response = await fetch('/api/office/convert', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latex, display }),
@@ -310,6 +318,21 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    */
   private fallbackOmml(latex: string): string {
     return `<m:r><m:t>${this.escapeXml(latex)}</m:t></m:r>`;
+  }
+
+  /**
+   * Wrap content in a Word content control (w:sdt) so deleteCurrentBlock()
+   * can reliably find selection.parentContentControl.
+   */
+  private wrapInSdt(body: string): string {
+    const uuid = crypto.randomUUID();
+    return `<w:sdt>` +
+      `<w:sdtPr>` +
+      `<w:alias w:val="LaTeXSnipper Formula"/>` +
+      `<w:tag w:val="latexsnipper:formula:${uuid}"/>` +
+      `</w:sdtPr>` +
+      `<w:sdtContent>${body}</w:sdtContent>` +
+      `</w:sdt>`;
   }
 
   /**

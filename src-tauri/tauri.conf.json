@@ -33,7 +33,8 @@
     "resources": [
       "resources/DirectML.dll",
       "resources/OfficeJS/*",
-      "resources/OfficeJS/taskpane/*"
+      "resources/OfficeJS/taskpane/*",
+      "resources/OfficeJS/site/*"
     ],
     "windows": {
       "webviewInstallMode": {

@@ -4,6 +4,17 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+// ═══════════════════════════════════════════════════════════════════════════
+// DEPRECATION NOTICE — COM/VSTO/RegAsm/PowerShell routes
+//
+// These functions are retained for reference but are NOT used in the current
+// architecture. The Office integration now uses exclusively:
+//   Office.js manifest → Wef sideloading → Bridge HTTP API → Word Taskpane
+//
+// No COM, VSTO, RegAsm, or PowerShell is needed.
+// See: docs/office-architecture.md or apps/office-addin/README.md
+// ═══════════════════════════════════════════════════════════════════════════
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlatformIntegrationResult {
     pub success: bool,

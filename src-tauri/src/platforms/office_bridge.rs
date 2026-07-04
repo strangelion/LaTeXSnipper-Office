@@ -1,5 +1,4 @@
 use axum::{extract::State, response::IntoResponse, routing::get, routing::post, Json, Router};
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -142,44 +141,40 @@ fn fix_double_encoded_utf8(s: &str) -> String {
     result
 }
 
-/// Find the Office.js taskpane dist directory.
+/// Find the Office.js taskpane site directory.
+/// Returns a directory containing both `taskpane/` and `assets/` subdirectories,
+/// so the fallback_service can serve `/taskpane/index.html` and `/assets/*.js`.
 fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
-    // 1. Try resource_dir/OfficeJS/taskpane (production bundle)
+    // 1. Try resource_dir/OfficeJS/site (production bundle, after npm run build:office-addin)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        let taskpane_dir = resource_dir.join("OfficeJS").join("taskpane");
-        if taskpane_dir.join("index.html").exists() {
-            return taskpane_dir.to_string_lossy().to_string();
+        let site_dir = resource_dir.join("OfficeJS").join("site");
+        if site_dir.join("taskpane").join("index.html").exists() {
+            return site_dir.to_string_lossy().to_string();
         }
-        // Fallback: try resources/OfficeJS/taskpane next to the exe
+        // Fallback: try resources/OfficeJS/site next to the exe
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                let alt = exe_dir.join("resources").join("OfficeJS").join("taskpane");
-                if alt.join("index.html").exists() {
+                let alt = exe_dir.join("resources").join("OfficeJS").join("site");
+                if alt.join("taskpane").join("index.html").exists() {
                     return alt.to_string_lossy().to_string();
                 }
             }
         }
     }
-    // 2. Try project dist directory (dev mode)
-    let dev_dist = PathBuf::from("dist");
-    if dev_dist.join("index.html").exists() {
-        return dev_dist.to_string_lossy().to_string();
-    }
-    // 3. Try apps/office-addin/dist
+    // 2. Try apps/office-addin/dist (dev mode, after direct Vite build)
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let addin_dist = PathBuf::from(&manifest_dir).parent().map(|p| p.join("apps").join("office-addin").join("dist"));
+        let addin_dist = PathBuf::from(&manifest_dir).parent()
+            .map(|p| p.join("apps").join("office-addin").join("dist"));
         if let Some(dir) = addin_dist {
-            if dir.join("index.html").exists() {
+            if dir.join("taskpane").join("index.html").exists() {
                 return dir.to_string_lossy().to_string();
             }
         }
-        // 4. Fallback: root dist/
-        let root_dist = PathBuf::from(&manifest_dir).parent().map(|p| p.join("dist"));
-        if let Some(dir) = root_dist {
-            if dir.join("index.html").exists() {
-                return dir.to_string_lossy().to_string();
-            }
-        }
+    }
+    // 3. Fallback: root dist/
+    let root_dist = PathBuf::from("dist");
+    if root_dist.join("index.html").exists() {
+        return root_dist.to_string_lossy().to_string();
     }
     eprintln!("[Bridge] WARNING: Office.js taskpane not found. Use build:office-addin first.");
     String::from("dist")
@@ -229,7 +224,8 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/load-table", post(handle_load_table))
         .route("/api/office/insert-table", post(handle_insert_table))
         .route("/api/office/insert-direct", post(handle_insert_direct))
-        .nest_service("/taskpane", ServeDir::new(&dist_path))
+        // Serve static files at root so `/taskpane/index.html` and `/assets/*.js` resolve
+        .fallback_service(ServeDir::new(&dist_path))
         .layer(
             tower_http::cors::CorsLayer::permissive()
                 .allow_origin(tower_http::cors::Any)
@@ -758,7 +754,7 @@ async fn handle_insert_direct(
     State(_state): State<Arc<BridgeState>>,
     Json(req): Json<InsertDirectRequest>,
 ) -> impl IntoResponse {
-    println!("[Bridge] Insert direct: {}", req.latex);
+    println!("[Bridge] Insert direct (deprecated, use action queue): {}", req.latex);
 
     // Convert LaTeX to OMML
     let omml = latex_to_omml_core(&req.latex);

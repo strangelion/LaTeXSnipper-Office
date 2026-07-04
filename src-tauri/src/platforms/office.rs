@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

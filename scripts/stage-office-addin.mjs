@@ -1,10 +1,10 @@
 /**
  * Stage Office.js add-in for Tauri packaging.
- * 
- * 1. Cleans src-tauri/resources/OfficeJS/taskpane/
- * 2. Copies apps/office-addin/dist/ to resources/OfficeJS/taskpane/
- * 3. Copies the Word manifest to resources/OfficeJS/manifest.word.local.xml
- * 
+ *
+ * 1. Copies entire apps/office-addin/dist/ to resources/OfficeJS/site/
+ *    (includes taskpane/ + assets/ so index.html can resolve ../assets/*.js)
+ * 2. Copies the production manifest to resources/OfficeJS/manifest.word.xml
+ *
  * Run after `npm --prefix apps/office-addin run build`.
  */
 
@@ -18,47 +18,46 @@ const root = path.resolve(__dirname, '..');
 const src = {
   dist: path.resolve(root, 'apps', 'office-addin', 'dist'),
   manifest: {
-    local: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.local.xml'),
     desktop: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.desktop.xml'),
   },
 };
 
 const dest = {
-  taskpaneDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'taskpane'),
-  manifestOut: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest.word.local.xml'),
+  siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
+  manifestOut: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest.word.xml'),
 };
 
-// 1. Clean
-if (fs.existsSync(dest.taskpaneDir)) {
-  fs.rmSync(dest.taskpaneDir, { recursive: true, force: true });
-  console.log('[stage] Cleaned taskpane directory');
-}
-
-// 2. Copy dist/taskpane contents to OfficeJS/taskpane
-// Vite output: dist/taskpane/index.html
-const taskpaneDist = path.resolve(src.dist, 'taskpane');
-if (!fs.existsSync(taskpaneDist)) {
-  console.error('[stage] ERROR: Task pane dist not found at:', taskpaneDist);
+// 1. Verify dist exists
+if (!fs.existsSync(src.dist)) {
+  console.error('[stage] ERROR: Office add-in dist not found at:', src.dist);
   console.error('[stage] Build first: npm --prefix apps/office-addin run build');
   process.exit(1);
 }
 
-fs.cpSync(taskpaneDist, dest.taskpaneDir, { recursive: true });
-console.log(`[stage] Copied taskpane: ${taskpaneDist} → ${dest.taskpaneDir}`);
+// 2. Clean and copy entire dist/ to OfficeJS/site/
+if (fs.existsSync(dest.siteDir)) {
+  fs.rmSync(dest.siteDir, { recursive: true, force: true });
+  console.log('[stage] Cleaned site directory');
+}
+fs.cpSync(src.dist, dest.siteDir, { recursive: true });
+console.log(`[stage] Copied dist: ${src.dist} → ${dest.siteDir}`);
 
-// 3. Copy manifests
+// Verify assets exist
+const assetsDir = path.resolve(dest.siteDir, 'assets');
+if (!fs.existsSync(assetsDir) || fs.readdirSync(assetsDir).length === 0) {
+  console.warn('[stage] WARNING: assets/ directory is empty or missing.');
+  console.warn('[stage] The taskpane will likely show a white screen (JS bundles 404).');
+}
+
+// 3. Copy production manifest (NOT the dev manifest which points to localhost:3000)
 const manifestDir = path.dirname(dest.manifestOut);
 fs.mkdirSync(manifestDir, { recursive: true });
 
-// Copy dev manifest
-fs.copyFileSync(src.manifest.local, dest.manifestOut);
-console.log(`[stage] Copied local manifest: ${src.manifest.local} → ${dest.manifestOut}`);
-
-// Copy desktop manifest (for production/bundled use)
-if (fs.existsSync(src.manifest.desktop)) {
-  const desktopDest = path.resolve(manifestDir, 'manifest.word.desktop.xml');
-  fs.copyFileSync(src.manifest.desktop, desktopDest);
-  console.log(`[stage] Copied desktop manifest: ${src.manifest.desktop} → ${desktopDest}`);
+if (!fs.existsSync(src.manifest.desktop)) {
+  console.error('[stage] ERROR: Production manifest not found at:', src.manifest.desktop);
+  process.exit(1);
 }
+fs.copyFileSync(src.manifest.desktop, dest.manifestOut);
+console.log(`[stage] Copied production manifest: ${src.manifest.desktop} → ${dest.manifestOut}`);
 
 console.log('[stage] Office.js add-in staged successfully');
