@@ -970,6 +970,15 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
         Err(e) => return PlatformIntegrationResult::fail("office", "office-js", format!("读取 manifest 失败: {e}")),
     };
 
+    // Trust the TLS certificate before installing manifest, so Word can load the add-in over HTTPS
+    println!("[Office] Requesting certificate trust for HTTPS...");
+    if let Ok(true) = super::tls_cert::try_trust_cert_from_appdata() {
+        println!("[Office] Certificate trusted successfully");
+    } else {
+        println!("[Office] Certificate trust deferred (UAC may not have been accepted)");
+        // Continue anyway — user can trust manually later
+    }
+
     // Determine target directory
     let target = if cfg!(target_os = "windows") {
         let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {

@@ -423,15 +423,9 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         }
     });
 
-    // Start HTTPS server with self-signed cert
-    // Trust the cert first (elevated UAC prompt may appear)
-    match super::tls_cert::try_trust_cert(&app_handle) {
-        Ok(true) | Err(_) => {
-            // Proceed regardless — cert may or may not be trusted
-        }
-        Ok(false) => {}
-    }
-
+    // Start HTTPS server with self-signed certificate.
+    // Certificate is auto-generated on first run.
+    // Certificate trust is handled separately (by install_office_js_addin / "启用 Word 集成").
     match super::tls_cert::get_or_create_tls_config(&app_handle) {
         Ok(tls_config) => {
             let addr = format!("127.0.0.1:{}", BRIDGE_PORT);
@@ -448,24 +442,12 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                 .serve(app.into_make_service())
                 .await
             {
-                println!("[Bridge] Server error: {}", e);
+                println!("[Bridge] HTTPS server error: {}", e);
             }
         }
         Err(e) => {
-            println!("[Bridge] TLS setup failed: {} (falling back to HTTP)", e);
-            // Fallback to HTTP only if TLS fails completely
-            let fallback_addr = format!("127.0.0.1:{}", BRIDGE_PORT);
-            let listener = match tokio::net::TcpListener::bind(&fallback_addr).await {
-                Ok(l) => l,
-                Err(e) => {
-                    println!("[Bridge] Failed to bind port {}: {}", BRIDGE_PORT, e);
-                    return;
-                }
-            };
-            println!("[Bridge] Listening on http://{} (no TLS)", fallback_addr);
-            if let Err(e) = axum::serve(listener, app).await {
-                println!("[Bridge] Server error: {}", e);
-            }
+            println!("[Bridge] FATAL: TLS setup failed: {}", e);
+            println!("[Bridge] Office.js requires HTTPS. Cannot start without TLS.");
         }
     }
 }

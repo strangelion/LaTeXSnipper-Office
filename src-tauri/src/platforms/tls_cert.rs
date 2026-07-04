@@ -53,13 +53,25 @@ pub fn get_or_create_tls_config(app_handle: &tauri::AppHandle) -> Result<ServerC
     Ok(config)
 }
 
-/// Try to trust the self-signed certificate in Windows Trusted Root store.
-/// On Windows, this runs an elevated PowerShell script (UAC prompt will appear).
-/// Returns Ok(true) if already trusted or successfully installed.
-pub fn try_trust_cert(app_handle: &tauri::AppHandle) -> Result<bool, String> {
-    let cert_dir = get_cert_dir(app_handle);
-    let cert_path = cert_dir.join("localhost.crt");
+/// Try to trust the self-signed certificate by finding it in standard app data paths.
+/// On Windows, this runs certutil (UAC prompt will appear).
+pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
+    // Try standard app data paths
+    let candidates = [
+        dirs_next::data_dir().map(|d| d.join("com.latexsnipper.office").join("localhost-certs").join("localhost.crt")),
+        dirs_next::data_dir().map(|d| d.join("latexsnipper-office").join("localhost-certs").join("localhost.crt")),
+        Some(std::env::temp_dir().join("LaTeXSnipper").join("localhost-certs").join("localhost.crt")),
+    ];
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.exists() {
+            return try_trust_cert(&candidate);
+        }
+    }
+    Err("No certificate found to trust. Start the app first to generate one.".to_string())
+}
 
+/// Try to trust the certificate by path.
+pub fn try_trust_cert(cert_path: &std::path::Path) -> Result<bool, String> {
     if !cert_path.exists() {
         return Err("Certificate does not exist, generate first".to_string());
     }
@@ -72,21 +84,19 @@ pub fn try_trust_cert(app_handle: &tauri::AppHandle) -> Result<bool, String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Write a PowerShell script that trusts the cert and launch it elevated
         let ps_script = format!(
             r#"$certPath = '{path}'
 certutil -addstore -user Root $certPath | Out-Null
 if ($LASTEXITCODE -eq 0) {{
     Write-Host "Certificate trusted successfully"
 }} else {{
-    # Try elevated
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "certutil"
-    $startInfo.Arguments = "-addstore -user Root `"$certPath`""
-    $startInfo.Verb = "runas"
-    $startInfo.UseShellExecute = $true
-    $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
     try {{
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = "certutil"
+        $startInfo.Arguments = "-addstore -user Root `"$certPath`""
+        $startInfo.Verb = "runas"
+        $startInfo.UseShellExecute = $true
+        $startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
         $proc = [System.Diagnostics.Process]::Start($startInfo)
         $proc.WaitForExit()
         if ($proc.ExitCode -eq 0) {{
@@ -108,67 +118,67 @@ if ($LASTEXITCODE -eq 0) {{
         fs::write(&script_path, ps_script)
             .map_err(|e| format!("Failed to write trust script: {e}"))?;
 
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-            // First try non-elevated (might work on some Windows configs)
-            let output = std::process::Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_path.to_string_lossy()])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-                .map_err(|e| format!("Failed to run cert trust: {e}"))?;
-
-            if output.status.success() {
-                let _ = fs::remove_file(&script_path);
-                println!("[TLS] Certificate trusted successfully");
-                return Ok(true);
-            }
-
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-
-            // If that failed (likely access denied), try elevated with UAC prompt
-            if stderr.contains("Access denied") || stdout.contains("exit code") || !output.status.success() {
-                println!("[TLS] Non-elevated trust failed, trying UAC elevation...");
-                // Launch elevated PowerShell - this WILL show UAC
-                let elevated = std::process::Command::new("powershell")
-                    .args([
-                        "-NoProfile",
-                        "-ExecutionPolicy", "Bypass",
-                        "-WindowStyle", "Hidden",
-                        "-Command",
-                        &format!(
-                            "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -WindowStyle Hidden",
-                            script_path.to_string_lossy()
-                        ),
-                    ])
-                    .creation_flags(CREATE_NO_WINDOW)
-                    .spawn();
-
-                match elevated {
-                    Ok(_) => {
-                        println!("[TLS] UAC elevation requested. Please accept the UAC prompt.");
-                        let _ = fs::remove_file(&script_path);
-                        // Can't wait for UAC process here, so assume success
-                        return Ok(true);
-                    }
-                    Err(e) => {
-                        let _ = fs::remove_file(&script_path);
-                        return Err(format!("Failed to start elevated trust: {e}"));
-                    }
-                }
-            }
-        }
+        trust_cert_with_script(&script_path)
     }
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = cert_path;
         println!("[TLS] Cert trust not implemented for non-Windows");
+        Err("Not supported on this platform".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    // First try non-elevated
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_path.to_string_lossy()])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Failed to run cert trust: {e}"))?;
+
+    if output.status.success() {
+        let _ = fs::remove_file(script_path);
+        println!("[TLS] Certificate trusted successfully");
+        return Ok(true);
     }
 
-    Err("Could not trust certificate".to_string())
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // If non-elevated failed (likely access denied), try elevated with UAC prompt
+    if stderr.contains("Access denied") || stdout.contains("exit code") || !output.status.success() {
+        println!("[TLS] Non-elevated trust failed, trying UAC elevation...");
+        let elevated = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-WindowStyle", "Hidden",
+                "-Command",
+                &format!(
+                    "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -ExecutionPolicy Bypass -File \"{}\"' -WindowStyle Hidden",
+                    script_path.to_string_lossy()
+                ),
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+
+        let _ = fs::remove_file(script_path);
+        match elevated {
+            Ok(_) => {
+                println!("[TLS] UAC elevation requested. Please accept the UAC prompt.");
+                Ok(true)
+            }
+            Err(e) => Err(format!("Failed to start elevated trust: {e}")),
+        }
+    } else {
+        let _ = fs::remove_file(script_path);
+        Err(format!("Cert trust failed: {}{}", stdout, stderr))
+    }
 }
 
 /// Check if we can verify the cert (basic check — not a full trust verification).

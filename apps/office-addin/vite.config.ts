@@ -22,6 +22,7 @@ function getHttpsConfig() {
 
 export default defineConfig({
   root: 'src',
+  publicDir: resolve(__dirname, 'public'),
   base: './',
   build: {
     outDir: '../dist',
