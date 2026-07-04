@@ -18,7 +18,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="http://localhost:19876/taskpane/index.html"/>
+    <SourceLocation DefaultValue="https://localhost:19876/taskpane/index.html"/>
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -58,7 +58,7 @@
 
     <Resources>
       <bt:Urls>
-        <bt:Url id="Taskpane.Url" DefaultValue="http://localhost:19876/taskpane/index.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:19876/taskpane/index.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Tab.Label" DefaultValue="LaTeXSnipper"/>

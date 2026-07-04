@@ -3,6 +3,21 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Tracks whether the Office.js Taskpane has reported a heartbeat.
+/// Set by the bridge's `/api/office/heartbeat` handler.
+static TASKPANE_HEARTBEAT: AtomicBool = AtomicBool::new(false);
+
+/// Record that the Taskpane has connected (called from bridge heartbeat handler).
+pub fn record_taskpane_heartbeat() {
+    TASKPANE_HEARTBEAT.store(true, Ordering::Relaxed);
+}
+
+/// Check whether the Taskpane has ever reported a heartbeat.
+pub fn is_taskpane_connected() -> bool {
+    TASKPANE_HEARTBEAT.load(Ordering::Relaxed)
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DEPRECATION NOTICE — COM/VSTO/RegAsm/PowerShell routes
@@ -1006,10 +1021,12 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let candidates = [
+                // Staged production manifest (the one we actually want)
+                exe_dir.join("resources").join("OfficeJS").join("manifest.word.xml"),
+                // Legacy production manifests (fallback)
                 exe_dir.join("resources").join("OfficeJS").join("manifest.word.desktop.xml"),
                 exe_dir.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
                 exe_dir.join("resources").join("OfficeJS").join("manifest.xml"),
-                exe_dir.join("resources").join("officejs").join("manifest.word.desktop.xml"),
             ];
             for p in &candidates {
                 if p.exists() {
@@ -1019,12 +1036,20 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
         }
     }
 
-    // Check relative to CWD (dev mode)
+    // Check relative to CWD (dev mode: CWD = project root)
     if let Ok(cwd) = std::env::current_dir() {
         let candidates = [
+            // 1) Staged manifest under src-tauri (after npm run build:office-addin)
+            cwd.join("src-tauri").join("resources").join("OfficeJS").join("manifest.word.xml"),
+            // 2) Source tree: desktop manifest (production URL http://localhost:19876)
+            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.desktop.xml"),
+            // 3) Staged manifest directly under CWD (fallback, unusual but possible)
+            cwd.join("resources").join("OfficeJS").join("manifest.word.xml"),
+            // 4) Legacy/local manifests (lowest priority — don't use localhost:3000)
+            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.local.xml"),
+            cwd.join("resources").join("OfficeJS").join("manifest.word.desktop.xml"),
             cwd.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
             cwd.join("resources").join("OfficeJS").join("manifest.xml"),
-            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.local.xml"),
         ];
         for p in &candidates {
             if p.exists() {
@@ -1080,6 +1105,11 @@ fn check_office_addin() -> PlatformIntegrationResult {
         return PlatformIntegrationResult::fail("office", "not_found", "未检测到 Microsoft Office。");
     }
 
+    // Check if the Taskpane has sent a heartbeat → fully connected
+    if is_taskpane_connected() {
+        return PlatformIntegrationResult::ok("office", "connected", "Word 任务窗格已连接，功能可用。", false);
+    }
+
     // Check if Office.js manifest exists in Wef directory
     let manifest_exists = if cfg!(target_os = "windows") {
         let local_appdata = std::env::var("LOCALAPPDATA").ok()
@@ -1096,9 +1126,9 @@ fn check_office_addin() -> PlatformIntegrationResult {
     };
 
     if manifest_exists {
-        PlatformIntegrationResult::ok("office", "office-js", "Office.js 加载项已安装。重启 Word 后生效。", false)
+        PlatformIntegrationResult::ok("office", "installed", "Office.js 加载项已安装。请重启 Word 后打开任务窗格。", true)
     } else {
-        PlatformIntegrationResult::fail("office", "office-js", "Office.js 加载项未安装。请启用 Office 平台。")
+        PlatformIntegrationResult::fail("office", "not_installed", "Office.js 加载项未安装。请在设置中启用 Word 集成。")
     }
 }
 

@@ -1,6 +1,6 @@
 use axum::{extract::State, response::IntoResponse, routing::get, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -60,10 +60,29 @@ pub struct OfficeResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum OfficeAction {
+    InsertFormula { latex: String, mode: String },
+    LoadSelection,
+    DeleteFormula { id: Option<String> },
+    ReplaceFormula { id: String, latex: String },
+    InsertTable { table: serde_json::Value },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OfficeActionResponse {
+    pub action: Option<OfficeAction>,
+    pub action_id: Option<String>,
+}
+
 #[derive(Clone)]
 struct BridgeState {
     app_handle: tauri::AppHandle,
     pending_renders: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    action_queue: Arc<Mutex<VecDeque<(String, OfficeAction)>>>,
+    action_counter: Arc<std::sync::atomic::AtomicU64>,
+    heartbeat_received: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn fix_omml(omml: &str) -> String {
@@ -196,6 +215,9 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
     let state = BridgeState {
         app_handle: app_handle.clone(),
         pending_renders: Arc::new(Mutex::new(HashMap::new())),
+        action_queue: Arc::new(Mutex::new(VecDeque::new())),
+        action_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        heartbeat_received: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
 
     // Try to serve Office.js taskpane files from resource dir
@@ -224,6 +246,9 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/load-table", post(handle_load_table))
         .route("/api/office/insert-table", post(handle_insert_table))
         .route("/api/office/insert-direct", post(handle_insert_direct))
+        .route("/api/office/heartbeat", post(handle_heartbeat))
+        .route("/api/office/actions/next", get(handle_actions_next))
+        .route("/api/office/actions/complete", post(handle_actions_complete))
         // Serve static files at root so `/taskpane/index.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
@@ -235,7 +260,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .with_state(Arc::new(state));
 
     // Poll for file-based communication from VBA
-    let poll_handle = app_handle;
+    let poll_handle = app_handle.clone();
     tokio::spawn(async move {
         let selection_16 = std::env::temp_dir().join("latexsnipper_selection.16");
         let selection_bin = std::env::temp_dir().join("latexsnipper_selection.bin");
@@ -398,17 +423,50 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         }
     });
 
-    let listener = match TcpListener::bind(format!("0.0.0.0:{}", BRIDGE_PORT)).await {
-        Ok(l) => l,
-        Err(e) => {
-            println!("[Bridge] Failed to bind port {}: {}", BRIDGE_PORT, e);
-            return;
+    // Start HTTPS server with self-signed cert
+    // Trust the cert first (elevated UAC prompt may appear)
+    match super::tls_cert::try_trust_cert(&app_handle) {
+        Ok(true) | Err(_) => {
+            // Proceed regardless — cert may or may not be trusted
         }
-    };
+        Ok(false) => {}
+    }
 
-    println!("[Bridge] Listening on port {}", BRIDGE_PORT);
-    if let Err(e) = axum::serve(listener, app).await {
-        println!("[Bridge] Server error: {}", e);
+    match super::tls_cert::get_or_create_tls_config(&app_handle) {
+        Ok(tls_config) => {
+            let addr = format!("127.0.0.1:{}", BRIDGE_PORT);
+            println!("[Bridge] Listening on https://{}", addr);
+            let rustls_config = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
+            let parsed_addr: std::net::SocketAddr = match addr.parse() {
+                Ok(a) => a,
+                Err(e) => {
+                    println!("[Bridge] Invalid address {}: {}", addr, e);
+                    return;
+                }
+            };
+            if let Err(e) = axum_server::bind_rustls(parsed_addr, rustls_config)
+                .serve(app.into_make_service())
+                .await
+            {
+                println!("[Bridge] Server error: {}", e);
+            }
+        }
+        Err(e) => {
+            println!("[Bridge] TLS setup failed: {} (falling back to HTTP)", e);
+            // Fallback to HTTP only if TLS fails completely
+            let fallback_addr = format!("127.0.0.1:{}", BRIDGE_PORT);
+            let listener = match tokio::net::TcpListener::bind(&fallback_addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    println!("[Bridge] Failed to bind port {}: {}", BRIDGE_PORT, e);
+                    return;
+                }
+            };
+            println!("[Bridge] Listening on http://{} (no TLS)", fallback_addr);
+            if let Err(e) = axum::serve(listener, app).await {
+                println!("[Bridge] Server error: {}", e);
+            }
+        }
     }
 }
 
@@ -751,141 +809,69 @@ pub struct InsertDirectRequest {
 }
 
 async fn handle_insert_direct(
-    State(_state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeState>>,
     Json(req): Json<InsertDirectRequest>,
 ) -> impl IntoResponse {
-    println!("[Bridge] Insert direct (deprecated, use action queue): {}", req.latex);
+    println!("[Bridge] Insert direct (pushed to action queue): {}", req.latex);
 
-    // Convert LaTeX to OMML
-    let omml = latex_to_omml_core(&req.latex);
-    let Some(omml) = omml else {
-        return Json(OfficeResponse {
-            success: false,
-            message: "公式转换失败".into(),
-        });
+    let action = OfficeAction::InsertFormula {
+        latex: req.latex,
+        mode: if req.display { "display".into() } else { "inline".into() },
     };
 
-    let fixed = fix_omml(&omml);
-    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, fixed.as_bytes());
-    let display = req.display;
-
-    // Execute PowerShell to insert directly into Word
-    let script = format!(
-        r#"$ErrorActionPreference = 'Stop'
-$ommlB64 = '{b64}'
-$display = ${display}
-$omml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($ommlB64))
-
-$word = $null
-try {{
-  $word = [Runtime.InteropServices.Marshal]::GetActiveObject('Word.Application')
-}} catch {{
-  throw 'Word is not running.'
-}}
-$word.Visible = $true
-if ($word.Documents.Count -eq 0) {{
-  [void]$word.Documents.Add()
-}}
-
-$selection = $word.Selection
-$selRange = $selection.Range
-
-# Build Flat OPC wrapper for InsertXML
-$flatOpc = '<?xml version=""1.0"" encoding=""UTF-8""?>' +
-  '<pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">' +
-  '<pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"" pkg:padding=""512"">' +
-  '<pkg:xmlData><Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">' +
-  '<Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>' +
-  '</Relationships></pkg:xmlData></pkg:part>' +
-  '<pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">' +
-  '<pkg:xmlData><w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"" xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">' +
-  '<w:body><w:p>' + $omml + '</w:p></w:body></w:document></pkg:xmlData></pkg:part></pkg:package>'
-
-if ($display) {{
-  # Display mode: new paragraph, insert, merge back
-  $originalPos = $selRange.Start
-  [void]$selection.TypeParagraph()
-  $tempRange = $selection.Range
-  [void]$tempRange.InsertXML($flatOpc)
-  # Delete paragraph mark to merge
-  $pMark = $word.Range($originalPos, $originalPos + 1)
-  [void]$pMark.Delete(1, 1)
-  # Center
-  try {{
-    $curRange = $selection.Range
-    $curPara = $curRange.Paragraphs(1)
-    $curPara.Range.ParagraphFormat.Alignment = 1
-  }} catch {{}}
-}} else {{
-  # Inline mode
-  $originalPos = $selRange.Start
-  [void]$selection.TypeParagraph()
-  $tempRange = $selection.Range
-  [void]$tempRange.InsertXML($flatOpc)
-  $pMark = $word.Range($originalPos, $originalPos + 1)
-  [void]$pMark.Delete(1, 1)
-}}
-
-$word.Activate()
-Write-Output 'Inserted'
-"#
-    );
-
-    let script_path = std::env::temp_dir().join(format!(
-        "latexsnipper_direct_insert_{}.ps1",
-        std::process::id()
-    ));
-    if let Err(e) = std::fs::write(&script_path, &script) {
-        return Json(OfficeResponse {
-            success: false,
-            message: format!("Failed to write script: {}", e),
-        });
+    let counter = state.action_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let action_id = format!("act_{}", counter);
+    {
+        let mut queue = state.action_queue.lock().await;
+        queue.push_back((action_id.clone(), action));
     }
 
-    let output = {
-        #[cfg(target_os = "windows")]
-        {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            std::process::Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(&script_path)
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            std::process::Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(&script_path)
-                .output()
-        }
+    Json(OfficeResponse {
+        success: true,
+        message: "公式已加入等待队列。请在 Word 任务窗格中执行。".into(),
+    })
+}
+
+async fn handle_heartbeat(
+    State(state): State<Arc<BridgeState>>,
+) -> impl IntoResponse {
+    state.heartbeat_received.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Also record in the integrations module so check_office_addin() sees it
+    super::integrations::record_taskpane_heartbeat();
+    println!("[Bridge] Taskpane heartbeat received");
+    Json(OfficeResponse {
+        success: true,
+        message: "heartbeat acknowledged".into(),
+    })
+}
+
+async fn handle_actions_next(
+    State(state): State<Arc<BridgeState>>,
+) -> impl IntoResponse {
+    let action = {
+        let mut queue = state.action_queue.lock().await;
+        queue.pop_front()
     };
-
-    let _ = std::fs::remove_file(&script_path);
-
-    match output {
-        Ok(out) if out.status.success() => {
-            println!("[Bridge] Direct insert succeeded");
-            Json(OfficeResponse {
-                success: true,
-                message: "已插入到 Word".into(),
-            })
-        }
-        Ok(out) => {
-            let err = String::from_utf8_lossy(&out.stderr).to_string();
-            println!("[Bridge] Direct insert failed: {}", err);
-            Json(OfficeResponse {
-                success: false,
-                message: format!("插入失败: {}", err),
-            })
-        }
-        Err(e) => {
-            println!("[Bridge] PowerShell execution failed: {}", e);
-            Json(OfficeResponse {
-                success: false,
-                message: format!("PowerShell 执行失败: {}", e),
-            })
-        }
+    match action {
+        Some((action_id, action)) => Json(OfficeActionResponse {
+            action: Some(action),
+            action_id: Some(action_id),
+        }),
+        None => Json(OfficeActionResponse {
+            action: None,
+            action_id: None,
+        }),
     }
+}
+
+async fn handle_actions_complete(
+    State(_state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let action_id = payload["action_id"].as_str().unwrap_or("unknown");
+    println!("[Bridge] Action completed: {}", action_id);
+    Json(OfficeResponse {
+        success: true,
+        message: "action acknowledged".into(),
+    })
 }

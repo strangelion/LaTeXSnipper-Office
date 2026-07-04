@@ -162,11 +162,13 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   }
 
   /**
-   * Extract formula OMML from OOXML
+   * Extract formula OMML from OOXML.
+   * Returns only the INNER content of <m:oMath> (no wrapping tag),
+   * so the caller can wrap it properly for inline vs display mode.
    */
   private extractMathContent(xml: string): string {
-    const match = xml.match(/<m:oMath[^>]*>.*?<\/m:oMath>/s);
-    return match ? match[0] : xml;
+    const match = xml.match(/<m:oMath[^>]*>(.*?)<\/m:oMath>/s);
+    return match ? match[1] : xml;
   }
 
   /**
