@@ -3052,6 +3052,7 @@ class UIController {
 
   async insertToWord() {
     const latex = this.editor.getLatex();
+    console.log('[Insert] latex:', latex);
     if (!latex) {
       this.showStatus('请先输入公式');
       return;
@@ -3073,7 +3074,9 @@ class UIController {
         return;
       }
 
+      console.log('[Insert] Converting LaTeX to OMML...');
       const omml = await invoke('latex_to_omml', { latex });
+      console.log('[Insert] OMML length:', omml?.length || 0);
 
       // Render SVG for Excel/PPT (Word uses OMML directly)
       let svg = null;
@@ -3111,6 +3114,7 @@ class UIController {
         }
       }
 
+      console.log('[Insert] Sending to session:', sessionId);
       await invoke('native_office_insert_formula', {
         sessionId: sessionId,
         formulaId: crypto.randomUUID(),
@@ -3122,6 +3126,7 @@ class UIController {
         widthPt: widthPt,
         heightPt: heightPt
       });
+      console.log('[Insert] Success');
       this.showToast(`已插入到 ${session.host_type}`);
       this.addHistoryItem(latex);
     } catch (error) {
