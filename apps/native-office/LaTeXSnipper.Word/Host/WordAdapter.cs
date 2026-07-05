@@ -26,22 +26,12 @@ namespace LaTeXSnipper.Word.Host
         {
             var document = _application.ActiveDocument;
             if (document == null)
-            {
                 return "word:unsaved:none";
-            }
-
             var fullName = document.FullName;
             if (!string.IsNullOrWhiteSpace(fullName))
-            {
                 return "word:" + fullName;
-            }
-
             return "word:" + document.Name;
         }
-
-        // -----------------------------------------------------------------------
-        // OMML Insertion
-        // -----------------------------------------------------------------------
 
         public InsertResult InsertFormula(FormulaPayload payload, InsertMode mode)
         {
@@ -50,74 +40,75 @@ namespace LaTeXSnipper.Word.Host
                 return new InsertResult { Success = false, Error = "No active document" };
 
             var range = _application.Selection.Range;
-
             try
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] OMML to insert: [{payload.Omml}]");
 
-                System.Diagnostics.Debug.WriteLine(
-                    "[WordAdapter] Inserting formula via InsertXML...");
-
-                // Fix converter bugs in OMML:
-                // 1. Strip <m:rPr> (contains invalid <w:rPr> from converter)
-                // 2. Wrap <m:r> in <m:oMath> if missing inside <m:oMathPara>
-                var fixedOmml = System.Text.RegularExpressions.Regex.Replace(
+                // Strip <m:rPr> (may contain invalid <w:rPr> from converter)
+                var cleanOmml = System.Text.RegularExpressions.Regex.Replace(
                     payload.Omml,
                     @"<m:rPr>.*?</m:rPr>",
                     "",
                     System.Text.RegularExpressions.RegexOptions.Singleline);
 
-                // Check if <m:oMathPara> contains direct <m:r> without <m:oMath>
-                if (fixedOmml.Contains("<m:oMathPara>") && !fixedOmml.Contains("<m:oMath>"))
+                // Wrap <m:r> in <m:oMath> if missing inside <m:oMathPara>
+                if (cleanOmml.Contains("<m:oMathPara>") && !cleanOmml.Contains("<m:oMath>"))
                 {
-                    fixedOmml = fixedOmml.Replace("<m:oMathPara>", "<m:oMathPara><m:oMath>");
-                    fixedOmml = fixedOmml.Replace("</m:oMathPara>", "</m:oMath></m:oMathPara>");
+                    cleanOmml = cleanOmml.Replace("<m:oMathPara>", "<m:oMathPara><m:oMath>");
+                    cleanOmml = cleanOmml.Replace("</m:oMathPara>", "</m:oMath></m:oMathPara>");
                 }
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] Fixed OMML: [{fixedOmml}]");
+                    $"[WordAdapter] Cleaned OMML: [{cleanOmml}]");
 
-                var ommlXml = $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                // Build XML with <w:sdt> content control
+                // <m:oMath> (inline) goes inside <w:p>; <m:oMathPara> (display) replaces <w:p>
+                string ommlXml;
+                if (cleanOmml.Contains("<m:oMathPara>"))
+                {
+                    // Display math: <m:oMathPara> is paragraph-level, goes directly in <w:sdtContent>
+                    ommlXml = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:r>
-    <w:rPr>
-      <w:rFonts w:ascii=""Cambria Math"" w:hAnsi=""Cambria Math""/>
-    </w:rPr>
-    {fixedOmml}
-  </w:r>
-</w:p>";
-
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] InsertXML string ({ommlXml.Length} chars)");
-                try
-                {
-                    range.InsertXML(ommlXml);
-                    System.Diagnostics.Debug.WriteLine(
-                        "[WordAdapter] InsertXML succeeded");
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    {cleanOmml}
+  </w:sdtContent>
+</w:sdt>";
                 }
-                catch (Exception insertEx)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] InsertXML error: {insertEx.Message}");
-                    return new InsertResult
-                    {
-                        Success = false,
-                        Error = $"InsertXML error: {insertEx.Message}"
-                    };
+                    // Inline math: <m:oMath> goes inside <w:p>
+                    ommlXml = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
+      {cleanOmml}
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
                 }
 
                 System.Diagnostics.Debug.WriteLine(
-                    "[WordAdapter] InsertXML succeeded");
+                    $"[WordAdapter] InsertXML ({ommlXml.Length} chars)");
+                range.InsertXML(ommlXml);
+                System.Diagnostics.Debug.WriteLine("[WordAdapter] InsertXML succeeded");
 
                 try
                 {
                     if (_application.Selection.OMaths.Count > 0)
-                    {
                         _application.Selection.OMaths.BuildUp();
-                    }
                 }
-                catch { }
+                catch (Exception buildEx)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordAdapter] BuildUp error (non-fatal): {buildEx.Message}");
+                }
 
                 FormulaMetadata.Write(doc, payload.FormulaId, payload);
 
@@ -131,6 +122,8 @@ namespace LaTeXSnipper.Word.Host
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] InsertFormula error: {ex.Message}");
                 return new InsertResult
                 {
                     Success = false,
@@ -141,60 +134,33 @@ namespace LaTeXSnipper.Word.Host
 
         private static string BuildInlineOmml(string omml, string formulaId)
         {
-            return $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
+      <w:pPr><w:jc w:val=""center""/></w:pPr>
       {omml}
-</w:p>";
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
         }
 
         private static string BuildDisplayOmml(string omml, string formulaId)
         {
-            return $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
       {omml}
-</w:p>";
-        }
-
-        private static string BuildNumberedEquation(FormulaPayload payload)
-        {
-            return $@"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
-                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:tblPr>
-    <w:tblW w:w=""5000"" w:type=""pct""/>
-    <w:jc w:val=""center""/>
-  </w:tblPr>
-  <w:tr>
-    <w:tc><w:p><w:r><w:t></w:t></w:r></w:p></w:tc>
-    <w:tc>
-      <w:p>
-        <w:pPr><w:jc w:val=""center""/></w:pPr>
-        <w:bookmarkStart w:name=""LSNO:formula:{payload.FormulaId}"" w:id=""1""/>
-        {payload.Omml}
-        <w:bookmarkEnd w:id=""1""/>
-      </w:p>
-    </w:tc>
-    <w:tc>
-      <w:p>
-        <w:pPr><w:jc w:val=""right""/></w:pPr>
-        <w:r>
-          <w:fldChar w:fldCharType=""begin""/>
-        </w:r>
-        <w:r>
-          <w:instrText xml:space=""preserve""> SEQ LSNO \* ARABIC </w:instrText>
-        </w:r>
-        <w:r>
-          <w:fldChar w:fldCharType=""separate""/>
-        </w:r>
-        <w:r>
-          <w:t>(1)</w:t>
-        </w:r>
-        <w:r>
-          <w:fldChar w:fldCharType=""end""/>
-        </w:r>
-      </w:p>
-    </w:tc>
-  </w:tr>
-</w:tbl>";
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
         }
     }
 
