@@ -43,74 +43,93 @@ namespace LaTeXSnipper.Word
 
         private async Task InitializePipeAsync()
         {
-            try
+            int retryDelay = 3000;
+            int maxRetries = 60;
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                _pipeClient = new PipeClient();
-                System.Diagnostics.Debug.WriteLine(
-                    "[LaTeXSnipper.Word] PipeClient created.");
-
-                var connected = await _pipeClient.ConnectAsync();
-                if (!connected)
+                try
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] Pipe connect failed (Desktop not running?)");
-                    return;
-                }
-                System.Diagnostics.Debug.WriteLine(
-                    "[LaTeXSnipper.Word] Pipe connected.");
-
-                _pipeClient.MessageReceived += OnMessageReceived;
-
-                _ = _pipeClient.StartListeningAsync(CancellationToken.None);
-                System.Diagnostics.Debug.WriteLine(
-                    "[LaTeXSnipper.Word] Pipe reader loop started.");
-
-                var dpapiSecret = Handshake.GetOrCreateSecret();
-                var helloOk = await _pipeClient.SendHelloAsync(
-                    _sessionId, dpapiSecret, "word", "1.0.0");
-
-                if (!helloOk)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] HELLO handshake failed.");
-                    return;
-                }
-                System.Diagnostics.Debug.WriteLine(
-                    "[LaTeXSnipper.Word] HELLO_ACK received.");
-
-                _pipeConnected = true;
-
-                if (_syncContext != null)
-                {
-                    _syncContext.Post(_ =>
+                    if (_pipeClient != null)
                     {
-                        try
-                        {
-                            var contextId = _adapter.GetCurrentContextId();
-                            var doc = Application.ActiveDocument;
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[LaTeXSnipper.Word] Sending HOST_READY...");
+                        _pipeClient.Dispose();
+                        _pipeClient = null;
+                    }
 
-                            _ = _pipeClient.SendHostReadyAsync(
-                                _sessionId, "word", "1.0.0", contextId, doc?.Name);
+                    _pipeClient = new PipeClient();
 
+                    var connected = await _pipeClient.ConnectAsync();
+                    if (!connected)
+                    {
+                        if (attempt == 1)
                             System.Diagnostics.Debug.WriteLine(
-                                "[LaTeXSnipper.Word] HOST_READY sent.");
-                        }
-                        catch (Exception ex)
+                                "[LaTeXSnipper.Word] Pipe connect failed (Desktop not running?). Retrying...");
+                        await Task.Delay(retryDelay);
+                        continue;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine(
+                        "[LaTeXSnipper.Word] Pipe connected.");
+
+                    _pipeClient.MessageReceived += OnMessageReceived;
+
+                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
+                    System.Diagnostics.Debug.WriteLine(
+                        "[LaTeXSnipper.Word] Pipe reader loop started.");
+
+                    var dpapiSecret = Handshake.GetOrCreateSecret();
+                    var helloOk = await _pipeClient.SendHelloAsync(
+                        _sessionId, dpapiSecret, "word", "1.0.0");
+
+                    if (!helloOk)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            "[LaTeXSnipper.Word] HELLO handshake failed.");
+                        return;
+                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        "[LaTeXSnipper.Word] HELLO_ACK received.");
+
+                    _pipeConnected = true;
+
+                    if (_syncContext != null)
+                    {
+                        _syncContext.Post(_ =>
                         {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
-                        }
-                    }, null);
+                            try
+                            {
+                                var contextId = _adapter.GetCurrentContextId();
+                                var doc = Application.ActiveDocument;
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[LaTeXSnipper.Word] Sending HOST_READY...");
+
+                                _ = _pipeClient.SendHostReadyAsync(
+                                    _sessionId, "word", "1.0.0", contextId, doc?.Name);
+
+                                System.Diagnostics.Debug.WriteLine(
+                                    "[LaTeXSnipper.Word] HOST_READY sent.");
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
+                            }
+                        }, null);
+                    }
+
+                    System.Diagnostics.Debug.WriteLine(
+                        "[LaTeXSnipper.Word] Pipe initialization complete.");
+                    return; // Success - exit the retry loop
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.Word] Pipe init attempt {attempt} failed: {ex.Message}");
+                    _pipeConnected = false;
+                    await Task.Delay(retryDelay);
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[LaTeXSnipper.Word] Pipe init failed: {ex.Message}");
-                _pipeConnected = false;
-            }
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] Pipe init failed after all retries.");
         }
 
         private void OnMessageReceived(object sender, DesktopMessage message)

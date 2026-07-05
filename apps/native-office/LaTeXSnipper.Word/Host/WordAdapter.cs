@@ -30,29 +30,58 @@ namespace LaTeXSnipper.Word.Host
             if (metadata != null)
                 return metadata;
 
-            // Step 2: Extract OMML from selection range's raw XML
+            // Step 2: If cursor is inside an OMath, get its text
+            if (_application.Selection.OMaths.Count > 0)
+            {
+                try
+                {
+                    var oMath = _application.Selection.OMaths[1];
+                    var omml = oMath.Range.get_XML(false);
+                    if (!string.IsNullOrEmpty(omml))
+                    {
+                        var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
+                        var latex = oMath.Range.Text;
+
+                        // Extract just the OMML part from the full Word XML
+                        var oMathStart = omml.IndexOf("<m:oMath");
+                        if (oMathStart >= 0)
+                        {
+                            var endTag = omml.IndexOf("</m:oMath>", oMathStart);
+                            if (endTag > oMathStart)
+                            {
+                                var mathOmml = omml.Substring(oMathStart, endTag + "</m:oMath>".Length - oMathStart);
+                                return new FormulaPayload
+                                {
+                                    FormulaId = formulaId,
+                                    Omml = mathOmml,
+                                    Latex = latex ?? "",
+                                    Display = "block"
+                                };
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Step 3: Try to extract from selection range XML
             try
             {
                 var xml = range.get_XML(false);
                 if (!string.IsNullOrEmpty(xml))
                 {
-                    // Find <m:oMath or <m:oMathPara elements
                     var oMathStart = xml.IndexOf("<m:oMath");
-                    var oMathParaStart = xml.IndexOf("<m:oMathPara");
-
-                    if (oMathStart >= 0 || oMathParaStart >= 0)
+                    if (oMathStart >= 0)
                     {
-                        var start = oMathParaStart >= 0 ? oMathParaStart : oMathStart;
-                        var tag = oMathParaStart >= 0 ? "</m:oMathPara>" : "</m:oMath>";
-                        var end = xml.IndexOf(tag, start);
-                        if (end > start)
+                        var endTag = xml.IndexOf("</m:oMath>", oMathStart);
+                        if (endTag > oMathStart)
                         {
-                            var omml = xml.Substring(start, end + tag.Length - start);
+                            var omml = xml.Substring(oMathStart, endTag + "</m:oMath>".Length - oMathStart);
                             return new FormulaPayload
                             {
                                 FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
                                 Omml = omml,
-                                Latex = "",
+                                Latex = range.Text ?? "",
                                 Display = "block"
                             };
                         }
@@ -60,27 +89,6 @@ namespace LaTeXSnipper.Word.Host
                 }
             }
             catch { }
-
-            // Step 3: Try OMaths collection (cursor inside math zone)
-            if (_application.Selection.OMaths.Count > 0)
-            {
-                try
-                {
-                    var oMathRange = _application.Selection.OMaths[1].Range;
-                    var omml = oMathRange.get_XML(false);
-                    if (!string.IsNullOrEmpty(omml) && omml.Contains("<m:oMath"))
-                    {
-                        return new FormulaPayload
-                        {
-                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                            Omml = omml,
-                            Latex = "",
-                            Display = "block"
-                        };
-                    }
-                }
-                catch { }
-            }
 
             return null;
         }
