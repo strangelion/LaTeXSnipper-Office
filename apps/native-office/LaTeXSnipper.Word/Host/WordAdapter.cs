@@ -62,52 +62,42 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] Cleaned OMML: [{cleanOmml}]");
 
-                // Build XML with <w:sdt> content control
-                // <m:oMath> (inline) goes inside <w:p>; <m:oMathPara> (display) replaces <w:p>
-                string ommlXml;
-                if (cleanOmml.Contains("<m:oMathPara>"))
+                // Extract <m:oMath> from <m:oMathPara> - InsertXML works with <m:oMath> inside <w:p>
+                var mathContent = cleanOmml;
+                if (mathContent.Contains("<m:oMathPara>"))
                 {
-                    // Display math: <m:oMathPara> is paragraph-level, goes directly in <w:sdtContent>
-                    ommlXml = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
-                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
-  </w:sdtPr>
-  <w:sdtContent>
-    {cleanOmml}
-  </w:sdtContent>
-</w:sdt>";
-                }
-                else
-                {
-                    // Inline math: <m:oMath> goes inside <w:p>
-                    ommlXml = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
-                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
-  </w:sdtPr>
-  <w:sdtContent>
-    <w:p>
-      {cleanOmml}
-    </w:p>
-  </w:sdtContent>
-</w:sdt>";
+                    var start = mathContent.IndexOf("<m:oMath>");
+                    var end = mathContent.LastIndexOf("</m:oMath>") + "</m:oMath>".Length;
+                    if (start >= 0 && end > start)
+                        mathContent = mathContent.Substring(start, end - start);
                 }
 
+                // Use Word's OMath object model instead of InsertXML
+                // OMaths.Add creates a math zone at the selection
+                System.Diagnostics.Debug.WriteLine("[WordAdapter] Creating OMath...");
+                var oMath = _application.Selection.OMaths.Add(range);
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] InsertXML ({ommlXml.Length} chars)");
-                range.InsertXML(ommlXml);
-                System.Diagnostics.Debug.WriteLine("[WordAdapter] InsertXML succeeded");
+                    $"[WordAdapter] OMath created, OMaths count: {_application.Selection.OMaths.Count}");
 
-                try
+                // Type the LaTeX source into the math zone
+                var latex = payload.Latex;
+                if (!string.IsNullOrEmpty(latex))
                 {
-                    if (_application.Selection.OMaths.Count > 0)
-                        _application.Selection.OMaths.BuildUp();
-                }
-                catch (Exception buildEx)
-                {
+                    _application.Selection.TypeText(latex);
                     System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] BuildUp error (non-fatal): {buildEx.Message}");
+                        $"[WordAdapter] Typed LaTeX: {latex}");
+
+                    // Build up the equation (convert linear to professional)
+                    try
+                    {
+                        _application.Selection.OMaths.BuildUp();
+                        System.Diagnostics.Debug.WriteLine("[WordAdapter] BuildUp succeeded");
+                    }
+                    catch (Exception buildEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[WordAdapter] BuildUp error (non-fatal): {buildEx.Message}");
+                    }
                 }
 
                 FormulaMetadata.Write(doc, payload.FormulaId, payload);
