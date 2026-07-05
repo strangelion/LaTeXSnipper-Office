@@ -230,6 +230,9 @@
     <Compile Include="ThisAddIn.Designer.cs">
       <DependentUpon>ThisAddIn.Designer.xml</DependentUpon>
     </Compile>
+    <Compile Include="Host\WordAdapter.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <AppDesigner Include="Properties\" />
   </ItemGroup>
   <PropertyGroup>

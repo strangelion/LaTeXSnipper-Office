@@ -26,7 +26,7 @@ namespace LaTeXSnipper.Word
         object sender,
         Microsoft.Office.Tools.Ribbon.RibbonControlEventArgs e)
         {
-            Globals.ThisAddIn.Application.Selection.TypeText(
+            Globals.ThisAddIn.Adapter.InsertText(
                 "[LaTeXSnipper Word COM OK]");
         }
     }

@@ -1,22 +1,28 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Xml.Linq;
+using System;
 using Word = Microsoft.Office.Interop.Word;
-using Office = Microsoft.Office.Core;
-using Microsoft.Office.Tools.Word;
 
 namespace LaTeXSnipper.Word
 {
     public partial class ThisAddIn
     {
+        private Host.WordAdapter _adapter;
+
+        internal Host.WordAdapter Adapter => _adapter;
+
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] ThisAddIn_Startup reached.");
+
+            _adapter = new Host.WordAdapter(Application);
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] WordAdapter created.");
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] ThisAddIn_Shutdown reached.");
         }
 
         #region VSTO 生成的代码
