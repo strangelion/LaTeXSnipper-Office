@@ -84,11 +84,12 @@ namespace LaTeXSnipper.Word
                         try
                         {
                             var contextId = _adapter.GetCurrentContextId();
+                            var doc = Application.ActiveDocument;
                             System.Diagnostics.Debug.WriteLine(
                                 $"[LaTeXSnipper.Word] Sending HOST_READY...");
 
                             _ = _pipeClient.SendHostReadyAsync(
-                                _sessionId, "word", "1.0.0", contextId);
+                                _sessionId, "word", "1.0.0", contextId, doc?.Name);
 
                             System.Diagnostics.Debug.WriteLine(
                                 "[LaTeXSnipper.Word] HOST_READY sent.");
