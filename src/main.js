@@ -2892,40 +2892,43 @@ class UIController {
         if (session.host_type !== 'word') {
           // Use MathJax to render SVG
           try {
-            // Load MathJax SVG renderer
-            const MathJax = await import('./public/mathjax/tex-svg.js');
-            if (MathJax && MathJax.default) {
-              const svgResult = MathJax.default.tex2svg(latex, { display: isDisplay });
-              if (svgResult) {
-                svg = svgResult.outerHTML || svgResult.toString();
+            // Load MathJax SVG renderer as global
+            if (!window.MathJax) {
+              await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = './public/mathjax/tex-svg.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+              });
+            }
+
+            if (window.MathJax) {
+              // Wait for MathJax to be ready
+              await window.MathJax.startup.promise;
+
+              // Render LaTeX to SVG
+              const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
+              const svgElement = node.querySelector('svg');
+              if (svgElement) {
+                svg = svgElement.outerHTML;
                 // Extract dimensions from SVG
-                const viewBox = svg.match(/viewBox="([^"]+)"/);
+                const viewBox = svgElement.getAttribute('viewBox');
                 if (viewBox) {
-                  const parts = viewBox[1].split(' ');
+                  const parts = viewBox.split(' ');
                   widthPt = parseFloat(parts[2]) || 120;
                   heightPt = parseFloat(parts[3]) || 30;
                 } else {
                   widthPt = 120;
                   heightPt = 30;
                 }
+                Logger.info(`SVG rendered: ${svg.length} chars, ${widthPt}x${heightPt}`);
               }
             }
           } catch (e) {
             Logger.error('SVG render error:', e);
-            // Fallback: use Temml MathML
-            if (this.renderer?.temml) {
-              try {
-                svg = this.renderer.temml.renderToString(latex, {
-                  xml: true,
-                  displayMode: isDisplay,
-                  throwOnError: false
-                });
-                widthPt = 120;
-                heightPt = 30;
-              } catch (e2) {
-                Logger.error('Temml fallback error:', e2);
-              }
-            }
+            // No fallback - Excel/PPT need real SVG, not MathML
+            this.showToast('SVG 渲染失败，Excel/PPT 插入可能不完整');
           }
         }
 

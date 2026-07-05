@@ -171,14 +171,37 @@ impl SessionManager {
             VstoMessage::ReadSelection {
                 requestId,
                 sessionId,
+                formula,
                 rangeXml,
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!("[Session] READ_SELECTION (session={})", sid);
 
-                // Parse the OOXML range and extract LaTeX
-                if let Some(xml) = rangeXml {
+                // Priority: formula.latex > rangeXml OMML conversion
+                if let Some(ref f) = formula {
+                    if !f.latex.is_empty() {
+                        log::info!("[Session] Using FormulaPayload.latex: {}", &f.latex[..f.latex.len().min(50)]);
+                        let _ = self.app_handle.emit(
+                            "native-office-latex-loaded",
+                            serde_json::json!({ "latex": f.latex, "sessionId": sid }),
+                        );
+                    } else if !f.omml.is_empty() {
+                        // Fallback: convert OMML to LaTeX via Core
+                        match self.convert_omml_to_latex(&f.omml) {
+                            Ok(latex) => {
+                                let _ = self.app_handle.emit(
+                                    "native-office-latex-loaded",
+                                    serde_json::json!({ "latex": latex, "sessionId": sid }),
+                                );
+                            }
+                            Err(e) => {
+                                log::warn!("[Session] OMML->LaTeX conversion failed: {}", e);
+                            }
+                        }
+                    }
+                } else if let Some(xml) = rangeXml {
+                    // Fallback: parse OOXML and extract LaTeX
                     match self.extract_latex_from_ooxml(&xml).await {
                         Ok(latex) => {
                             let _ = self.app_handle.emit(
@@ -205,16 +228,33 @@ impl SessionManager {
             VstoMessage::ReadTable {
                 requestId,
                 sessionId,
+                table,
                 tableXml,
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!("[Session] READ_TABLE (session={})", sid);
-                if let Some(xml) = tableXml {
+
+                // Priority: table struct > tableXml JSON
+                if let Some(ref t) = table {
                     let _ = self.app_handle.emit(
                         "native-office-table-loaded",
-                        serde_json::json!({ "xml": xml, "sessionId": sid }),
+                        serde_json::json!({ "table": t, "sessionId": sid }),
                     );
+                } else if let Some(xml) = tableXml {
+                    // Try to parse as TablePayload JSON
+                    if let Ok(payload) = serde_json::from_str::<super::pipe_protocol::TablePayload>(&xml) {
+                        let _ = self.app_handle.emit(
+                            "native-office-table-loaded",
+                            serde_json::json!({ "table": payload, "sessionId": sid }),
+                        );
+                    } else {
+                        // Raw XML fallback
+                        let _ = self.app_handle.emit(
+                            "native-office-table-loaded",
+                            serde_json::json!({ "xml": xml, "sessionId": sid }),
+                        );
+                    }
                 }
                 ResponseEnvelope {
                     requestId: rid.clone(),
@@ -454,6 +494,11 @@ impl SessionManager {
             }
         }
         Ok(texts.join(""))
+    }
+
+    /// Convert OMML to LaTeX using Core conversion.
+    fn convert_omml_to_latex(&self, omml: &str) -> Result<String, String> {
+        crate::math::omml_to_latex(omml.to_string())
     }
 }
 

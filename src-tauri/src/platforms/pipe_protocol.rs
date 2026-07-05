@@ -54,6 +54,8 @@ pub enum VstoMessage {
     ReadSelection {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "formula", skip_serializing_if = "Option::is_none")]
+        formula: Option<FormulaPayload>,
         #[serde(rename = "rangeXml", skip_serializing_if = "Option::is_none")]
         rangeXml: Option<String>,
     },
@@ -62,6 +64,8 @@ pub enum VstoMessage {
     ReadTable {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "table", skip_serializing_if = "Option::is_none")]
+        table: Option<TablePayload>,
         #[serde(rename = "tableXml", skip_serializing_if = "Option::is_none")]
         tableXml: Option<String>,
     },

@@ -134,9 +134,17 @@ async fn handle_client(
                             Ok((msg, consumed)) => {
                                 accum_buf.drain(..consumed);
 
-                                // Check if this is HELLO with valid auth
-                                if let VstoMessage::Hello { ref sessionId, .. } = msg {
-                                    // Will be authenticated after handle_message processes it
+                                // Authentication gate: only HELLO allowed before auth
+                                let is_hello = matches!(msg, VstoMessage::Hello { .. });
+                                if authenticated_session_id.is_none() && !is_hello {
+                                    log::warn!("[Pipe] Unauthenticated message rejected: {:?}", std::mem::discriminant(&msg));
+                                    return Err("unauthenticated pipe message".to_string());
+                                }
+
+                                // Prevent double HELLO
+                                if is_hello && authenticated_session_id.is_some() {
+                                    log::warn!("[Pipe] Duplicate HELLO rejected");
+                                    return Err("duplicate HELLO after authentication".to_string());
                                 }
 
                                 // Dispatch to session manager
