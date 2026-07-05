@@ -104,13 +104,18 @@
           <button id="copyMathml" class="btn" title="复制 MathML 格式">复制 MathML</button>
           <button id="copySvg" class="btn" title="复制 SVG 渲染图">复制 SVG</button>
           <button id="copyMd" class="btn md-copy-btn" title="复制为 Markdown 公式" style="display:none;">复制 MD</button>
-          <button id="insertToWord" class="btn office-insert-btn" title="插入到 Word 文档" style="display:none;">
+          <div id="officeHostSelector" style="display:none; margin-left: 8px;">
+            <select id="officeTargetHost" class="btn" style="min-width: 120px; font-size: 0.8rem;">
+              <option value="">未连接 Office</option>
+            </select>
+          </div>
+          <button id="insertToWord" class="btn office-insert-btn" title="插入到 Office" style="display:none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
-            插入到 Word
+            插入
           </button>
-          <button id="loadFromWord" class="btn office-insert-btn" title="从 Word 加载选中公式" style="display:none;">
+          <button id="loadFromWord" class="btn office-insert-btn" title="从 Office 读取" style="display:none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            从 Word 加载
+            读取
           </button>
         </div>
       </section>

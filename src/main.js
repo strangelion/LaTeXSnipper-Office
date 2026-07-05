@@ -1650,49 +1650,170 @@ class UIController {
   initNativeOffice() {
     window.__app = this;
 
+    // Host selector state
+    this._selectedSessionId = null;
+    this._sessions = [];
+
+    // Update host selector dropdown
+    this.updateOfficeHostSelector = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const sessions = await invoke('native_office_sessions');
+        this._sessions = sessions || [];
+
+        const selector = document.getElementById('officeTargetHost');
+        const selectorContainer = document.getElementById('officeHostSelector');
+        if (!selector || !selectorContainer) return;
+
+        if (this._sessions.length === 0) {
+          selector.innerHTML = '<option value="">未连接 Office</option>';
+          selectorContainer.style.display = 'none';
+          return;
+        }
+
+        selectorContainer.style.display = '';
+        selector.innerHTML = '';
+
+        for (const session of this._sessions) {
+          const opt = document.createElement('option');
+          opt.value = session.session_id;
+          opt.textContent = `${session.host_type} - ${session.document_title || '未命名'}`;
+          selector.appendChild(opt);
+        }
+
+        // Auto-select if only one session
+        if (this._sessions.length === 1) {
+          selector.value = this._sessions[0].session_id;
+          this._selectedSessionId = this._sessions[0].session_id;
+        } else if (this._selectedSessionId) {
+          // Keep previous selection if still valid
+          const exists = this._sessions.find(s => s.session_id === this._selectedSessionId);
+          if (exists) {
+            selector.value = this._selectedSessionId;
+          } else {
+            this._selectedSessionId = null;
+          }
+        }
+      } catch (e) {
+        Logger.error('Failed to update host selector:', e);
+      }
+    };
+
+    // Listen for selector changes
+    const selector = document.getElementById('officeTargetHost');
+    if (selector) {
+      selector.addEventListener('change', (e) => {
+        this._selectedSessionId = e.target.value || null;
+        Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
+      });
+    }
+
+    // Listen for session changes
+    this.initNativeOfficeEvents();
+
+    // Initial selector update
+    this.updateOfficeHostSelector();
+
     // Insert formula via Native Office Pipe
     window.insertFormula = async () => {
       const latex = this.editor?.getLatex();
       if (!latex) return;
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const sessions = await invoke('native_office_sessions');
-        if (!sessions || sessions.length === 0) {
-          this.showToast('未连接到 Office，请先在 Word/Excel/PPT 中打开 LaTeXSnipper Ribbon');
+
+        // Get selected session from dropdown
+        const sessionId = this._selectedSessionId;
+        if (!sessionId) {
+          this.showToast('请先选择目标 Office 宿主');
           return;
         }
-        // Use first connected session
-        const session = sessions[0];
+
+        const session = this._sessions.find(s => s.session_id === sessionId);
+        if (!session) {
+          this.showToast('所选会话不存在');
+          return;
+        }
+
         // Get OMML from Rust
         const omml = await invoke('latex_to_omml', { latex });
+
+        // Render SVG for Excel/PPT (Word uses OMML directly)
+        let svg = null;
+        let widthPt = 0;
+        let heightPt = 0;
+        if (session.host_type !== 'word') {
+          try {
+            if (!window.MathJax) {
+              await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = './public/mathjax/tex-svg.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+              });
+            }
+            if (window.MathJax) {
+              await window.MathJax.startup.promise;
+              const node = await window.MathJax.tex2svgPromise(latex, { display: true });
+              const svgElement = node.querySelector('svg');
+              if (svgElement) {
+                svg = svgElement.outerHTML;
+                const viewBox = svgElement.getAttribute('viewBox');
+                if (viewBox) {
+                  const parts = viewBox.split(' ');
+                  widthPt = parseFloat(parts[2]) || 120;
+                  heightPt = parseFloat(parts[3]) || 30;
+                }
+              }
+            }
+          } catch (e) {
+            Logger.error('SVG render error:', e);
+          }
+        }
+
         await invoke('native_office_insert_formula', {
-          sessionId: session.session_id,
+          sessionId: sessionId,
           formulaId: crypto.randomUUID(),
           latex: latex,
           omml: omml,
           display: 'block',
-          mode: 'display'
+          mode: 'display',
+          svg: svg,
+          widthPt: widthPt,
+          heightPt: heightPt
         });
         this.showToast(`已发送到 ${session.host_type}`);
+        this.addHistoryItem(latex);
       } catch (e) {
         this.showToast('发送失败: ' + e.message);
       }
     };
 
     window.loadSelection = async () => {
-      Logger.info('loadSelection: waiting for Office to send selection via Pipe');
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const sessionId = this._selectedSessionId;
+        if (!sessionId) {
+          this.showToast('请先选择目标 Office 宿主');
+          return;
+        }
+        this.showToast('正在读取选区...');
+        await invoke('native_office_request_read_selection', { sessionId });
+      } catch (e) {
+        this.showToast('读取失败: ' + e.message);
+      }
     };
 
     window.deleteSelection = async () => {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const sessions = await invoke('native_office_sessions');
-        if (!sessions || sessions.length === 0) {
-          this.showToast('未连接到 Office');
+        const sessionId = this._selectedSessionId;
+        if (!sessionId) {
+          this.showToast('请先选择目标 Office 宿主');
           return;
         }
         await invoke('native_office_delete_current', {
-          sessionId: sessions[0].session_id,
+          sessionId: sessionId,
           formulaId: null
         });
         this.showToast('已删除');
@@ -1700,6 +1821,9 @@ class UIController {
         this.showToast('删除失败: ' + e.message);
       }
     };
+  }
+    };
+  }
 
     // Listen for events from Office VSTO
     this.initNativeOfficeEvents();
@@ -1754,6 +1878,25 @@ class UIController {
         const win = getCurrentWindow();
         await win.show();
         await win.setFocus();
+      });
+
+      // Session added/updated/removed - refresh selector
+      listen('native-office-session-added', async () => {
+        await this.updateOfficeHostSelector();
+      });
+      listen('native-office-session-updated', async () => {
+        await this.updateOfficeHostSelector();
+      });
+      listen('native-office-session-removed', async () => {
+        await this.updateOfficeHostSelector();
+      });
+
+      // Context changed
+      listen('native-office-context-changed', async (event) => {
+        const { sessionId, documentTitle } = event.payload;
+        Logger.info(`Native Office: context changed for ${sessionId}: ${documentTitle}`);
+        await this.updateOfficeHostSelector();
+      });
       });
 
       Logger.info('Native Office events initialized');
@@ -2879,57 +3022,74 @@ class UIController {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
 
-      // Try Native Office Pipe first
-      const sessions = await invoke('native_office_sessions');
-      if (sessions && sessions.length > 0) {
-        const session = sessions[0];
-        const omml = await invoke('latex_to_omml', { latex });
+      // Get selected session from dropdown
+      const sessionId = this._selectedSessionId;
+      if (!sessionId) {
+        this.showToast('请先选择目标 Office 宿主');
+        return;
+      }
 
-        // Render SVG for Excel/PPT (Word uses OMML directly)
-        let svg = null;
-        let widthPt = 0;
-        let heightPt = 0;
-        if (session.host_type !== 'word') {
-          // Use MathJax to render SVG
-          try {
-            // Load MathJax SVG renderer as global
-            if (!window.MathJax) {
-              await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = './public/mathjax/tex-svg.js';
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-              });
-            }
+      const session = this._sessions.find(s => s.session_id === sessionId);
+      if (!session) {
+        this.showToast('所选会话不存在');
+        return;
+      }
 
-            if (window.MathJax) {
-              // Wait for MathJax to be ready
-              await window.MathJax.startup.promise;
+      const omml = await invoke('latex_to_omml', { latex });
 
-              // Render LaTeX to SVG
-              const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
-              const svgElement = node.querySelector('svg');
-              if (svgElement) {
-                svg = svgElement.outerHTML;
-                // Extract dimensions from SVG
-                const viewBox = svgElement.getAttribute('viewBox');
-                if (viewBox) {
-                  const parts = viewBox.split(' ');
-                  widthPt = parseFloat(parts[2]) || 120;
-                  heightPt = parseFloat(parts[3]) || 30;
-                } else {
-                  widthPt = 120;
-                  heightPt = 30;
-                }
-                Logger.info(`SVG rendered: ${svg.length} chars, ${widthPt}x${heightPt}`);
+      // Render SVG for Excel/PPT (Word uses OMML directly)
+      let svg = null;
+      let widthPt = 0;
+      let heightPt = 0;
+      if (session.host_type !== 'word') {
+        try {
+          if (!window.MathJax) {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement('script');
+              script.src = './public/mathjax/tex-svg.js';
+              script.onload = resolve;
+              script.onerror = reject;
+              document.head.appendChild(script);
+            });
+          }
+
+          if (window.MathJax) {
+            await window.MathJax.startup.promise;
+            const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
+            const svgElement = node.querySelector('svg');
+            if (svgElement) {
+              svg = svgElement.outerHTML;
+              const viewBox = svgElement.getAttribute('viewBox');
+              if (viewBox) {
+                const parts = viewBox.split(' ');
+                widthPt = parseFloat(parts[2]) || 120;
+                heightPt = parseFloat(parts[3]) || 30;
               }
             }
-          } catch (e) {
-            Logger.error('SVG render error:', e);
-            // No fallback - Excel/PPT need real SVG, not MathML
-            this.showToast('SVG 渲染失败，Excel/PPT 插入可能不完整');
           }
+        } catch (e) {
+          Logger.error('SVG render error:', e);
+          this.showToast('SVG 渲染失败，Excel/PPT 插入可能不完整');
+        }
+      }
+
+      await invoke('native_office_insert_formula', {
+        sessionId: sessionId,
+        formulaId: crypto.randomUUID(),
+        latex: latex,
+        omml: omml,
+        display: isDisplay ? 'block' : 'inline',
+        mode: isDisplay ? 'display' : 'inline',
+        svg: svg,
+        widthPt: widthPt,
+        heightPt: heightPt
+      });
+      this.showToast(`已插入到 ${session.host_type}`);
+      this.addHistoryItem(latex);
+    } catch (error) {
+      this.showToast(`插入失败: ${error.message || error}`);
+    }
+  }
         }
 
         await invoke('native_office_insert_formula', {
@@ -2943,19 +3103,7 @@ class UIController {
           widthPt: widthPt,
           heightPt: heightPt
         });
-        this.showToast(`已插入到 ${session.host_type}`);
-        this.addHistoryItem(latex);
-        return;
-      }
-
-      // Fallback to old Office.js path
-      const result = await invoke('insert_formula', {
-        request: {
-          formulaType: isDisplay ? 'display' : 'inline',
-          latex,
-        },
-      });
-      this.showToast(result.message || '已插入到 Word');
+      this.showToast(`已插入到 ${session.host_type}`);
       this.addHistoryItem(latex);
     } catch (error) {
       this.showToast(`插入失败: ${error.message || error}`);
@@ -2966,15 +3114,21 @@ class UIController {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
 
-      // Try Native Office Pipe first
-      const sessions = await invoke('native_office_sessions');
-      if (sessions && sessions.length > 0) {
-        const session = sessions[0];
-        this.showToast(`正在从 ${session.host_type} 读取选区...`);
-        await invoke('native_office_request_read_selection', {
-          sessionId: session.session_id
-        });
+      // Get selected session from dropdown
+      const sessionId = this._selectedSessionId;
+      if (!sessionId) {
+        this.showToast('请先选择目标 Office 宿主');
         return;
+      }
+
+      const session = this._sessions.find(s => s.session_id === sessionId);
+      if (!session) {
+        this.showToast('所选会话不存在');
+        return;
+      }
+
+      this.showToast(`正在从 ${session.host_type} 读取选区...`);
+      await invoke('native_office_request_read_selection', { sessionId });
       }
 
       // Fallback to old Office.js path
