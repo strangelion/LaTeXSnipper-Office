@@ -53,6 +53,9 @@ namespace LaTeXSnipper.Word.Host
 
             try
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] OMML to insert: [{payload.Omml?.Length} chars]");
+
                 string ommlXml;
                 switch (mode)
                 {
@@ -69,6 +72,9 @@ namespace LaTeXSnipper.Word.Host
                         ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
                         break;
                 }
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] XML to insert (first 200 chars): {ommlXml?.Substring(0, Math.Min(200, ommlXml.Length))}");
 
                 range.InsertXML(ommlXml);
 
@@ -103,33 +109,18 @@ namespace LaTeXSnipper.Word.Host
 
         private static string BuildInlineOmml(string omml, string formulaId)
         {
-            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+            return $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
-  </w:sdtPr>
-  <w:sdtContent>
-    <w:p>
-      <w:pPr><w:jc w:val=""center""/></w:pPr>
       {omml}
-    </w:p>
-  </w:sdtContent>
-</w:sdt>";
+</w:p>";
         }
 
         private static string BuildDisplayOmml(string omml, string formulaId)
         {
-            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+            return $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
-  </w:sdtPr>
-  <w:sdtContent>
-    <w:p>
       {omml}
-    </w:p>
-  </w:sdtContent>
-</w:sdt>";
+</w:p>";
         }
 
         private static string BuildNumberedEquation(FormulaPayload payload)
