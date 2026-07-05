@@ -2890,23 +2890,41 @@ class UIController {
         let widthPt = 0;
         let heightPt = 0;
         if (session.host_type !== 'word') {
-          // Use Temml to render SVG
-          if (this.renderer?.temml) {
-            try {
-              const svgResult = this.renderer.temml.renderToString(latex, {
-                xml: true,
-                displayMode: isDisplay,
-                throwOnError: false
-              });
+          // Use MathJax to render SVG
+          try {
+            // Load MathJax SVG renderer
+            const MathJax = await import('./public/mathjax/tex-svg.js');
+            if (MathJax && MathJax.default) {
+              const svgResult = MathJax.default.tex2svg(latex, { display: isDisplay });
               if (svgResult) {
-                // Convert MathML to SVG (Temml outputs MathML, we need SVG)
-                // For now, use the MathML as a fallback
-                svg = svgResult;
+                svg = svgResult.outerHTML || svgResult.toString();
+                // Extract dimensions from SVG
+                const viewBox = svg.match(/viewBox="([^"]+)"/);
+                if (viewBox) {
+                  const parts = viewBox[1].split(' ');
+                  widthPt = parseFloat(parts[2]) || 120;
+                  heightPt = parseFloat(parts[3]) || 30;
+                } else {
+                  widthPt = 120;
+                  heightPt = 30;
+                }
+              }
+            }
+          } catch (e) {
+            Logger.error('SVG render error:', e);
+            // Fallback: use Temml MathML
+            if (this.renderer?.temml) {
+              try {
+                svg = this.renderer.temml.renderToString(latex, {
+                  xml: true,
+                  displayMode: isDisplay,
+                  throwOnError: false
+                });
                 widthPt = 120;
                 heightPt = 30;
+              } catch (e2) {
+                Logger.error('Temml fallback error:', e2);
               }
-            } catch (e) {
-              Logger.error('SVG render error:', e);
             }
           }
         }
