@@ -22,75 +22,95 @@ namespace LaTeXSnipper.Word.Host
 
         public FormulaPayload? ReadSelection()
         {
-            var range = _application.Selection.Range;
-            if (range == null) return null;
-
             try
             {
+                var range = _application.Selection.Range;
+                if (range == null) return null;
+
+                // Layer 1: OMath collection (cursor inside math zone)
+                if (range.OMaths.Count > 0)
+                {
+                    try
+                    {
+                        var oMath = range.OMaths[1];
+                        var text = oMath.Range.Text?.Trim() ?? "";
+                        var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
+
+                        // Try to get OMML from the surrounding context
+                        var oMathRange = oMath.Range;
+                        var oMathXml = oMathRange.WordOpenXML;
+                        if (!string.IsNullOrEmpty(oMathXml))
+                        {
+                            // Extract OMML from Word Open XML
+                            var omml = ExtractOmmlFromXml(oMathXml);
+                            return new FormulaPayload
+                            {
+                                FormulaId = formulaId,
+                                Latex = text,
+                                Omml = omml ?? "",
+                                Display = "block"
+                            };
+                        }
+
+                        // Fallback: return linear text
+                        return new FormulaPayload
+                        {
+                            FormulaId = formulaId,
+                            Latex = text,
+                            Omml = "",
+                            Display = "block"
+                        };
+                    }
+                    catch { }
+                }
+
+                // Layer 2: Range.WordOpenXML → find nearest <m:oMath>
+                try
+                {
+                    var xml = range.WordOpenXML;
+                    if (!string.IsNullOrEmpty(xml))
+                    {
+                        var omml = ExtractOmmlFromXml(xml);
+                        if (omml != null)
+                        {
+                            var text = range.Text?.Trim() ?? "";
+                            return new FormulaPayload
+                            {
+                                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                                Latex = text,
+                                Omml = omml,
+                                Display = "block"
+                            };
+                        }
+                    }
+                }
+                catch { }
+
+                // Layer 3: Clipboard fallback (copy math zone)
                 if (_application.Selection.OMaths.Count > 0)
                 {
-                    var oMath = _application.Selection.OMaths[1];
-
-                    // Copy OMath range to clipboard to extract Word Open XML
-                    oMath.Range.Copy();
-
-                    // Read clipboard as XML (Word Open XML with OMML)
-                    var clipboardData = System.Windows.Forms.Clipboard.GetData(
-                        "Custom XML Data Format") as string;
-
-                    // Also try "XML" format
-                    if (string.IsNullOrEmpty(clipboardData))
-                        clipboardData = System.Windows.Forms.Clipboard.GetData("XML") as string;
-
-                    if (!string.IsNullOrEmpty(clipboardData))
+                    try
                     {
-                        // Look for OMML in the clipboard XML
-                        int oMathStart = -1;
-                        int oMathParaStart = clipboardData.IndexOf("<m:oMathPara");
-
-                        if (oMathParaStart >= 0)
+                        var oMath = _application.Selection.OMaths[1];
+                        oMath.Range.Copy();
+                        var clipXml = System.Windows.Forms.Clipboard.GetData("XML") as string;
+                        if (!string.IsNullOrEmpty(clipXml))
                         {
-                            oMathStart = oMathParaStart;
-                        }
-                        else
-                        {
-                            oMathStart = clipboardData.IndexOf("<m:oMath");
-                        }
-
-                        if (oMathStart >= 0)
-                        {
-                            var endTag = clipboardData.IndexOf("</m:oMath", oMathStart);
-                            if (endTag > oMathStart)
+                            var omml = ExtractOmmlFromXml(clipXml);
+                            if (omml != null)
                             {
-                                endTag = clipboardData.IndexOf(">", endTag) + 1;
-                                var omml = clipboardData.Substring(oMathStart, endTag - oMathStart);
-
-                                // Also get linear text for display
                                 var text = oMath.Range.Text?.Trim() ?? "";
-
                                 return new FormulaPayload
                                 {
                                     FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                                    Omml = omml,
                                     Latex = text,
+                                    Omml = omml,
                                     Display = "block"
                                 };
                             }
                         }
                     }
-
-                    // Fallback: return text as-is
-                    var rawText = oMath.Range.Text?.Trim();
-                    if (!string.IsNullOrWhiteSpace(rawText))
-                    {
-                        return new FormulaPayload
-                        {
-                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                            Latex = rawText,
-                            Omml = "",
-                            Display = "block"
-                        };
-                    }
+                    catch { }
                 }
             }
             catch (Exception ex)
@@ -100,6 +120,43 @@ namespace LaTeXSnipper.Word.Host
             }
 
             return null;
+        }
+
+        private static string ExtractOmmlFromXml(string xml)
+        {
+            if (string.IsNullOrEmpty(xml)) return null;
+
+            // Search for <m:oMath> or <m:oMathPara> in the XML
+            int oMathStart = -1;
+            string closeTag = "";
+
+            var paraStart = xml.IndexOf("<m:oMathPara");
+            if (paraStart >= 0)
+            {
+                oMathStart = paraStart;
+                closeTag = "</m:oMathPara>";
+            }
+            else
+            {
+                var mathStart = xml.IndexOf("<m:oMath");
+                if (mathStart >= 0)
+                {
+                    // Check it's not <m:oMathPara> (longer tag matched first)
+                    var afterTag = xml.Substring(mathStart + 8, 1);
+                    if (afterTag != "P" && afterTag != ">")
+                    {
+                        oMathStart = mathStart;
+                        closeTag = "</m:oMath>";
+                    }
+                }
+            }
+
+            if (oMathStart < 0) return null;
+
+            var endTag = xml.IndexOf(closeTag, oMathStart);
+            if (endTag < 0) return null;
+
+            return xml.Substring(oMathStart, endTag + closeTag.Length - oMathStart);
         }
 
         public void InsertText(string value)
