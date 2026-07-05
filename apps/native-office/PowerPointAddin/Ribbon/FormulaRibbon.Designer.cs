@@ -141,7 +141,6 @@ namespace LaTeXSnipper.NativeOffice.PowerPoint.Ribbon
             this.Name = "FormulaRibbon";
             this.RibbonType = "Microsoft.PowerPoint.Presentation";
             this.OnLoad += new System.EventHandler<System.EventArgs>(this.FormulaRibbon_Load);
-            this tabLaTeXSnipper = null;
         }
 
         #endregion

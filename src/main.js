@@ -2949,7 +2949,10 @@ class UIController {
       const sessions = await invoke('native_office_sessions');
       if (sessions && sessions.length > 0) {
         const session = sessions[0];
-        this.showToast(`请在 ${session.host_type} 中选中公式，然后点击 Ribbon 中的"读取"按钮`);
+        this.showToast(`正在从 ${session.host_type} 读取选区...`);
+        await invoke('native_office_request_read_selection', {
+          sessionId: session.session_id
+        });
         return;
       }
 

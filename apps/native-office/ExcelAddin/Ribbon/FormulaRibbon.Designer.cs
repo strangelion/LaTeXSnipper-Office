@@ -141,7 +141,6 @@ namespace LaTeXSnipper.NativeOffice.Excel.Ribbon
             this.Name = "FormulaRibbon";
             this.RibbonType = "Microsoft.Excel.Workbook";
             this.OnLoad += new System.EventHandler<System.EventArgs>(this.FormulaRibbon_Load);
-            this tabLaTeXSnipper = null;
         }
 
         #endregion

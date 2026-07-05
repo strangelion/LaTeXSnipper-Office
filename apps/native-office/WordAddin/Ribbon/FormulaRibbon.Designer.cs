@@ -182,7 +182,6 @@ namespace LaTeXSnipper.NativeOffice.Word.Ribbon
             this.Name = "FormulaRibbon";
             this.RibbonType = "Microsoft.Word.Document";
             this.OnLoad += new System.EventHandler<System.EventArgs>(this.FormulaRibbon_Load);
-            this tabLaTeXSnipper = null;
         }
 
         #endregion

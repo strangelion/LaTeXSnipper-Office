@@ -54,11 +54,13 @@ public class VstoOpenEditor : VstoMessage { }
 
 public class VstoReadSelection : VstoMessage
 {
+    [JsonPropertyName("formula")] public FormulaPayload? Formula { get; set; }
     [JsonPropertyName("rangeXml")] public string? RangeXml { get; set; }
 }
 
 public class VstoReadTable : VstoMessage
 {
+    [JsonPropertyName("table")] public TablePayload? Table { get; set; }
     [JsonPropertyName("tableXml")] public string? TableXml { get; set; }
 }
 
@@ -100,6 +102,8 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopInsertFormula), "INSERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopReplaceFormula), "REPLACE_FORMULA")]
 [JsonDerivedType(typeof(DesktopInsertTable), "INSERT_TABLE")]
+[JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
+[JsonDerivedType(typeof(DesktopRequestReadTable), "REQUEST_READ_TABLE")]
 [JsonDerivedType(typeof(DesktopDeleteCurrent), "DELETE_CURRENT")]
 [JsonDerivedType(typeof(DesktopFormatSelection), "FORMAT_SELECTION")]
 [JsonDerivedType(typeof(DesktopFormatAll), "FORMAT_ALL")]
@@ -166,6 +170,10 @@ public class DesktopInsertWordReference : DesktopMessage
     [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
     [JsonPropertyName("referenceType")] public string ReferenceType { get; set; } = "";
 }
+
+public class DesktopRequestReadSelection : DesktopMessage { }
+
+public class DesktopRequestReadTable : DesktopMessage { }
 
 // ---------------------------------------------------------------------------
 // Shared types

@@ -162,6 +162,7 @@ public partial class ThisAddIn
                     {
                         RequestId = cmd.RequestId,
                         SessionId = cmd.SessionId,
+                        Formula = formula,
                         RangeXml = formula.Omml
                     });
                 }
