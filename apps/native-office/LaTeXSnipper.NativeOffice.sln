@@ -5,11 +5,11 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Shared", "Shared\LaTeXSnipper.NativeOffice.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Word", "WordAddin\LaTeXSnipper.NativeOffice.Word.csproj", "{B2C3D4E5-2222-3333-4444-555566667777}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Word", "WordAddin\LaTeXSnipper.NativeOffice.Word\LaTeXSnipper.NativeOffice.Word.csproj", "{5ED3579A-C022-49E1-8768-EBC298E6FF96}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Excel", "ExcelAddin\LaTeXSnipper.NativeOffice.Excel.csproj", "{C3D4E5F6-3333-4444-5555-666677778888}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Excel", "ExcelAddin\LaTeXSnipper.NativeOffice.Excel\LaTeXSnipper.NativeOffice.Excel.csproj", "{FE0569EA-E8D6-46FF-82CF-F6B494510857}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.PowerPoint", "PowerPointAddin\LaTeXSnipper.NativeOffice.PowerPoint.csproj", "{D4E5F6A7-4444-5555-6666-777788889999}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.PowerPoint", "PowerPointAddin\LaTeXSnipper.NativeOffice.PowerPoint\LaTeXSnipper.NativeOffice.PowerPoint.csproj", "{84A8AC39-8715-470D-8193-31D0FC68C6D9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,17 +21,17 @@ Global
 		{A1B2C3D4-1111-2222-3333-444455556666}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Release|Any CPU.Build.0 = Release|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
