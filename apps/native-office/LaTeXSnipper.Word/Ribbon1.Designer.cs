@@ -1,4 +1,4 @@
-﻿namespace LaTeXSnipper.Word
+namespace LaTeXSnipper.Word
 {
     partial class Ribbon1 : Microsoft.Office.Tools.Ribbon.RibbonBase
     {
@@ -34,50 +34,50 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.tab1 = this.Factory.CreateRibbonTab();
-            this.group1 = this.Factory.CreateRibbonGroup();
-            this.tab2 = this.Factory.CreateRibbonTab();
-            this.tab1.SuspendLayout();
-            this.tab2.SuspendLayout();
+            this.tabLaTeXSnipper = this.Factory.CreateRibbonTab();
+            this.groupDevelopment = this.Factory.CreateRibbonGroup();
+            this.btnSmokeTest = this.Factory.CreateRibbonButton();
+            this.tabLaTeXSnipper.SuspendLayout();
+            this.groupDevelopment.SuspendLayout();
             this.SuspendLayout();
-            // 
-            // tab1
-            // 
-            this.tab1.ControlId.ControlIdType = Microsoft.Office.Tools.Ribbon.RibbonControlIdType.Office;
-            this.tab1.Groups.Add(this.group1);
-            this.tab1.Label = "TabAddIns";
-            this.tab1.Name = "tab1";
-            // 
-            // group1
-            // 
-            this.group1.Label = "group1";
-            this.group1.Name = "group1";
-            // 
-            // tab2
-            // 
-            this.tab2.Label = "tab2";
-            this.tab2.Name = "tab2";
-            // 
+            //
+            // tabLaTeXSnipper
+            //
+            this.tabLaTeXSnipper.ControlId.ControlIdType = Microsoft.Office.Tools.Ribbon.RibbonControlIdType.Custom;
+            this.tabLaTeXSnipper.Groups.Add(this.groupDevelopment);
+            this.tabLaTeXSnipper.Label = "LaTeXSnipper";
+            this.tabLaTeXSnipper.Name = "tabLaTeXSnipper";
+            //
+            // groupDevelopment
+            //
+            this.groupDevelopment.Items.Add(this.btnSmokeTest);
+            this.groupDevelopment.Label = "Development";
+            this.groupDevelopment.Name = "groupDevelopment";
+            //
+            // btnSmokeTest
+            //
+            this.btnSmokeTest.Label = "Smoke Test";
+            this.btnSmokeTest.Name = "btnSmokeTest";
+            this.btnSmokeTest.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.btnSmokeTest_Click);
+            //
             // Ribbon1
-            // 
+            //
             this.Name = "Ribbon1";
             this.RibbonType = "Microsoft.Word.Document";
-            this.Tabs.Add(this.tab1);
-            this.Tabs.Add(this.tab2);
+            this.Tabs.Add(this.tabLaTeXSnipper);
             this.Load += new Microsoft.Office.Tools.Ribbon.RibbonUIEventHandler(this.Ribbon1_Load);
-            this.tab1.ResumeLayout(false);
-            this.tab1.PerformLayout();
-            this.tab2.ResumeLayout(false);
-            this.tab2.PerformLayout();
+            this.tabLaTeXSnipper.ResumeLayout(false);
+            this.tabLaTeXSnipper.PerformLayout();
+            this.groupDevelopment.ResumeLayout(false);
+            this.groupDevelopment.PerformLayout();
             this.ResumeLayout(false);
-
         }
 
         #endregion
 
-        internal Microsoft.Office.Tools.Ribbon.RibbonTab tab1;
-        internal Microsoft.Office.Tools.Ribbon.RibbonGroup group1;
-        private Microsoft.Office.Tools.Ribbon.RibbonTab tab2;
+        internal Microsoft.Office.Tools.Ribbon.RibbonTab tabLaTeXSnipper;
+        internal Microsoft.Office.Tools.Ribbon.RibbonGroup groupDevelopment;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton btnSmokeTest;
     }
 
     partial class ThisRibbonCollection
