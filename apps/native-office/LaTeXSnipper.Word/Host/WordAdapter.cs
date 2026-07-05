@@ -59,12 +59,15 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine(
                     "[WordAdapter] Inserting formula via InsertXML...");
 
-                // Clean invalid <w:rPr> nested inside <m:rPr> (converter bug)
+                // Strip <m:rPr> entirely (contains invalid <w:rPr> from converter)
                 var cleanOmml = System.Text.RegularExpressions.Regex.Replace(
                     payload.Omml,
-                    @"<w:rPr>.*?</w:rPr>",
+                    @"<m:rPr>.*?</m:rPr>",
                     "",
                     System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] Cleaned OMML: [{cleanOmml}]");
 
                 var ommlXml = $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
