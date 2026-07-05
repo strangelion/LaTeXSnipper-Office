@@ -259,7 +259,7 @@ public class TableConverter
 
                 if (excelCell != null)
                 {
-                    WriteCellContent(excelCell, cell);
+                    WriteCellContent(excelCell, cell, payload);
                 }
             }
         }
@@ -308,7 +308,7 @@ public class TableConverter
                     ApplyVerticalAlignment(excelCell, cell.Properties?.VerticalAlignment);
 
                     // Write content
-                    WriteCellContent(excelCell, cell);
+                    WriteCellContent(excelCell, cell, payload);
                 }
                 else
                 {
@@ -316,7 +316,7 @@ public class TableConverter
                     ApplyVerticalAlignment(excelCell, cell.Properties?.VerticalAlignment);
 
                     // Write content
-                    WriteCellContent(excelCell, cell);
+                    WriteCellContent(excelCell, cell, payload);
                 }
 
                 // Apply background color
@@ -325,7 +325,7 @@ public class TableConverter
         }
     }
 
-    private void WriteCellContent(Range cell, TableCell tableCell)
+    private void WriteCellContent(Range cell, TableCell tableCell, TablePayload payload)
     {
         foreach (var inline in tableCell.Inlines)
         {
@@ -344,8 +344,41 @@ public class TableConverter
                     break;
 
                 case InlineFormula formula:
-                    // Insert placeholder - Desktop will handle formula shape
-                    cell.Value2 = $"[{formula.FormulaRef}]";
+                    // Try to get the actual FormulaPayload
+                    FormulaPayload formulaPayload = null;
+                    if (formula.Formula != null)
+                    {
+                        formulaPayload = formula.Formula;
+                    }
+                    else if (payload.Formulas != null && payload.Formulas.ContainsKey(formula.FormulaRef))
+                    {
+                        formulaPayload = payload.Formulas[formula.FormulaRef];
+                    }
+
+                    if (formulaPayload != null && formulaPayload.Render?.Svg != null)
+                    {
+                        // Save SVG to temp file and insert as picture
+                        var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_table_{formulaPayload.FormulaId}.svg");
+                        System.IO.File.WriteAllText(tempPath, formulaPayload.Render.Svg);
+
+                        var shape = cell.Worksheet.Shapes.AddPicture(
+                            tempPath,
+                            Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue,
+                            (float)cell.Left,
+                            (float)cell.Top,
+                            formulaPayload.Render.WidthPt > 0 ? formulaPayload.Render.WidthPt : 100f,
+                            formulaPayload.Render.HeightPt > 0 ? formulaPayload.Render.HeightPt : 30f
+                        );
+                        shape.Name = $"LSNO_FORMULA_{formulaPayload.FormulaId}";
+                        shape.Tags.Add("LSNO_ID", formulaPayload.FormulaId);
+                        shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
+                    }
+                    else
+                    {
+                        // Fallback to placeholder
+                        cell.Value2 = $"[{formula.FormulaRef}]";
+                    }
                     break;
             }
         }

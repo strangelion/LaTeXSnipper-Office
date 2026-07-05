@@ -95,10 +95,16 @@ public class PipeClient : IDisposable
             }
 
             // Wait for response with timeout
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(10), ct);
+            var completedTask = await Task.WhenAny(tcs.Task, timeoutTask);
 
-            return await tcs.Task.WaitAsync(timeoutCts.Token);
+            if (completedTask == timeoutTask)
+            {
+                _pendingRequests.TryRemove(message.RequestId, out _);
+                return null;
+            }
+
+            return await tcs.Task;
         }
         catch (OperationCanceledException)
         {

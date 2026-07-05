@@ -6,11 +6,14 @@ mod engine;
 mod math;
 mod platforms;
 
+use std::sync::Arc;
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Manager, State,
 };
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+use platforms::session::SessionManager;
 
 fn main() {
     tauri::Builder::default()
@@ -67,17 +70,15 @@ fn main() {
                     }
                 })?;
 
-            // Start Named Pipe server for VSTO communication
+            // Create SessionManager with app handle
             let app_handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                platforms::pipe_server::start_pipe_server(app_handle).await;
-            });
+            let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
+            app.manage(session_manager.clone());
 
-            // Legacy: HTTP bridge server (disabled — use Named Pipe instead)
-            // let app_handle = app.handle().clone();
-            // tauri::async_runtime::spawn(async move {
-            //     platforms::office_bridge::start_bridge_server(app_handle).await;
-            // });
+            // Start Named Pipe server with shared SessionManager
+            tauri::async_runtime::spawn(async move {
+                platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
+            });
 
             Ok(())
         })
@@ -119,6 +120,15 @@ fn main() {
             math::latex_to_omml,
             math::mathml_to_latex,
             math::convert_formula,
+            commands::native_office::native_office_sessions,
+            commands::native_office::native_office_insert_formula,
+            commands::native_office::native_office_replace_formula,
+            commands::native_office::native_office_insert_table,
+            commands::native_office::native_office_delete_current,
+            commands::native_office::native_office_format_selection,
+            commands::native_office::native_office_format_all,
+            commands::native_office::native_office_renumber_word,
+            commands::native_office::native_office_insert_reference,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

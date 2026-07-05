@@ -25,11 +25,10 @@ const MAX_FRAME_SIZE: usize = 1024 * 1024;
 const CHANNEL_BUFFER: usize = 64;
 
 /// Start the Named Pipe server. Runs forever, accepting connections.
-pub async fn start_pipe_server(app_handle: tauri::AppHandle) {
+pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Arc<SessionManager>) {
     let pipe_name = acl::pipe_name();
     log::info!("[Pipe] Starting server on {}", pipe_name);
 
-    let session_manager = Arc::new(SessionManager::new(app_handle));
     let mut first = true;
 
     loop {

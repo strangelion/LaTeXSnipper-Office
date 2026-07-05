@@ -1,3 +1,4 @@
+using System.Threading;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Excel.Metadata;
 
@@ -5,16 +6,20 @@ namespace LaTeXSnipper.NativeOffice.Excel;
 
 public partial class ThisAddIn
 {
-    private PipeClient? _pipeClient;
-    private ExcelAdapter? _adapter;
-    private TableConverter? _tableConverter;
-    private CancellationTokenSource? _listenCts;
-    private string? _sessionId;
+    private PipeClient _pipeClient;
+    private ExcelAdapter _adapter;
+    private TableConverter _tableConverter;
+    private CancellationTokenSource _listenCts;
+    private string _sessionId;
+    private SynchronizationContext _uiContext;
 
     private void ThisAddIn_Startup(object sender, EventArgs e)
     {
         try
         {
+            // Capture the Office UI SynchronizationContext
+            _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+
             _adapter = new ExcelAdapter(Application);
             _tableConverter = new TableConverter(Application);
 
@@ -43,6 +48,17 @@ public partial class ThisAddIn
         // Generate session ID once, use for both HELLO and HOST_READY
         _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
+        // Register event handlers and start ReaderLoop BEFORE sending HELLO
+        _listenCts = new CancellationTokenSource();
+        _pipeClient.MessageReceived += OnMessageReceived;
+        _pipeClient.Disconnected += OnDisconnected;
+
+        // Start ReaderLoop in background (don't await - it runs forever)
+        _ = Task.Run(() => _pipeClient.StartListeningAsync(_listenCts.Token));
+
+        // Small delay to ensure reader loop is started
+        await Task.Delay(100);
+
         // Send HELLO
         var handshakeOk = await _pipeClient.SendHelloAsync(_sessionId, secret, "excel", Application.Version);
         if (!handshakeOk)
@@ -52,38 +68,27 @@ public partial class ThisAddIn
         }
 
         // Send HOST_READY
-        string? docId = null;
+        string docId = null;
         try { docId = Application.ActiveWorkbook?.Name; } catch { }
         await _pipeClient.SendHostReadyAsync(_sessionId, "excel", Application.Version, docId);
-
-        // Start listening for Desktop commands
-        _listenCts = new CancellationTokenSource();
-        _pipeClient.MessageReceived += OnMessageReceived;
-        _pipeClient.Disconnected += OnDisconnected;
-        await _pipeClient.StartListeningAsync(_listenCts.Token);
     }
 
-    private void OnMessageReceived(object? sender, DesktopMessage message)
+    private void OnMessageReceived(object sender, DesktopMessage message)
     {
         if (_adapter == null || _sessionId == null) return;
 
-        try
+        // Marshal to Office UI thread using captured SynchronizationContext
+        _uiContext.Post(_ =>
         {
-            // All COM Interop calls must run on the Office UI thread
-            Application.GetType().InvokeMember(
-                "Run",
-                System.Reflection.BindingFlags.InvokeMethod,
-                null,
-                Application,
-                new object[] { "DummyMacro" }
-            );
-            // Fallback: execute directly (may need UI thread marshaling)
-            HandleCommand(message);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Command handler error: {ex.Message}");
-        }
+            try
+            {
+                HandleCommand(message);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Command handler error: {ex.Message}");
+            }
+        }, null);
     }
 
     private void HandleCommand(DesktopMessage message)
@@ -145,7 +150,6 @@ public partial class ThisAddIn
 
             case DesktopFormatSelection cmd:
             {
-                // Apply formatting to selected range
                 var range = Application.Selection as Microsoft.Office.Interop.Excel.Range;
                 if (range != null)
                 {
@@ -153,16 +157,12 @@ public partial class ThisAddIn
                         range.Font.Name = cmd.Options.FontFamily;
                     if (cmd.Options.FontSize.HasValue)
                         range.Font.Size = cmd.Options.FontSize.Value;
-                    if (cmd.Options.FontColor != null)
+                    if (cmd.Options.FontColor != null && cmd.Options.FontColor.StartsWith("#"))
                     {
-                        // Convert hex to RGB
-                        if (cmd.Options.FontColor.StartsWith("#") && cmd.Options.FontColor.Length == 7)
-                        {
-                            int r = Convert.ToInt32(cmd.Options.FontColor[1..3], 16);
-                            int g = Convert.ToInt32(cmd.Options.FontColor[3..5], 16);
-                            int b = Convert.ToInt32(cmd.Options.FontColor[5..7], 16);
-                            range.Font.Color = r + (g << 8) + (b << 16);
-                        }
+                        int r = Convert.ToInt32(cmd.Options.FontColor.Substring(1, 2), 16);
+                        int g = Convert.ToInt32(cmd.Options.FontColor.Substring(3, 2), 16);
+                        int b = Convert.ToInt32(cmd.Options.FontColor.Substring(5, 2), 16);
+                        range.Font.Color = r + (g << 8) + (b << 16);
                     }
                 }
                 break;
@@ -170,7 +170,6 @@ public partial class ThisAddIn
 
             case DesktopFormatAll cmd:
             {
-                // Format all cells in the active sheet
                 var sheet = Application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                 if (sheet?.UsedRange != null)
                 {
@@ -185,17 +184,14 @@ public partial class ThisAddIn
 
             case DesktopPing:
             {
-                _ = _pipeClient.SendAsync(new DesktopPing
-                {
-                    RequestId = message.RequestId,
-                    SessionId = message.SessionId
-                });
+                // Ping received from Desktop - no response needed
+                System.Diagnostics.Debug.WriteLine("[ThisAddIn] Ping received");
                 break;
             }
         }
     }
 
-    private void OnDisconnected(object? sender, EventArgs e)
+    private void OnDisconnected(object sender, EventArgs e)
     {
         System.Diagnostics.Debug.WriteLine("[ThisAddIn] Disconnected from Desktop");
     }
@@ -205,14 +201,4 @@ public partial class ThisAddIn
         _listenCts?.Cancel();
         _pipeClient?.Dispose();
     }
-
-    #region VSTO generated code
-
-    private void InternalStartup()
-    {
-        Startup += new EventHandler(ThisAddIn_Startup);
-        Shutdown += new EventHandler(ThisAddIn_Shutdown);
-    }
-
-    #endregion
 }

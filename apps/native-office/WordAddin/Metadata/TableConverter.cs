@@ -201,11 +201,11 @@ public class TableConverter
                 {
                     if (r < payload.Table.Rows.Count && c < payload.Table.Rows[r].Cells.Count)
                     {
-                        var cell = payload.Table.Rows[r].Cells[c];
-                        var wordCell = wordTable.Cell(r + 1, c + 1);
+                    var cell = payload.Table.Rows[r].Cells[c];
+                    var wordCell = wordTable.Cell(r + 1, c + 1);
 
-                        WriteCellContent(wordCell, cell, payload.TableId);
-                        ApplyCellProperties(wordCell, cell.Properties);
+                    WriteCellContent(wordCell, cell, payload.TableId, payload);
+                    ApplyCellProperties(wordCell, cell.Properties);
                     }
                 }
             }
@@ -219,7 +219,7 @@ public class TableConverter
         }
     }
 
-    private void WriteCellContent(Microsoft.Office.Interop.Word.Cell cell, TableCell tableCell, string tableId)
+    private void WriteCellContent(Microsoft.Office.Interop.Word.Cell cell, TableCell tableCell, string tableId, TablePayload payload)
     {
         var range = cell.Range;
         range.Delete(); // Clear existing content
@@ -233,8 +233,27 @@ public class TableConverter
                     break;
 
                 case InlineFormula formula:
-                    // Insert placeholder for formula (Desktop will send OMML)
-                    range.InsertAfter($"[{formula.FormulaRef}]");
+                    // Try to get the actual FormulaPayload
+                    FormulaPayload formulaPayload = null;
+                    if (formula.Formula != null)
+                    {
+                        formulaPayload = formula.Formula;
+                    }
+                    else if (payload.Formulas != null && payload.Formulas.ContainsKey(formula.FormulaRef))
+                    {
+                        formulaPayload = payload.Formulas[formula.FormulaRef];
+                    }
+
+                    if (formulaPayload != null && !string.IsNullOrEmpty(formulaPayload.Omml))
+                    {
+                        // Insert actual OMML
+                        range.InsertXML(formulaPayload.Omml);
+                    }
+                    else
+                    {
+                        // Fallback to placeholder
+                        range.InsertAfter($"[{formula.FormulaRef}]");
+                    }
                     break;
             }
         }

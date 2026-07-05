@@ -1,3 +1,4 @@
+using System.Threading;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Word.Metadata;
 
@@ -5,20 +6,26 @@ namespace LaTeXSnipper.NativeOffice.Word;
 
 public partial class ThisAddIn
 {
-    private PipeClient? _pipeClient;
-    private WordAdapter? _adapter;
-    private NumberingManager? _numbering;
-    private ReferenceManager? _reference;
-    private CancellationTokenSource? _listenCts;
-    private string? _sessionId;
+    private PipeClient _pipeClient;
+    private WordAdapter _adapter;
+    private NumberingManager _numbering;
+    private ReferenceManager _reference;
+    private TableConverter _tableConverter;
+    private CancellationTokenSource _listenCts;
+    private string _sessionId;
+    private SynchronizationContext _uiContext;
 
     private void ThisAddIn_Startup(object sender, EventArgs e)
     {
         try
         {
+            // Capture the Office UI SynchronizationContext
+            _uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+
             _adapter = new WordAdapter(Application);
             _numbering = new NumberingManager(Application);
             _reference = new ReferenceManager(Application, _numbering);
+            _tableConverter = new TableConverter(Application);
 
             // Connect to Desktop pipe
             _pipeClient = new PipeClient();
@@ -45,6 +52,17 @@ public partial class ThisAddIn
         // Generate session ID once, use for both HELLO and HOST_READY
         _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
+        // Register event handlers and start ReaderLoop BEFORE sending HELLO
+        _listenCts = new CancellationTokenSource();
+        _pipeClient.MessageReceived += OnMessageReceived;
+        _pipeClient.Disconnected += OnDisconnected;
+
+        // Start ReaderLoop in background (don't await - it runs forever)
+        _ = Task.Run(() => _pipeClient.StartListeningAsync(_listenCts.Token));
+
+        // Small delay to ensure reader loop is started
+        await Task.Delay(100);
+
         // Send HELLO
         var handshakeOk = await _pipeClient.SendHelloAsync(_sessionId, secret, "word", Application.Version);
         if (!handshakeOk)
@@ -54,33 +72,27 @@ public partial class ThisAddIn
         }
 
         // Send HOST_READY
-        string? docId = null;
+        string docId = null;
         try { docId = Application.ActiveDocument?.Name; } catch { }
         await _pipeClient.SendHostReadyAsync(_sessionId, "word", Application.Version, docId);
-
-        // Start listening for Desktop commands
-        _listenCts = new CancellationTokenSource();
-        _pipeClient.MessageReceived += OnMessageReceived;
-        _pipeClient.Disconnected += OnDisconnected;
-        await _pipeClient.StartListeningAsync(_listenCts.Token);
     }
 
-    private void OnMessageReceived(object? sender, DesktopMessage message)
+    private void OnMessageReceived(object sender, DesktopMessage message)
     {
         if (_adapter == null || _sessionId == null) return;
 
-        try
+        // Marshal to Office UI thread using captured SynchronizationContext
+        _uiContext.Post(_ =>
         {
-            // All COM Interop calls must run on the Office UI thread
-            Microsoft.Office.Tools.Word.ApplicationFactory.ExecuteOnUIThread(() =>
+            try
             {
                 HandleCommand(message);
-            });
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Command handler error: {ex.Message}");
-        }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Command handler error: {ex.Message}");
+            }
+        }, null);
     }
 
     private void HandleCommand(DesktopMessage message)
@@ -147,9 +159,6 @@ public partial class ThisAddIn
                 {
                     var result = _numbering.RenumberAll(startFrom: cmd.StartFrom);
                     _reference.UpdateAllReferences();
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[ThisAddIn] Renumber completed: {result.Count} formulas"
-                    );
                 }
                 break;
             }
@@ -158,28 +167,21 @@ public partial class ThisAddIn
             {
                 if (_reference != null)
                 {
-                    var success = _reference.InsertReference(cmd.FormulaId, cmd.ReferenceType);
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[ThisAddIn] InsertReference: {cmd.FormulaId} -> {success}"
-                    );
+                    _reference.InsertReference(cmd.FormulaId, cmd.ReferenceType);
                 }
                 break;
             }
 
             case DesktopPing:
             {
-                // Respond with ping ack
-                _ = _pipeClient.SendAsync(new DesktopPing
-                {
-                    RequestId = message.RequestId,
-                    SessionId = message.SessionId
-                });
+                // Ping received from Desktop - no response needed
+                System.Diagnostics.Debug.WriteLine("[ThisAddIn] Ping received");
                 break;
             }
         }
     }
 
-    private void OnDisconnected(object? sender, EventArgs e)
+    private void OnDisconnected(object sender, EventArgs e)
     {
         System.Diagnostics.Debug.WriteLine("[ThisAddIn] Disconnected from Desktop");
     }
@@ -189,14 +191,4 @@ public partial class ThisAddIn
         _listenCts?.Cancel();
         _pipeClient?.Dispose();
     }
-
-    #region VSTO generated code
-
-    private void InternalStartup()
-    {
-        Startup += new EventHandler(ThisAddIn_Startup);
-        Shutdown += new EventHandler(ThisAddIn_Shutdown);
-    }
-
-    #endregion
 }

@@ -32,6 +32,12 @@ rand = "0.8"
 # Windows-specific dependencies for SID and DPAPI
 [target.'cfg(windows)'.dependencies]
 whoami = "1.5"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_System_Threading",
+] }
 
 # LaTeXSnipper Core (via symlink)
 latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline" }

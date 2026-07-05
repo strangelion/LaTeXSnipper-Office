@@ -357,7 +357,40 @@ public class TableConverter
                                 cellShape.TextFrame2.TextRange.Text = text.Text;
                                 break;
                             case InlineFormula formula:
-                                cellShape.TextFrame2.TextRange.Text = $"[{formula.FormulaRef}]";
+                                // Try to get the actual FormulaPayload
+                                FormulaPayload formulaPayload = null;
+                                if (formula.Formula != null)
+                                {
+                                    formulaPayload = formula.Formula;
+                                }
+                                else if (payload.Formulas != null && payload.Formulas.ContainsKey(formula.FormulaRef))
+                                {
+                                    formulaPayload = payload.Formulas[formula.FormulaRef];
+                                }
+
+                                if (formulaPayload != null && formulaPayload.Render?.Svg != null)
+                                {
+                                    // Save SVG to temp file and insert as picture
+                                    var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_table_{formulaPayload.FormulaId}.svg");
+                                    System.IO.File.WriteAllText(tempPath, formulaPayload.Render.Svg);
+
+                                    var formulaShape = slide.Shapes.AddPicture(
+                                        tempPath,
+                                        Microsoft.Office.Core.MsoTriState.msoFalse,
+                                        Microsoft.Office.Core.MsoTriState.msoTrue,
+                                        cellShape.Left,
+                                        cellShape.Top,
+                                        formulaPayload.Render.WidthPt > 0 ? formulaPayload.Render.WidthPt : 100f,
+                                        formulaPayload.Render.HeightPt > 0 ? formulaPayload.Render.HeightPt : 30f
+                                    );
+                                    formulaShape.Name = $"LSNO_FORMULA_{formulaPayload.FormulaId}";
+                                    formulaShape.Tags.Add("LSNO_ID", formulaPayload.FormulaId);
+                                }
+                                else
+                                {
+                                    // Fallback to placeholder
+                                    cellShape.TextFrame2.TextRange.Text = $"[{formula.FormulaRef}]";
+                                }
                                 break;
                         }
                     }

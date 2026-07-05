@@ -11,13 +11,13 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 ///
 /// Security model:
 /// - Secret is generated using cryptographically secure random (RandomNumberGenerator)
-/// - Secret is encrypted with DPAPI (ProtectedData) before writing to disk
+/// - Secret is encrypted with DPAPI before writing to disk
 /// - Only the same Windows user can decrypt the secret
-/// - Desktop creates the secret, VSTO reads and decrypts it
+/// - Desktop creates the secret, VSTO reads it
 /// </summary>
 public static class Handshake
 {
-    private static string? _cachedSecret;
+    private static string _cachedSecret;
 
     private static string SecretPath()
     {
