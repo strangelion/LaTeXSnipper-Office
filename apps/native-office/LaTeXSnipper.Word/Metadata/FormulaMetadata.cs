@@ -33,10 +33,12 @@ namespace LaTeXSnipper.Word.Metadata
             try
             {
                 var doc = range.Document;
-                foreach (dynamic part in doc.CustomXMLParts)
+                // Iterate from end (most recent) to find last inserted formula
+                for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
                 {
                     try
                     {
+                        dynamic part = doc.CustomXMLParts[i];
                         string ns = "";
                         try { ns = part.NamespaceURI ?? ""; } catch { }
                         if (ns != NamespaceUri) continue;
@@ -66,6 +68,8 @@ namespace LaTeXSnipper.Word.Metadata
 
                         if (!string.IsNullOrEmpty(formulaId))
                         {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[FormulaMetadata] Read: found formula {formulaId} (most recent)");
                             return new FormulaPayload
                             {
                                 FormulaId = formulaId,
