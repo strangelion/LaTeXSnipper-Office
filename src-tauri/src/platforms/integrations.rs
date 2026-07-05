@@ -965,6 +965,8 @@ struct OfficeJsHost {
     id: &'static str,
     name: &'static str,
     manifest_file: &'static str,
+    #[cfg(target_os = "windows")]
+    refresh_key: &'static str,
     #[cfg(target_os = "macos")]
     mac_container: &'static str,
 }
@@ -974,6 +976,8 @@ const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567890",
         name: "Word",
         manifest_file: "word.xml",
+        #[cfg(target_os = "windows")]
+        refresh_key: "Word_RequireForceRefreshAtBoot",
         #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Word",
     },
@@ -981,6 +985,8 @@ const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567891",
         name: "Excel",
         manifest_file: "excel.xml",
+        #[cfg(target_os = "windows")]
+        refresh_key: "Excel_RequireForceRefreshAtBoot",
         #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Excel",
     },
@@ -988,6 +994,8 @@ const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567892",
         name: "PowerPoint",
         manifest_file: "powerpoint.xml",
+        #[cfg(target_os = "windows")]
+        refresh_key: "PowerPoint_RequireForceRefreshAtBoot",
         #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Powerpoint",
     },
@@ -1001,6 +1009,7 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
         .map_err(|e| format!("无法解析 manifest 路径: {e}"))?
         .to_string_lossy()
         .into_owned();
+    let manifest_path = normalize_office_manifest_path(&manifest_path);
 
     let output = super::process::background_command("reg.exe")
         .args(["add", OFFICE_DEVELOPER_KEY, "/v", host.id, "/t", "REG_SZ", "/d", &manifest_path, "/f"])
@@ -1014,8 +1023,34 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
         ));
     }
 
+    let _ = super::process::background_command("reg.exe")
+        .args(["add", r"HKCU\Software\Microsoft\Office\16.0\WEF", "/v", host.refresh_key, "/t", "REG_SZ", "/d", host.id, "/f"])
+        .output();
+
     println!("[Office] Registered {} in {} \\ {} = {}", host.name, OFFICE_DEVELOPER_KEY, host.id, manifest_path);
     Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_office_manifest_path(path: &str) -> String {
+    path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn clear_office_refresh_marker(host: OfficeJsHost) {
+    let _ = super::process::background_command("reg.exe")
+        .args([
+            "add",
+            r"HKCU\Software\Microsoft\Office\16.0\WEF",
+            "/v",
+            host.refresh_key,
+            "/t",
+            "REG_SZ",
+            "/d",
+            "{00000000-0000-0000-0000-000000000000}",
+            "/f",
+        ])
+        .output();
 }
 
 /// Remove the add-in manifest registration from the Windows registry.
@@ -1028,12 +1063,14 @@ fn unregister_office_js_manifest(host: OfficeJsHost) -> Result<(), String> {
 
     if output.status.success() {
         println!("[Office] Unregistered {} from registry: {} \\ {}", host.name, OFFICE_DEVELOPER_KEY, host.id);
+        clear_office_refresh_marker(host);
         Ok(())
     } else {
         let err = String::from_utf8_lossy(&output.stderr).to_string();
         if output.status.code() == Some(1) {
             // Key/value not found — not an error, just means not registered
             println!("[Office] No {} registry entry to remove", host.name);
+            clear_office_refresh_marker(host);
             Ok(())
         } else {
             Err(err)

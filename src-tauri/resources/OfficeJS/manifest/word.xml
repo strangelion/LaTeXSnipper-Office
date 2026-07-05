@@ -39,7 +39,6 @@
           <FunctionFile resid="Taskpane.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
             <CustomTab id="com.latexsnipper.word.tab">
-              <Label resid="Tab.Label"/>
               <Group id="com.latexsnipper.word.group">
                 <Label resid="Group.Label"/>
                 <Icon>
@@ -64,6 +63,7 @@
                   </Action>
                 </Control>
               </Group>
+              <Label resid="Tab.Label"/>
             </CustomTab>
           </ExtensionPoint>
         </DesktopFormFactor>
