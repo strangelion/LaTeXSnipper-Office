@@ -59,19 +59,28 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine(
                     "[WordAdapter] Inserting formula via InsertXML...");
 
-                // Strip <m:rPr> entirely (contains invalid <w:rPr> from converter)
-                var cleanOmml = System.Text.RegularExpressions.Regex.Replace(
+                // Fix converter bugs in OMML:
+                // 1. Strip <m:rPr> (contains invalid <w:rPr> from converter)
+                // 2. Wrap <m:r> in <m:oMath> if missing inside <m:oMathPara>
+                var fixedOmml = System.Text.RegularExpressions.Regex.Replace(
                     payload.Omml,
                     @"<m:rPr>.*?</m:rPr>",
                     "",
                     System.Text.RegularExpressions.RegexOptions.Singleline);
 
+                // Check if <m:oMathPara> contains direct <m:r> without <m:oMath>
+                if (fixedOmml.Contains("<m:oMathPara>") && !fixedOmml.Contains("<m:oMath>"))
+                {
+                    fixedOmml = fixedOmml.Replace("<m:oMathPara>", "<m:oMathPara><m:oMath>");
+                    fixedOmml = fixedOmml.Replace("</m:oMathPara>", "</m:oMath></m:oMathPara>");
+                }
+
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] Cleaned OMML: [{cleanOmml}]");
+                    $"[WordAdapter] Fixed OMML: [{fixedOmml}]");
 
                 var ommlXml = $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  {cleanOmml}
+  {fixedOmml}
 </w:p>";
                 range.InsertXML(ommlXml);
 
