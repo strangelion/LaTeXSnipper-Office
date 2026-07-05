@@ -33,12 +33,18 @@ namespace LaTeXSnipper.Word.Metadata
             try
             {
                 var doc = range.Document;
+                int partCount = doc.CustomXMLParts.Count;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[FormulaMetadata] Read: scanning {partCount} CustomXMLParts");
                 foreach (dynamic part in doc.CustomXMLParts)
                 {
                     try
                     {
-                        if (part.NamespaceURI == NamespaceUri)
+                        string ns = part.NamespaceURI ?? "";
+                        if (ns == NamespaceUri)
                         {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[FormulaMetadata] Read: found matching part (ns={ns})");
                             var node = part.SelectSingleNode("//lsno:formula");
                             if (node != null)
                             {
@@ -63,8 +69,10 @@ namespace LaTeXSnipper.Word.Metadata
                                         Omml = omml,
                                         Display = display
                                     };
-                                }
-                            }
+                }
+                System.Diagnostics.Debug.WriteLine(
+                    "[FormulaMetadata] Read: no matching part found");
+            }
                         }
                     }
                     catch

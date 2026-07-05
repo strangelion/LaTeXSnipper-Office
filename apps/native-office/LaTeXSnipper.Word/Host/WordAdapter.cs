@@ -30,21 +30,33 @@ namespace LaTeXSnipper.Word.Host
             {
                 var metadata = FormulaMetadata.Read(range);
                 if (metadata != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordAdapter] ReadSelection: metadata found, latex='{metadata.Latex}'");
                     return metadata;
+                }
+                System.Diagnostics.Debug.WriteLine(
+                    "[WordAdapter] ReadSelection: no metadata found, falling back...");
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] ReadSelection metadata error: {ex.Message}");
+            }
 
-            // Step 2: If cursor is inside an OMath, get linear text
+            // Step 2: If cursor is inside an OMath, get text
             if (_application.Selection.OMaths.Count > 0)
             {
                 try
                 {
                     var oMath = _application.Selection.OMaths[1];
+                    // Linearize the formula to get proper linear format (with ^ etc)
                     var text = oMath.Range.Text;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordAdapter] ReadSelection OMath text: [{text}]");
                     if (!string.IsNullOrWhiteSpace(text))
                     {
                         var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
-                        // Try to get OMML via Linearize + copy
                         return new FormulaPayload
                         {
                             FormulaId = formulaId,
@@ -54,7 +66,11 @@ namespace LaTeXSnipper.Word.Host
                         };
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordAdapter] ReadSelection OMath error: {ex.Message}");
+                }
             }
 
             return null;
