@@ -21,6 +21,7 @@ public static class NativeOfficeProtocol
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(VstoHello), "HELLO")]
 [JsonDerivedType(typeof(VstoHostReady), "HOST_READY")]
+[JsonDerivedType(typeof(VstoContextChanged), "VSTO_CONTEXT_CHANGED")]
 [JsonDerivedType(typeof(VstoOpenEditor), "OPEN_EDITOR")]
 [JsonDerivedType(typeof(VstoReadSelection), "READ_SELECTION")]
 [JsonDerivedType(typeof(VstoReadTable), "READ_TABLE")]

@@ -252,6 +252,7 @@ pub async fn send_insert_formula(
     let msg = DesktopMessage::InsertFormula {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         formula,
         mode,
     };
@@ -267,6 +268,7 @@ pub async fn send_replace_formula(
     let msg = DesktopMessage::ReplaceFormula {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         formulaId: formula_id,
         formula,
     };
@@ -281,6 +283,7 @@ pub async fn send_insert_table(
     let msg = DesktopMessage::InsertTable {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         table,
     };
     session_mgr.send_to_session(session_id, msg).await
@@ -294,6 +297,7 @@ pub async fn send_delete_current(
     let msg = DesktopMessage::DeleteCurrent {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         formulaId: formula_id,
     };
     session_mgr.send_to_session(session_id, msg).await
@@ -307,6 +311,7 @@ pub async fn send_format_selection(
     let msg = DesktopMessage::FormatSelection {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         options,
     };
     session_mgr.send_to_session(session_id, msg).await
@@ -320,6 +325,7 @@ pub async fn send_format_all(
     let msg = DesktopMessage::FormatAll {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         options,
     };
     session_mgr.send_to_session(session_id, msg).await

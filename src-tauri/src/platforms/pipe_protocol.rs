@@ -167,6 +167,8 @@ pub enum DesktopMessage {
     InsertFormula {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         formula: FormulaPayload,
         mode: InsertMode,
     },
@@ -175,6 +177,8 @@ pub enum DesktopMessage {
     ReplaceFormula {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         #[serde(rename = "formulaId")]
         formulaId: String,
         formula: FormulaPayload,
@@ -184,6 +188,8 @@ pub enum DesktopMessage {
     InsertTable {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         table: TablePayload,
     },
 
@@ -203,6 +209,8 @@ pub enum DesktopMessage {
     DeleteCurrent {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         #[serde(rename = "formulaId", skip_serializing_if = "Option::is_none")]
         formulaId: Option<String>,
     },
@@ -211,6 +219,8 @@ pub enum DesktopMessage {
     FormatSelection {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         options: FormatOptions,
     },
 
@@ -218,6 +228,8 @@ pub enum DesktopMessage {
     FormatAll {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         options: FormatOptions,
     },
 

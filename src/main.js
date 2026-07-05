@@ -1840,10 +1840,33 @@ class UIController {
 
       // Office loaded table
       listen('native-office-table-loaded', async (event) => {
-        const { xml, sessionId } = event.payload;
+        const { table, xml, sessionId } = event.payload;
         Logger.info(`Native Office: loaded table from ${sessionId}`);
-        // TODO: parse table and display in editor
-        this.showToast('已加载表格');
+
+        if (table) {
+          // Structured TablePayload with formulas
+          const rows = table.rows || [];
+          let markdown = '| ';
+          for (const row of rows) {
+            const cells = row.cells || [];
+            const cellTexts = cells.map(cell => {
+              const inlines = cell.inlines || [];
+              return inlines.map(inline => {
+                if (inline.type === 'formula' && inline.formulaRef) {
+                  return `[${inline.formulaRef}]`;
+                }
+                return inline.text || '';
+              }).join(' ');
+            });
+            markdown += cellTexts.join(' | ') + ' |\n';
+          }
+          this.switchSection('editor');
+          this.editor.setLatex(markdown);
+          this.showToast('已加载表格');
+        } else if (xml) {
+          // Fallback: raw XML
+          this.showToast('已加载表格 (原始格式)');
+        }
       });
 
       // Office insert result
