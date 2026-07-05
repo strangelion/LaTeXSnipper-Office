@@ -9,3 +9,6 @@ pub mod process;
 pub mod session;
 pub mod tls_cert;
 pub mod windows_identity;
+
+#[cfg(test)]
+mod tests;
