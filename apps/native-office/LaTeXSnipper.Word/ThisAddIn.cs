@@ -81,17 +81,23 @@ namespace LaTeXSnipper.Word
                 {
                     _syncContext.Post(_ =>
                     {
-                        var contextId = _adapter.GetCurrentContextId();
-                        var doc = Application.ActiveDocument;
-                        var docTitle = doc?.Name;
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[LaTeXSnipper.Word] context ID: {contextId}, title: {docTitle}");
+                        try
+                        {
+                            var contextId = _adapter.GetCurrentContextId();
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[LaTeXSnipper.Word] Sending HOST_READY...");
 
-                        _ = _pipeClient.SendHostReadyAsync(
-                            _sessionId, "word", "1.0.0", contextId, docTitle);
+                            _ = _pipeClient.SendHostReadyAsync(
+                                _sessionId, "word", "1.0.0", contextId);
 
-                        System.Diagnostics.Debug.WriteLine(
-                            "[LaTeXSnipper.Word] HOST_READY sent.");
+                            System.Diagnostics.Debug.WriteLine(
+                                "[LaTeXSnipper.Word] HOST_READY sent.");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
+                        }
                     }, null);
                 }
             }
@@ -107,18 +113,26 @@ namespace LaTeXSnipper.Word
         {
             if (_adapter == null) return;
 
-            _syncContext?.Post(_ =>
+            if (_syncContext != null)
             {
-                try
+                _syncContext.Post(_ =>
                 {
-                    HandleCommand(message);
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[LaTeXSnipper.Word] Command handler error: {ex.Message}");
-                }
-            }, null);
+                    try
+                    {
+                        HandleCommand(message);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[LaTeXSnipper.Word] Command handler error: {ex.Message}");
+                    }
+                }, null);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[LaTeXSnipper.Word] No sync context - message dropped");
+            }
         }
 
         private void HandleCommand(DesktopMessage message)
