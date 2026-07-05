@@ -4,14 +4,14 @@ using System.Text.Json.Serialization;
 namespace LaTeXSnipper.NativeOffice.Shared;
 
 /// <summary>
-/// Protocol constants for LaTeXSnipper Native Office v2.
+/// Protocol constants for LaTeXSnipper Native Office v3.
 /// Must match the Rust pipe_protocol.rs definitions.
 /// </summary>
 public static class NativeOfficeProtocol
 {
-    public const int Version = 2;
-    public const string PipePrefix = "LaTeXSnipper.NativeOffice.v2";
-    public const string CustomXmlNamespace = "urn:latexsnipper:native-office:v2";
+    public const int Version = 3;
+    public const string PipePrefix = "LaTeXSnipper.NativeOffice.v3";
+    public const string CustomXmlNamespace = "urn:latexsnipper:native-office:v3";
 }
 
 // ---------------------------------------------------------------------------

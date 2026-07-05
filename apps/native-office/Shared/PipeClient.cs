@@ -34,13 +34,11 @@ public class PipeClient : IDisposable
     public event EventHandler? Disconnected;
     public bool IsConnected => _connected;
 
-    public PipeClient(string userSid)
+    public PipeClient()
     {
-        // NamedPipeClientStream expects leaf name only, not full \\.\pipe\... path
-        _pipeName = $"{NativeOfficeProtocol.PipePrefix}.{userSid}";
+        // Use Windows SID for pipe name - not username
+        _pipeName = WindowsIdentityHelper.PipeLeafName;
     }
-
-    public PipeClient() : this(Environment.UserName) { }
 
     /// <summary>
     /// Connect to the Desktop pipe server. Timeout after 5 seconds.

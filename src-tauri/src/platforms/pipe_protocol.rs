@@ -1,13 +1,13 @@
-//! Named Pipe protocol definitions for LaTeXSnipper Native Office v2.
+//! Named Pipe protocol definitions for LaTeXSnipper Native Office v3.
 //!
 //! All messages use length-prefixed UTF-8 JSON framing:
 //!   [4 bytes LE payload length] [UTF-8 JSON payload]
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 2;
-pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v2";
-pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:native-office:v2";
+pub const PROTOCOL_VERSION: u32 = 3;
+pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v3";
+pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:native-office:v3";
 
 // ---------------------------------------------------------------------------
 // VSTO -> Desktop messages

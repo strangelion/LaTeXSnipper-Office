@@ -1,12 +1,14 @@
-//! Named Pipe server for LaTeXSnipper Native Office v2.
+//! Named Pipe server for LaTeXSnipper Native Office v3.
 //!
-//! Listens on `\\.\pipe\LaTeXSnipper.NativeOffice.v2.<UserSid>` and handles
+//! Listens on `\\.\pipe\LaTeXSnipper.NativeOffice.v3.<SID>` and handles
 //! bidirectional communication with VSTO Add-ins.
 //!
 //! Architecture:
 //! - Reader task: reads VstoMessage from pipe -> SessionManager
 //! - Writer task: reads DesktopMessage from mpsc channel -> writes to pipe
 //! - SessionManager stores Sender for each connected session
+//! - DACL: only current user SID + SYSTEM can connect
+//! - Authentication: HELLO with valid DPAPI secret required before any other message
 
 use std::sync::Arc;
 
@@ -16,6 +18,7 @@ use tokio::sync::mpsc;
 
 use super::acl;
 use super::pipe_protocol::*;
+use super::pipe_security::PipeSecurityDescriptor;
 use super::session::SessionManager;
 
 /// Maximum frame size (1 MB) to prevent abuse.
@@ -26,7 +29,13 @@ const CHANNEL_BUFFER: usize = 64;
 
 /// Start the Named Pipe server. Runs forever, accepting connections.
 pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Arc<SessionManager>) {
-    let pipe_name = acl::pipe_name();
+    let pipe_name = match acl::pipe_name() {
+        Ok(name) => name,
+        Err(e) => {
+            log::error!("[Pipe] Failed to get pipe name (SID error): {}. Cannot start server.", e);
+            return;
+        }
+    };
     log::info!("[Pipe] Starting server on {}", pipe_name);
 
     let mut first = true;
@@ -64,11 +73,19 @@ pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Ar
 async fn create_pipe_instance_first(
     pipe_name: &str,
 ) -> Result<NamedPipeServer, std::io::Error> {
-    let server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .create(pipe_name)?;
+    let mut security = PipeSecurityDescriptor::current_user_and_system()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-    server.connect().await?;
+    let server = unsafe {
+        ServerOptions::new()
+            .first_pipe_instance(true)
+            .reject_remote_clients(true)
+            .create_with_security_attributes_raw(
+                pipe_name,
+                security.as_raw_security_attributes(),
+            )?
+    };
+
     log::info!("[Pipe] Client connected (first instance)");
     Ok(server)
 }
@@ -77,22 +94,27 @@ async fn create_pipe_instance_first(
 async fn create_pipe_instance_additional(
     pipe_name: &str,
 ) -> Result<NamedPipeServer, std::io::Error> {
-    let server = ServerOptions::new()
-        .first_pipe_instance(false)
-        .create(pipe_name)?;
+    let mut security = PipeSecurityDescriptor::current_user_and_system()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
-    server.connect().await?;
+    let server = unsafe {
+        ServerOptions::new()
+            .first_pipe_instance(false)
+            .reject_remote_clients(true)
+            .create_with_security_attributes_raw(
+                pipe_name,
+                security.as_raw_security_attributes(),
+            )?
+    };
+
     log::info!("[Pipe] Client connected (additional instance)");
     Ok(server)
 }
 
 /// Handle a single connected client with full duplex communication.
 ///
-/// Architecture:
-/// - Creates mpsc channel for outgoing messages
-/// - Registers sender in SessionManager
-/// - Tracks authenticated session ID
-/// - Cleans up session on disconnect
+/// Authentication gate: only HELLO allowed before auth.
+/// After auth, all other messages are accepted.
 async fn handle_client(
     mut pipe: NamedPipeServer,
     session_mgr: Arc<SessionManager>,
@@ -137,7 +159,7 @@ async fn handle_client(
                                 // Authentication gate: only HELLO allowed before auth
                                 let is_hello = matches!(msg, VstoMessage::Hello { .. });
                                 if authenticated_session_id.is_none() && !is_hello {
-                                    log::warn!("[Pipe] Unauthenticated message rejected: {:?}", std::mem::discriminant(&msg));
+                                    log::warn!("[Pipe] Unauthenticated message rejected");
                                     return Err("unauthenticated pipe message".to_string());
                                 }
 
@@ -217,7 +239,6 @@ async fn handle_client(
 }
 
 /// Send a command to a connected VSTO session.
-/// Called from the Desktop side (e.g., when user clicks "Insert" in the app).
 pub async fn send_insert_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
