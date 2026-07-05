@@ -8,7 +8,11 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::platforms::acl;
+    use crate::platforms::pipe_protocol;
+    use crate::platforms::pipe_security;
+    use crate::platforms::windows_identity;
+    use crate::platforms::session;
 
     // ---------------------------------------------------------------------------
     // SID / Pipe Name Tests
@@ -16,7 +20,7 @@ mod tests {
 
     #[test]
     fn test_pipe_name_uses_v3_prefix() {
-        let name = super::acl::pipe_name().unwrap();
+        let name = acl::pipe_name().unwrap();
         assert!(
             name.starts_with("\\\\.\\pipe\\LaTeXSnipper.NativeOffice.v3."),
             "Pipe name should use v3 prefix, got: {}",
@@ -26,7 +30,7 @@ mod tests {
 
     #[test]
     fn test_pipe_leaf_name_format() {
-        let leaf = super::acl::pipe_leaf_name().unwrap();
+        let leaf = acl::pipe_leaf_name().unwrap();
         assert!(
             leaf.starts_with("LaTeXSnipper.NativeOffice.v3."),
             "Leaf name should start with v3 prefix, got: {}",
@@ -40,14 +44,11 @@ mod tests {
 
     #[test]
     fn test_sid_is_not_username() {
-        // SID should not be the same as the username
-        let sid = super::acl::pipe_sid().unwrap();
+        let sid = acl::pipe_sid().unwrap();
         let username = whoami::username();
-        // While they might be the same in some cases, the pipe name
-        // should be different from just using username directly
-        let pipe_name = super::acl::pipe_name().unwrap();
+        let pipe_name = acl::pipe_name().unwrap();
         assert!(
-            pipe_name.contains(&format!("{}.{}", super::pipe_protocol::PIPE_PREFIX, sid)),
+            pipe_name.contains(&format!("{}.{}", pipe_protocol::PIPE_PREFIX, sid)),
             "Pipe name should contain SID"
         );
     }
@@ -58,13 +59,13 @@ mod tests {
 
     #[test]
     fn test_protocol_version_is_v3() {
-        assert_eq!(super::pipe_protocol::PROTOCOL_VERSION, 3);
+        assert_eq!(pipe_protocol::PROTOCOL_VERSION, 3);
     }
 
     #[test]
     fn test_pipe_prefix_is_v3() {
         assert_eq!(
-            super::pipe_protocol::PIPE_PREFIX,
+            pipe_protocol::PIPE_PREFIX,
             "LaTeXSnipper.NativeOffice.v3"
         );
     }
@@ -75,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_security_descriptor_creation() {
-        let result = super::pipe_security::PipeSecurityDescriptor::current_user_and_system();
+        let result = pipe_security::PipeSecurityDescriptor::current_user_and_system();
         assert!(
             result.is_ok(),
             "Security descriptor creation should succeed: {:?}",
@@ -89,10 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_creation_and_removal() {
-        // This test verifies the SessionManager can create and remove sessions
-        // In a real test, we would mock the AppHandle
-        // For now, just verify the types compile
-        let _ = std::any::type_name::<super::session::SessionManager>();
+        let _ = std::any::type_name::<session::SessionManager>();
     }
 
     // ---------------------------------------------------------------------------
@@ -103,7 +101,7 @@ mod tests {
     fn test_windows_identity_sid() {
         #[cfg(target_os = "windows")]
         {
-            let result = super::windows_identity::current_user_sid();
+            let result = windows_identity::current_user_sid();
             assert!(result.is_ok(), "SID should be obtainable on Windows");
             let sid = result.unwrap();
             assert!(!sid.is_empty(), "SID should not be empty");

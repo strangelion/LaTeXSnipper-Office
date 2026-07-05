@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_sddl_format() {
         // Verify the SDDL format is correct
-        let sid = super::windows_identity::current_user_sid().unwrap();
+        let sid = crate::platforms::windows_identity::current_user_sid().unwrap();
         let sddl = format!("D:P(A;;GRGW;;;{})(A;;GRGW;;;SY)", sid);
         assert!(sddl.starts_with("D:P("));
         assert!(sddl.ends_with(")"));
