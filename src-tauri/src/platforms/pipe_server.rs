@@ -91,103 +91,121 @@ async fn create_pipe_instance_additional(
 /// Architecture:
 /// - Creates mpsc channel for outgoing messages
 /// - Registers sender in SessionManager
-/// - Spawns writer task: reads from receiver, writes to pipe
-/// - Runs reader loop: reads from pipe, dispatches to SessionManager
+/// - Tracks authenticated session ID
+/// - Cleans up session on disconnect
 async fn handle_client(
     mut pipe: NamedPipeServer,
     session_mgr: Arc<SessionManager>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), String> {
     // Create channel for outgoing messages (Desktop -> VSTO)
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(CHANNEL_BUFFER);
 
-    // Clone pipe handle for writer task
-    // Note: NamedPipeServer doesn't implement Clone, so we use a different approach
-    // We'll use a shared Arc<Mutex> for the write half
-
-    // For simplicity, we'll use a split approach:
-    // - Reader task reads from pipe
-    // - Writer task writes to pipe via channel
-    // - We need to handle the fact that NamedPipeServer is not Clone
-
-    // Actually, NamedPipeServer can be split using tokio::io::split
-    // But for named pipes, we need to be careful about concurrent access
-
-    // Let's use a simpler approach: single task handles both read and write
-    // with non-blocking checks
+    // Track authenticated session ID
+    let mut authenticated_session_id: Option<String> = None;
 
     let mut read_buf = vec![0u8; 64 * 1024];
     let mut accum_buf = Vec::new();
 
-    loop {
-        // Check if there are messages to send (non-blocking)
-        while let Ok(frame) = rx.try_recv() {
-            if let Err(e) = pipe.write_all(&frame).await {
-                log::error!("[Pipe] Write error: {}", e);
-                return Err(Box::new(e));
+    let result = async {
+        loop {
+            // Check if there are messages to send (non-blocking)
+            while let Ok(frame) = rx.try_recv() {
+                if let Err(e) = pipe.write_all(&frame).await {
+                    log::error!("[Pipe] Write error: {}", e);
+                    return Err(format!("Write error: {}", e));
+                }
             }
-        }
 
-        // Try to read from pipe (with timeout to allow checking channel)
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            pipe.read(&mut read_buf)
-        ).await {
-            Ok(Ok(0)) => {
-                log::info!("[Pipe] Client disconnected");
-                return Ok(());
-            }
-            Ok(Ok(n)) => {
-                accum_buf.extend_from_slice(&read_buf[..n]);
+            // Try to read from pipe (with timeout to allow checking channel)
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                pipe.read(&mut read_buf)
+            ).await {
+                Ok(Ok(0)) => {
+                    log::info!("[Pipe] Client disconnected");
+                    return Ok(());
+                }
+                Ok(Ok(n)) => {
+                    accum_buf.extend_from_slice(&read_buf[..n]);
 
-                // Process complete frames
-                loop {
-                    match decode_vsto_frame(&accum_buf) {
-                        Ok((msg, consumed)) => {
-                            accum_buf.drain(..consumed);
+                    // Process complete frames
+                    loop {
+                        match decode_vsto_frame(&accum_buf) {
+                            Ok((msg, consumed)) => {
+                                accum_buf.drain(..consumed);
 
-                            // Dispatch to session manager, passing sender for future commands
-                            let response = session_mgr.handle_message(msg, Some(tx.clone())).await;
+                                // Check if this is HELLO with valid auth
+                                if let VstoMessage::Hello { ref sessionId, .. } = msg {
+                                    // Will be authenticated after handle_message processes it
+                                }
 
-                            // Send response
-                            let frame = encode_frame(&response.response);
-                            if let Err(e) = pipe.write_all(&frame).await {
-                                log::error!("[Pipe] Write error: {}", e);
-                                return Err(Box::new(e));
+                                // Dispatch to session manager
+                                let response = session_mgr.handle_message(msg, Some(tx.clone())).await;
+
+                                // Track authenticated session
+                                if let DesktopMessage::HelloAck { ref sessionId, .. } = response.response {
+                                    authenticated_session_id = Some(sessionId.clone());
+                                    log::info!("[Pipe] Session authenticated: {}", sessionId);
+                                }
+
+                                // If HELLO_NACK, disconnect immediately
+                                if let DesktopMessage::HelloNack { ref error, .. } = response.response {
+                                    log::warn!("[Pipe] HELLO_NACK: {}. Disconnecting.", error);
+                                    let frame = encode_frame(&response.response);
+                                    let _ = pipe.write_all(&frame).await;
+                                    return Err(format!("HELLO_NACK: {}", error));
+                                }
+
+                                // Send response
+                                let frame = encode_frame(&response.response);
+                                if let Err(e) = pipe.write_all(&frame).await {
+                                    log::error!("[Pipe] Write error: {}", e);
+                                    return Err(format!("Write error: {}", e));
+                                }
+                            }
+                            Err(ProtocolError::InsufficientData) => {
+                                // Need more data
+                                break;
+                            }
+                            Err(ProtocolError::JsonParse(e)) => {
+                                log::error!("[Pipe] Protocol error: {}. Disconnecting client.", e);
+                                return Err(format!("protocol error: {}", e));
+                            }
+                            Err(ProtocolError::Io(e)) => {
+                                return Err(format!("IO error: {}", e));
                             }
                         }
-                        Err(ProtocolError::InsufficientData) => {
-                            // Need more data
-                            break;
-                        }
-                        Err(ProtocolError::JsonParse(e)) => {
-                            log::error!("[Pipe] Protocol error: {}. Disconnecting client.", e);
-                            return Err(format!("protocol error: {}", e).into());
-                        }
-                        Err(ProtocolError::Io(e)) => {
-                            return Err(Box::new(e));
-                        }
+                    }
+
+                    // Guard against oversized frames
+                    if accum_buf.len() > MAX_FRAME_SIZE {
+                        log::error!(
+                            "[Pipe] Frame too large ({} bytes). Disconnecting.",
+                            accum_buf.len()
+                        );
+                        return Err("frame too large".to_string());
                     }
                 }
-
-                // Guard against oversized frames
-                if accum_buf.len() > MAX_FRAME_SIZE {
-                    log::error!(
-                        "[Pipe] Frame too large ({} bytes). Disconnecting.",
-                        accum_buf.len()
-                    );
-                    return Err("frame too large".into());
+                Ok(Err(e)) => {
+                    log::error!("[Pipe] Read error: {}", e);
+                    return Err(format!("Read error: {}", e));
                 }
-            }
-            Ok(Err(e)) => {
-                log::error!("[Pipe] Read error: {}", e);
-                return Err(Box::new(e));
-            }
-            Err(_) => {
-                // Timeout - continue loop to check channel
-                continue;
+                Err(_) => {
+                    // Timeout - continue loop to check channel
+                    continue;
+                }
             }
         }
     }
+    .await;
+
+    // Clean up session on disconnect
+    if let Some(session_id) = &authenticated_session_id {
+        session_mgr.remove_session(session_id).await;
+        log::info!("[Pipe] Cleaned up session: {}", session_id);
+    }
+
+    result
 }
 
 /// Send a command to a connected VSTO session.

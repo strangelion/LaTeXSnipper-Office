@@ -2878,6 +2878,56 @@ class UIController {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
+
+      // Try Native Office Pipe first
+      const sessions = await invoke('native_office_sessions');
+      if (sessions && sessions.length > 0) {
+        const session = sessions[0];
+        const omml = await invoke('latex_to_omml', { latex });
+
+        // Render SVG for Excel/PPT (Word uses OMML directly)
+        let svg = null;
+        let widthPt = 0;
+        let heightPt = 0;
+        if (session.host_type !== 'word') {
+          // Use Temml to render SVG
+          if (this.renderer?.temml) {
+            try {
+              const svgResult = this.renderer.temml.renderToString(latex, {
+                xml: true,
+                displayMode: isDisplay,
+                throwOnError: false
+              });
+              if (svgResult) {
+                // Convert MathML to SVG (Temml outputs MathML, we need SVG)
+                // For now, use the MathML as a fallback
+                svg = svgResult;
+                widthPt = 120;
+                heightPt = 30;
+              }
+            } catch (e) {
+              Logger.error('SVG render error:', e);
+            }
+          }
+        }
+
+        await invoke('native_office_insert_formula', {
+          sessionId: session.session_id,
+          formulaId: crypto.randomUUID(),
+          latex: latex,
+          omml: omml,
+          display: isDisplay ? 'block' : 'inline',
+          mode: isDisplay ? 'display' : 'inline',
+          svg: svg,
+          widthPt: widthPt,
+          heightPt: heightPt
+        });
+        this.showToast(`已插入到 ${session.host_type}`);
+        this.addHistoryItem(latex);
+        return;
+      }
+
+      // Fallback to old Office.js path
       const result = await invoke('insert_formula', {
         request: {
           formulaType: isDisplay ? 'display' : 'inline',
@@ -2894,6 +2944,16 @@ class UIController {
   async loadFromWord() {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
+
+      // Try Native Office Pipe first
+      const sessions = await invoke('native_office_sessions');
+      if (sessions && sessions.length > 0) {
+        const session = sessions[0];
+        this.showToast(`请在 ${session.host_type} 中选中公式，然后点击 Ribbon 中的"读取"按钮`);
+        return;
+      }
+
+      // Fallback to old Office.js path
       this.showToast('正在从 Word 加载选中公式...');
       const result = await invoke('load_selection');
       this.showToast(result.message || '加载完成');

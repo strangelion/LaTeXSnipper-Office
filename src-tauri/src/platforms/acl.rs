@@ -1,17 +1,24 @@
 //! Windows ACL helpers for Named Pipe access control.
 //!
 //! Restricts pipe access to the current user SID + SYSTEM only.
+//!
+//! TODO: Implement proper SID retrieval using Windows Token API
+//! and Named Pipe DACL configuration. Currently uses username as identifier.
 
 use std::sync::OnceLock;
 
 /// Get the current Windows user SID as a string.
 /// Returns a stable identifier like `S-1-5-21-...-1001`.
+///
+/// NOTE: Currently returns username, not real SID.
+/// TODO: Use Windows Token API to get real SID.
 pub fn current_user_sid() -> &'static str {
     static SID: OnceLock<String> = OnceLock::new();
     SID.get_or_init(|| {
         #[cfg(target_os = "windows")]
         {
-            // Use whoami crate to get the real Windows SID
+            // Use whoami crate to get the current username
+            // TODO: Replace with proper SID retrieval using Windows API
             whoami::username()
         }
         #[cfg(not(target_os = "windows"))]

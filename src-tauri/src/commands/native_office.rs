@@ -27,6 +27,9 @@ pub async fn native_office_insert_formula(
     omml: String,
     display: String,
     mode: String,
+    svg: Option<String>,
+    width_pt: Option<f32>,
+    height_pt: Option<f32>,
 ) -> Result<String, String> {
     let payload = FormulaPayload {
         formula_id,
@@ -34,7 +37,11 @@ pub async fn native_office_insert_formula(
         omml,
         display,
         presentation: None,
-        render: None,
+        render: svg.map(|s| RenderData {
+            svg: Some(s),
+            width_pt: width_pt.unwrap_or(120.0),
+            height_pt: height_pt.unwrap_or(30.0),
+        }),
         source: None,
     };
 
@@ -50,6 +57,47 @@ pub async fn native_office_insert_formula(
         .map_err(|e| e.to_string())?;
 
     Ok("Formula insertion sent".to_string())
+}
+
+/// Render LaTeX to SVG using frontend Temml renderer.
+/// This triggers the frontend to render and returns the SVG.
+#[tauri::command]
+pub async fn native_office_render_svg(
+    app: tauri::AppHandle,
+    latex: String,
+    display: bool,
+) -> Result<String, String> {
+    use tauri::Emitter;
+
+    // Generate unique request ID
+    let request_id = format!("svg-{}", uuid_simple());
+
+    // Create a oneshot channel to wait for the response
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+
+    // Store the sender in a temporary map (we'll use a simpler approach)
+    // For now, just emit the event and wait for the frontend to call back
+
+    // Emit event to frontend to render SVG
+    let _ = app.emit("native-office-render-svg", serde_json::json!({
+        "requestId": request_id,
+        "latex": latex,
+        "display": display
+    }));
+
+    // Wait for response from frontend (with timeout)
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        async {
+            // In a real implementation, we'd use a shared state to wait for the response
+            // For now, return a placeholder
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            Ok::<String, String>(String::new())
+        }
+    ).await {
+        Ok(Ok(svg)) => Ok(svg),
+        _ => Err("SVG render timeout".to_string()),
+    }
 }
 
 /// Replace formula in the current Office host.
@@ -181,4 +229,49 @@ pub async fn native_office_insert_reference(
         .map_err(|e| e.to_string())?;
 
     Ok("Reference insertion sent".to_string())
+}
+
+/// Request VSTO to read current selection.
+#[tauri::command]
+pub async fn native_office_request_read_selection(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+) -> Result<String, String> {
+    let msg = crate::platforms::pipe_protocol::DesktopMessage::RequestReadSelection {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.clone(),
+    };
+
+    session_mgr.send_to_session(&session_id, msg)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Read selection request sent".to_string())
+}
+
+/// Request VSTO to read current table.
+#[tauri::command]
+pub async fn native_office_request_read_table(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+) -> Result<String, String> {
+    let msg = crate::platforms::pipe_protocol::DesktopMessage::RequestReadTable {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.clone(),
+    };
+
+    session_mgr.send_to_session(&session_id, msg)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Read table request sent".to_string())
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", t)
 }

@@ -163,6 +163,18 @@ pub enum DesktopMessage {
         table: TablePayload,
     },
 
+    #[serde(rename = "REQUEST_READ_SELECTION")]
+    RequestReadSelection {
+        requestId: String,
+        sessionId: String,
+    },
+
+    #[serde(rename = "REQUEST_READ_TABLE")]
+    RequestReadTable {
+        requestId: String,
+        sessionId: String,
+    },
+
     #[serde(rename = "DELETE_CURRENT")]
     DeleteCurrent {
         requestId: String,

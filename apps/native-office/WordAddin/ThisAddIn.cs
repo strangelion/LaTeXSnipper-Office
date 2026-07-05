@@ -78,6 +78,21 @@ public partial class ThisAddIn
         string docId = null;
         try { docId = Application.ActiveDocument?.Name; } catch { }
         await _pipeClient.SendHostReadyAsync(_sessionId, "word", Application.Version, docId);
+
+        // Initialize Ribbon on UI thread
+        _uiContext.Post(_ =>
+        {
+            try
+            {
+                var ribbon = Globals.Ribbons.FormulaRibbon;
+                ribbon?.Initialize(_adapter, _pipeClient, _sessionId);
+                System.Diagnostics.Debug.WriteLine("[ThisAddIn] Ribbon initialized");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Ribbon init error: {ex.Message}");
+            }
+        }, null);
     }
 
     private void OnMessageReceived(object sender, DesktopMessage message)
@@ -141,6 +156,36 @@ public partial class ThisAddIn
                     SessionId = cmd.SessionId,
                     Success = success
                 });
+                break;
+            }
+
+            case DesktopRequestReadSelection cmd:
+            {
+                var formula = _adapter.ReadSelection();
+                if (formula != null)
+                {
+                    _ = _pipeClient.SendAsync(new VstoReadSelection
+                    {
+                        RequestId = cmd.RequestId,
+                        SessionId = cmd.SessionId,
+                        RangeXml = formula.Omml
+                    });
+                }
+                break;
+            }
+
+            case DesktopRequestReadTable cmd:
+            {
+                var table = _tableConverter?.ReadSelection();
+                if (table != null)
+                {
+                    _ = _pipeClient.SendAsync(new VstoReadTable
+                    {
+                        RequestId = cmd.RequestId,
+                        SessionId = cmd.SessionId,
+                        TableXml = System.Text.Json.JsonSerializer.Serialize(table)
+                    });
+                }
                 break;
             }
 
