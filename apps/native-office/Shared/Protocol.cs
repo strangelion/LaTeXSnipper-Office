@@ -47,7 +47,28 @@ public class VstoHostReady : VstoMessage
 {
     [JsonPropertyName("hostType")] public string HostType { get; set; } = "";
     [JsonPropertyName("hostVersion")] public string HostVersion { get; set; } = "";
-    [JsonPropertyName("documentId")] public string? DocumentId { get; set; }
+    [JsonPropertyName("hostPid")] public uint? HostPid { get; set; }
+    [JsonPropertyName("documentContextId")] public string? DocumentContextId { get; set; }
+    [JsonPropertyName("documentTitle")] public string? DocumentTitle { get; set; }
+    [JsonPropertyName("documentKind")] public string? DocumentKind { get; set; }
+    [JsonPropertyName("capabilities")] public Capabilities? Capabilities { get; set; }
+}
+
+public class Capabilities
+{
+    [JsonPropertyName("insertFormula")] public bool InsertFormula { get; set; } = true;
+    [JsonPropertyName("replaceFormula")] public bool ReplaceFormula { get; set; } = true;
+    [JsonPropertyName("readSelection")] public bool ReadSelection { get; set; } = true;
+    [JsonPropertyName("insertTable")] public bool InsertTable { get; set; } = true;
+    [JsonPropertyName("readTable")] public bool ReadTable { get; set; } = true;
+    [JsonPropertyName("requiresSvgForFormula")] public bool RequiresSvgForFormula { get; set; }
+}
+
+public class VstoContextChanged : VstoMessage
+{
+    [JsonPropertyName("documentContextId")] public string DocumentContextId { get; set; } = "";
+    [JsonPropertyName("documentTitle")] public string? DocumentTitle { get; set; }
+    [JsonPropertyName("documentKind")] public string? DocumentKind { get; set; }
 }
 
 public class VstoOpenEditor : VstoMessage { }

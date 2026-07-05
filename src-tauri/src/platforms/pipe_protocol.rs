@@ -40,8 +40,28 @@ pub enum VstoMessage {
         hostType: String,
         #[serde(rename = "hostVersion")]
         hostVersion: String,
-        #[serde(rename = "documentId", skip_serializing_if = "Option::is_none")]
-        documentId: Option<String>,
+        #[serde(rename = "hostPid", skip_serializing_if = "Option::is_none")]
+        hostPid: Option<u32>,
+        #[serde(rename = "documentContextId", skip_serializing_if = "Option::is_none")]
+        documentContextId: Option<String>,
+        #[serde(rename = "documentTitle", skip_serializing_if = "Option::is_none")]
+        documentTitle: Option<String>,
+        #[serde(rename = "documentKind", skip_serializing_if = "Option::is_none")]
+        documentKind: Option<String>,
+        #[serde(rename = "capabilities", skip_serializing_if = "Option::is_none")]
+        capabilities: Option<Capabilities>,
+    },
+
+    #[serde(rename = "VSTO_CONTEXT_CHANGED")]
+    VstoContextChanged {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "documentContextId")]
+        documentContextId: String,
+        #[serde(rename = "documentTitle", skip_serializing_if = "Option::is_none")]
+        documentTitle: Option<String>,
+        #[serde(rename = "documentKind", skip_serializing_if = "Option::is_none")]
+        documentKind: Option<String>,
     },
 
     #[serde(rename = "OPEN_EDITOR")]
@@ -218,6 +238,23 @@ pub enum DesktopMessage {
         #[serde(rename = "referenceType")]
         referenceType: String,
     },
+}
+
+/// Capabilities of a VSTO host.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Capabilities {
+    #[serde(rename = "insertFormula")]
+    pub insert_formula: bool,
+    #[serde(rename = "replaceFormula")]
+    pub replace_formula: bool,
+    #[serde(rename = "readSelection")]
+    pub read_selection: bool,
+    #[serde(rename = "insertTable")]
+    pub insert_table: bool,
+    #[serde(rename = "readTable")]
+    pub read_table: bool,
+    #[serde(rename = "requiresSvgForFormula")]
+    pub requires_svg_for_formula: bool,
 }
 
 // ---------------------------------------------------------------------------

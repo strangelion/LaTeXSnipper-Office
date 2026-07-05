@@ -146,16 +146,21 @@ impl SessionManager {
                 sessionId,
                 hostType,
                 hostVersion,
-                documentId,
+                hostPid: _,
+                documentContextId,
+                documentTitle,
+                documentKind: _,
+                capabilities: _,
             } => {
                 if let Some(session) = self.sessions.write().await.get_mut(&sessionId) {
-                    session.document_id = documentId;
+                    session.document_id = documentContextId;
                     session.host_version = hostVersion;
                     log::info!(
-                        "[Session] HOST_READY {} (session={}, doc={:?})",
+                        "[Session] HOST_READY {} (session={}, doc={:?}, title={:?})",
                         hostType,
                         sessionId,
-                        session.document_id
+                        session.document_id,
+                        documentTitle
                     );
                 }
                 ResponseEnvelope {
@@ -164,6 +169,44 @@ impl SessionManager {
                     response: DesktopMessage::Ping {
                         requestId,
                         sessionId,
+                    },
+                }
+            }
+
+            VstoMessage::VstoContextChanged {
+                requestId,
+                sessionId,
+                documentContextId,
+                documentTitle,
+                documentKind: _,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                let ctx_id = documentContextId.clone();
+                let title = documentTitle.clone();
+
+                if let Some(session) = self.sessions.write().await.get_mut(&sid) {
+                    session.document_id = Some(ctx_id.clone());
+                    log::info!(
+                        "[Session] CONTEXT_CHANGED (session={}, title={:?})",
+                        sid,
+                        title
+                    );
+                }
+                let _ = self.app_handle.emit(
+                    "native-office-context-changed",
+                    serde_json::json!({
+                        "sessionId": sid,
+                        "documentContextId": ctx_id,
+                        "documentTitle": title,
+                    }),
+                );
+                ResponseEnvelope {
+                    requestId: rid.clone(),
+                    sessionId: sid.clone(),
+                    response: DesktopMessage::Ping {
+                        requestId: rid,
+                        sessionId: sid,
                     },
                 }
             }
