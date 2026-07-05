@@ -16,6 +16,10 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use platforms::session::SessionManager;
 
 fn main() {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info"),
+    )
+    .init();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
