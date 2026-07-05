@@ -514,6 +514,16 @@ fn unregister_hkcu_office_com_addin() {
 
 fn cleanup_legacy_office_com_addins() {
     for app in ["Word", "Excel", "PowerPoint"] {
+        for addin in ["LaTeXSnipperOffice", "LaTeXSnipperOffice-Independent", "LaTeXSnipper.Office"] {
+            reg_delete_tree(&format!(
+                r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+                app, addin
+            ));
+            reg_delete_tree(&format!(
+                r"HKCU\Software\Microsoft\Office\16.0\{}\Addins\{}",
+                app, addin
+            ));
+        }
         reg_delete_tree(&format!(
             r"HKCU\Software\Microsoft\Office\{}\Addins\ComAddin.Connect",
             app
@@ -1093,6 +1103,8 @@ fn is_office_js_registered(host: OfficeJsHost) -> bool {
 /// macOS: copies to ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
 
 fn install_office_js_addin() -> PlatformIntegrationResult {
+    cleanup_legacy_office_com_addins();
+
     let manifests = office_js_manifests();
     if manifests.len() != OFFICE_JS_HOSTS.len() {
         return PlatformIntegrationResult::fail(
@@ -1174,6 +1186,8 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
 
 
 fn uninstall_office_addin() -> PlatformIntegrationResult {
+    cleanup_legacy_office_com_addins();
+
     #[cfg(target_os = "windows")]
     {
         let mut errors = Vec::new();

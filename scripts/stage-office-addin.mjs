@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Stage Office.js add-in files for the desktop bundle and website deploy.
  *
  * Run after `npm --prefix apps/office-addin run build`.
@@ -14,17 +14,22 @@ const root = path.resolve(__dirname, '..');
 const distDir = path.resolve(root, 'apps', 'office-addin', 'dist');
 const manifestDir = path.resolve(root, 'apps', 'office-addin', 'manifests');
 const hosts = ['word', 'excel', 'powerpoint'];
+const localOfficeBase = 'https://localhost:19876';
+const websiteOfficeBase = 'https://latexsnipper.interknot.dpdns.org/office';
+const websiteAppDomain = 'https://latexsnipper.interknot.dpdns.org';
 
 const targets = [
   {
     name: 'Tauri resources',
     siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
     manifestDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest'),
+    manifestBase: localOfficeBase,
   },
   {
     name: 'Website deploy',
     siteDir: path.resolve(root, 'office-deploy'),
     manifestDir: path.resolve(root, 'office-deploy', 'manifest'),
+    manifestBase: websiteOfficeBase,
   },
 ];
 
@@ -44,7 +49,16 @@ for (const target of targets) {
   for (const host of hosts) {
     const source = path.resolve(manifestDir, `manifest.${host}.desktop.xml`);
     const output = path.resolve(target.manifestDir, `${host}.xml`);
-    fs.copyFileSync(source, output);
+    let manifest = fs.readFileSync(source, 'utf8');
+    if (target.manifestBase === websiteOfficeBase) {
+      manifest = manifest
+        .replace(
+          /<AppDomains>\s*<AppDomain>https:\/\/localhost:19876<\/AppDomain>\s*(?:<AppDomain>https:\/\/localhost:19876<\/AppDomain>\s*)?<\/AppDomains>/,
+          `<AppDomains>\n    <AppDomain>${websiteAppDomain}</AppDomain>\n  </AppDomains>`,
+        )
+        .replaceAll(localOfficeBase, websiteOfficeBase);
+    }
+    fs.writeFileSync(output, manifest);
   }
 
   const taskpane = path.resolve(target.siteDir, 'taskpane.html');

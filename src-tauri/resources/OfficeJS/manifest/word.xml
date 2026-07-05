@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -10,19 +10,17 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="LaTeXSnipper"/>
   <Description DefaultValue="Edit and insert LaTeX formulas in Word."/>
-  <IconUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-80.png"/>
-  <SupportUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/taskpane.html"/>
+  <IconUrl DefaultValue="https://localhost:19876/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://localhost:19876/assets/icon-80.png"/>
+  <SupportUrl DefaultValue="https://localhost:19876/taskpane.html"/>
   <AppDomains>
-    <AppDomain>https://latexsnipper.interknot.dpdns.org</AppDomain>
-    <AppDomain>https://127.0.0.1:19876</AppDomain>
     <AppDomain>https://localhost:19876</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://latexsnipper.interknot.dpdns.org/office/taskpane.html"/>
+    <SourceLocation DefaultValue="https://localhost:19876/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <VersionOverrides
@@ -71,12 +69,12 @@
     </Hosts>
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-16.png"/>
-        <bt:Image id="Icon.32" DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-32.png"/>
-        <bt:Image id="Icon.80" DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-80.png"/>
+        <bt:Image id="Icon.16" DefaultValue="https://localhost:19876/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://localhost:19876/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://localhost:19876/assets/icon-80.png"/>
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://latexsnipper.interknot.dpdns.org/office/taskpane.html"/>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:19876/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="Tab.Label" DefaultValue="LaTeXSnipper"/>
