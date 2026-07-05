@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Word.Metadata;
+using Word = Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.NativeOffice.Word;
 

@@ -21,3 +21,16 @@ src-tauri/resources/Office/LightweightAddIn/*.dll
 scripts/sync-core.ps1
 apps/office-addin/cert/localhost.key
 apps/office-addin/cert/localhost.crt
+apps/native-office/ExcelAddin/ExcelAddIn1/
+apps/native-office/PowerPointAddin/PowerPointAddIn1/
+apps/native-office/**/.vs/
+apps/native-office/**/bin/
+apps/native-office/**/obj/
+apps/native-office/**/*.pfx
+apps/native-office/**/Properties/Settings.settings
+apps/native-office/**/Properties/Settings.Designer.cs
+apps/native-office/**/Properties/Resources.resx
+apps/native-office/**/Properties/Resources.Designer.cs
+apps/native-office/**/LaTeXSnipper.NativeOffice.Excel/
+apps/native-office/**/LaTeXSnipper.NativeOffice.PowerPoint/
+apps/native-office/**/LaTeXSnipper.NativeOffice.Word/
