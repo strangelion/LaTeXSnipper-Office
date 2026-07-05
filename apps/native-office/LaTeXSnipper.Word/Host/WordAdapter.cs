@@ -30,17 +30,49 @@ namespace LaTeXSnipper.Word.Host
             if (metadata != null)
                 return metadata;
 
-            // Step 2: Try to extract OMML from OMath at selection
+            // Step 2: Extract OMML from selection range's raw XML
+            try
+            {
+                var xml = range.get_XML(false);
+                if (!string.IsNullOrEmpty(xml))
+                {
+                    // Find <m:oMath or <m:oMathPara elements
+                    var oMathStart = xml.IndexOf("<m:oMath");
+                    var oMathParaStart = xml.IndexOf("<m:oMathPara");
+
+                    if (oMathStart >= 0 || oMathParaStart >= 0)
+                    {
+                        var start = oMathParaStart >= 0 ? oMathParaStart : oMathStart;
+                        var tag = oMathParaStart >= 0 ? "</m:oMathPara>" : "</m:oMath>";
+                        var end = xml.IndexOf(tag, start);
+                        if (end > start)
+                        {
+                            var omml = xml.Substring(start, end + tag.Length - start);
+                            return new FormulaPayload
+                            {
+                                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                                Omml = omml,
+                                Latex = "",
+                                Display = "block"
+                            };
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Step 3: Try OMaths collection (cursor inside math zone)
             if (_application.Selection.OMaths.Count > 0)
             {
                 try
                 {
-                    var omml = _application.Selection.OMaths[1].Range.get_XML(false);
-                    if (!string.IsNullOrEmpty(omml))
+                    var oMathRange = _application.Selection.OMaths[1].Range;
+                    var omml = oMathRange.get_XML(false);
+                    if (!string.IsNullOrEmpty(omml) && omml.Contains("<m:oMath"))
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = Guid.NewGuid().ToString("N"),
+                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
                             Omml = omml,
                             Latex = "",
                             Display = "block"

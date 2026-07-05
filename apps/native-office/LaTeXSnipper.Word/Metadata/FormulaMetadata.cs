@@ -35,34 +35,41 @@ namespace LaTeXSnipper.Word.Metadata
                 var doc = range.Document;
                 foreach (dynamic part in doc.CustomXMLParts)
                 {
-                    if (part.NamespaceURI == NamespaceUri)
+                    try
                     {
-                        var node = part.SelectSingleNode("//lsno:formula");
-                        if (node != null)
+                        if (part.NamespaceURI == NamespaceUri)
                         {
-                            var formulaId = node.Attributes.GetNamedItem("id")?.Value;
-                            var latex = part.SelectSingleNode("//lsno:latex")?.Text ?? "";
-                            var display = part.SelectSingleNode("//lsno:presentation")?.Attributes?.GetNamedItem("display")?.Value ?? "block";
-
-                            var ommlBase64 = part.SelectSingleNode("//lsno:omml")?.Text ?? "";
-                            var omml = "";
-                            try
+                            var node = part.SelectSingleNode("//lsno:formula");
+                            if (node != null)
                             {
-                                omml = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ommlBase64));
-                            }
-                            catch { }
+                                var formulaId = node.Attributes.GetNamedItem("id")?.Value;
+                                var latex = part.SelectSingleNode("//lsno:latex")?.Text ?? "";
+                                var display = part.SelectSingleNode("//lsno:presentation")?.Attributes?.GetNamedItem("display")?.Value ?? "block";
 
-                            if (!string.IsNullOrEmpty(formulaId))
-                            {
-                                return new FormulaPayload
+                                var ommlBase64 = part.SelectSingleNode("//lsno:omml")?.Text ?? "";
+                                var omml = "";
+                                try
                                 {
-                                    FormulaId = formulaId,
-                                    Latex = latex,
-                                    Omml = omml,
-                                    Display = display
-                                };
+                                    omml = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ommlBase64));
+                                }
+                                catch { }
+
+                                if (!string.IsNullOrEmpty(formulaId))
+                                {
+                                    return new FormulaPayload
+                                    {
+                                        FormulaId = formulaId,
+                                        Latex = latex,
+                                        Omml = omml,
+                                        Display = display
+                                    };
+                                }
                             }
                         }
+                    }
+                    catch
+                    {
+                        // Skip parts with undeclared namespace prefixes
                     }
                 }
             }
