@@ -1,0 +1,35 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <ribbon>
+    <tabs>
+      <tab id="LaTeXSnipperTab" label="LaTeXSnipper" insertAfterMso="TabHome">
+        <group id="FormulaGroup" label="Formula">
+          <button id="InsertFormula" label="Insert" size="large"
+                  onAction="OnInsertFormula" screentip="Insert formula as shape"/>
+          <separator id="Sep1"/>
+          <button id="LoadFormula" label="Load" size="large"
+                  onAction="OnLoadFormula" screentip="Load formula from selection"/>
+          <button id="DeleteFormula" label="Delete" size="large"
+                  onAction="OnDeleteFormula" screentip="Delete formula shape"/>
+        </group>
+        <group id="TableGroup" label="Table">
+          <button id="LoadTable" label="Load Table" size="large"
+                  onAction="OnLoadTable" screentip="Load table from selection"/>
+          <button id="InsertTable" label="Insert Table" size="large"
+                  onAction="OnInsertTable" screentip="Insert table"/>
+          <button id="FormatTable" label="Format" size="large"
+                  onAction="OnFormatTable" screentip="Format table with borders"/>
+        </group>
+        <group id="FormatGroup" label="Format">
+          <button id="FormatSelection" label="Format" size="large"
+                  onAction="OnFormatSelection" screentip="Format selected cells"/>
+          <button id="FormatAll" label="Format All" size="large"
+                  onAction="OnFormatAll" screentip="Format all cells in sheet"/>
+        </group>
+        <group id="ToolsGroup" label="Tools">
+          <button id="OpenEditor" label="Open Editor" size="large"
+                  onAction="OnOpenEditor" screentip="Open LaTeXSnipper editor"/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>

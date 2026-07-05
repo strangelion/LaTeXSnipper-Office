@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Bundle Name="LaTeXSnipper Native Office"
+          Manufacturer="LaTeXSnipper"
+          Version="1.0.0"
+          UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
+          Copyright="Copyright (c) LaTeXSnipper 2026">
+
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
+      <bal:WixStandardBootstrapperApplication
+        LicenseFile="License.rtf"
+        LogoFile="Logo.png"
+        ThemeFile="Theme.xml"
+        xmlns:bal="http://wixtoolset.org/schemas/v4/bal" />
+    </BootstrapperApplicationRef>
+
+    <!-- Check for .NET Framework 4.8 -->
+    <Variable Name="NetFx48Installed" Type="numeric" Value="0" />
+    <Chain>
+      <ExePackage Id="NetFx48"
+                  Cache="yes"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes"
+                  Source="$(var.NetFx48Url)"
+                  InstallCommand="/q /norestart"
+                  DetectCondition="NetFx48Installed">
+        <ExitCode Value="0" Result="Success" />
+        <ExitCode Value="1641" Result="Success" />
+        <ExitCode Value="3010" Result="Success" />
+        <ExitCode Value="5100" Result="Failure" />
+      </ExePackage>
+
+      <!-- VSTO Runtime -->
+      <ExePackage Id="VstoRuntime"
+                  Cache="yes"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes"
+                  Source="$(var.VstoRuntimeUrl)"
+                  InstallCommand="/quiet /norestart"
+                  DetectCondition="VstoRuntimeInstalled">
+        <ExitCode Value="0" Result="Success" />
+        <ExitCode Value="1641" Result="Success" />
+        <ExitCode Value="3010" Result="Success" />
+      </ExePackage>
+
+      <!-- Main MSI Package -->
+      <MsiPackage Id="MainMsi"
+                  Cache="yes"
+                  Vital="yes"
+                  SourceFile="$(var.MsiDir)\LaTeXSnipper.NativeOffice.msi"
+                  InstallCondition="NOT Installed">
+        <MsiProperty Name="INSTALLLOCATION" Value="[InstallFolder]" />
+      </MsiPackage>
+    </Chain>
+
+  </Bundle>
+
+</Wix>

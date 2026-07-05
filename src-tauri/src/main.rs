@@ -67,11 +67,17 @@ fn main() {
                     }
                 })?;
 
-            // Start HTTP bridge server for VBA communication
+            // Start Named Pipe server for VSTO communication
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                platforms::office_bridge::start_bridge_server(app_handle).await;
+                platforms::pipe_server::start_pipe_server(app_handle).await;
             });
+
+            // Legacy: HTTP bridge server (disabled — use Named Pipe instead)
+            // let app_handle = app.handle().clone();
+            // tauri::async_runtime::spawn(async move {
+            //     platforms::office_bridge::start_bridge_server(app_handle).await;
+            // });
 
             Ok(())
         })

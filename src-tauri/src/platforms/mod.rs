@@ -1,5 +1,9 @@
+pub mod acl;
+pub mod handshake;
 pub mod integrations;
 pub mod office;
-pub mod office_bridge;
+pub mod pipe_protocol;
+pub mod pipe_server;
 pub mod process;
+pub mod session;
 pub mod tls_cert;

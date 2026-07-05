@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="LaTeXSnipper.NativeOffice"
+           Manufacturer="LaTeXSnipper"
+           Version="1.0.0"
+           UpgradeCode="E5F6A7B8-9999-AAAA-BBBB-CCCCCCCCCCCC"
+           Scope="perUser">
+
+    <SummaryInformation Description="LaTeXSnipper Native Office VSTO Add-in for Word, Excel, and PowerPoint" />
+
+    <!-- Minimal OS requirement -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of LaTeXSnipper Native Office is already installed." />
+
+    <!-- Directory structure -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLDIR" Name="LaTeXSnipper">
+        <Directory Id="NativeOfficeDir" Name="NativeOffice">
+          <Directory Id="SharedDir" Name="Shared" />
+          <Directory Id="WordDir" Name="Word" />
+          <Directory Id="ExcelDir" Name="Excel" />
+          <Directory Id="PowerPointDir" Name="PowerPoint" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Components -->
+    <ComponentGroup Id="ProductComponents" Directory="NativeOfficeDir">
+
+      <!-- Shared Library -->
+      <Component Id="SharedComponent" Directory="SharedDir" Guid="A1B2C3D4-1111-2222-3333-444455556666">
+        <File Source="$(var.SharedBinDir)\LaTeXSnipper.NativeOffice.Shared.dll" />
+        <File Source="$(var.SharedBinDir)\System.Text.Json.dll" />
+      </Component>
+
+      <!-- Word Add-in -->
+      <Component Id="WordComponent" Directory="WordDir" Guid="B2C3D4E5-2222-3333-4444-555566667777">
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.dll" />
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.vsto" />
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.manifest" />
+
+        <!-- VSTO Registry Entries -->
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Word\Addins\LaTeXSnipper.NativeOffice.Word">
+          <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — Word" />
+          <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Word" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+          <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Word\LaTeXSnipper.NativeOffice.Word.vsto|vstolocal" />
+        </RegistryKey>
+      </Component>
+
+      <!-- Excel Add-in -->
+      <Component Id="ExcelComponent" Directory="ExcelDir" Guid="C3D4E5F6-3333-4444-5555-666677778888">
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.dll" />
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.vsto" />
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.manifest" />
+
+        <!-- VSTO Registry Entries -->
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Excel\Addins\LaTeXSnipper.NativeOffice.Excel">
+          <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — Excel" />
+          <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Excel" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+          <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Excel\LaTeXSnipper.NativeOffice.Excel.vsto|vstolocal" />
+        </RegistryKey>
+      </Component>
+
+      <!-- PowerPoint Add-in -->
+      <Component Id="PowerPointComponent" Directory="PowerPointDir" Guid="D4E5F6A7-4444-5555-6666-777788889999">
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.dll" />
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.vsto" />
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.manifest" />
+
+        <!-- VSTO Registry Entries -->
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\PowerPoint\Addins\LaTeXSnipper.NativeOffice.PowerPoint">
+          <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — PowerPoint" />
+          <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for PowerPoint" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+          <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]PowerPoint\LaTeXSnipper.NativeOffice.PowerPoint.vsto|vstolocal" />
+        </RegistryKey>
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Features -->
+    <Feature Id="Complete" Title="LaTeXSnipper Native Office" Level="1">
+      <ComponentRef Id="SharedComponent" />
+      <ComponentRef Id="WordComponent" />
+      <ComponentRef Id="ExcelComponent" />
+      <ComponentRef Id="PowerPointComponent" />
+    </Feature>
+
+    <!-- UI -->
+    <UIRef Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+    <!-- Icons -->
+    <Icon Id="AppIcon" SourceFile="$(var.IconsDir)\LaTeXSnipper.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+  </Package>
+
+</Wix>
