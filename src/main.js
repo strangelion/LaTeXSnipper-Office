@@ -1844,16 +1844,22 @@ class UIController {
         Logger.info(`Native Office: loaded table from ${sessionId}`);
 
         if (table) {
-          // Structured TablePayload with formulas
-          const rows = table.rows || [];
+          // Structured TablePayload - handle nested structure
+          // Rust sends: { tableId, table: { rows: [...] }, formulas: {...} }
+          const tableData = table.table || table;
+          const rows = tableData.rows || [];
+          const formulas = table.formulas || {};
+
           let markdown = '| ';
           for (const row of rows) {
             const cells = row.cells || [];
             const cellTexts = cells.map(cell => {
               const inlines = cell.inlines || [];
               return inlines.map(inline => {
-                if (inline.type === 'formula' && inline.formulaRef) {
-                  return `[${inline.formulaRef}]`;
+                if (inline.type === 'formula') {
+                  // Check inline formula first, then formulas dict
+                  const formula = inline.formula || formulas[inline.formulaRef];
+                  return formula?.latex || `[${inline.formulaRef}]`;
                 }
                 return inline.text || '';
               }).join(' ');

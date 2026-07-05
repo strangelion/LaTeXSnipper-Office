@@ -217,7 +217,7 @@ public class PipeClient : IDisposable
     /// <summary>
     /// Send HOST_READY after Word is fully initialized.
     /// </summary>
-    public async Task SendHostReadyAsync(string sessionId, string hostType, string hostVersion, string? documentId = null)
+    public async Task SendHostReadyAsync(string sessionId, string hostType, string hostVersion, string? documentContextId = null)
     {
         var msg = new VstoHostReady
         {
@@ -225,7 +225,7 @@ public class PipeClient : IDisposable
             SessionId = sessionId,
             HostType = hostType,
             HostVersion = hostVersion,
-            DocumentId = documentId
+            DocumentContextId = documentContextId
         };
         await SendAsync(msg);
     }

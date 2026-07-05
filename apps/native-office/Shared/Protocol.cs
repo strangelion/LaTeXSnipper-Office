@@ -35,6 +35,17 @@ public abstract class VstoMessage
     [JsonPropertyName("sessionId")] public string SessionId { get; set; } = "";
 }
 
+/// <summary>
+/// Base class for Desktop -> VSTO commands that operate on documents.
+/// Includes expectedContextId for document context validation.
+/// </summary>
+public abstract class DesktopDocumentCommand : VstoMessage
+{
+    [JsonPropertyName("expectedContextId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ExpectedContextId { get; set; }
+}
+
 public class VstoHello : VstoMessage
 {
     [JsonPropertyName("protocolVersion")] public int ProtocolVersion { get; set; }
@@ -150,34 +161,34 @@ public class DesktopHelloNack : DesktopMessage
 
 public class DesktopPing : DesktopMessage { }
 
-public class DesktopInsertFormula : DesktopMessage
+public class DesktopInsertFormula : DesktopDocumentCommand
 {
     [JsonPropertyName("formula")] public FormulaPayload Formula { get; set; } = new();
     [JsonPropertyName("mode")] public InsertMode Mode { get; set; }
 }
 
-public class DesktopReplaceFormula : DesktopMessage
+public class DesktopReplaceFormula : DesktopDocumentCommand
 {
     [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
     [JsonPropertyName("formula")] public FormulaPayload Formula { get; set; } = new();
 }
 
-public class DesktopInsertTable : DesktopMessage
+public class DesktopInsertTable : DesktopDocumentCommand
 {
     [JsonPropertyName("table")] public TablePayload Table { get; set; } = new();
 }
 
-public class DesktopDeleteCurrent : DesktopMessage
+public class DesktopDeleteCurrent : DesktopDocumentCommand
 {
     [JsonPropertyName("formulaId")] public string? FormulaId { get; set; }
 }
 
-public class DesktopFormatSelection : DesktopMessage
+public class DesktopFormatSelection : DesktopDocumentCommand
 {
     [JsonPropertyName("options")] public FormatOptions Options { get; set; } = new();
 }
 
-public class DesktopFormatAll : DesktopMessage
+public class DesktopFormatAll : DesktopDocumentCommand
 {
     [JsonPropertyName("options")] public FormatOptions Options { get; set; } = new();
 }
