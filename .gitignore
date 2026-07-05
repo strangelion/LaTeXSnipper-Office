@@ -21,8 +21,6 @@ src-tauri/resources/Office/LightweightAddIn/*.dll
 scripts/sync-core.ps1
 apps/office-addin/cert/localhost.key
 apps/office-addin/cert/localhost.crt
-apps/native-office/ExcelAddin/ExcelAddIn1/
-apps/native-office/PowerPointAddin/PowerPointAddIn1/
 apps/native-office/**/.vs/
 apps/native-office/**/bin/
 apps/native-office/**/obj/
