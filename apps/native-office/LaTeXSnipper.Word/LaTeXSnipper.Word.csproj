@@ -221,6 +221,15 @@
     <Compile Include="Ribbon1.Designer.cs">
       <DependentUpon>Ribbon1.cs</DependentUpon>
     </Compile>
+    <Compile Include="Ribbon\FormulaRibbon.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Ribbon\FormulaRibbon.Designer.cs">
+      <DependentUpon>FormulaRibbon.cs</DependentUpon>
+    </Compile>
+    <EmbeddedResource Include="Ribbon\FormulaRibbon.resx">
+      <DependentUpon>FormulaRibbon.cs</DependentUpon>
+    </EmbeddedResource>
     <Compile Include="ThisAddIn.cs">
       <SubType>Code</SubType>
     </Compile>
