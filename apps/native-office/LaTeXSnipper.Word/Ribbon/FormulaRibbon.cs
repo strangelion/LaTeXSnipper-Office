@@ -1,7 +1,7 @@
 using Microsoft.Office.Tools.Ribbon;
 using System;
 
-namespace LaTeXSnipper.Word.Ribbon
+namespace LaTeXSnipper.Word
 {
     partial class FormulaRibbon
     {

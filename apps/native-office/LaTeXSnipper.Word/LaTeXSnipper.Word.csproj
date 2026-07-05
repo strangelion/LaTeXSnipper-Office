@@ -134,7 +134,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Shared\LaTeXSnipper.Shared.csproj">
+    <ProjectReference Include="..\LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj">
       <Project>{A1B2C3D4-1111-2222-3333-444455556666}</Project>
       <Name>LaTeXSnipper.Shared</Name>
     </ProjectReference>
@@ -203,9 +203,6 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
-    <EmbeddedResource Include="Ribbon1.resx">
-      <DependentUpon>Ribbon1.cs</DependentUpon>
-    </EmbeddedResource>
     <None Include="LaTeXSnipper.Word_TemporaryKey.pfx" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
@@ -214,12 +211,6 @@
     <Compile Include="Properties\Settings.Designer.cs">
       <AutoGen>True</AutoGen>
       <DependentUpon>Settings.settings</DependentUpon>
-    </Compile>
-    <Compile Include="Ribbon1.cs">
-      <SubType>Component</SubType>
-    </Compile>
-    <Compile Include="Ribbon1.Designer.cs">
-      <DependentUpon>Ribbon1.cs</DependentUpon>
     </Compile>
     <Compile Include="Ribbon\FormulaRibbon.cs">
       <SubType>Component</SubType>
