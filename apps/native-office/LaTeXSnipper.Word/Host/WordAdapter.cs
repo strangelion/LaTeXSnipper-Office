@@ -54,29 +54,26 @@ namespace LaTeXSnipper.Word.Host
             try
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] OMML to insert: [{payload.Omml?.Length} chars]");
-
-                string ommlXml;
-                switch (mode)
-                {
-                    case InsertMode.Inline:
-                        ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
-                        break;
-                    case InsertMode.Display:
-                        ommlXml = BuildDisplayOmml(payload.Omml, payload.FormulaId);
-                        break;
-                    case InsertMode.DisplayNumbered:
-                        ommlXml = BuildNumberedEquation(payload);
-                        break;
-                    default:
-                        ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
-                        break;
-                }
+                    $"[WordAdapter] OMML to insert: [{payload.Omml}]");
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] XML to insert (first 200 chars): {ommlXml?.Substring(0, Math.Min(200, ommlXml.Length))}");
+                    "[WordAdapter] Inserting formula via InsertXML...");
 
+                // Clean invalid <w:rPr> nested inside <m:rPr> (converter bug)
+                var cleanOmml = System.Text.RegularExpressions.Regex.Replace(
+                    payload.Omml,
+                    @"<w:rPr>.*?</w:rPr>",
+                    "",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                var ommlXml = $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  {cleanOmml}
+</w:p>";
                 range.InsertXML(ommlXml);
+
+                System.Diagnostics.Debug.WriteLine(
+                    "[WordAdapter] InsertXML succeeded");
 
                 try
                 {
