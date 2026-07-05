@@ -83,26 +83,30 @@ impl SessionManager {
             } => {
                 // Verify protocol version
                 if protocolVersion != PROTOCOL_VERSION {
+                    log::warn!("[Session] HELLO rejected: protocol version mismatch ({} vs {})", protocolVersion, PROTOCOL_VERSION);
                     return ResponseEnvelope {
                         requestId: requestId.clone(),
                         sessionId: sessionId.clone(),
-                        response: DesktopMessage::HelloAck {
+                        response: DesktopMessage::HelloNack {
                             requestId,
                             sessionId,
-                            protocolVersion: PROTOCOL_VERSION,
+                            errorCode: "VERSION_MISMATCH".to_string(),
+                            error: format!("Protocol version {} not supported, expected {}", protocolVersion, PROTOCOL_VERSION),
                         },
                     };
                 }
 
                 // Verify shared secret
                 if !super::handshake::verify_secret(&dpapiSecret) {
+                    log::warn!("[Session] HELLO rejected: invalid secret");
                     return ResponseEnvelope {
                         requestId: requestId.clone(),
                         sessionId: sessionId.clone(),
-                        response: DesktopMessage::HelloAck {
+                        response: DesktopMessage::HelloNack {
                             requestId,
                             sessionId,
-                            protocolVersion: PROTOCOL_VERSION,
+                            errorCode: "INVALID_SECRET".to_string(),
+                            error: "Shared secret verification failed".to_string(),
                         },
                     };
                 }

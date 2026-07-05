@@ -124,6 +124,15 @@ pub enum DesktopMessage {
         protocolVersion: u32,
     },
 
+    #[serde(rename = "HELLO_NACK")]
+    HelloNack {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "errorCode")]
+        errorCode: String,
+        error: String,
+    },
+
     #[serde(rename = "PING")]
     Ping {
         requestId: String,

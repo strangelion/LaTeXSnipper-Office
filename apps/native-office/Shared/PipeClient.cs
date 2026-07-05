@@ -1,7 +1,11 @@
+using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
@@ -32,7 +36,8 @@ public class PipeClient : IDisposable
 
     public PipeClient(string userSid)
     {
-        _pipeName = $@"\\.\pipe\{NativeOfficeProtocol.PipePrefix}.{userSid}";
+        // NamedPipeClientStream expects leaf name only, not full \\.\pipe\... path
+        _pipeName = $"{NativeOfficeProtocol.PipePrefix}.{userSid}";
     }
 
     public PipeClient() : this(Environment.UserName) { }

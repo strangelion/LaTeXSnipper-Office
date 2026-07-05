@@ -1401,7 +1401,7 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             "office",
             "native-vsto",
             format!(
-                "Installed Native Office VSTO add-ins for {}. Restart Word, Excel, and PowerPoint to load LaTeXSnipper.",
+                "已写入 Native Office VSTO 注册表 ({} 个宿主)。请使用安装器部署 VSTO 文件后重启 Office。",
                 installed.join(", ")
             ),
             true,

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
@@ -94,6 +95,7 @@ public class VstoHostError : VstoMessage
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(DesktopHelloAck), "HELLO_ACK")]
+[JsonDerivedType(typeof(DesktopHelloNack), "HELLO_NACK")]
 [JsonDerivedType(typeof(DesktopPing), "PING")]
 [JsonDerivedType(typeof(DesktopInsertFormula), "INSERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopReplaceFormula), "REPLACE_FORMULA")]
@@ -112,6 +114,12 @@ public abstract class DesktopMessage
 public class DesktopHelloAck : DesktopMessage
 {
     [JsonPropertyName("protocolVersion")] public int ProtocolVersion { get; set; }
+}
+
+public class DesktopHelloNack : DesktopMessage
+{
+    [JsonPropertyName("errorCode")] public string ErrorCode { get; set; } = "";
+    [JsonPropertyName("error")] public string Error { get; set; } = "";
 }
 
 public class DesktopPing : DesktopMessage { }

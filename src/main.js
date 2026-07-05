@@ -1644,84 +1644,75 @@ class UIController {
 
     Logger.debug('Event listeners ready');
 
-    this.initOfficeBridge();
-
-    this.initOfficeJS();
+    this.initNativeOffice();
   }
 
-  initOfficeJS() {
+  initNativeOffice() {
     window.__app = this;
 
-    if (typeof Office !== 'undefined') {
-      Office.onReady((info) => {
-        Logger.info(`Office.js ready: ${info.host} ${info.platform}`);
-      });
-    } else {
-      Logger.info('Office.js not available (not running in Office)');
-    }
-
+    // Insert formula via Native Office Pipe
     window.insertFormula = async () => {
       const latex = this.editor?.getLatex();
       if (!latex) return;
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('write_pending_formula', { latex });
-        this.showToast('已发送到 Word');
+        const sessions = await invoke('native_office_sessions');
+        if (!sessions || sessions.length === 0) {
+          this.showToast('未连接到 Office，请先在 Word/Excel/PPT 中打开 LaTeXSnipper Ribbon');
+          return;
+        }
+        // Use first connected session
+        const session = sessions[0];
+        // Get OMML from Rust
+        const omml = await invoke('latex_to_omml', { latex });
+        await invoke('native_office_insert_formula', {
+          sessionId: session.session_id,
+          formulaId: crypto.randomUUID(),
+          latex: latex,
+          omml: omml,
+          display: 'block',
+          mode: 'display'
+        });
+        this.showToast(`已发送到 ${session.host_type}`);
       } catch (e) {
         this.showToast('发送失败: ' + e.message);
       }
     };
 
-    window.loadSelection = () => {
-      Logger.info('loadSelection called from Office.js');
+    window.loadSelection = async () => {
+      Logger.info('loadSelection: waiting for Office to send selection via Pipe');
     };
 
-    window.deleteSelection = () => {
-      Logger.info('deleteSelection called from Office.js');
+    window.deleteSelection = async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const sessions = await invoke('native_office_sessions');
+        if (!sessions || sessions.length === 0) {
+          this.showToast('未连接到 Office');
+          return;
+        }
+        await invoke('native_office_delete_current', {
+          sessionId: sessions[0].session_id,
+          formulaId: null
+        });
+        this.showToast('已删除');
+      } catch (e) {
+        this.showToast('删除失败: ' + e.message);
+      }
     };
+
+    // Listen for events from Office VSTO
+    this.initNativeOfficeEvents();
   }
 
-  async initOfficeBridge() {
+  async initNativeOfficeEvents() {
     try {
       const { listen } = await import('@tauri-apps/api/event');
 
-      listen('office-render-formula', async (event) => {
-        const { id, latex } = event.payload;
-        Logger.info(`Bridge: render ${id}: ${latex}`);
-        try {
-          await this.editor.renderer.init();
-          const mathml = this.editor.renderer.toMathML(latex);
-          Logger.info(`MathML (${mathml.length}b): ${mathml.substring(0, 100)}...`);
-          await fetch('http://localhost:19876/api/office/render-result', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id, mathml })
-          });
-        } catch (e) { Logger.error('Bridge render error:', e); }
-      });
-
-      listen('office-insert-formula', async (event) => {
-        const { latex, type } = event.payload;
-        Logger.info(`Bridge: insert formula: ${latex}`);
-        this.editor.setLatex(latex);
-        this.showToast(`公式已加载: ${latex}`);
-      });
-
-      listen('office-load-selection', async (event) => {
-        const { text } = event.payload;
-        Logger.info(`Bridge: load selection raw: ${text}`);
-        if (text) {
-          const latex = unicodeMathToLatex(text);
-          Logger.info(`Bridge: load selection latex: ${latex}`);
-          this.switchSection('editor');
-          this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
-        }
-      });
-
-      listen('office-load-selection-latex', async (event) => {
-        const { latex } = event.payload;
-        Logger.info(`Bridge: load selection latex metadata: ${latex}`);
+      // Office loaded formula from selection
+      listen('native-office-latex-loaded', async (event) => {
+        const { latex, sessionId } = event.payload;
+        Logger.info(`Native Office: loaded latex from ${sessionId}: ${latex}`);
         if (latex) {
           this.switchSection('editor');
           this.editor.setLatex(latex);
@@ -1729,61 +1720,45 @@ class UIController {
         }
       });
 
-      listen('office-load-selection-mathml', async (event) => {
-        const { mathml } = event.payload;
-        Logger.info(`Bridge: load selection mathml: ${mathml.substring(0, 200)}...`);
-        if (mathml) {
-          const latex = mathmlToLatex(mathml);
-          Logger.info(`Bridge: load selection latex from mathml: ${latex}`);
-          this.switchSection('editor');
-          this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
+      // Office loaded table
+      listen('native-office-table-loaded', async (event) => {
+        const { xml, sessionId } = event.payload;
+        Logger.info(`Native Office: loaded table from ${sessionId}`);
+        // TODO: parse table and display in editor
+        this.showToast('已加载表格');
+      });
+
+      // Office insert result
+      listen('native-office-insert-result', async (event) => {
+        const { success, formulaId, error, sessionId } = event.payload;
+        if (success) {
+          Logger.info(`Native Office: formula inserted (id=${formulaId})`);
+        } else {
+          Logger.error(`Native Office: insert failed: ${error}`);
+          this.showToast('插入失败: ' + error);
         }
       });
 
-      listen('office-load-selection-omml', async (event) => {
-        const { omml } = event.payload;
-        Logger.info(`Bridge: load selection omml (${omml.length}b): ${omml.substring(0, 200)}...`);
-        if (omml) {
-          // Extract <m:oMath> or <m:oMathPara> from full Word XML
-          const mathXml = extractMathElement(omml);
-          Logger.info(`Bridge: extracted math element (${mathXml.length}b): ${mathXml.substring(0, 200)}...`);
-
-          try {
-            const { invoke } = await import('@tauri-apps/api/core');
-            const latex = await invoke('omml_to_latex', { xml: mathXml });
-            Logger.info(`Bridge: rust omml_to_latex result: '${latex}'`);
-            if (latex && latex.length > 0) {
-              this.switchSection('editor');
-              this.editor.setLatex(latex);
-              this.showToast('已加载选中文本');
-              return;
-            }
-            Logger.warn('Rust returned empty, trying JS fallback');
-          } catch (e) {
-            Logger.error('Rust invoke failed:', e);
-          }
-
-          // JS fallback
-          const latex = ommlToLatex(mathXml);
-          Logger.info(`Bridge: JS ommlToLatex result: '${latex}'`);
-          this.switchSection('editor');
-          this.editor.setLatex(latex);
-          this.showToast('已加载选中文本');
-        }
+      // Office error
+      listen('native-office-error', async (event) => {
+        const { error, errorCode, sessionId } = event.payload;
+        Logger.error(`Native Office error [${errorCode}]: ${error}`);
+        this.showToast('Office 错误: ' + error);
       });
 
-      listen('office-show-app', async () => {
-        Logger.info('Bridge: show app');
+      // Open editor requested from Office
+      listen('native-office-open-editor', async (event) => {
+        const { sessionId } = event.payload;
+        Logger.info(`Native Office: open editor requested from ${sessionId}`);
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const win = getCurrentWindow();
         await win.show();
         await win.setFocus();
       });
 
-      Logger.info('Office bridge events initialized');
+      Logger.info('Native Office events initialized');
     } catch (e) {
-      Logger.error('Failed to init office bridge:', e);
+      Logger.error('Failed to init Native Office events:', e);
     }
   }
 
