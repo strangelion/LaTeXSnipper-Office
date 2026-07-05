@@ -133,6 +133,7 @@
     <Reference Include="Microsoft.Office.Tools.Common.v4.0.Utilities, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
       <Private>True</Private>
     </Reference>
+    <Reference Include="System.Web.Extensions" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj">
@@ -235,6 +236,9 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Metadata\FormulaMetadata.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Metadata\TableConverter.cs">
       <SubType>Code</SubType>
     </Compile>
     <AppDesigner Include="Properties\" />
