@@ -86,6 +86,8 @@ async fn create_pipe_instance_first(
             )?
     };
 
+    // Wait for client connection
+    server.connect().await?;
     log::info!("[Pipe] Client connected (first instance)");
     Ok(server)
 }
@@ -107,6 +109,8 @@ async fn create_pipe_instance_additional(
             )?
     };
 
+    // Wait for client connection
+    server.connect().await?;
     log::info!("[Pipe] Client connected (additional instance)");
     Ok(server)
 }

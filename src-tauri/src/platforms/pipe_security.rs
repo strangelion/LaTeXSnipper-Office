@@ -21,6 +21,12 @@ pub struct PipeSecurityDescriptor {
     attrs: SECURITY_ATTRIBUTES,
 }
 
+// SAFETY: PipeSecurityDescriptor is only used in single-threaded context
+// for pipe creation. The raw pointers are only accessed during pipe creation
+// and freed in Drop.
+#[cfg(target_os = "windows")]
+unsafe impl Send for PipeSecurityDescriptor {}
+
 #[cfg(target_os = "windows")]
 #[repr(C)]
 struct SECURITY_ATTRIBUTES {

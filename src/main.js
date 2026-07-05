@@ -1822,12 +1822,6 @@ class UIController {
       }
     };
   }
-    };
-  }
-
-    // Listen for events from Office VSTO
-    this.initNativeOfficeEvents();
-  }
 
   async initNativeOfficeEvents() {
     try {
@@ -1896,7 +1890,6 @@ class UIController {
         const { sessionId, documentTitle } = event.payload;
         Logger.info(`Native Office: context changed for ${sessionId}: ${documentTitle}`);
         await this.updateOfficeHostSelector();
-      });
       });
 
       Logger.info('Native Office events initialized');
@@ -3090,25 +3083,6 @@ class UIController {
       this.showToast(`插入失败: ${error.message || error}`);
     }
   }
-        }
-
-        await invoke('native_office_insert_formula', {
-          sessionId: session.session_id,
-          formulaId: crypto.randomUUID(),
-          latex: latex,
-          omml: omml,
-          display: isDisplay ? 'block' : 'inline',
-          mode: isDisplay ? 'display' : 'inline',
-          svg: svg,
-          widthPt: widthPt,
-          heightPt: heightPt
-        });
-      this.showToast(`已插入到 ${session.host_type}`);
-      this.addHistoryItem(latex);
-    } catch (error) {
-      this.showToast(`插入失败: ${error.message || error}`);
-    }
-  }
 
   async loadFromWord() {
     try {
@@ -3129,12 +3103,6 @@ class UIController {
 
       this.showToast(`正在从 ${session.host_type} 读取选区...`);
       await invoke('native_office_request_read_selection', { sessionId });
-      }
-
-      // Fallback to old Office.js path
-      this.showToast('正在从 Word 加载选中公式...');
-      const result = await invoke('load_selection');
-      this.showToast(result.message || '加载完成');
     } catch (e) {
       Logger.error('loadFromWord failed:', e);
       this.showToast('加载失败: ' + (e.message || e));

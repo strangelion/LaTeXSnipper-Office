@@ -43,6 +43,7 @@
     <Compile Include="Protocol.cs" />
     <Compile Include="PipeClient.cs" />
     <Compile Include="Handshake.cs" />
+    <Compile Include="WindowsIdentityHelper.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
