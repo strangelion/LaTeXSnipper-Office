@@ -1,4 +1,4 @@
-﻿using Microsoft.Office.Tools.Ribbon;
+using Microsoft.Office.Tools.Ribbon;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,6 +20,14 @@ namespace LaTeXSnipper.Word
             System.Windows.Forms.MessageBox.Show(
                 "Word VSTO Ribbon is loaded.",
                 "LaTeXSnipper");
+        }
+
+        private void btnInsertText_Click(
+        object sender,
+        Microsoft.Office.Tools.Ribbon.RibbonControlEventArgs e)
+        {
+            Globals.ThisAddIn.Application.Selection.TypeText(
+                "[LaTeXSnipper Word COM OK]");
         }
     }
 }

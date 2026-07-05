@@ -21,7 +21,7 @@ using System.Security;
 [assembly: ComVisible(false)]
 
 // 如果此项目向 COM 公开，则下列 GUID 用于类型库的 ID
-[assembly: Guid("53232e9a-3ea6-4116-9bf2-0a445db92ce3")]
+[assembly: Guid("2a94125d-ac62-41c0-8be8-a03e902c62bd")]
 
 // 程序集的版本信息由下列四个值组成:
 //

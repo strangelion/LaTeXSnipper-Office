@@ -37,6 +37,7 @@ namespace LaTeXSnipper.Word
             this.tabLaTeXSnipper = this.Factory.CreateRibbonTab();
             this.groupDevelopment = this.Factory.CreateRibbonGroup();
             this.btnSmokeTest = this.Factory.CreateRibbonButton();
+            this.btnInsertText = this.Factory.CreateRibbonButton();
             this.tabLaTeXSnipper.SuspendLayout();
             this.groupDevelopment.SuspendLayout();
             this.SuspendLayout();
@@ -51,6 +52,7 @@ namespace LaTeXSnipper.Word
             // groupDevelopment
             //
             this.groupDevelopment.Items.Add(this.btnSmokeTest);
+            this.groupDevelopment.Items.Add(this.btnInsertText);
             this.groupDevelopment.Label = "Development";
             this.groupDevelopment.Name = "groupDevelopment";
             //
@@ -59,6 +61,12 @@ namespace LaTeXSnipper.Word
             this.btnSmokeTest.Label = "Smoke Test";
             this.btnSmokeTest.Name = "btnSmokeTest";
             this.btnSmokeTest.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.btnSmokeTest_Click);
+            //
+            // btnInsertText
+            //
+            this.btnInsertText.Label = "Insert Test Text";
+            this.btnInsertText.Name = "btnInsertText";
+            this.btnInsertText.Click += new Microsoft.Office.Tools.Ribbon.RibbonControlEventHandler(this.btnInsertText_Click);
             //
             // Ribbon1
             //
@@ -78,6 +86,7 @@ namespace LaTeXSnipper.Word
         internal Microsoft.Office.Tools.Ribbon.RibbonTab tabLaTeXSnipper;
         internal Microsoft.Office.Tools.Ribbon.RibbonGroup groupDevelopment;
         internal Microsoft.Office.Tools.Ribbon.RibbonButton btnSmokeTest;
+        internal Microsoft.Office.Tools.Ribbon.RibbonButton btnInsertText;
     }
 
     partial class ThisRibbonCollection
