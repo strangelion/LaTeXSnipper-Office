@@ -80,9 +80,32 @@ namespace LaTeXSnipper.Word.Host
 
                 var ommlXml = $@"<w:p xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-  {fixedOmml}
+  <w:r>
+    <w:rPr>
+      <w:rFonts w:ascii=""Cambria Math"" w:hAnsi=""Cambria Math""/>
+    </w:rPr>
+    {fixedOmml}
+  </w:r>
 </w:p>";
-                range.InsertXML(ommlXml);
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] InsertXML string ({ommlXml.Length} chars)");
+                try
+                {
+                    range.InsertXML(ommlXml);
+                    System.Diagnostics.Debug.WriteLine(
+                        "[WordAdapter] InsertXML succeeded");
+                }
+                catch (Exception insertEx)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordAdapter] InsertXML error: {insertEx.Message}");
+                    return new InsertResult
+                    {
+                        Success = false,
+                        Error = $"InsertXML error: {insertEx.Message}"
+                    };
+                }
 
                 System.Diagnostics.Debug.WriteLine(
                     "[WordAdapter] InsertXML succeeded");
