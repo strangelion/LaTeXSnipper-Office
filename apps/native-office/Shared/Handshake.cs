@@ -1,4 +1,6 @@
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
@@ -6,6 +8,12 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 /// <summary>
 /// DPAPI-based shared secret for Named Pipe handshake.
 /// Matches the Rust handshake.rs implementation.
+///
+/// Security model:
+/// - Secret is generated using cryptographically secure random (RandomNumberGenerator)
+/// - Secret is encrypted with DPAPI (ProtectedData) before writing to disk
+/// - Only the same Windows user can decrypt the secret
+/// - Desktop creates the secret, VSTO reads and decrypts it
 /// </summary>
 public static class Handshake
 {
@@ -36,30 +44,73 @@ public static class Handshake
         {
             try
             {
-                var json = File.ReadAllText(path);
-                var stored = JsonSerializer.Deserialize<StoredSecret>(json);
-                if (stored?.SecretB64 != null)
+                var encryptedData = File.ReadAllBytes(path);
+
+                // Try to decrypt with DPAPI first
+                try
                 {
-                    _cachedSecret = stored.SecretB64;
-                    return _cachedSecret;
+                    var decrypted = ProtectedData.Unprotect(
+                        encryptedData,
+                        null,
+                        DataProtectionScope.CurrentUser
+                    );
+                    var json = Encoding.UTF8.GetString(decrypted);
+                    var stored = JsonSerializer.Deserialize<StoredSecret>(json);
+                    if (stored?.SecretB64 != null)
+                    {
+                        _cachedSecret = stored.SecretB64;
+                        return _cachedSecret;
+                    }
+                }
+                catch
+                {
+                    // Not DPAPI encrypted, try as plain JSON (migration from old format)
+                    var json = Encoding.UTF8.GetString(encryptedData);
+                    var stored = JsonSerializer.Deserialize<StoredSecret>(json);
+                    if (stored?.SecretB64 != null)
+                    {
+                        // Re-encrypt with DPAPI
+                        SaveSecret(stored.SecretB64);
+                        _cachedSecret = stored.SecretB64;
+                        return _cachedSecret;
+                    }
                 }
             }
             catch { /* Fall through to create new */ }
         }
 
-        // Generate new secret
+        // Generate new secret using CSPRNG
         var bytes = new byte[32];
-        using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+        using (var rng = RandomNumberGenerator.Create())
         {
             rng.GetBytes(bytes);
         }
 
         var secret = Convert.ToBase64String(bytes);
-        var data = new StoredSecret { SecretB64 = secret };
-        File.WriteAllText(path, JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true }));
+        SaveSecret(secret);
 
         _cachedSecret = secret;
         return secret;
+    }
+
+    /// <summary>
+    /// Save secret to disk with DPAPI encryption.
+    /// </summary>
+    private static void SaveSecret(string secret)
+    {
+        var path = SecretPath();
+        var data = new StoredSecret { SecretB64 = secret };
+        var json = JsonSerializer.Serialize(data, new JsonSerializerOptions { WriteIndented = true });
+        var jsonBytes = Encoding.UTF8.GetBytes(json);
+
+        // Encrypt with DPAPI
+        var encrypted = ProtectedData.Protect(
+            jsonBytes,
+            null,
+            DataProtectionScope.CurrentUser
+        );
+
+        File.WriteAllBytes(path, encrypted);
     }
 
     /// <summary>
@@ -79,7 +130,7 @@ public static class Handshake
 
     private class StoredSecret
     {
-        [System.Text.Json.Serialization.JsonPropertyName("secretB64")]
+        [JsonPropertyName("secretB64")]
         public string SecretB64 { get; set; } = "";
     }
 }

@@ -4,7 +4,7 @@ using LaTeXSnipper.NativeOffice.Word.Metadata;
 
 namespace LaTeXSnipper.NativeOffice.Word.Ribbon;
 
-public partial class FormulaRibbon
+partial class FormulaRibbon
 {
     private WordAdapter? _adapter;
     private PipeClient? _pipeClient;
@@ -34,17 +34,17 @@ public partial class FormulaRibbon
     // Formula group
     // ---------------------------------------------------------------------------
 
-    public void OnInsertInline(RibbonControl control)
+    private void btnInsertInline_Click(object sender, RibbonControlEventArgs e)
     {
         SendInsertCommand(InsertMode.Inline);
     }
 
-    public void OnInsertDisplay(RibbonControl control)
+    private void btnInsertDisplay_Click(object sender, RibbonControlEventArgs e)
     {
         SendInsertCommand(InsertMode.Display);
     }
 
-    public void OnInsertNumbered(RibbonControl control)
+    private void btnInsertNumbered_Click(object sender, RibbonControlEventArgs e)
     {
         SendInsertCommand(InsertMode.DisplayNumbered);
     }
@@ -60,7 +60,7 @@ public partial class FormulaRibbon
             // No formula in selection — ask Desktop to insert from editor
             _ = _pipeClient.SendAsync(new VstoOpenEditor
             {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                 SessionId = _sessionId
             });
             return;
@@ -69,13 +69,13 @@ public partial class FormulaRibbon
         // Send READ_SELECTION to Desktop so it can populate the editor
         _ = _pipeClient.SendAsync(new VstoReadSelection
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId,
             RangeXml = selection.Omml
         });
     }
 
-    public void OnLoadFormula(RibbonControl control)
+    private void btnLoadFormula_Click(object sender, RibbonControlEventArgs e)
     {
         if (_adapter == null || _pipeClient == null || _sessionId == null) return;
 
@@ -84,21 +84,21 @@ public partial class FormulaRibbon
         {
             _ = _pipeClient.SendAsync(new VstoReadSelection
             {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                 SessionId = _sessionId,
                 RangeXml = formula.Omml
             });
         }
     }
 
-    public void OnDeleteFormula(RibbonControl control)
+    private void btnDeleteFormula_Click(object sender, RibbonControlEventArgs e)
     {
         if (_adapter == null || _pipeClient == null || _sessionId == null) return;
 
         var success = _adapter.DeleteCurrent();
         _ = _pipeClient.SendAsync(new VstoDeleteResult
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId,
             Success = success
         });
@@ -108,48 +108,26 @@ public partial class FormulaRibbon
     // Numbering group
     // ---------------------------------------------------------------------------
 
-    public void OnInsertChapter(RibbonControl control)
+    private void btnInsertChapter_Click(object sender, RibbonControlEventArgs e)
     {
         if (_numbering == null) return;
-
-        var success = _numbering.InsertChapterSeparator();
-        if (!success)
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "Failed to insert chapter separator.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Warning
-            );
-        }
+        _numbering.InsertChapterSeparator();
     }
 
-    public void OnInsertSection(RibbonControl control)
+    private void btnInsertSection_Click(object sender, RibbonControlEventArgs e)
     {
         if (_numbering == null) return;
-
-        var success = _numbering.InsertSectionSeparator();
-        if (!success)
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "Failed to insert section separator.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Warning
-            );
-        }
+        _numbering.InsertSectionSeparator();
     }
 
-    public void OnRenumber(RibbonControl control)
+    private void btnRenumber_Click(object sender, RibbonControlEventArgs e)
     {
         if (_numbering == null || _reference == null) return;
 
         var result = _numbering.RenumberAll();
         if (result.Success)
         {
-            // Update all cross-reference fields
             _reference.UpdateAllReferences();
-
             System.Windows.Forms.MessageBox.Show(
                 $"Renumbered {result.Count} formulas.",
                 "LaTeXSnipper",
@@ -157,27 +135,17 @@ public partial class FormulaRibbon
                 System.Windows.Forms.MessageBoxIcon.Information
             );
         }
-        else
-        {
-            System.Windows.Forms.MessageBox.Show(
-                $"Renumber failed: {result.Error}",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Error
-            );
-        }
     }
 
-    public void OnInsertReference(RibbonControl control)
+    private void btnInsertReference_Click(object sender, RibbonControlEventArgs e)
     {
-        if (_reference == null || _adapter == null) return;
+        if (_reference == null) return;
 
-        // Get list of referenceable formulas
         var formulas = _reference.GetReferenceableFormulas();
         if (formulas.Count == 0)
         {
             System.Windows.Forms.MessageBox.Show(
-                "No numbered formulas found in the document.",
+                "No numbered formulas found.",
                 "LaTeXSnipper",
                 System.Windows.Forms.MessageBoxButtons.OK,
                 System.Windows.Forms.MessageBoxIcon.Information
@@ -185,25 +153,10 @@ public partial class FormulaRibbon
             return;
         }
 
-        // Show selection dialog
         var dialog = new ReferenceSelectionDialog(formulas);
-        var result = dialog.ShowDialog();
-        if (result == System.Windows.Forms.DialogResult.OK && dialog.SelectedFormula != null)
+        if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK && dialog.SelectedFormula != null)
         {
-            var success = _reference.InsertReference(
-                dialog.SelectedFormula.FormulaId,
-                dialog.ReferenceType
-            );
-
-            if (!success)
-            {
-                System.Windows.Forms.MessageBox.Show(
-                    "Failed to insert reference.",
-                    "LaTeXSnipper",
-                    System.Windows.Forms.MessageBoxButtons.OK,
-                    System.Windows.Forms.MessageBoxIcon.Warning
-                );
-            }
+            _reference.InsertReference(dialog.SelectedFormula.FormulaId, dialog.ReferenceType);
         }
     }
 
@@ -211,40 +164,28 @@ public partial class FormulaRibbon
     // Table group
     // ---------------------------------------------------------------------------
 
-    public void OnLoadTable(RibbonControl control)
+    private void btnLoadTable_Click(object sender, RibbonControlEventArgs e)
     {
         if (_tableConverter == null || _pipeClient == null || _sessionId == null) return;
-
-        if (!_tableConverter.IsInTable())
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "Selection is not inside a table.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Information
-            );
-            return;
-        }
 
         var tablePayload = _tableConverter.ReadSelection();
         if (tablePayload != null)
         {
             _ = _pipeClient.SendAsync(new VstoReadTable
             {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                 SessionId = _sessionId,
                 TableXml = System.Text.Json.JsonSerializer.Serialize(tablePayload)
             });
         }
     }
 
-    public void OnInsertTable(RibbonControl control)
+    private void btnInsertTable_Click(object sender, RibbonControlEventArgs e)
     {
-        // Table insertion is triggered from Desktop
         if (_pipeClient == null || _sessionId == null) return;
         _ = _pipeClient.SendAsync(new VstoOpenEditor
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
@@ -253,56 +194,34 @@ public partial class FormulaRibbon
     // Format group
     // ---------------------------------------------------------------------------
 
-    public void OnFormatSelection(RibbonControl control)
+    private void btnFormatSelection_Click(object sender, RibbonControlEventArgs e)
     {
-        if (_adapter == null || _pipeClient == null || _sessionId == null) return;
-
-        var selection = _adapter.ReadSelection();
-        if (selection != null)
-        {
-            _ = _pipeClient.SendAsync(new VstoReadSelection
-            {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
-                SessionId = _sessionId,
-                RangeXml = selection.Omml
-            });
-        }
+        if (_adapter == null) return;
+        _adapter.FormatSelection(new FormatOptions());
     }
 
-    public void OnFormatAll(RibbonControl control)
+    private void btnFormatAll_Click(object sender, RibbonControlEventArgs e)
     {
-        if (_pipeClient == null || _sessionId == null) return;
-
-        _ = _pipeClient.SendAsync(new VstoReadSelection
-        {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
-            SessionId = _sessionId
-        });
+        if (_adapter == null) return;
+        _adapter.FormatAll(new FormatOptions());
     }
 
     // ---------------------------------------------------------------------------
     // Tools group
     // ---------------------------------------------------------------------------
 
-    public void OnOpenEditor(RibbonControl control)
+    private void btnOpenEditor_Click(object sender, RibbonControlEventArgs e)
     {
         if (_pipeClient == null || _sessionId == null) return;
-
         _ = _pipeClient.SendAsync(new VstoOpenEditor
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
 }
 
-// ---------------------------------------------------------------------------
 // Reference selection dialog
-// ---------------------------------------------------------------------------
-
-/// <summary>
-/// Simple dialog for selecting a formula to reference.
-/// </summary>
 internal class ReferenceSelectionDialog : System.Windows.Forms.Form
 {
     private readonly System.Windows.Forms.ListBox _listBox;
@@ -340,7 +259,7 @@ internal class ReferenceSelectionDialog : System.Windows.Forms.Form
 
         foreach (var formula in formulas)
         {
-            _listBox.Items.Add($"Eq. ({formula.Number}) - {formula.FormulaId[..8]}...");
+            _listBox.Items.Add($"Eq. ({formula.Number}) - {formula.FormulaId.Substring(0, 8)}...");
         }
 
         var typeLabel = new System.Windows.Forms.Label
@@ -365,7 +284,7 @@ internal class ReferenceSelectionDialog : System.Windows.Forms.Form
             Dock = System.Windows.Forms.DockStyle.Right,
             Width = 80
         };
-        _okButton.Click += (s, e) =>
+        _okButton.Click += (s, ev) =>
         {
             if (_listBox.SelectedIndex >= 0)
             {

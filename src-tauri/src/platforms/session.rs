@@ -65,7 +65,12 @@ impl SessionManager {
     }
 
     /// Process an incoming VSTO message and produce a response.
-    pub async fn handle_message(&self, msg: VstoMessage) -> ResponseEnvelope {
+    /// The `writer` parameter is provided during HELLO handshake to register the channel.
+    pub async fn handle_message(
+        &self,
+        msg: VstoMessage,
+        writer: Option<mpsc::Sender<Vec<u8>>>,
+    ) -> ResponseEnvelope {
         match msg {
             VstoMessage::Hello {
                 requestId,
@@ -102,7 +107,7 @@ impl SessionManager {
                     };
                 }
 
-                // Register session
+                // Register session with writer channel
                 let host = HostType::from_str(&hostType).unwrap_or(HostType::Word);
                 let session = OfficeSession {
                     session_id: sessionId.clone(),
@@ -110,7 +115,7 @@ impl SessionManager {
                     host_version: hostVersion.clone(),
                     document_id: None,
                     connected_at: chrono::Utc::now(),
-                    writer: None,
+                    writer,  // Register the writer channel here
                 };
                 self.sessions.write().await.insert(sessionId.clone(), session);
 

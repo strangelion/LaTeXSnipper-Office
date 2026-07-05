@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
@@ -6,13 +7,24 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 
 /// <summary>
 /// Named Pipe client for communicating with LaTeXSnipper Desktop.
+///
+/// Architecture:
+/// - Single Reader Loop: reads all incoming messages from pipe
+/// - SendAsync: writes message and waits for response via requestId
+/// - Desktop push commands: routed to MessageReceived event
 /// </summary>
 public class PipeClient : IDisposable
 {
     private NamedPipeClientStream? _pipe;
     private readonly string _pipeName;
     private bool _connected;
-    private readonly object _lock = new();
+    private readonly object _writeLock = new();
+
+    // Pending requests: requestId -> TaskCompletionSource
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<DesktopMessage>> _pendingRequests = new();
+
+    // Reader loop cancellation
+    private CancellationTokenSource? _readerCts;
 
     public event EventHandler<DesktopMessage>? MessageReceived;
     public event EventHandler? Disconnected;
@@ -20,7 +32,7 @@ public class PipeClient : IDisposable
 
     public PipeClient(string userSid)
     {
-        _pipeName = $@"\\.\pipe\{PipePrefix}.{userSid}";
+        _pipeName = $@"\\.\pipe\{NativeOfficeProtocol.PipePrefix}.{userSid}";
     }
 
     public PipeClient() : this(Environment.UserName) { }
@@ -36,7 +48,7 @@ public class PipeClient : IDisposable
                 ".",
                 _pipeName,
                 PipeDirection.InOut,
-                PipeOptions.None
+                PipeOptions.Asynchronous
             );
 
             await _pipe.ConnectAsync(5000, ct);
@@ -58,11 +70,16 @@ public class PipeClient : IDisposable
 
     /// <summary>
     /// Send a message to the Desktop and wait for a response.
+    /// Uses requestId to match responses.
     /// </summary>
     public async Task<DesktopMessage?> SendAsync(VstoMessage message, CancellationToken ct = default)
     {
         if (_pipe == null || !_connected)
             return null;
+
+        // Register pending request before sending
+        var tcs = new TaskCompletionSource<DesktopMessage>();
+        _pendingRequests[message.RequestId] = tcs;
 
         try
         {
@@ -70,19 +87,28 @@ public class PipeClient : IDisposable
             var payload = Encoding.UTF8.GetBytes(json);
             var lenBytes = BitConverter.GetBytes(payload.Length);
 
-            lock (_lock)
+            lock (_writeLock)
             {
                 _pipe.Write(lenBytes, 0, 4);
                 _pipe.Write(payload, 0, payload.Length);
                 _pipe.Flush();
             }
 
-            // Wait for response
-            return await ReadMessageAsync(ct);
+            // Wait for response with timeout
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            return await tcs.Task.WaitAsync(timeoutCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _pendingRequests.TryRemove(message.RequestId, out _);
+            return null;
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[PipeClient] Send failed: {ex.Message}");
+            _pendingRequests.TryRemove(message.RequestId, out _);
             _connected = false;
             Disconnected?.Invoke(this, EventArgs.Empty);
             return null;
@@ -90,27 +116,48 @@ public class PipeClient : IDisposable
     }
 
     /// <summary>
-    /// Start listening for incoming messages from the Desktop.
+    /// Start the single reader loop. Must be called after ConnectAsync.
     /// </summary>
-    public async Task StartListeningAsync(CancellationToken ct)
+    public Task StartListeningAsync(CancellationToken ct)
     {
-        if (_pipe == null || !_connected) return;
+        _readerCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        return ReaderLoop(_readerCts.Token);
+    }
+
+    /// <summary>
+    /// Single reader loop - reads all messages from pipe and routes them.
+    /// </summary>
+    private async Task ReaderLoop(CancellationToken ct)
+    {
+        if (_pipe == null) return;
 
         try
         {
             while (!ct.IsCancellationRequested && _connected)
             {
                 var msg = await ReadMessageAsync(ct);
-                if (msg != null)
+                if (msg == null) continue;
+
+                // Check if this is a response to a pending request
+                if (_pendingRequests.TryRemove(msg.RequestId, out var tcs))
                 {
+                    tcs.SetResult(msg);
+                }
+                else
+                {
+                    // This is a Desktop push command
                     MessageReceived?.Invoke(this, msg);
                 }
             }
         }
         catch (OperationCanceledException) { }
+        catch (EndOfStreamException)
+        {
+            System.Diagnostics.Debug.WriteLine("[PipeClient] Connection closed by server");
+        }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[PipeClient] Listen error: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[PipeClient] ReaderLoop error: {ex.Message}");
         }
         finally
         {
@@ -142,20 +189,20 @@ public class PipeClient : IDisposable
     /// <summary>
     /// Send HELLO handshake.
     /// </summary>
-    public async Task<bool> SendHelloAsync(string dpapiSecret, string hostType, string hostVersion)
+    public async Task<bool> SendHelloAsync(string sessionId, string dpapiSecret, string hostType, string hostVersion)
     {
         var hello = new VstoHello
         {
             RequestId = GenerateId(),
-            SessionId = GenerateId(),
-            ProtocolVersion = ProtocolVersion,
+            SessionId = sessionId,
+            ProtocolVersion = NativeOfficeProtocol.Version,
             DpapiSecret = dpapiSecret,
             HostType = hostType,
             HostVersion = hostVersion
         };
 
         var response = await SendAsync(hello);
-        return response is DesktopHelloAck ack && ack.ProtocolVersion == ProtocolVersion;
+        return response is DesktopHelloAck ack && ack.ProtocolVersion == NativeOfficeProtocol.Version;
     }
 
     /// <summary>
@@ -176,7 +223,16 @@ public class PipeClient : IDisposable
 
     public void Disconnect()
     {
+        _readerCts?.Cancel();
         _connected = false;
+
+        // Complete all pending requests with error
+        foreach (var kvp in _pendingRequests)
+        {
+            kvp.Value.TrySetCanceled();
+        }
+        _pendingRequests.Clear();
+
         try { _pipe?.Dispose(); } catch { }
         _pipe = null;
     }
@@ -187,7 +243,7 @@ public class PipeClient : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private static string GenerateId() => Guid.NewGuid().ToString("N")[..12];
+    private static string GenerateId() => Guid.NewGuid().ToString("N").Substring(0, 12);
 }
 
 /// <summary>

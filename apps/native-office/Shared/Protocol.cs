@@ -2,9 +2,16 @@ using System.Text.Json.Serialization;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
-public const int ProtocolVersion = 2;
-public const string PipePrefix = "LaTeXSnipper.NativeOffice.v2";
-public const string CustomXmlNamespace = "urn:latexsnipper:native-office:v2";
+/// <summary>
+/// Protocol constants for LaTeXSnipper Native Office v2.
+/// Must match the Rust pipe_protocol.rs definitions.
+/// </summary>
+public static class NativeOfficeProtocol
+{
+    public const int Version = 2;
+    public const string PipePrefix = "LaTeXSnipper.NativeOffice.v2";
+    public const string CustomXmlNamespace = "urn:latexsnipper:native-office:v2";
+}
 
 // ---------------------------------------------------------------------------
 // VSTO -> Desktop messages
@@ -192,6 +199,9 @@ public class TablePayload
 {
     [JsonPropertyName("tableId")] public string TableId { get; set; } = "";
     [JsonPropertyName("table")] public TableBlock Table { get; set; } = new();
+    /// Formula payloads referenced by formulaRef in cells.
+    /// Key is formulaId, value is the full FormulaPayload.
+    [JsonPropertyName("formulas")] public Dictionary<string, FormulaPayload>? Formulas { get; set; }
 }
 
 public class TableBlock
@@ -226,6 +236,8 @@ public class InlineText : InlineContent
 public class InlineFormula : InlineContent
 {
     [JsonPropertyName("formulaRef")] public string FormulaRef { get; set; } = "";
+    /// Optional inline formula payload for direct insertion.
+    [JsonPropertyName("formula")] public FormulaPayload? Formula { get; set; }
 }
 
 public class TableProperties

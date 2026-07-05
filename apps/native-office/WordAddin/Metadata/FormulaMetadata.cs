@@ -136,6 +136,6 @@ public static class FormulaMetadata
     {
         using var sha = System.Security.Cryptography.SHA256.Create();
         var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
+        return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
     }
 }

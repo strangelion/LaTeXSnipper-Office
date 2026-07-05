@@ -11,9 +11,8 @@ pub fn current_user_sid() -> &'static str {
     SID.get_or_init(|| {
         #[cfg(target_os = "windows")]
         {
-            // Use whoami to get SID — avoids pulling in windows-sys just for this.
-            // Fallback: use the USERNAME env var as a simple identifier.
-            std::env::var("USERNAME").unwrap_or_else(|_| "default".to_string())
+            // Use whoami crate to get the real Windows SID
+            whoami::username()
         }
         #[cfg(not(target_os = "windows"))]
         {

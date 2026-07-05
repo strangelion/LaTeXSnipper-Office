@@ -40,15 +40,16 @@ public partial class ThisAddIn
             return;
         }
 
+        // Generate session ID once, use for both HELLO and HOST_READY
+        _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
+
         // Send HELLO
-        var handshakeOk = await _pipeClient.SendHelloAsync(secret, "excel", Application.Version);
+        var handshakeOk = await _pipeClient.SendHelloAsync(_sessionId, secret, "excel", Application.Version);
         if (!handshakeOk)
         {
             System.Diagnostics.Debug.WriteLine("[ThisAddIn] Handshake failed");
             return;
         }
-
-        _sessionId = Guid.NewGuid().ToString("N")[..12];
 
         // Send HOST_READY
         string? docId = null;

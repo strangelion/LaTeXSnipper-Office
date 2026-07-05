@@ -37,16 +37,16 @@ public class WordAdapter
             switch (mode)
             {
                 case InsertMode.Inline:
-                    ommlXml = BuildInlineOmml(payload.Omml);
+                    ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
                     break;
                 case InsertMode.Display:
-                    ommlXml = BuildDisplayOmml(payload.Omml);
+                    ommlXml = BuildDisplayOmml(payload.Omml, payload.FormulaId);
                     break;
                 case InsertMode.DisplayNumbered:
                     ommlXml = BuildNumberedEquation(payload);
                     break;
                 default:
-                    ommlXml = BuildInlineOmml(payload.Omml);
+                    ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
                     break;
             }
 
@@ -225,9 +225,9 @@ public class WordAdapter
     {
         if (hex.StartsWith("#") && hex.Length == 7)
         {
-            int r = Convert.ToInt32(hex[1..3], 16);
-            int g = Convert.ToInt32(hex[3..5], 16);
-            int b = Convert.ToInt32(hex[5..7], 16);
+            int r = Convert.ToInt32(hex.Substring(1, 2), 16);
+            int g = Convert.ToInt32(hex.Substring(3, 2), 16);
+            int b = Convert.ToInt32(hex.Substring(5, 2), 16);
             return (Microsoft.Office.Interop.Word.WdColor)(r + (g << 8) + (b << 16));
         }
         return Microsoft.Office.Interop.Word.WdColor.wdColorAutomatic;
@@ -237,12 +237,12 @@ public class WordAdapter
     // Helpers
     // ---------------------------------------------------------------------------
 
-    private static string BuildInlineOmml(string omml)
+    private static string BuildInlineOmml(string omml, string formulaId)
     {
         return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
   <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{Guid.NewGuid():N}""/>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
   </w:sdtPr>
   <w:sdtContent>
     <w:p>
@@ -253,12 +253,12 @@ public class WordAdapter
 </w:sdt>";
     }
 
-    private static string BuildDisplayOmml(string omml)
+    private static string BuildDisplayOmml(string omml, string formulaId)
     {
         return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
   <w:sdtPr>
-    <w:tag w:val=""latexsnipper:formula:{Guid.NewGuid():N}""/>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
   </w:sdtPr>
   <w:sdtContent>
     <w:p>
@@ -270,7 +270,6 @@ public class WordAdapter
 
     private static string BuildNumberedEquation(FormulaPayload payload)
     {
-        var id = Guid.NewGuid().ToString("N")[..8];
         return $@"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
   <w:tblPr>

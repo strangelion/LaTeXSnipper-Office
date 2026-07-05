@@ -76,9 +76,9 @@ pub async fn install_platform_integration(platform_id: String) -> PlatformIntegr
 }
 
 pub(crate) fn install_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
-    // For office, install Office.js manifest
+    // For office, install Native Office VSTO add-ins
     if platform_id == "office" {
-        install_office_js_addin()
+        install_native_office_vsto()
     } else {
         match platform_id.as_str() {
             "obsidian" => install_obsidian(),
@@ -116,7 +116,7 @@ pub(crate) fn uninstall_platform_integration_sync(
     platform_id: String,
 ) -> PlatformIntegrationResult {
     match platform_id.as_str() {
-        "office" => uninstall_office_addin(),
+        "office" => uninstall_native_office_vsto(),
         "obsidian" => remove_generated_dir("obsidian", "plugin", obsidian_staging_dir()),
         "vscode" => remove_generated_dir("vscode", "plugin", vscode_extension_dir()),
         "wps" => uninstall_wps(),
@@ -155,7 +155,22 @@ pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrat
 
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
     match platform_id.as_str() {
-        "office" => check_office_addin(),
+        "office" => {
+            if check_native_office_vsto() {
+                PlatformIntegrationResult::ok(
+                    "office",
+                    "native-vsto",
+                    "Native Office VSTO add-ins are installed.",
+                    false,
+                )
+            } else {
+                PlatformIntegrationResult::fail(
+                    "office",
+                    "not_installed",
+                    "Native Office VSTO add-ins are not installed. Enable Office integration in settings.",
+                )
+            }
+        }
         "obsidian" => check_path(
             "obsidian",
             "plugin",
@@ -1300,6 +1315,180 @@ fn check_office_addin() -> PlatformIntegrationResult {
     }
 
     PlatformIntegrationResult::fail("office", "not_installed", "Office.js add-ins are not installed. Enable Office integration in settings.")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Native Office VSTO Add-in registration
+//
+// New VSTO add-ins for Word, Excel, and PowerPoint.
+// Uses Named Pipe communication instead of HTTP bridge.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Native Office VSTO Add-in identifiers
+const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str)] = &[
+    ("Word", "LaTeXSnipper.NativeOffice.Word", "LaTeXSnipper Native Office — Word"),
+    ("Excel", "LaTeXSnipper.NativeOffice.Excel", "LaTeXSnipper Native Office — Excel"),
+    ("PowerPoint", "LaTeXSnipper.NativeOffice.PowerPoint", "LaTeXSnipper Native Office — PowerPoint"),
+];
+
+/// Install Native Office VSTO add-ins by registering in Windows registry.
+fn install_native_office_vsto() -> PlatformIntegrationResult {
+    #[cfg(not(target_os = "windows"))]
+    {
+        return PlatformIntegrationResult::fail(
+            "office",
+            "native-vsto",
+            "Native Office VSTO is only available on Windows.",
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut installed = Vec::new();
+
+        for (host_name, addin_id, friendly_name) in NATIVE_OFFICE_ADDINS {
+            let reg_key = format!(
+                r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+                match *host_name {
+                    "Word" => "Word",
+                    "Excel" => "Excel",
+                    "PowerPoint" => "PowerPoint",
+                    _ => continue,
+                },
+                addin_id
+            );
+
+            // Write FriendlyName
+            if let Err(e) = reg_add_string(&reg_key, "FriendlyName", friendly_name) {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!("Failed to write {} FriendlyName: {}", host_name, e),
+                );
+            }
+
+            // Write Description
+            if let Err(e) = reg_add_string(&reg_key, "Description", "LaTeX formula and table integration") {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!("Failed to write {} Description: {}", host_name, e),
+                );
+            }
+
+            // Write LoadBehavior = 3 (load at startup)
+            if let Err(e) = reg_add_dword(&reg_key, "LoadBehavior", 3) {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!("Failed to write {} LoadBehavior: {}", host_name, e),
+                );
+            }
+
+            // Write CommandLineSafe = 0
+            if let Err(e) = reg_add_dword(&reg_key, "CommandLineSafe", 0) {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!("Failed to write {} CommandLineSafe: {}", host_name, e),
+                );
+            }
+
+            installed.push(*host_name);
+        }
+
+        return PlatformIntegrationResult::ok(
+            "office",
+            "native-vsto",
+            format!(
+                "Installed Native Office VSTO add-ins for {}. Restart Word, Excel, and PowerPoint to load LaTeXSnipper.",
+                installed.join(", ")
+            ),
+            true,
+        );
+    }
+}
+
+/// Check if Native Office VSTO add-ins are installed.
+fn check_native_office_vsto() -> bool {
+    #[cfg(not(target_os = "windows"))]
+    {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        for (host_name, addin_id, _) in NATIVE_OFFICE_ADDINS {
+            let reg_key = format!(
+                r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+                match *host_name {
+                    "Word" => "Word",
+                    "Excel" => "Excel",
+                    "PowerPoint" => "PowerPoint",
+                    _ => continue,
+                },
+                addin_id
+            );
+
+            let output = super::process::background_command("reg.exe")
+                .args(["query", &reg_key, "/v", "LoadBehavior"])
+                .output()
+                .map(|out| out.status.success())
+                .unwrap_or(false);
+
+            if !output {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Uninstall Native Office VSTO add-ins.
+fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
+    #[cfg(not(target_os = "windows"))]
+    {
+        return PlatformIntegrationResult::fail(
+            "office",
+            "native-vsto",
+            "Native Office VSTO is only available on Windows.",
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut uninstalled = Vec::new();
+
+        for (host_name, addin_id, _) in NATIVE_OFFICE_ADDINS {
+            let reg_key = format!(
+                r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+                match *host_name {
+                    "Word" => "Word",
+                    "Excel" => "Excel",
+                    "PowerPoint" => "PowerPoint",
+                    _ => continue,
+                },
+                addin_id
+            );
+
+            // Delete the registry key
+            let _ = super::process::background_command("reg.exe")
+                .args(["delete", &reg_key, "/f"])
+                .output();
+
+            uninstalled.push(*host_name);
+        }
+
+        return PlatformIntegrationResult::ok(
+            "office",
+            "native-vsto",
+            format!(
+                "Uninstalled Native Office VSTO add-ins for {}. Restart Word, Excel, and PowerPoint to complete removal.",
+                uninstalled.join(", ")
+            ),
+            true,
+        );
+    }
 }
 
 

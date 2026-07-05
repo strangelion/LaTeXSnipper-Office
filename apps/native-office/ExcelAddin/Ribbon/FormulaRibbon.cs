@@ -4,7 +4,7 @@ using LaTeXSnipper.NativeOffice.Excel.Metadata;
 
 namespace LaTeXSnipper.NativeOffice.Excel.Ribbon;
 
-public partial class FormulaRibbon
+partial class FormulaRibbon
 {
     private ExcelAdapter? _adapter;
     private PipeClient? _pipeClient;
@@ -15,7 +15,6 @@ public partial class FormulaRibbon
     {
         // Get references from ThisAddIn
         var addIn = Globals.ThisAddIn;
-        // These would be set during ThisAddIn initialization
     }
 
     public void Initialize(ExcelAdapter adapter, PipeClient pipeClient, string sessionId)
@@ -30,19 +29,17 @@ public partial class FormulaRibbon
     // Formula group
     // ---------------------------------------------------------------------------
 
-    public void OnInsertFormula(RibbonControl control)
+    private void btnInsertFormula_Click(object sender, RibbonControlEventArgs e)
     {
-        if (_adapter == null || _pipeClient == null || _sessionId == null) return;
-
-        // Ask Desktop to insert formula
+        if (_pipeClient == null || _sessionId == null) return;
         _ = _pipeClient.SendAsync(new VstoOpenEditor
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
 
-    public void OnLoadFormula(RibbonControl control)
+    private void btnLoadFormula_Click(object sender, RibbonControlEventArgs e)
     {
         if (_adapter == null || _pipeClient == null || _sessionId == null) return;
 
@@ -51,89 +48,57 @@ public partial class FormulaRibbon
         {
             _ = _pipeClient.SendAsync(new VstoReadSelection
             {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                 SessionId = _sessionId,
                 RangeXml = formula.Omml
             });
         }
-        else
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "No formula found at selection.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Information
-            );
-        }
     }
 
-    public void OnDeleteFormula(RibbonControl control)
+    private void btnDeleteFormula_Click(object sender, RibbonControlEventArgs e)
     {
         if (_adapter == null || _pipeClient == null || _sessionId == null) return;
 
         var success = _adapter.DeleteCurrent();
         _ = _pipeClient.SendAsync(new VstoDeleteResult
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId,
             Success = success
         });
-
-        if (!success)
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "No formula shape found at selection.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Information
-            );
-        }
     }
 
     // ---------------------------------------------------------------------------
     // Table group
     // ---------------------------------------------------------------------------
 
-    public void OnLoadTable(RibbonControl control)
+    private void btnLoadTable_Click(object sender, RibbonControlEventArgs e)
     {
         if (_tableConverter == null || _pipeClient == null || _sessionId == null) return;
-
-        if (!_tableConverter.IsInTable())
-        {
-            System.Windows.Forms.MessageBox.Show(
-                "Selection is not inside a table or multi-cell range.",
-                "LaTeXSnipper",
-                System.Windows.Forms.MessageBoxButtons.OK,
-                System.Windows.Forms.MessageBoxIcon.Information
-            );
-            return;
-        }
 
         var tablePayload = _tableConverter.ReadSelection();
         if (tablePayload != null)
         {
             _ = _pipeClient.SendAsync(new VstoReadTable
             {
-                RequestId = Guid.NewGuid().ToString("N")[..12],
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                 SessionId = _sessionId,
                 TableXml = System.Text.Json.JsonSerializer.Serialize(tablePayload)
             });
         }
     }
 
-    public void OnInsertTable(RibbonControl control)
+    private void btnInsertTable_Click(object sender, RibbonControlEventArgs e)
     {
         if (_pipeClient == null || _sessionId == null) return;
-
-        // Ask Desktop to insert table
         _ = _pipeClient.SendAsync(new VstoOpenEditor
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
 
-    public void OnFormatTable(RibbonControl control)
+    private void btnFormatTable_Click(object sender, RibbonControlEventArgs e)
     {
         if (_tableConverter == null) return;
 
@@ -148,24 +113,22 @@ public partial class FormulaRibbon
     // Format group
     // ---------------------------------------------------------------------------
 
-    public void OnFormatSelection(RibbonControl control)
+    private void btnFormatSelection_Click(object sender, RibbonControlEventArgs e)
     {
         if (_pipeClient == null || _sessionId == null) return;
-
         _ = _pipeClient.SendAsync(new VstoReadSelection
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
 
-    public void OnFormatAll(RibbonControl control)
+    private void btnFormatAll_Click(object sender, RibbonControlEventArgs e)
     {
         if (_pipeClient == null || _sessionId == null) return;
-
         _ = _pipeClient.SendAsync(new VstoReadSelection
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }
@@ -174,13 +137,12 @@ public partial class FormulaRibbon
     // Tools group
     // ---------------------------------------------------------------------------
 
-    public void OnOpenEditor(RibbonControl control)
+    private void btnOpenEditor_Click(object sender, RibbonControlEventArgs e)
     {
         if (_pipeClient == null || _sessionId == null) return;
-
         _ = _pipeClient.SendAsync(new VstoOpenEditor
         {
-            RequestId = Guid.NewGuid().ToString("N")[..12],
+            RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
             SessionId = _sessionId
         });
     }

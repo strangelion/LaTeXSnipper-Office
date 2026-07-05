@@ -27,6 +27,11 @@ regex = "1"
 base64 = "0.22"
 log = "0.4"
 env_logger = "0.11"
+rand = "0.8"
+
+# Windows-specific dependencies for SID and DPAPI
+[target.'cfg(windows)'.dependencies]
+whoami = "1.5"
 
 # LaTeXSnipper Core (via symlink)
 latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline" }

@@ -247,6 +247,10 @@ pub struct TablePayload {
     #[serde(rename = "tableId")]
     pub table_id: String,
     pub table: TableBlock,
+    /// Formula payloads referenced by formulaRef in cells.
+    /// Key is formulaId, value is the full FormulaPayload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formulas: Option<std::collections::HashMap<String, FormulaPayload>>,
 }
 
 /// Mirrors Core TableBlock structure.
@@ -278,6 +282,9 @@ pub enum InlineContent {
     Formula {
         #[serde(rename = "formulaRef")]
         formula_ref: String,
+        /// Optional inline formula payload for direct insertion.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        formula: Option<FormulaPayload>,
     },
 }
 
