@@ -26,69 +26,36 @@ namespace LaTeXSnipper.Word.Host
             if (range == null) return null;
 
             // Step 1: Check for managed formula metadata (CustomXMLParts)
-            var metadata = FormulaMetadata.Read(range);
-            if (metadata != null)
-                return metadata;
+            try
+            {
+                var metadata = FormulaMetadata.Read(range);
+                if (metadata != null)
+                    return metadata;
+            }
+            catch { }
 
-            // Step 2: If cursor is inside an OMath, get its text
+            // Step 2: If cursor is inside an OMath, get linear text
             if (_application.Selection.OMaths.Count > 0)
             {
                 try
                 {
                     var oMath = _application.Selection.OMaths[1];
-                    var omml = oMath.Range.get_XML(false);
-                    if (!string.IsNullOrEmpty(omml))
+                    var text = oMath.Range.Text;
+                    if (!string.IsNullOrWhiteSpace(text))
                     {
                         var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
-                        var latex = oMath.Range.Text;
-
-                        // Extract just the OMML part from the full Word XML
-                        var oMathStart = omml.IndexOf("<m:oMath");
-                        if (oMathStart >= 0)
+                        // Try to get OMML via Linearize + copy
+                        return new FormulaPayload
                         {
-                            var endTag = omml.IndexOf("</m:oMath>", oMathStart);
-                            if (endTag > oMathStart)
-                            {
-                                var mathOmml = omml.Substring(oMathStart, endTag + "</m:oMath>".Length - oMathStart);
-                                return new FormulaPayload
-                                {
-                                    FormulaId = formulaId,
-                                    Omml = mathOmml,
-                                    Latex = latex ?? "",
-                                    Display = "block"
-                                };
-                            }
-                        }
+                            FormulaId = formulaId,
+                            Latex = text.Trim(),
+                            Omml = "",
+                            Display = "block"
+                        };
                     }
                 }
                 catch { }
             }
-
-            // Step 3: Try to extract from selection range XML
-            try
-            {
-                var xml = range.get_XML(false);
-                if (!string.IsNullOrEmpty(xml))
-                {
-                    var oMathStart = xml.IndexOf("<m:oMath");
-                    if (oMathStart >= 0)
-                    {
-                        var endTag = xml.IndexOf("</m:oMath>", oMathStart);
-                        if (endTag > oMathStart)
-                        {
-                            var omml = xml.Substring(oMathStart, endTag + "</m:oMath>".Length - oMathStart);
-                            return new FormulaPayload
-                            {
-                                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                                Omml = omml,
-                                Latex = range.Text ?? "",
-                                Display = "block"
-                            };
-                        }
-                    }
-                }
-            }
-            catch { }
 
             return null;
         }
