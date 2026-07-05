@@ -26,6 +26,9 @@ public partial class ThisAddIn
             _adapter = new ExcelAdapter(Application);
             _tableConverter = new TableConverter(Application);
 
+            // Subscribe to workbook activation events for context tracking
+            Application.WorkbookActivate += OnWorkbookActivate;
+
             // Connect to Desktop pipe
             _pipeClient = new PipeClient();
             _ = ConnectAndListen();
@@ -33,6 +36,36 @@ public partial class ThisAddIn
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Startup error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when user activates a different workbook.
+    /// Sends VstoContextChanged to Desktop.
+    /// </summary>
+    private void OnWorkbookActivate(Excel.Workbook Wb)
+    {
+        if (_pipeClient == null || _sessionId == null) return;
+
+        try
+        {
+            var contextId = GetCurrentDocumentContextId();
+            if (string.IsNullOrEmpty(contextId)) return;
+
+            _ = _pipeClient.SendAsync(new VstoContextChanged
+            {
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                SessionId = _sessionId,
+                DocumentContextId = contextId,
+                DocumentTitle = Wb?.Name,
+                DocumentKind = "workbook"
+            });
+
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context changed: {contextId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context change error: {ex.Message}");
         }
     }
 
@@ -112,6 +145,25 @@ public partial class ThisAddIn
     private void HandleCommand(DesktopMessage message)
     {
         if (_adapter == null || _pipeClient == null) return;
+
+        // Validate expectedContextId for document commands
+        if (message is DesktopDocumentCommand docCmd && !string.IsNullOrEmpty(docCmd.ExpectedContextId))
+        {
+            var currentContext = GetCurrentDocumentContextId();
+            if (!string.IsNullOrEmpty(currentContext) &&
+                !StringComparer.Ordinal.Equals(docCmd.ExpectedContextId, currentContext))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context mismatch: expected={docCmd.ExpectedContextId}, current={currentContext}");
+                _ = _pipeClient.SendAsync(new VstoHostError
+                {
+                    RequestId = docCmd.RequestId,
+                    SessionId = docCmd.SessionId,
+                    ErrorCode = "CONTEXT_CHANGED",
+                    Error = "Workbook context changed since command was issued"
+                });
+                return;
+            }
+        }
 
         switch (message)
         {
@@ -243,6 +295,30 @@ public partial class ThisAddIn
     private void OnDisconnected(object sender, EventArgs e)
     {
         System.Diagnostics.Debug.WriteLine("[ThisAddIn] Disconnected from Desktop");
+    }
+
+    /// <summary>
+    /// Get the current workbook context ID.
+    /// Uses FullName for saved workbooks, or a combination of Name + window handle for unsaved.
+    /// </summary>
+    private string GetCurrentDocumentContextId()
+    {
+        try
+        {
+            var wb = Application.ActiveWorkbook;
+            if (wb == null) return "";
+
+            if (!string.IsNullOrEmpty(wb.FullName))
+            {
+                return $"excel:{wb.FullName}";
+            }
+
+            return $"excel:unsaved:{wb.Name}:{Application.ActiveWindow.Hwnd}";
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private void ThisAddIn_Shutdown(object sender, EventArgs e)

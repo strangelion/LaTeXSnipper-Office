@@ -3449,6 +3449,18 @@ class UIController {
           platform.enabled = false;
             return false;
           }
+
+          // Use Native Office install command
+          const { invoke } = await import('@tauri-apps/api/core');
+          const result = await invoke('native_office_install');
+          this.clearOfficeStatusCache();
+          if (result.operation_id) {
+            this.showToast('安装已启动，请按照安装程序提示操作');
+            return true;
+          } else {
+            this.showToast('安装启动失败: ' + (result.message || result.error));
+            return false;
+          }
         }
 
         const result = await invoke('install_platform_integration', { platformId: platform.id });
@@ -3476,7 +3488,24 @@ class UIController {
   async unregisterPlatform(platform) {
     Logger.info(`Unregistering platform: ${platform.name}`);
 
-    if (platform.id === 'office' || platform.id === 'wps') {
+    if (platform.id === 'office') {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const result = await invoke('native_office_uninstall');
+        this.clearOfficeStatusCache();
+        if (result.operation_id) {
+          this.showToast('卸载已启动，请按照安装程序提示操作');
+          return true;
+        } else {
+          this.showToast('卸载启动失败: ' + (result.message || result.error));
+          return false;
+        }
+      } catch (e) {
+        Logger.error('Platform unregister failed:', e);
+        this.showToast('卸载失败: ' + e.message);
+        return false;
+      }
+    } else if (platform.id === 'wps') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke('uninstall_platform_integration', { platformId: platform.id });

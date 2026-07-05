@@ -18,6 +18,32 @@ public class WordAdapter
         _app = app;
     }
 
+    /// <summary>
+    /// Get the current document context ID.
+    /// Uses FullName for saved documents, or a combination of Name + window handle for unsaved.
+    /// </summary>
+    public string GetCurrentDocumentContextId()
+    {
+        try
+        {
+            var doc = _app.ActiveDocument;
+            if (doc == null) return "";
+
+            // For saved documents, use FullName (unique path)
+            if (!string.IsNullOrEmpty(doc.FullName))
+            {
+                return $"word:{doc.FullName}";
+            }
+
+            // For unsaved documents, use Name + window handle
+            return $"word:unsaved:{doc.Name}:{_app.ActiveWindow.Handle}";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Insert Formula
     // ---------------------------------------------------------------------------

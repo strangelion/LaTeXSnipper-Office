@@ -30,6 +30,9 @@ public partial class ThisAddIn
             _reference = new ReferenceManager(Application, _numbering);
             _tableConverter = new TableConverter(Application);
 
+            // Subscribe to document change events for context tracking
+            Application.DocumentChange += OnDocumentChange;
+
             // Connect to Desktop pipe
             _pipeClient = new PipeClient();
             _ = ConnectAndListen();
@@ -37,6 +40,36 @@ public partial class ThisAddIn
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Startup error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when user switches to a different document.
+    /// Sends VstoContextChanged to Desktop.
+    /// </summary>
+    private void OnDocumentChange(Word.Document Doc)
+    {
+        if (_pipeClient == null || _sessionId == null) return;
+
+        try
+        {
+            var contextId = _adapter?.GetCurrentDocumentContextId();
+            if (string.IsNullOrEmpty(contextId)) return;
+
+            _ = _pipeClient.SendAsync(new VstoContextChanged
+            {
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                SessionId = _sessionId,
+                DocumentContextId = contextId,
+                DocumentTitle = Doc?.Name,
+                DocumentKind = "document"
+            });
+
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context changed: {contextId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context change error: {ex.Message}");
         }
     }
 
@@ -116,6 +149,25 @@ public partial class ThisAddIn
     private void HandleCommand(DesktopMessage message)
     {
         if (_adapter == null || _pipeClient == null) return;
+
+        // Validate expectedContextId for document commands
+        if (message is DesktopDocumentCommand docCmd && !string.IsNullOrEmpty(docCmd.ExpectedContextId))
+        {
+            var currentContext = _adapter.GetCurrentDocumentContextId();
+            if (!string.IsNullOrEmpty(currentContext) &&
+                !StringComparer.Ordinal.Equals(docCmd.ExpectedContextId, currentContext))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context mismatch: expected={docCmd.ExpectedContextId}, current={currentContext}");
+                _ = _pipeClient.SendAsync(new VstoHostError
+                {
+                    RequestId = docCmd.RequestId,
+                    SessionId = docCmd.SessionId,
+                    ErrorCode = "CONTEXT_CHANGED",
+                    Error = "Document context changed since command was issued"
+                });
+                return;
+            }
+        }
 
         switch (message)
         {

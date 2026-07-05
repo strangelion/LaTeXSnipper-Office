@@ -26,6 +26,10 @@ public partial class ThisAddIn
             _adapter = new PowerPointAdapter(Application);
             _tableConverter = new TableConverter(Application);
 
+            // Subscribe to presentation change events for context tracking
+            Application.PresentationOpen += OnPresentationOpen;
+            Application.NewPresentation += OnNewPresentation;
+
             // Connect to Desktop pipe
             _pipeClient = new PipeClient();
             _ = ConnectAndListen();
@@ -33,6 +37,50 @@ public partial class ThisAddIn
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Startup error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when user opens a presentation.
+    /// Sends VstoContextChanged to Desktop.
+    /// </summary>
+    private void OnPresentationOpen(Presentation Pres)
+    {
+        SendContextChanged(Pres?.Name, "presentation");
+    }
+
+    /// <summary>
+    /// Called when user creates a new presentation.
+    /// Sends VstoContextChanged to Desktop.
+    /// </summary>
+    private void OnNewPresentation(Presentation Pres)
+    {
+        SendContextChanged(Pres?.Name, "presentation");
+    }
+
+    private void SendContextChanged(string documentTitle, string documentKind)
+    {
+        if (_pipeClient == null || _sessionId == null) return;
+
+        try
+        {
+            var contextId = GetCurrentDocumentContextId();
+            if (string.IsNullOrEmpty(contextId)) return;
+
+            _ = _pipeClient.SendAsync(new VstoContextChanged
+            {
+                RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                SessionId = _sessionId,
+                DocumentContextId = contextId,
+                DocumentTitle = documentTitle,
+                DocumentKind = documentKind
+            });
+
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context changed: {contextId}");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context change error: {ex.Message}");
         }
     }
 
@@ -112,6 +160,25 @@ public partial class ThisAddIn
     private void HandleCommand(DesktopMessage message)
     {
         if (_adapter == null || _pipeClient == null) return;
+
+        // Validate expectedContextId for document commands
+        if (message is DesktopDocumentCommand docCmd && !string.IsNullOrEmpty(docCmd.ExpectedContextId))
+        {
+            var currentContext = GetCurrentDocumentContextId();
+            if (!string.IsNullOrEmpty(currentContext) &&
+                !StringComparer.Ordinal.Equals(docCmd.ExpectedContextId, currentContext))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ThisAddIn] Context mismatch: expected={docCmd.ExpectedContextId}, current={currentContext}");
+                _ = _pipeClient.SendAsync(new VstoHostError
+                {
+                    RequestId = docCmd.RequestId,
+                    SessionId = docCmd.SessionId,
+                    ErrorCode = "CONTEXT_CHANGED",
+                    Error = "Presentation context changed since command was issued"
+                });
+                return;
+            }
+        }
 
         switch (message)
         {
@@ -262,6 +329,30 @@ public partial class ThisAddIn
     private void OnDisconnected(object sender, EventArgs e)
     {
         System.Diagnostics.Debug.WriteLine("[ThisAddIn] Disconnected from Desktop");
+    }
+
+    /// <summary>
+    /// Get the current presentation context ID.
+    /// Uses FullName for saved presentations, or a combination of Name + window handle for unsaved.
+    /// </summary>
+    private string GetCurrentDocumentContextId()
+    {
+        try
+        {
+            var pres = Application.ActivePresentation;
+            if (pres == null) return "";
+
+            if (!string.IsNullOrEmpty(pres.FullName))
+            {
+                return $"powerpoint:{pres.FullName}";
+            }
+
+            return $"powerpoint:unsaved:{pres.Name}:{Application.ActiveWindow.Hwnd}";
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private void ThisAddIn_Shutdown(object sender, EventArgs e)
