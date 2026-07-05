@@ -29,6 +29,12 @@ log = "0.4"
 env_logger = "0.11"
 rand = "0.8"
 
+# LaTeXSnipper Core (via symlink)
+latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline" }
+latexsnipper-ast = { path = "latexsnipper-core/crates/ast" }
+latexsnipper-conversion = { path = "latexsnipper-core/crates/conversion" }
+latexsnipper-foundation = { path = "latexsnipper-core/crates/foundation" }
+
 # Windows-specific dependencies for SID and DPAPI
 [target.'cfg(windows)'.dependencies]
 whoami = "1.5"
@@ -38,12 +44,6 @@ windows = { version = "0.58", features = [
     "Win32_Security_Cryptography",
     "Win32_System_Threading",
 ] }
-
-# LaTeXSnipper Core (via symlink)
-latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline" }
-latexsnipper-ast = { path = "latexsnipper-core/crates/ast" }
-latexsnipper-conversion = { path = "latexsnipper-core/crates/conversion" }
-latexsnipper-foundation = { path = "latexsnipper-core/crates/foundation" }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
