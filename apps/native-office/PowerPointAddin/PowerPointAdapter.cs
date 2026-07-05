@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using Microsoft.Office.Interop.PowerPoint;
 using LaTeXSnipper.NativeOffice.Shared;
 

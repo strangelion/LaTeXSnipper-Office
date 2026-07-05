@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Office.Interop.PowerPoint;
 using LaTeXSnipper.NativeOffice.Shared;
 

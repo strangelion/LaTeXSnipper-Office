@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Microsoft.Office.Tools.Ribbon;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.PowerPoint.Metadata;

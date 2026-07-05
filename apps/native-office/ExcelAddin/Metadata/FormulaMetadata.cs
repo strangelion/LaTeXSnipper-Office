@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Office.Interop.Excel;
 using LaTeXSnipper.NativeOffice.Shared;
 

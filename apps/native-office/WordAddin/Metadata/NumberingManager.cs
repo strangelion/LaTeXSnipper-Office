@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.NativeOffice.Word.Metadata;

@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
 using Microsoft.Office.Interop.Excel;
 using LaTeXSnipper.NativeOffice.Shared;
 
