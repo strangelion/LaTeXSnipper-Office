@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using Word = Microsoft.Office.Interop.Word;
 
@@ -22,7 +23,7 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] ThisAddIn_Startup reached.");
 
-            _syncContext = SynchronizationContext.Current;
+            _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
             System.Diagnostics.Debug.WriteLine(
