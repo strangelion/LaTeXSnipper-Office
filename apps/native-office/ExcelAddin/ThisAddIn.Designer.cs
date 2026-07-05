@@ -42,6 +42,19 @@ namespace LaTeXSnipper.NativeOffice.Excel
             this.Shutdown += new System.EventHandler(ThisAddIn_Shutdown);
         }
 
+        /// <summary>
+        /// Required method for Ribbon registration.
+        /// Returns the Ribbon manager that VSTO uses to discover and load Ribbons.
+        /// </summary>
+        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
+        {
+            return Globals.Factory.GetRibbonFactory()
+                .CreateRibbonManager(new Microsoft.Office.Tools.Ribbon.IRibbonExtension[]
+                {
+                    new Ribbon.FormulaRibbon()
+                });
+        }
+
         #endregion
     }
 }
