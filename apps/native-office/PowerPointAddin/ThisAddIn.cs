@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.PowerPoint.Metadata;
+using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace LaTeXSnipper.NativeOffice.PowerPoint;
 

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Excel.Metadata;
+using Excel = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.NativeOffice.Excel;
 

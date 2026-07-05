@@ -39,7 +39,7 @@ public abstract class VstoMessage
 /// Base class for Desktop -> VSTO commands that operate on documents.
 /// Includes expectedContextId for document context validation.
 /// </summary>
-public abstract class DesktopDocumentCommand : VstoMessage
+public abstract class DesktopDocumentCommand : DesktopMessage
 {
     [JsonPropertyName("expectedContextId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
