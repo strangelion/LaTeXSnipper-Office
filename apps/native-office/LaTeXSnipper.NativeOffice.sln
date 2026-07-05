@@ -1,15 +1,14 @@
-
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.7.11925.98 stable
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Shared", "Shared\LaTeXSnipper.NativeOffice.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Shared", "Shared\LaTeXSnipper.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Word", "WordAddin\LaTeXSnipper.NativeOffice.Word\LaTeXSnipper.NativeOffice.Word.csproj", "{5ED3579A-C022-49E1-8768-EBC298E6FF96}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Word", "LaTeXSnipper.Word\LaTeXSnipper.Word.csproj", "{A64C0C7D-1D53-4655-9304-EED5545E79CC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Excel", "ExcelAddin\LaTeXSnipper.NativeOffice.Excel\LaTeXSnipper.NativeOffice.Excel.csproj", "{FE0569EA-E8D6-46FF-82CF-F6B494510857}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Excel", "LaTeXSnipper.Excel\LaTeXSnipper.Excel.csproj", "{1D1AE5AF-CC29-4651-A15F-99C55D0257F1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.PowerPoint", "PowerPointAddin\LaTeXSnipper.NativeOffice.PowerPoint\LaTeXSnipper.NativeOffice.PowerPoint.csproj", "{84A8AC39-8715-470D-8193-31D0FC68C6D9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.PowerPoint", "LaTeXSnipper.PowerPoint\LaTeXSnipper.PowerPoint.csproj", "{3D013F9E-D59E-4225-B51B-0405F10B90B6}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,17 +20,20 @@ Global
 		{A1B2C3D4-1111-2222-3333-444455556666}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.Build.0 = Release|Any CPU
-		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5ED3579A-C022-49E1-8768-EBC298E6FF96}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FE0569EA-E8D6-46FF-82CF-F6B494510857}.Release|Any CPU.Build.0 = Release|Any CPU
-		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{84A8AC39-8715-470D-8193-31D0FC68C6D9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A64C0C7D-1D53-4655-9304-EED5545E79CC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A64C0C7D-1D53-4655-9304-EED5545E79CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A64C0C7D-1D53-4655-9304-EED5545E79CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A64C0C7D-1D53-4655-9304-EED5545E79CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1D1AE5AF-CC29-4651-A15F-99C55D0257F1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1D1AE5AF-CC29-4651-A15F-99C55D0257F1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1D1AE5AF-CC29-4651-A15F-99C55D0257F1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1D1AE5AF-CC29-4651-A15F-99C55D0257F1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D013F9E-D59E-4225-B51B-0405F10B90B6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D013F9E-D59E-4225-B51B-0405F10B90B6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D013F9E-D59E-4225-B51B-0405F10B90B6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D013F9E-D59E-4225-B51B-0405F10B90B6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal
