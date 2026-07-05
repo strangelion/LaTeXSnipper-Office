@@ -53,6 +53,7 @@ public class TableConverter
     {
         var tableId = Guid.NewGuid().ToString("N");
         var rows = new List<TableRow>();
+        var formulas = new Dictionary<string, FormulaPayload>();
 
         for (int r = 1; r <= wordTable.Rows.Count; r++)
         {
@@ -64,8 +65,12 @@ public class TableConverter
                 try
                 {
                     var cell = wordTable.Cell(r, c);
-                    var tableCell = ConvertCell(cell, tableId);
+                    var (tableCell, cellFormulas) = ConvertCellWithFormulas(cell, tableId);
                     cells.Add(tableCell);
+                    foreach (var kvp in cellFormulas)
+                    {
+                        formulas[kvp.Key] = kvp.Value;
+                    }
                 }
                 catch
                 {
@@ -93,13 +98,15 @@ public class TableConverter
             {
                 Rows = rows,
                 Properties = new TableProperties { Layout = "autofit" }
-            }
+            },
+            Formulas = formulas.Count > 0 ? formulas : null
         };
     }
 
-    private TableCell ConvertCell(Microsoft.Office.Interop.Word.Cell cell, string tableId)
+    private (TableCell cell, Dictionary<string, FormulaPayload> formulas) ConvertCellWithFormulas(Microsoft.Office.Interop.Word.Cell cell, string tableId)
     {
         var inlines = new List<InlineContent>();
+        var formulas = new Dictionary<string, FormulaPayload>();
 
         // Extract text and formulas from cell
         foreach (Paragraph para in cell.Range.Paragraphs)
@@ -116,6 +123,15 @@ public class TableConverter
                         {
                             var formulaId = ExtractFormulaIdFromCell(cell, tableId);
                             inlines.Add(new InlineFormula { FormulaRef = formulaId });
+
+                            // Build FormulaPayload for this formula
+                            formulas[formulaId] = new FormulaPayload
+                            {
+                                FormulaId = formulaId,
+                                Omml = omml,
+                                Latex = "", // Will be converted by Core
+                                Display = "block"
+                            };
                         }
                     }
                 }
@@ -143,13 +159,13 @@ public class TableConverter
             Background = GetCellShading(cell)
         };
 
-        return new TableCell
+        return (new TableCell
         {
             Rowspan = 1, // Word handles merge differently
             Colspan = 1,
             Inlines = inlines,
             Properties = properties
-        };
+        }, formulas);
     }
 
     private string ExtractFormulaIdFromCell(Microsoft.Office.Interop.Word.Cell cell, string tableId)
