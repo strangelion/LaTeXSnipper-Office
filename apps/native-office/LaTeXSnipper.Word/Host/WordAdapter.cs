@@ -15,6 +15,44 @@ namespace LaTeXSnipper.Word.Host
 
         public string HostType => "word";
 
+        public string GetCurrentDocumentContextId()
+        {
+            return GetCurrentContextId();
+        }
+
+        public FormulaPayload? ReadSelection()
+        {
+            var range = _application.Selection.Range;
+            if (range == null) return null;
+
+            // Step 1: Check for managed formula metadata (CustomXMLParts)
+            var metadata = FormulaMetadata.Read(range);
+            if (metadata != null)
+                return metadata;
+
+            // Step 2: Try to extract OMML from OMath at selection
+            if (_application.Selection.OMaths.Count > 0)
+            {
+                try
+                {
+                    var omml = _application.Selection.OMaths[1].Range.get_XML(false);
+                    if (!string.IsNullOrEmpty(omml))
+                    {
+                        return new FormulaPayload
+                        {
+                            FormulaId = Guid.NewGuid().ToString("N"),
+                            Omml = omml,
+                            Latex = "",
+                            Display = "block"
+                        };
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
         public void InsertText(string value)
         {
             System.Diagnostics.Debug.WriteLine(

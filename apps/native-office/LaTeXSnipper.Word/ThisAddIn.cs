@@ -35,6 +35,9 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] WordAdapter created.");
 
+            // Subscribe to document change events for context tracking
+            Application.DocumentChange += OnDocumentChange;
+
             _ = InitializePipeAsync();
         }
 
@@ -177,9 +180,48 @@ namespace LaTeXSnipper.Word
                     break;
                 }
 
+                case DesktopRequestReadSelection readCmd:
+                {
+                    var formula = _adapter.ReadSelection();
+                    _ = _pipeClient.SendAsync(new VstoReadSelection
+                    {
+                        RequestId = readCmd.RequestId,
+                        SessionId = readCmd.SessionId,
+                        Formula = formula,
+                        RangeXml = formula?.Omml
+                    });
+                    break;
+                }
+
                 case DesktopPing:
                     System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] Ping received");
                     break;
+            }
+        }
+
+        private void OnDocumentChange()
+        {
+            if (_pipeClient == null || _sessionId == null) return;
+
+            try
+            {
+                var contextId = _adapter?.GetCurrentContextId();
+                if (string.IsNullOrEmpty(contextId)) return;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LaTeXSnipper.Word] Document changed: {contextId}");
+
+                _ = _pipeClient.SendAsync(new VstoContextChanged
+                {
+                    RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                    SessionId = _sessionId,
+                    DocumentContextId = contextId
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LaTeXSnipper.Word] OnDocumentChange error: {ex.Message}");
             }
         }
 
@@ -188,6 +230,7 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] ThisAddIn_Shutdown reached.");
 
+            Application.DocumentChange -= OnDocumentChange;
             _pipeClient?.Disconnect();
             _pipeConnected = false;
         }
