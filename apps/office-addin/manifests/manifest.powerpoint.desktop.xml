@@ -4,12 +4,12 @@
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
   xsi:type="TaskPaneApp">
-  <Id>9a7b3c4d-5e6f-7890-abcd-ef1234567890</Id>
+  <Id>9a7b3c4d-5e6f-7890-abcd-ef1234567892</Id>
   <Version>1.1.0.0</Version>
   <ProviderName>LaTeXSnipper</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="LaTeXSnipper"/>
-  <Description DefaultValue="Edit and insert LaTeX formulas in Word."/>
+  <Description DefaultValue="Edit and insert LaTeX formulas in PowerPoint."/>
   <IconUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/assets/icon-80.png"/>
   <SupportUrl DefaultValue="https://latexsnipper.interknot.dpdns.org/office/taskpane.html"/>
@@ -19,7 +19,7 @@
     <AppDomain>https://localhost:19876</AppDomain>
   </AppDomains>
   <Hosts>
-    <Host Name="Document"/>
+    <Host Name="Presentation"/>
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="https://latexsnipper.interknot.dpdns.org/office/taskpane.html"/>
@@ -29,25 +29,25 @@
     xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
     xsi:type="VersionOverridesV1_0">
     <Requirements>
-      <bt:Sets DefaultMinVersion="1.3">
-        <bt:Set Name="WordApi"/>
+      <bt:Sets DefaultMinVersion="1.1">
+        <bt:Set Name="PowerPointApi"/>
       </bt:Sets>
     </Requirements>
     <Hosts>
-      <Host xsi:type="Document">
+      <Host xsi:type="Presentation">
         <DesktopFormFactor>
           <FunctionFile resid="Taskpane.Url"/>
           <ExtensionPoint xsi:type="PrimaryCommandSurface">
-            <CustomTab id="com.latexsnipper.word.tab">
+            <CustomTab id="com.latexsnipper.powerpoint.tab">
               <Label resid="Tab.Label"/>
-              <Group id="com.latexsnipper.word.group">
+              <Group id="com.latexsnipper.powerpoint.group">
                 <Label resid="Group.Label"/>
                 <Icon>
                   <bt:Image size="16" resid="Icon.16"/>
                   <bt:Image size="32" resid="Icon.32"/>
                   <bt:Image size="80" resid="Icon.80"/>
                 </Icon>
-                <Control xsi:type="Button" id="com.latexsnipper.word.openTaskpane">
+                <Control xsi:type="Button" id="com.latexsnipper.powerpoint.openTaskpane">
                   <Label resid="Open.Label"/>
                   <Supertip>
                     <Title resid="Open.Label"/>

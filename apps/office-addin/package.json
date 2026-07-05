@@ -2,14 +2,16 @@
   "name": "latexsnipper-office-addin",
   "version": "1.0.0",
   "description": "LaTeXSnipper Word Office.js Add-in",
-  "main": "dist/taskpane/index.html",
+  "main": "dist/taskpane.html",
   "scripts": {
     "dev": "vite --mode development",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "cert:dev": "node scripts/generate-dev-cert.mjs",
     "cert:trust": "certutil -addstore -user Root cert/localhost.crt",
-    "validate:word": "npx office-addin-manifest validate manifests/manifest.word.local.xml"
+    "validate:word": "npx office-addin-manifest validate ../../src-tauri/resources/OfficeJS/manifest/word.xml",
+    "validate:excel": "npx office-addin-manifest validate ../../src-tauri/resources/OfficeJS/manifest/excel.xml",
+    "validate:powerpoint": "npx office-addin-manifest validate ../../src-tauri/resources/OfficeJS/manifest/powerpoint.xml"
   },
   "dependencies": {},
   "devDependencies": {

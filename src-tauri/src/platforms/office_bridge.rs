@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
-use tokio::net::TcpListener;
 use tokio::sync::{oneshot, Mutex};
 use tower_http::services::ServeDir;
 
@@ -161,20 +160,19 @@ fn fix_double_encoded_utf8(s: &str) -> String {
 }
 
 /// Find the Office.js taskpane site directory.
-/// Returns a directory containing both `taskpane/` and `assets/` subdirectories,
-/// so the fallback_service can serve `/taskpane/index.html` and `/assets/*.js`.
+/// Returns a directory containing `taskpane.html` and `assets/`.
 fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
     // 1. Try resource_dir/OfficeJS/site (production bundle, after npm run build:office-addin)
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         let site_dir = resource_dir.join("OfficeJS").join("site");
-        if site_dir.join("taskpane").join("index.html").exists() {
+        if has_office_taskpane(&site_dir) {
             return site_dir.to_string_lossy().to_string();
         }
         // Fallback: try resources/OfficeJS/site next to the exe
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 let alt = exe_dir.join("resources").join("OfficeJS").join("site");
-                if alt.join("taskpane").join("index.html").exists() {
+                if has_office_taskpane(&alt) {
                     return alt.to_string_lossy().to_string();
                 }
             }
@@ -185,7 +183,7 @@ fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
         let addin_dist = PathBuf::from(&manifest_dir).parent()
             .map(|p| p.join("apps").join("office-addin").join("dist"));
         if let Some(dir) = addin_dist {
-            if dir.join("taskpane").join("index.html").exists() {
+            if has_office_taskpane(&dir) {
                 return dir.to_string_lossy().to_string();
             }
         }
@@ -197,6 +195,10 @@ fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
     }
     eprintln!("[Bridge] WARNING: Office.js taskpane not found. Use build:office-addin first.");
     String::from("dist")
+}
+
+fn has_office_taskpane(dir: &std::path::Path) -> bool {
+    dir.join("taskpane.html").exists() || dir.join("taskpane").join("index.html").exists()
 }
 
 fn latex_to_omml_core(latex: &str) -> Option<String> {
@@ -249,7 +251,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/heartbeat", post(handle_heartbeat))
         .route("/api/office/actions/next", get(handle_actions_next))
         .route("/api/office/actions/complete", post(handle_actions_complete))
-        // Serve static files at root so `/taskpane/index.html` and `/assets/*.js` resolve
+        // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
             tower_http::cors::CorsLayer::permissive()

@@ -18,6 +18,13 @@ import type {
  */
 export class WordOfficeAdapter implements OfficeDocumentAdapter {
   private host: 'word' | 'excel' | 'powerpoint' = 'word';
+  private readonly bridgeBase = (() => {
+    const { hostname, port } = window.location;
+    if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '19876') {
+      return '';
+    }
+    return 'https://127.0.0.1:19876';
+  })();
 
   /**
    * Get the current selection as a DocumentFragment
@@ -196,7 +203,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
 
     try {
       // Convert OMML to LaTeX via Bridge (same origin)
-      const response = await fetch('/api/office/convert', {
+      const response = await fetch(`${this.bridgeBase}/api/office/convert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ omml, display }),
@@ -302,7 +309,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    */
   private async latexToOmml(latex: string, display: boolean): Promise<string> {
     try {
-      const response = await fetch('/api/office/convert', {
+      const response = await fetch(`${this.bridgeBase}/api/office/convert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latex, display }),

@@ -9,6 +9,7 @@ scripts/out/
 __pycache__/
 .vscode/
 .idea/
+.learnings/
 *.swp
 *.swo
 *~

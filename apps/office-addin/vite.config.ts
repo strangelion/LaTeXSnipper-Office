@@ -23,13 +23,13 @@ function getHttpsConfig() {
 export default defineConfig({
   root: 'src',
   publicDir: resolve(__dirname, 'public'),
-  base: './',
+  base: '/office/',
   build: {
     outDir: '../dist',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        taskpane: resolve(__dirname, 'src/taskpane/index.html'),
+        taskpane: resolve(__dirname, 'src/taskpane.html'),
       },
     },
   },

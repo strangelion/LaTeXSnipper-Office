@@ -1,9 +1,5 @@
 /**
- * Stage Office.js add-in for Tauri packaging.
- *
- * 1. Copies entire apps/office-addin/dist/ to resources/OfficeJS/site/
- *    (includes taskpane/ + assets/ so index.html can resolve ../assets/*.js)
- * 2. Copies the production manifest to resources/OfficeJS/manifest.word.xml
+ * Stage Office.js add-in files for the desktop bundle and website deploy.
  *
  * Run after `npm --prefix apps/office-addin run build`.
  */
@@ -15,49 +11,57 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 
-const src = {
-  dist: path.resolve(root, 'apps', 'office-addin', 'dist'),
-  manifest: {
-    desktop: path.resolve(root, 'apps', 'office-addin', 'manifests', 'manifest.word.desktop.xml'),
+const distDir = path.resolve(root, 'apps', 'office-addin', 'dist');
+const manifestDir = path.resolve(root, 'apps', 'office-addin', 'manifests');
+const hosts = ['word', 'excel', 'powerpoint'];
+
+const targets = [
+  {
+    name: 'Tauri resources',
+    siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
+    manifestDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest'),
   },
-};
+  {
+    name: 'Website deploy',
+    siteDir: path.resolve(root, 'office-deploy'),
+    manifestDir: path.resolve(root, 'office-deploy', 'manifest'),
+  },
+];
 
-const dest = {
-  siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
-  manifestOut: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest.word.xml'),
-};
-
-// 1. Verify dist exists
-if (!fs.existsSync(src.dist)) {
-  console.error('[stage] ERROR: Office add-in dist not found at:', src.dist);
+if (!fs.existsSync(distDir)) {
+  console.error('[stage] ERROR: Office add-in dist not found at:', distDir);
   console.error('[stage] Build first: npm --prefix apps/office-addin run build');
   process.exit(1);
 }
 
-// 2. Clean and copy entire dist/ to OfficeJS/site/
-if (fs.existsSync(dest.siteDir)) {
-  fs.rmSync(dest.siteDir, { recursive: true, force: true });
-  console.log('[stage] Cleaned site directory');
-}
-fs.cpSync(src.dist, dest.siteDir, { recursive: true });
-console.log(`[stage] Copied dist: ${src.dist} → ${dest.siteDir}`);
+for (const target of targets) {
+  if (fs.existsSync(target.siteDir)) {
+    fs.rmSync(target.siteDir, { recursive: true, force: true });
+  }
+  fs.cpSync(distDir, target.siteDir, { recursive: true });
+  fs.mkdirSync(target.manifestDir, { recursive: true });
 
-// Verify assets exist
-const assetsDir = path.resolve(dest.siteDir, 'assets');
-if (!fs.existsSync(assetsDir) || fs.readdirSync(assetsDir).length === 0) {
-  console.warn('[stage] WARNING: assets/ directory is empty or missing.');
-  console.warn('[stage] The taskpane will likely show a white screen (JS bundles 404).');
-}
+  for (const host of hosts) {
+    const source = path.resolve(manifestDir, `manifest.${host}.desktop.xml`);
+    const output = path.resolve(target.manifestDir, `${host}.xml`);
+    fs.copyFileSync(source, output);
+  }
 
-// 3. Copy production manifest (NOT the dev manifest which points to localhost:3000)
-const manifestDir = path.dirname(dest.manifestOut);
-fs.mkdirSync(manifestDir, { recursive: true });
+  const taskpane = path.resolve(target.siteDir, 'taskpane.html');
+  const assetsDir = path.resolve(target.siteDir, 'assets');
+  const hasTaskpane = fs.existsSync(taskpane);
+  const hasBundle = fs.existsSync(assetsDir)
+    && fs.readdirSync(assetsDir).some((file) => file.startsWith('taskpane-') && file.endsWith('.js'));
+  const hasIcons = fs.existsSync(assetsDir)
+    && ['icon-16.png', 'icon-32.png', 'icon-80.png'].every((file) => fs.existsSync(path.join(assetsDir, file)));
 
-if (!fs.existsSync(src.manifest.desktop)) {
-  console.error('[stage] ERROR: Production manifest not found at:', src.manifest.desktop);
-  process.exit(1);
+  console.log(`[stage] ${target.name}: ${target.siteDir}`);
+  console.log(`[stage]   taskpane.html:        ${hasTaskpane ? 'ok' : 'missing'}`);
+  console.log(`[stage]   assets/taskpane-*.js:${hasBundle ? 'ok' : 'missing'}`);
+  console.log(`[stage]   assets/icon-*.png:   ${hasIcons ? 'ok' : 'missing'}`);
+  for (const host of hosts) {
+    console.log(`[stage]   manifest/${host}.xml: ok`);
+  }
 }
-fs.copyFileSync(src.manifest.desktop, dest.manifestOut);
-console.log(`[stage] Copied production manifest: ${src.manifest.desktop} → ${dest.manifestOut}`);
 
 console.log('[stage] Office.js add-in staged successfully');

@@ -946,96 +946,332 @@ fn install_office_vsto() -> PlatformIntegrationResult {
     )
 }
 
+// ═══════════════════════════════════════════════════════════
+// Office.js Add-in registration via Windows registry
+//
+// Windows: manifest path is registered in
+//   HKCU\Software\Microsoft\Office\16.0\WEF\Developer
+//   Key:   add-in GUID
+//   Value: full path to manifest.word.xml
+//
+// macOS: copies to ~/Library/Containers/com.microsoft.Word/...
+// ═══════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+const OFFICE_DEVELOPER_KEY: &str = r"HKCU\Software\Microsoft\Office\16.0\WEF\Developer";
+
+#[derive(Clone, Copy)]
+struct OfficeJsHost {
+    id: &'static str,
+    name: &'static str,
+    manifest_file: &'static str,
+    #[cfg(target_os = "macos")]
+    mac_container: &'static str,
+}
+
+const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
+    OfficeJsHost {
+        id: "9a7b3c4d-5e6f-7890-abcd-ef1234567890",
+        name: "Word",
+        manifest_file: "word.xml",
+        #[cfg(target_os = "macos")]
+        mac_container: "com.microsoft.Word",
+    },
+    OfficeJsHost {
+        id: "9a7b3c4d-5e6f-7890-abcd-ef1234567891",
+        name: "Excel",
+        manifest_file: "excel.xml",
+        #[cfg(target_os = "macos")]
+        mac_container: "com.microsoft.Excel",
+    },
+    OfficeJsHost {
+        id: "9a7b3c4d-5e6f-7890-abcd-ef1234567892",
+        name: "PowerPoint",
+        manifest_file: "powerpoint.xml",
+        #[cfg(target_os = "macos")]
+        mac_container: "com.microsoft.Powerpoint",
+    },
+];
+
+/// Register the add-in manifest in the Windows registry so Word finds it.
+#[cfg(target_os = "windows")]
+fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<(), String> {
+    let manifest_path = manifest
+        .canonicalize()
+        .map_err(|e| format!("无法解析 manifest 路径: {e}"))?
+        .to_string_lossy()
+        .into_owned();
+
+    let output = super::process::background_command("reg.exe")
+        .args(["add", OFFICE_DEVELOPER_KEY, "/v", host.id, "/t", "REG_SZ", "/d", &manifest_path, "/f"])
+        .output()
+        .map_err(|e| format!("无法写入 Office 加载项注册表: {e}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Office 加载项注册失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    println!("[Office] Registered {} in {} \\ {} = {}", host.name, OFFICE_DEVELOPER_KEY, host.id, manifest_path);
+    Ok(())
+}
+
+/// Remove the add-in manifest registration from the Windows registry.
+#[cfg(target_os = "windows")]
+fn unregister_office_js_manifest(host: OfficeJsHost) -> Result<(), String> {
+    let output = super::process::background_command("reg.exe")
+        .args(["delete", OFFICE_DEVELOPER_KEY, "/v", host.id, "/f"])
+        .output()
+        .map_err(|e| format!("无法移除 Office 加载项注册表: {e}"))?;
+
+    if output.status.success() {
+        println!("[Office] Unregistered {} from registry: {} \\ {}", host.name, OFFICE_DEVELOPER_KEY, host.id);
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&output.stderr).to_string();
+        if output.status.code() == Some(1) {
+            // Key/value not found — not an error, just means not registered
+            println!("[Office] No {} registry entry to remove", host.name);
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }
+}
+
+/// Check if the add-in is registered in the Windows registry.
+#[cfg(target_os = "windows")]
+fn is_office_js_registered(host: OfficeJsHost) -> bool {
+    super::process::background_command("reg.exe")
+        .args(["query", OFFICE_DEVELOPER_KEY, "/v", host.id])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
 /// Sideload the Office.js manifest so Word can find the add-in.
-/// Windows: copies to %LOCALAPPDATA%\Microsoft\Office\16.0\Wef\
+/// Windows: registers manifest path in HKCU\...\WEF\Developer registry key.
 /// macOS: copies to ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
+
 fn install_office_js_addin() -> PlatformIntegrationResult {
-    // Find manifest.xml from bundled resources
-    let manifest_source = bundled_office_js_manifest()
-        .or_else(|| {
-            // Fallback: source tree (dev mode)
-            let source = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default())
-                .parent()
-                .map(|p| p.join("apps").join("office-addin").join("manifest.xml"))
-                .unwrap_or_default();
-            if source.exists() { Some(source) } else { None }
-        });
+    let manifests = office_js_manifests();
+    if manifests.len() != OFFICE_JS_HOSTS.len() {
+        return PlatformIntegrationResult::fail(
+            "office",
+            "office-js",
+            "Office.js manifests are incomplete. Run npm run build:office-addin.",
+        );
+    }
 
-    let Some(source) = manifest_source else {
-        return PlatformIntegrationResult::fail("office", "office-js", "找不到 manifest.xml");
-    };
-
-    let content = match std::fs::read_to_string(&source) {
-        Ok(c) => c,
-        Err(e) => return PlatformIntegrationResult::fail("office", "office-js", format!("读取 manifest 失败: {e}")),
-    };
-
-    // Trust the TLS certificate before installing manifest, so Word can load the add-in over HTTPS
     println!("[Office] Requesting certificate trust for HTTPS...");
     if let Ok(true) = super::tls_cert::try_trust_cert_from_appdata() {
         println!("[Office] Certificate trusted successfully");
     } else {
-        println!("[Office] Certificate trust deferred (UAC may not have been accepted)");
-        // Continue anyway — user can trust manually later
+        println!("[Office] Certificate trust deferred (may need manual trust)");
     }
 
-    // Determine target directory
-    let target = if cfg!(target_os = "windows") {
-        let local_appdata = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| {
-            dirs_next::data_dir()
-                .unwrap_or_else(std::env::temp_dir)
-                .to_string_lossy()
-                .to_string()
-        });
-        let wef_dir = PathBuf::from(local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef");
-        if let Err(e) = std::fs::create_dir_all(&wef_dir) {
-            return PlatformIntegrationResult::fail("office", "office-js", format!("创建 Wef 目录失败: {e}"));
+    #[cfg(target_os = "windows")]
+    {
+        let mut installed = Vec::new();
+        for (host, manifest) in manifests {
+            if let Err(e) = register_office_js_manifest(host, &manifest) {
+                return PlatformIntegrationResult::fail("office", "office-js", e);
+            }
+            installed.push(host.name);
         }
-        Some(wef_dir.join("LaTeXSnipper.xml"))
-    } else if cfg!(target_os = "macos") {
+
+        return PlatformIntegrationResult::ok(
+            "office",
+            "office-js",
+            format!(
+                "Installed Office.js add-ins for {}. Restart Word, Excel, and PowerPoint to load LaTeXSnipper.",
+                installed.join(", ")
+            ),
+            true,
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
         let home = std::env::var("HOME").unwrap_or_default();
-        let wef_dir = PathBuf::from(&home)
-            .join("Library")
-            .join("Containers")
-            .join("com.microsoft.Word")
-            .join("Data")
-            .join("Documents")
-            .join("wef");
-        if let Err(e) = std::fs::create_dir_all(&wef_dir) {
-            return PlatformIntegrationResult::fail("office", "office-js", format!("创建 wef 目录失败: {e}"));
+        let mut installed = Vec::new();
+        for (host, manifest) in manifests {
+            let content = match std::fs::read_to_string(&manifest) {
+                Ok(c) => c,
+                Err(e) => return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to read {} manifest: {e}", host.name)),
+            };
+            let wef_dir = PathBuf::from(&home)
+                .join("Library")
+                .join("Containers")
+                .join(host.mac_container)
+                .join("Data")
+                .join("Documents")
+                .join("wef");
+            if let Err(e) = std::fs::create_dir_all(&wef_dir) {
+                return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to create {} wef directory: {e}", host.name));
+            }
+            let target_path = wef_dir.join("LaTeXSnipper.xml");
+            if let Err(e) = std::fs::write(&target_path, &content) {
+                return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to write {} manifest: {e}", host.name));
+            }
+            installed.push(host.name);
         }
-        Some(wef_dir.join("LaTeXSnipper.xml"))
-    } else {
-        None
-    };
-
-    let Some(target_path) = target else {
-        return PlatformIntegrationResult::fail("office", "office-js", "不支持的操作系统");
-    };
-
-    if let Err(e) = std::fs::write(&target_path, &content) {
-        return PlatformIntegrationResult::fail("office", "office-js", format!("写入 manifest 失败: {e}"));
+        PlatformIntegrationResult::ok(
+            "office",
+            "office-js",
+            format!(
+                "Installed Office.js add-ins for {}. Restart Office apps to load LaTeXSnipper.",
+                installed.join(", ")
+            ),
+            true,
+        )
     }
 
-    PlatformIntegrationResult::ok(
-        "office",
-        "office-js",
-        format!("Office.js 加载项已安装到: {}", target_path.display()),
-        true,
-    )
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        PlatformIntegrationResult::fail("office", "office-js", "Unsupported operating system")
+    }
 }
 
-fn bundled_office_js_manifest() -> Option<PathBuf> {
-    // Check relative to the running executable (production)
+
+fn uninstall_office_addin() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        let mut errors = Vec::new();
+        for host in OFFICE_JS_HOSTS {
+            if let Err(e) = unregister_office_js_manifest(*host) {
+                errors.push(format!("{}: {}", host.name, e));
+            }
+        }
+        if errors.is_empty() {
+            PlatformIntegrationResult::ok(
+                "office",
+                "office-js",
+                "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.",
+                true,
+            )
+        } else {
+            PlatformIntegrationResult::fail("office", "office-js", errors.join("; "))
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let mut removed = false;
+        for host in OFFICE_JS_HOSTS {
+            let wef_dir = PathBuf::from(&home)
+                .join("Library")
+                .join("Containers")
+                .join(host.mac_container)
+                .join("Data")
+                .join("Documents")
+                .join("wef");
+            let manifest_path = wef_dir.join("LaTeXSnipper.xml");
+            if manifest_path.exists() && std::fs::remove_file(&manifest_path).is_ok() {
+                println!("[Office] Removed manifest: {}", manifest_path.display());
+                removed = true;
+            }
+        }
+        if removed {
+            PlatformIntegrationResult::ok("office", "office-js", "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.", true)
+        } else {
+            PlatformIntegrationResult::ok("office", "office-js", "No installed Office.js add-ins were found.", false)
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        PlatformIntegrationResult::fail("office", "office-js", "Unsupported operating system")
+    }
+}
+
+
+fn check_office_addin() -> PlatformIntegrationResult {
+    let status = super::office::detect_office_cached();
+    if !status.installed {
+        return PlatformIntegrationResult::fail("office", "not_found", "Microsoft Office was not detected.");
+    }
+
+    if is_taskpane_connected() {
+        return PlatformIntegrationResult::ok("office", "connected", "Office task pane is connected and ready.", false);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let registered: Vec<&str> = OFFICE_JS_HOSTS
+            .iter()
+            .filter(|host| is_office_js_registered(**host))
+            .map(|host| host.name)
+            .collect();
+        if registered.len() == OFFICE_JS_HOSTS.len() {
+            return PlatformIntegrationResult::ok("office", "installed", "Office.js add-ins are registered. Restart Office apps and open the LaTeXSnipper task pane.", true);
+        }
+        if !registered.is_empty() {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "partial",
+                format!("Only these Office.js add-ins are registered: {}. Toggle Office off and on to repair.", registered.join(", ")),
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let installed: Vec<&str> = OFFICE_JS_HOSTS
+            .iter()
+            .filter(|host| {
+                PathBuf::from(&home)
+                    .join("Library")
+                    .join("Containers")
+                    .join(host.mac_container)
+                    .join("Data")
+                    .join("Documents")
+                    .join("wef")
+                    .join("LaTeXSnipper.xml")
+                    .exists()
+            })
+            .map(|host| host.name)
+            .collect();
+        if installed.len() == OFFICE_JS_HOSTS.len() {
+            return PlatformIntegrationResult::ok("office", "installed", "Office.js add-ins are installed. Restart Office apps.", true);
+        }
+        if !installed.is_empty() {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "partial",
+                format!("Only these Office.js add-ins are installed: {}. Toggle Office off and on to repair.", installed.join(", ")),
+            );
+        }
+    }
+
+    PlatformIntegrationResult::fail("office", "not_installed", "Office.js add-ins are not installed. Enable Office integration in settings.")
+}
+
+
+fn office_js_manifests() -> Vec<(OfficeJsHost, PathBuf)> {
+    OFFICE_JS_HOSTS
+        .iter()
+        .filter_map(|host| find_office_js_manifest(*host).map(|path| (*host, path)))
+        .collect()
+}
+
+fn find_office_js_manifest(host: OfficeJsHost) -> Option<PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let candidates = [
-                // Staged production manifest (the one we actually want)
-                exe_dir.join("resources").join("OfficeJS").join("manifest.word.xml"),
-                // Legacy production manifests (fallback)
-                exe_dir.join("resources").join("OfficeJS").join("manifest.word.desktop.xml"),
-                exe_dir.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
-                exe_dir.join("resources").join("OfficeJS").join("manifest.xml"),
+                exe_dir
+                    .join("resources")
+                    .join("OfficeJS")
+                    .join("manifest")
+                    .join(host.manifest_file),
+                exe_dir
+                    .join("resources")
+                    .join("OfficeJS")
+                    .join(format!("manifest.{}.xml", host.name.to_lowercase())),
             ];
             for p in &candidates {
                 if p.exists() {
@@ -1045,20 +1281,17 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
         }
     }
 
-    // Check relative to CWD (dev mode: CWD = project root)
     if let Ok(cwd) = std::env::current_dir() {
         let candidates = [
-            // 1) Staged manifest under src-tauri (after npm run build:office-addin)
-            cwd.join("src-tauri").join("resources").join("OfficeJS").join("manifest.word.xml"),
-            // 2) Source tree: desktop manifest (production URL http://localhost:19876)
-            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.desktop.xml"),
-            // 3) Staged manifest directly under CWD (fallback, unusual but possible)
-            cwd.join("resources").join("OfficeJS").join("manifest.word.xml"),
-            // 4) Legacy/local manifests (lowest priority — don't use localhost:3000)
-            cwd.join("apps").join("office-addin").join("manifests").join("manifest.word.local.xml"),
-            cwd.join("resources").join("OfficeJS").join("manifest.word.desktop.xml"),
-            cwd.join("resources").join("OfficeJS").join("manifest.word.local.xml"),
-            cwd.join("resources").join("OfficeJS").join("manifest.xml"),
+            cwd.join("src-tauri")
+                .join("resources")
+                .join("OfficeJS")
+                .join("manifest")
+                .join(host.manifest_file),
+            cwd.join("apps")
+                .join("office-addin")
+                .join("manifests")
+                .join(format!("manifest.{}.desktop.xml", host.name.to_lowercase())),
         ];
         for p in &candidates {
             if p.exists() {
@@ -1068,77 +1301,6 @@ fn bundled_office_js_manifest() -> Option<PathBuf> {
     }
 
     None
-}
-
-fn uninstall_office_addin() -> PlatformIntegrationResult {
-    // Remove Office.js manifest from Wef directories
-    let wef_paths = if cfg!(target_os = "windows") {
-        let local_appdata = std::env::var("LOCALAPPDATA").ok()
-            .or_else(|| dirs_next::data_dir().map(|d| d.to_string_lossy().to_string()))
-            .unwrap_or_default();
-        vec![
-            PathBuf::from(&local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef"),
-        ]
-    } else if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        vec![
-            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Word").join("Data").join("Documents").join("wef"),
-            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Excel").join("Data").join("Documents").join("wef"),
-            PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Powerpoint").join("Data").join("Documents").join("wef"),
-        ]
-    } else {
-        return PlatformIntegrationResult::fail("office", "wef", "不支持的操作系统");
-    };
-
-    let mut removed = false;
-    for wef_dir in &wef_paths {
-        let manifest_path = wef_dir.join("LaTeXSnipper.xml");
-        if manifest_path.exists() {
-            if std::fs::remove_file(&manifest_path).is_ok() {
-                println!("[Office] Removed manifest: {}", manifest_path.display());
-                removed = true;
-            }
-        }
-    }
-
-    if removed {
-        PlatformIntegrationResult::ok("office", "office-js", "Office.js 加载项已卸载。重启 Word 后生效。", true)
-    } else {
-        PlatformIntegrationResult::ok("office", "office-js", "未找到已安装的 Office.js 加载项。", false)
-    }
-}
-
-fn check_office_addin() -> PlatformIntegrationResult {
-    let status = super::office::detect_office_cached();
-    if !status.installed {
-        return PlatformIntegrationResult::fail("office", "not_found", "未检测到 Microsoft Office。");
-    }
-
-    // Check if the Taskpane has sent a heartbeat → fully connected
-    if is_taskpane_connected() {
-        return PlatformIntegrationResult::ok("office", "connected", "Word 任务窗格已连接，功能可用。", false);
-    }
-
-    // Check if Office.js manifest exists in Wef directory
-    let manifest_exists = if cfg!(target_os = "windows") {
-        let local_appdata = std::env::var("LOCALAPPDATA").ok()
-            .or_else(|| dirs_next::data_dir().map(|d| d.to_string_lossy().to_string()))
-            .unwrap_or_default();
-        let wef_dir = PathBuf::from(&local_appdata).join("Microsoft").join("Office").join("16.0").join("Wef");
-        wef_dir.join("LaTeXSnipper.xml").exists()
-    } else if cfg!(target_os = "macos") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let wef_dir = PathBuf::from(&home).join("Library").join("Containers").join("com.microsoft.Word").join("Data").join("Documents").join("wef");
-        wef_dir.join("LaTeXSnipper.xml").exists()
-    } else {
-        false
-    };
-
-    if manifest_exists {
-        PlatformIntegrationResult::ok("office", "installed", "Office.js 加载项已安装。请重启 Word 后打开任务窗格。", true)
-    } else {
-        PlatformIntegrationResult::fail("office", "not_installed", "Office.js 加载项未安装。请在设置中启用 Word 集成。")
-    }
 }
 
 #[allow(dead_code)]
