@@ -13,6 +13,8 @@ namespace LaTeXSnipper.Word.Host
 
         public void InsertText(string value)
         {
+            System.Diagnostics.Debug.WriteLine(
+                "[WordAdapter] InsertText called.");
             _application.Selection.TypeText(value);
         }
 
