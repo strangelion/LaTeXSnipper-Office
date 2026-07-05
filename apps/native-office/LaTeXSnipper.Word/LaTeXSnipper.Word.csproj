@@ -1,4 +1,4 @@
-﻿<Project ToolsVersion="18.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project ToolsVersion="18.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <!--
     This section defines project-level properties.
@@ -71,6 +71,9 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
     <DefineConstants>$(DefineConstants);DEBUG;TRACE</DefineConstants>
     <WarningLevel>4</WarningLevel>
+    <SignManifests>true</SignManifests>
+    <ManifestKeyFile>..\LaTeXSnipper_DevCert.pfx</ManifestKeyFile>
+    <ManifestCertificateThumbprint>571086EB2045EE460F5E1272BB7E1BD984520AE9</ManifestCertificateThumbprint>
   </PropertyGroup>
   <!--
     This section defines properties that are set when the "Release" configuration is selected.
