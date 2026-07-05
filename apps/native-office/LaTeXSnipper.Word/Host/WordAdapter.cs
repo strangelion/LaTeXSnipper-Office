@@ -25,52 +25,78 @@ namespace LaTeXSnipper.Word.Host
             var range = _application.Selection.Range;
             if (range == null) return null;
 
-            // Step 1: Check for managed formula metadata (CustomXMLParts)
             try
             {
-                var metadata = FormulaMetadata.Read(range);
-                if (metadata != null)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] ReadSelection: metadata found, latex='{metadata.Latex}'");
-                    return metadata;
-                }
-                System.Diagnostics.Debug.WriteLine(
-                    "[WordAdapter] ReadSelection: no metadata found, falling back...");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] ReadSelection metadata error: {ex.Message}");
-            }
-
-            // Step 2: If cursor is inside an OMath, get text
-            if (_application.Selection.OMaths.Count > 0)
-            {
-                try
+                if (_application.Selection.OMaths.Count > 0)
                 {
                     var oMath = _application.Selection.OMaths[1];
-                    // Linearize the formula to get proper linear format (with ^ etc)
-                    var text = oMath.Range.Text;
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] ReadSelection OMath text: [{text}]");
-                    if (!string.IsNullOrWhiteSpace(text))
+
+                    // Copy OMath range to clipboard to extract Word Open XML
+                    oMath.Range.Copy();
+
+                    // Read clipboard as XML (Word Open XML with OMML)
+                    var clipboardData = System.Windows.Forms.Clipboard.GetData(
+                        "Custom XML Data Format") as string;
+
+                    // Also try "XML" format
+                    if (string.IsNullOrEmpty(clipboardData))
+                        clipboardData = System.Windows.Forms.Clipboard.GetData("XML") as string;
+
+                    if (!string.IsNullOrEmpty(clipboardData))
                     {
-                        var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
+                        // Look for OMML in the clipboard XML
+                        int oMathStart = -1;
+                        int oMathParaStart = clipboardData.IndexOf("<m:oMathPara");
+
+                        if (oMathParaStart >= 0)
+                        {
+                            oMathStart = oMathParaStart;
+                        }
+                        else
+                        {
+                            oMathStart = clipboardData.IndexOf("<m:oMath");
+                        }
+
+                        if (oMathStart >= 0)
+                        {
+                            var endTag = clipboardData.IndexOf("</m:oMath", oMathStart);
+                            if (endTag > oMathStart)
+                            {
+                                endTag = clipboardData.IndexOf(">", endTag) + 1;
+                                var omml = clipboardData.Substring(oMathStart, endTag - oMathStart);
+
+                                // Also get linear text for display
+                                var text = oMath.Range.Text?.Trim() ?? "";
+
+                                return new FormulaPayload
+                                {
+                                    FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                                    Omml = omml,
+                                    Latex = text,
+                                    Display = "block"
+                                };
+                            }
+                        }
+                    }
+
+                    // Fallback: return text as-is
+                    var rawText = oMath.Range.Text?.Trim();
+                    if (!string.IsNullOrWhiteSpace(rawText))
+                    {
                         return new FormulaPayload
                         {
-                            FormulaId = formulaId,
-                            Latex = text.Trim(),
+                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                            Latex = rawText,
                             Omml = "",
                             Display = "block"
                         };
                     }
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] ReadSelection OMath error: {ex.Message}");
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] ReadSelection error: {ex.Message}");
             }
 
             return null;
