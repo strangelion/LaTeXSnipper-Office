@@ -249,6 +249,138 @@ pub async fn native_office_request_read_selection(
     Ok("Read selection request sent".to_string())
 }
 
+/// Get Native Office installation status.
+#[tauri::command]
+pub async fn native_office_status() -> Result<NativeOfficeStatus, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(crate::platforms::integrations::get_native_office_status())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(NativeOfficeStatus {
+            platform_supported: false,
+            package_state: PackageState::NotInstalled,
+            package_version: None,
+            hosts: vec![],
+            pipe_security: PipeSecurityStatus::NotAvailable,
+            action: RecommendedAction::None,
+        })
+    }
+}
+
+/// Start Native Office installation via bootstrapper.
+#[tauri::command]
+pub async fn native_office_install() -> Result<NativeOfficeOperationStarted, String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platforms::integrations::start_native_office_install()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Native Office installation is only available on Windows".to_string())
+    }
+}
+
+/// Start Native Office repair via bootstrapper.
+#[tauri::command]
+pub async fn native_office_repair() -> Result<NativeOfficeOperationStarted, String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platforms::integrations::start_native_office_repair()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Native Office repair is only available on Windows".to_string())
+    }
+}
+
+/// Start Native Office uninstall via bootstrapper.
+#[tauri::command]
+pub async fn native_office_uninstall() -> Result<NativeOfficeOperationStarted, String> {
+    #[cfg(target_os = "windows")]
+    {
+        crate::platforms::integrations::start_native_office_uninstall()
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("Native Office uninstall is only available on Windows".to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Status types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NativeOfficeStatus {
+    pub platform_supported: bool,
+    pub package_state: PackageState,
+    pub package_version: Option<String>,
+    pub hosts: Vec<HostInstallStatus>,
+    pub pipe_security: PipeSecurityStatus,
+    pub action: RecommendedAction,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum PackageState {
+    NotInstalled,
+    Installed,
+    Broken,
+    NeedsPrerequisite,
+    Unknown,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct HostInstallStatus {
+    pub host: String,
+    pub office_detected: bool,
+    pub registry_key_present: bool,
+    pub manifest_value: Option<String>,
+    pub vsto_file_exists: bool,
+    pub load_behavior: Option<u32>,
+    pub connected_sessions: usize,
+    pub state: HostInstallState,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum HostInstallState {
+    NotInstalled,
+    Installed,
+    Broken,
+    OfficeNotDetected,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum PipeSecurityStatus {
+    SidObtained,
+    SidFailed,
+    NotAvailable,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum RecommendedAction {
+    None,
+    Install,
+    Repair,
+    Uninstall,
+    RestartOffice,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NativeOfficeOperationStarted {
+    pub operation_id: String,
+    pub message: String,
+}
+
 /// Request VSTO to read current table.
 #[tauri::command]
 pub async fn native_office_request_read_table(

@@ -2146,3 +2146,219 @@ fn check_path(
         PlatformIntegrationResult::fail(platform, mode, "Integration is not installed.")
     }
 }
+
+// ---------------------------------------------------------------------------
+// Native Office VSTO lifecycle management
+// ---------------------------------------------------------------------------
+
+use crate::commands::native_office::*;
+
+/// Get comprehensive Native Office installation status.
+pub fn get_native_office_status() -> NativeOfficeStatus {
+    let platform_supported = cfg!(target_os = "windows");
+
+    // Check for MSI marker
+    let marker_path = dirs_next::data_local_dir()
+        .unwrap_or_default()
+        .join("LaTeXSnipper")
+        .join("NativeOffice")
+        .join("marker.json");
+
+    let package_state = if marker_path.exists() {
+        // Check if key files exist
+        let install_root = dirs_next::data_local_dir()
+            .unwrap_or_default()
+            .join("Programs")
+            .join("LaTeXSnipper")
+            .join("NativeOffice");
+
+        if install_root.exists() {
+            PackageState::Installed
+        } else {
+            PackageState::Broken
+        }
+    } else {
+        PackageState::NotInstalled
+    };
+
+    // Check each host
+    let hosts = vec![
+        check_host_status("Word", "Word"),
+        check_host_status("Excel", "Excel"),
+        check_host_status("PowerPoint", "PowerPoint"),
+    ];
+
+    // Check pipe security
+    let pipe_security = match super::acl::pipe_sid() {
+        Ok(_) => PipeSecurityStatus::SidObtained,
+        Err(_) => PipeSecurityStatus::SidFailed,
+    };
+
+    // Determine recommended action
+    let action = match package_state {
+        PackageState::NotInstalled => RecommendedAction::Install,
+        PackageState::Broken => RecommendedAction::Repair,
+        PackageState::Installed => {
+            if hosts.iter().any(|h| h.state == HostInstallState::Broken) {
+                RecommendedAction::Repair
+            } else {
+                RecommendedAction::None
+            }
+        }
+        _ => RecommendedAction::None,
+    };
+
+    NativeOfficeStatus {
+        platform_supported,
+        package_state,
+        package_version: None,
+        hosts,
+        pipe_security,
+        action,
+    }
+}
+
+fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
+    let reg_key = format!(
+        r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.NativeOffice.{}",
+        office_app, host_name
+    );
+
+    // Check registry key
+    let registry_key_present = super::process::background_command("reg.exe")
+        .args(["query", &reg_key, "/v", "LoadBehavior"])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false);
+
+    // Check if Office is running
+    let office_detected = super::process::background_command("tasklist.exe")
+        .args(["/FI", &format!("IMAGENAME eq {}.exe", office_app.to_lowercase())])
+        .output()
+        .map(|out| {
+            let output = String::from_utf8_lossy(&out.stdout);
+            output.contains(&format!("{}.exe", office_app.to_lowercase()))
+        })
+        .unwrap_or(false);
+
+    // Check VSTO file exists
+    let install_root = dirs_next::data_local_dir()
+        .unwrap_or_default()
+        .join("Programs")
+        .join("LaTeXSnipper")
+        .join("NativeOffice")
+        .join(host_name);
+    let vsto_file_exists = install_root.join(format!("LaTeXSnipper.NativeOffice.{}.vsto", host_name)).exists();
+
+    // Determine state
+    let state = if !office_detected {
+        HostInstallState::OfficeNotDetected
+    } else if registry_key_present && vsto_file_exists {
+        HostInstallState::Installed
+    } else if registry_key_present || vsto_file_exists {
+        HostInstallState::Broken
+    } else {
+        HostInstallState::NotInstalled
+    };
+
+    HostInstallStatus {
+        host: host_name.to_string(),
+        office_detected,
+        registry_key_present,
+        manifest_value: None,
+        vsto_file_exists,
+        load_behavior: if registry_key_present { Some(3) } else { None },
+        connected_sessions: 0,
+        state,
+    }
+}
+
+/// Start Native Office installation via bootstrapper.
+pub fn start_native_office_install() -> Result<NativeOfficeOperationStarted, String> {
+    // Find bootstrapper executable
+    let bootstrapper = find_bootstrapper()?;
+    let operation_id = format!("install-{}", uuid_simple());
+
+    // Launch bootstrapper
+    std::process::Command::new(&bootstrapper)
+        .arg("/install")
+        .spawn()
+        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+
+    Ok(NativeOfficeOperationStarted {
+        operation_id,
+        message: "Installation started. Please follow the installer prompts.".to_string(),
+    })
+}
+
+/// Start Native Office repair via bootstrapper.
+pub fn start_native_office_repair() -> Result<NativeOfficeOperationStarted, String> {
+    let bootstrapper = find_bootstrapper()?;
+    let operation_id = format!("repair-{}", uuid_simple());
+
+    std::process::Command::new(&bootstrapper)
+        .arg("/repair")
+        .spawn()
+        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+
+    Ok(NativeOfficeOperationStarted {
+        operation_id,
+        message: "Repair started. Please follow the installer prompts.".to_string(),
+    })
+}
+
+/// Start Native Office uninstall via bootstrapper.
+pub fn start_native_office_uninstall() -> Result<NativeOfficeOperationStarted, String> {
+    let bootstrapper = find_bootstrapper()?;
+    let operation_id = format!("uninstall-{}", uuid_simple());
+
+    std::process::Command::new(&bootstrapper)
+        .arg("/uninstall")
+        .spawn()
+        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+
+    Ok(NativeOfficeOperationStarted {
+        operation_id,
+        message: "Uninstall started. Please follow the installer prompts.".to_string(),
+    })
+}
+
+/// Find the bootstrapper executable.
+fn find_bootstrapper() -> Result<PathBuf, String> {
+    // Check in app resources
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidates = [
+                exe_dir.join("resources").join("NativeOffice").join("LaTeXSnipper.NativeOffice.Bootstrapper.exe"),
+                exe_dir.join("LaTeXSnipper.NativeOffice.Bootstrapper.exe"),
+            ];
+            for p in &candidates {
+                if p.exists() {
+                    return Ok(p.clone());
+                }
+            }
+        }
+    }
+
+    // Check in install directory
+    let install_root = dirs_next::data_local_dir()
+        .unwrap_or_default()
+        .join("Programs")
+        .join("LaTeXSnipper")
+        .join("NativeOffice");
+    let bootstrapper = install_root.join("LaTeXSnipper.NativeOffice.Bootstrapper.exe");
+    if bootstrapper.exists() {
+        return Ok(bootstrapper);
+    }
+
+    Err("Bootstrapper not found. Please reinstall LaTeXSnipper.".to_string())
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", t)
+}

@@ -131,6 +131,10 @@ fn main() {
             commands::native_office::native_office_insert_reference,
             commands::native_office::native_office_request_read_selection,
             commands::native_office::native_office_request_read_table,
+            commands::native_office::native_office_status,
+            commands::native_office::native_office_install,
+            commands::native_office::native_office_repair,
+            commands::native_office::native_office_uninstall,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
