@@ -33,33 +33,25 @@ namespace LaTeXSnipper.Word.Host
                     try
                     {
                         var oMath = range.OMaths[1];
-                        var text = oMath.Range.Text?.Trim() ?? "";
                         var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
-                        // Try to get OMML from the surrounding context
-                        var oMathRange = oMath.Range;
-                        var oMathXml = oMathRange.WordOpenXML;
+                        // Get OMML from WordOpenXML
+                        var oMathXml = oMath.Range.WordOpenXML;
                         if (!string.IsNullOrEmpty(oMathXml))
                         {
-                            // Extract OMML from Word Open XML
                             var omml = ExtractOmmlFromXml(oMathXml);
-                            return new FormulaPayload
+                            if (!string.IsNullOrEmpty(omml))
                             {
-                                FormulaId = formulaId,
-                                Latex = text,
-                                Omml = omml ?? "",
-                                Display = "block"
-                            };
+                                // Return OMML only; Rust Core will convert to LaTeX
+                                return new FormulaPayload
+                                {
+                                    FormulaId = formulaId,
+                                    Omml = omml,
+                                    Latex = "",
+                                    Display = "block"
+                                };
+                            }
                         }
-
-                        // Fallback: return linear text
-                        return new FormulaPayload
-                        {
-                            FormulaId = formulaId,
-                            Latex = text,
-                            Omml = "",
-                            Display = "block"
-                        };
                     }
                     catch { }
                 }
@@ -71,14 +63,13 @@ namespace LaTeXSnipper.Word.Host
                     if (!string.IsNullOrEmpty(xml))
                     {
                         var omml = ExtractOmmlFromXml(xml);
-                        if (omml != null)
+                        if (!string.IsNullOrEmpty(omml))
                         {
-                            var text = range.Text?.Trim() ?? "";
                             return new FormulaPayload
                             {
                                 FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                                Latex = text,
                                 Omml = omml,
+                                Latex = "",
                                 Display = "block"
                             };
                         }
@@ -86,7 +77,7 @@ namespace LaTeXSnipper.Word.Host
                 }
                 catch { }
 
-                // Layer 3: Clipboard fallback (copy math zone)
+                // Layer 3: Clipboard fallback
                 if (_application.Selection.OMaths.Count > 0)
                 {
                     try
@@ -97,14 +88,13 @@ namespace LaTeXSnipper.Word.Host
                         if (!string.IsNullOrEmpty(clipXml))
                         {
                             var omml = ExtractOmmlFromXml(clipXml);
-                            if (omml != null)
+                            if (!string.IsNullOrEmpty(omml))
                             {
-                                var text = oMath.Range.Text?.Trim() ?? "";
                                 return new FormulaPayload
                                 {
                                     FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
-                                    Latex = text,
                                     Omml = omml,
+                                    Latex = "",
                                     Display = "block"
                                 };
                             }
