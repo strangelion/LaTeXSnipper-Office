@@ -70,6 +70,11 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="Ribbon\FormulaRibbon.xml">
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\Shared\LaTeXSnipper.NativeOffice.Shared.csproj">
       <Project>{A1B2C3D4-1111-2222-3333-444455556666}</Project>
       <Name>LaTeXSnipper.NativeOffice.Shared</Name>
