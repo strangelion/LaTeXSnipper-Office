@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -13,10 +13,14 @@ namespace LaTeXSnipper.Word
     {
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] ThisAddIn_Startup reached.");
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine(
+                "[LaTeXSnipper.Word] ThisAddIn_Shutdown reached.");
         }
 
         #region VSTO 生成的代码
