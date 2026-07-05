@@ -104,10 +104,11 @@
           <button id="copyMathml" class="btn" title="复制 MathML 格式">复制 MathML</button>
           <button id="copySvg" class="btn" title="复制 SVG 渲染图">复制 SVG</button>
           <button id="copyMd" class="btn md-copy-btn" title="复制为 Markdown 公式" style="display:none;">复制 MD</button>
-          <div id="officeHostSelector" style="display:none; margin-left: 8px;">
-            <select id="officeTargetHost" class="btn" style="min-width: 120px; font-size: 0.8rem;">
-              <option value="">未连接 Office</option>
-            </select>
+          <div id="officeHostSelector" class="custom-select" style="display:none; margin-left: 8px;">
+            <div class="custom-select-trigger" data-value="">
+              <span>未连接 Office</span>
+            </div>
+            <div id="officeTargetHost" class="custom-select-dropdown"></div>
           </div>
           <button id="insertToWord" class="btn office-insert-btn" title="插入到 Office" style="display:none;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>

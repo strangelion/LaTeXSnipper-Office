@@ -1666,47 +1666,60 @@ class UIController {
         if (!selector || !selectorContainer) return;
 
         if (this._sessions.length === 0) {
-          selector.innerHTML = '<option value="">未连接 Office</option>';
+          selector.innerHTML = '';
           selectorContainer.style.display = 'none';
+          this._selectedSessionId = null;
           return;
         }
 
-        selectorContainer.style.display = '';
+        selectorContainer.style.display = 'inline-block';
         selector.innerHTML = '';
 
         for (const session of this._sessions) {
-          const opt = document.createElement('option');
-          opt.value = session.session_id;
+          const opt = document.createElement('div');
+          opt.className = 'custom-select-option';
+          opt.dataset.value = session.session_id;
           opt.textContent = `${session.host_type} - ${session.document_title || '未命名'}`;
+          opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const trigger = selectorContainer.querySelector('.custom-select-trigger');
+            trigger.querySelector('span').textContent = opt.textContent;
+            trigger.dataset.value = opt.dataset.value;
+            this._selectedSessionId = opt.dataset.value;
+            selectorContainer.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            selectorContainer.classList.remove('open');
+            Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
+          });
           selector.appendChild(opt);
         }
 
-        // Auto-select if only one session
-        if (this._sessions.length === 1) {
-          selector.value = this._sessions[0].session_id;
-          this._selectedSessionId = this._sessions[0].session_id;
-        } else if (this._selectedSessionId) {
-          // Keep previous selection if still valid
-          const exists = this._sessions.find(s => s.session_id === this._selectedSessionId);
-          if (exists) {
-            selector.value = this._selectedSessionId;
-          } else {
-            this._selectedSessionId = null;
-          }
+        // Auto-select first
+        const first = selector.querySelector('.custom-select-option');
+        if (first) {
+          const trigger = selectorContainer.querySelector('.custom-select-trigger');
+          trigger.querySelector('span').textContent = first.textContent;
+          trigger.dataset.value = first.dataset.value;
+          first.classList.add('selected');
+          this._selectedSessionId = first.dataset.value;
         }
+
+        // Toggle dropdown
+        const trigger = selectorContainer.querySelector('.custom-select-trigger');
+        trigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+          selectorContainer.classList.toggle('open');
+        });
       } catch (e) {
         Logger.error('Failed to update host selector:', e);
       }
     };
 
-    // Listen for selector changes
-    const selector = document.getElementById('officeTargetHost');
-    if (selector) {
-      selector.addEventListener('change', (e) => {
-        this._selectedSessionId = e.target.value || null;
-        Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
-      });
-    }
+    // Close dropdown on outside click
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+    });
 
     // Listen for session changes
     this.initNativeOfficeEvents();
@@ -1735,7 +1748,9 @@ class UIController {
         }
 
         // Get OMML from Rust
+        console.log(`[Insert] Converting LaTeX: "${latex}"`);
         const omml = await invoke('latex_to_omml', { latex });
+        console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
         // Render SVG for Excel/PPT (Word uses OMML directly)
         let svg = null;
@@ -1771,6 +1786,7 @@ class UIController {
           }
         }
 
+        console.log(`[Insert] Sending to session ${sessionId} (${session.host_type})`);
         await invoke('native_office_insert_formula', {
           sessionId: sessionId,
           formulaId: crypto.randomUUID(),

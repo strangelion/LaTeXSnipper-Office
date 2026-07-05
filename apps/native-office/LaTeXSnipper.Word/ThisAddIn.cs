@@ -81,11 +81,13 @@ namespace LaTeXSnipper.Word
                     _syncContext.Post(_ =>
                     {
                         var contextId = _adapter.GetCurrentContextId();
+                        var doc = Application.ActiveDocument;
+                        var docTitle = doc?.Name;
                         System.Diagnostics.Debug.WriteLine(
-                            $"[LaTeXSnipper.Word] context ID: {contextId}");
+                            $"[LaTeXSnipper.Word] context ID: {contextId}, title: {docTitle}");
 
                         _ = _pipeClient.SendHostReadyAsync(
-                            _sessionId, "word", "1.0.0", contextId);
+                            _sessionId, "word", "1.0.0", contextId, docTitle);
 
                         System.Diagnostics.Debug.WriteLine(
                             "[LaTeXSnipper.Word] HOST_READY sent.");

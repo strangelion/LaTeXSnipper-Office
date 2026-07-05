@@ -42,6 +42,7 @@ pub struct OfficeSession {
     pub host_type: HostType,
     pub host_version: String,
     pub document_id: Option<String>,
+    pub document_title: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
     /// Channel to send outgoing messages to this VSTO client.
     pub writer: Option<mpsc::Sender<Vec<u8>>>,
@@ -118,10 +119,15 @@ impl SessionManager {
                     host_type: host,
                     host_version: hostVersion.clone(),
                     document_id: None,
+                    document_title: None,
                     connected_at: chrono::Utc::now(),
                     writer,  // Register the writer channel here
                 };
                 self.sessions.write().await.insert(sessionId.clone(), session);
+
+                let _ = self.app_handle.emit("native-office-session-added", serde_json::json!({
+                    "sessionId": sessionId,
+                }));
 
                 log::info!(
                     "[Session] HELLO from {} v{} (session={})",
@@ -154,6 +160,7 @@ impl SessionManager {
             } => {
                 if let Some(session) = self.sessions.write().await.get_mut(&sessionId) {
                     session.document_id = documentContextId;
+                    session.document_title = documentTitle.clone();
                     session.host_version = hostVersion;
                     log::info!(
                         "[Session] HOST_READY {} (session={}, doc={:?}, title={:?})",
@@ -162,6 +169,9 @@ impl SessionManager {
                         session.document_id,
                         documentTitle
                     );
+                    let _ = self.app_handle.emit("native-office-session-updated", serde_json::json!({
+                        "sessionId": sessionId,
+                    }));
                 }
                 ResponseEnvelope {
                     requestId: requestId.clone(),
@@ -493,6 +503,7 @@ impl SessionManager {
                 host_type: s.host_type,
                 host_version: s.host_version.clone(),
                 document_id: s.document_id.clone(),
+                document_title: s.document_title.clone(),
                 connected_at: s.connected_at,
             })
             .collect()
@@ -501,6 +512,9 @@ impl SessionManager {
     /// Remove a disconnected session.
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
+        let _ = self.app_handle.emit("native-office-session-removed", serde_json::json!({
+            "sessionId": session_id,
+        }));
         log::info!("[Session] Removed session {}", session_id);
     }
 
@@ -562,6 +576,7 @@ pub struct SessionInfo {
     pub host_type: HostType,
     pub host_version: String,
     pub document_id: Option<String>,
+    pub document_title: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
 }
 
