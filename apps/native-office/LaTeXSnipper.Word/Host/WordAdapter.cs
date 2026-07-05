@@ -1,3 +1,7 @@
+using System;
+using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.Word.Metadata;
+
 namespace LaTeXSnipper.Word.Host
 {
     internal sealed class WordAdapter
@@ -34,5 +38,149 @@ namespace LaTeXSnipper.Word.Host
 
             return "word:" + document.Name;
         }
+
+        // -----------------------------------------------------------------------
+        // OMML Insertion
+        // -----------------------------------------------------------------------
+
+        public InsertResult InsertFormula(FormulaPayload payload, InsertMode mode)
+        {
+            var doc = _application.ActiveDocument;
+            if (doc == null)
+                return new InsertResult { Success = false, Error = "No active document" };
+
+            var range = _application.Selection.Range;
+
+            try
+            {
+                string ommlXml;
+                switch (mode)
+                {
+                    case InsertMode.Inline:
+                        ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
+                        break;
+                    case InsertMode.Display:
+                        ommlXml = BuildDisplayOmml(payload.Omml, payload.FormulaId);
+                        break;
+                    case InsertMode.DisplayNumbered:
+                        ommlXml = BuildNumberedEquation(payload);
+                        break;
+                    default:
+                        ommlXml = BuildInlineOmml(payload.Omml, payload.FormulaId);
+                        break;
+                }
+
+                range.InsertXML(ommlXml);
+
+                try
+                {
+                    if (_application.Selection.OMaths.Count > 0)
+                    {
+                        _application.Selection.OMaths.BuildUp();
+                    }
+                }
+                catch { }
+
+                FormulaMetadata.Write(doc, payload.FormulaId, payload);
+
+                return new InsertResult
+                {
+                    Success = true,
+                    FormulaId = payload.FormulaId,
+                    RangeStart = (uint)range.Start,
+                    RangeEnd = (uint)range.End
+                };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = $"Insert failed: {ex.Message}"
+                };
+            }
+        }
+
+        private static string BuildInlineOmml(string omml, string formulaId)
+        {
+            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
+      <w:pPr><w:jc w:val=""center""/></w:pPr>
+      {omml}
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
+        }
+
+        private static string BuildDisplayOmml(string omml, string formulaId)
+        {
+            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:sdtPr>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
+      {omml}
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
+        }
+
+        private static string BuildNumberedEquation(FormulaPayload payload)
+        {
+            return $@"<w:tbl xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+  <w:tblPr>
+    <w:tblW w:w=""5000"" w:type=""pct""/>
+    <w:jc w:val=""center""/>
+  </w:tblPr>
+  <w:tr>
+    <w:tc><w:p><w:r><w:t></w:t></w:r></w:p></w:tc>
+    <w:tc>
+      <w:p>
+        <w:pPr><w:jc w:val=""center""/></w:pPr>
+        <w:bookmarkStart w:name=""LSNO:formula:{payload.FormulaId}"" w:id=""1""/>
+        {payload.Omml}
+        <w:bookmarkEnd w:id=""1""/>
+      </w:p>
+    </w:tc>
+    <w:tc>
+      <w:p>
+        <w:pPr><w:jc w:val=""right""/></w:pPr>
+        <w:r>
+          <w:fldChar w:fldCharType=""begin""/>
+        </w:r>
+        <w:r>
+          <w:instrText xml:space=""preserve""> SEQ LSNO \* ARABIC </w:instrText>
+        </w:r>
+        <w:r>
+          <w:fldChar w:fldCharType=""separate""/>
+        </w:r>
+        <w:r>
+          <w:t>(1)</w:t>
+        </w:r>
+        <w:r>
+          <w:fldChar w:fldCharType=""end""/>
+        </w:r>
+      </w:p>
+    </w:tc>
+  </w:tr>
+</w:tbl>";
+        }
+    }
+
+    internal sealed class InsertResult
+    {
+        public bool Success { get; set; }
+        public string FormulaId { get; set; } = "";
+        public uint? RangeStart { get; set; }
+        public uint? RangeEnd { get; set; }
+        public string Error { get; set; } = "";
     }
 }

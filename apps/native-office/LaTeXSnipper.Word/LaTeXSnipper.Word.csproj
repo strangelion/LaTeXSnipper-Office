@@ -28,6 +28,7 @@
     <AssemblyName>LaTeXSnipper.Word</AssemblyName>
     <LoadBehavior>3</LoadBehavior>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>latest</LangVersion>
     <DefineConstants>VSTO40</DefineConstants>
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <BootstrapperComponentsLocation>HomeSite</BootstrapperComponentsLocation>
@@ -231,6 +232,9 @@
       <DependentUpon>ThisAddIn.Designer.xml</DependentUpon>
     </Compile>
     <Compile Include="Host\WordAdapter.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Metadata\FormulaMetadata.cs">
       <SubType>Code</SubType>
     </Compile>
     <AppDesigner Include="Properties\" />

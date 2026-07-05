@@ -34,7 +34,6 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] WordAdapter created.");
 
-            // Start Pipe connection in background
             _ = InitializePipeAsync();
         }
 
@@ -56,12 +55,12 @@ namespace LaTeXSnipper.Word
                 System.Diagnostics.Debug.WriteLine(
                     "[LaTeXSnipper.Word] Pipe connected.");
 
-                // Start reader loop before sending HELLO
+                _pipeClient.MessageReceived += OnMessageReceived;
+
                 _ = _pipeClient.StartListeningAsync(CancellationToken.None);
                 System.Diagnostics.Debug.WriteLine(
                     "[LaTeXSnipper.Word] Pipe reader loop started.");
 
-                // Send HELLO
                 var dpapiSecret = Handshake.GetOrCreateSecret();
                 var helloOk = await _pipeClient.SendHelloAsync(
                     _sessionId, dpapiSecret, "word", "1.0.0");
@@ -77,7 +76,6 @@ namespace LaTeXSnipper.Word
 
                 _pipeConnected = true;
 
-                // Send HOST_READY on UI thread
                 if (_syncContext != null)
                 {
                     _syncContext.Post(_ =>
@@ -102,6 +100,71 @@ namespace LaTeXSnipper.Word
             }
         }
 
+        private void OnMessageReceived(object sender, DesktopMessage message)
+        {
+            if (_adapter == null) return;
+
+            _syncContext?.Post(_ =>
+            {
+                try
+                {
+                    HandleCommand(message);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.Word] Command handler error: {ex.Message}");
+                }
+            }, null);
+        }
+
+        private void HandleCommand(DesktopMessage message)
+        {
+            if (_adapter == null || _pipeClient == null) return;
+
+            if (message is DesktopDocumentCommand docCmd && !string.IsNullOrEmpty(docCmd.ExpectedContextId))
+            {
+                var currentContext = _adapter.GetCurrentContextId();
+                if (!string.IsNullOrEmpty(currentContext) &&
+                    !StringComparer.Ordinal.Equals(docCmd.ExpectedContextId, currentContext))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.Word] Context mismatch: expected={docCmd.ExpectedContextId}, current={currentContext}");
+                    _ = _pipeClient.SendAsync(new VstoHostError
+                    {
+                        RequestId = docCmd.RequestId,
+                        SessionId = docCmd.SessionId,
+                        ErrorCode = "CONTEXT_CHANGED",
+                        Error = "Document context changed since command was issued"
+                    });
+                    return;
+                }
+            }
+
+            switch (message)
+            {
+                case DesktopInsertFormula cmd:
+                {
+                    var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
+                    _ = _pipeClient.SendAsync(new VstoInsertResult
+                    {
+                        RequestId = cmd.RequestId,
+                        SessionId = cmd.SessionId,
+                        Success = result.Success,
+                        FormulaId = result.FormulaId,
+                        RangeStart = result.RangeStart,
+                        RangeEnd = result.RangeEnd,
+                        Error = result.Error
+                    });
+                    break;
+                }
+
+                case DesktopPing:
+                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] Ping received");
+                    break;
+            }
+        }
+
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
             System.Diagnostics.Debug.WriteLine(
@@ -113,10 +176,6 @@ namespace LaTeXSnipper.Word
 
         #region VSTO 生成的代码
 
-        /// <summary>
-        /// 设计器支持所需的方法 - 不要修改
-        /// 使用代码编辑器修改此方法的内容。
-        /// </summary>
         private void InternalStartup()
         {
             this.Startup += new System.EventHandler(ThisAddIn_Startup);
