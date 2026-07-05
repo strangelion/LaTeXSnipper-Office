@@ -481,14 +481,19 @@ impl SessionManager {
             .get(session_id)
             .ok_or(SendError::SessionNotFound)?;
 
+        log::info!("[Session] send_to_session: found session {}", session_id);
+
         if let Some(writer) = &session.writer {
             let frame = encode_frame(&msg);
+            log::info!("[Session] Sending {} byte frame to channel", frame.len());
             writer
                 .send(frame)
                 .await
                 .map_err(|_| SendError::ChannelClosed)?;
+            log::info!("[Session] Frame sent to channel");
             Ok(())
         } else {
+            log::warn!("[Session] No writer for session {}", session_id);
             Err(SendError::NoWriter)
         }
     }

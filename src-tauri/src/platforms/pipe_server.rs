@@ -136,10 +136,12 @@ async fn handle_client(
         loop {
             // Check if there are messages to send (non-blocking)
             while let Ok(frame) = rx.try_recv() {
+                log::info!("[Pipe] Writing {} bytes to pipe", frame.len());
                 if let Err(e) = pipe.write_all(&frame).await {
                     log::error!("[Pipe] Write error: {}", e);
                     return Err(format!("Write error: {}", e));
                 }
+                log::info!("[Pipe] Write complete");
             }
 
             // Try to read from pipe (with timeout to allow checking channel)
