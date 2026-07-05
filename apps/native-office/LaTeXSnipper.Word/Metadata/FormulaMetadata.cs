@@ -1,4 +1,5 @@
 using System;
+using System.Xml.Linq;
 using LaTeXSnipper.NativeOffice.Shared;
 
 namespace LaTeXSnipper.Word.Metadata
@@ -19,7 +20,6 @@ namespace LaTeXSnipper.Word.Metadata
     <lsno:presentation display=""{payload.Display}"" alignment=""{payload.Presentation?.Alignment ?? "center"}"" scale=""{payload.Presentation?.FontScale ?? 1.0f}"" />
   </lsno:formula>
 </lsno:noffice>";
-
                 doc.CustomXMLParts.Add(xml);
             }
             catch (Exception ex)
@@ -33,51 +33,52 @@ namespace LaTeXSnipper.Word.Metadata
             try
             {
                 var doc = range.Document;
-                int partCount = doc.CustomXMLParts.Count;
-                System.Diagnostics.Debug.WriteLine(
-                    $"[FormulaMetadata] Read: scanning {partCount} CustomXMLParts");
                 foreach (dynamic part in doc.CustomXMLParts)
                 {
                     try
                     {
-                        string ns = part.NamespaceURI ?? "";
-                        if (ns == NamespaceUri)
+                        string ns = "";
+                        try { ns = part.NamespaceURI ?? ""; } catch { }
+                        if (ns != NamespaceUri) continue;
+
+                        string partXml = "";
+                        try { partXml = part.XML ?? ""; } catch { }
+                        if (string.IsNullOrEmpty(partXml)) continue;
+
+                        var xdoc = XDocument.Parse(partXml);
+                        XName nsFormula = XName.Get("formula", NamespaceUri);
+                        var formulaNode = xdoc.Root?.Element(nsFormula);
+                        if (formulaNode == null) continue;
+
+                        var formulaId = formulaNode.Attribute("id")?.Value ?? "";
+                        var latex = formulaNode.Element(XName.Get("latex", NamespaceUri))?.Value ?? "";
+                        var ommlEl = formulaNode.Element(XName.Get("omml", NamespaceUri));
+                        var omml = "";
+                        try
                         {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[FormulaMetadata] Read: found matching part (ns={ns})");
-                            var node = part.SelectSingleNode("//lsno:formula");
-                            if (node != null)
+                            omml = System.Text.Encoding.UTF8.GetString(
+                                Convert.FromBase64String(ommlEl?.Value ?? ""));
+                        }
+                        catch { }
+                        var display = formulaNode
+                            .Element(XName.Get("presentation", NamespaceUri))
+                            ?.Attribute("display")?.Value ?? "block";
+
+                        if (!string.IsNullOrEmpty(formulaId))
+                        {
+                            return new FormulaPayload
                             {
-                                var formulaId = node.Attributes.GetNamedItem("id")?.Value;
-                                var latex = part.SelectSingleNode("//lsno:latex")?.Text ?? "";
-                                var display = part.SelectSingleNode("//lsno:presentation")?.Attributes?.GetNamedItem("display")?.Value ?? "block";
-
-                                var ommlBase64 = part.SelectSingleNode("//lsno:omml")?.Text ?? "";
-                                var omml = "";
-                                try
-                                {
-                                    omml = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ommlBase64));
-                                }
-                                catch { }
-
-                                if (!string.IsNullOrEmpty(formulaId))
-                                {
-                                    return new FormulaPayload
-                                    {
-                                        FormulaId = formulaId,
-                                        Latex = latex,
-                                        Omml = omml,
-                                        Display = display
-                                    };
-                }
-                System.Diagnostics.Debug.WriteLine(
-                    "[FormulaMetadata] Read: no matching part found");
-            }
+                                FormulaId = formulaId,
+                                Latex = latex,
+                                Omml = omml,
+                                Display = display
+                            };
                         }
                     }
-                    catch
+                    catch (Exception innerEx)
                     {
-                        // Skip parts with undeclared namespace prefixes
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[FormulaMetadata] Read part error: {innerEx.Message}");
                     }
                 }
             }
@@ -101,15 +102,21 @@ namespace LaTeXSnipper.Word.Metadata
                 for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
                 {
                     dynamic part = doc.CustomXMLParts[i];
-                    if (part.NamespaceURI == NamespaceUri)
+                    try
                     {
-                        var node = part.SelectSingleNode($"//lsno:formula[@id='{formulaId}']");
-                        if (node != null)
+                        if (part.NamespaceURI == NamespaceUri)
                         {
-                            part.Delete();
-                            break;
+                            string partXml = part.XML ?? "";
+                            var xdoc = XDocument.Parse(partXml);
+                            var formulaNode = xdoc.Root?.Element(XName.Get("formula", NamespaceUri));
+                            if (formulaNode?.Attribute("id")?.Value == formulaId)
+                            {
+                                part.Delete();
+                                break;
+                            }
                         }
                     }
+                    catch { }
                 }
             }
             catch (Exception ex)
