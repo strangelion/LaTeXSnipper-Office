@@ -1,3 +1,4 @@
+using LaTeXSnipper.NativeOffice.Shared;
 using Microsoft.Office.Tools.Ribbon;
 using System;
 
@@ -5,17 +6,24 @@ namespace LaTeXSnipper.PowerPoint
 {
     partial class FormulaRibbon
     {
-        private void btnInsertFormula_Click(object sender, RibbonControlEventArgs e)
+        private void SendToDesktop(VstoMessage msg)
         {
             if (Globals.ThisAddIn.PipeConnected)
-                System.Windows.Forms.MessageBox.Show("请使用 LaTeXSnipper Desktop 插入公式。", "LaTeXSnipper");
+                Globals.ThisAddIn.PipeClient?.SendAsync(msg);
             else
                 System.Windows.Forms.MessageBox.Show("请先启动 LaTeXSnipper Desktop。", "LaTeXSnipper");
         }
 
+        private void btnInsertFormula_Click(object sender, RibbonControlEventArgs e)
+        {
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
+        }
+
         private void btnOcrSelector_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("OCR 功能需要 LaTeXSnipper Desktop 支持。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestOcr
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnLoadSelected_Click(object sender, RibbonControlEventArgs e)
@@ -34,42 +42,48 @@ namespace LaTeXSnipper.PowerPoint
         private void btnDeleteSelected_Click(object sender, RibbonControlEventArgs e)
         {
             Globals.ThisAddIn.Adapter.DeleteCurrent();
-            System.Windows.Forms.MessageBox.Show("删除操作已执行。", "LaTeXSnipper");
+            System.Windows.Forms.MessageBox.Show("已尝试删除选中公式。", "LaTeXSnipper");
         }
 
         private void btnToOle_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnToPng_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnFormatSelected_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestFormat
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "selection" });
         }
 
         private void btnFormatAll_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestFormat
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "all" });
         }
 
         private void btnShowTaskPane_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("任务窗格功能需要 Desktop 连接。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnSettings_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("请在 LaTeXSnipper Desktop 中打开设置。", "LaTeXSnipper");
+            SendToDesktop(new VstoFocusSettings
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnHelp_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("LaTeXSnipper — 原生 Office 公式插件\n版本 1.0.0", "LaTeXSnipper");
+            System.Windows.Forms.MessageBox.Show("LaTeXSnipper v1.0.0", "LaTeXSnipper");
         }
     }
 }

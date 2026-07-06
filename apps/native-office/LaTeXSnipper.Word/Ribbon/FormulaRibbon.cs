@@ -1,3 +1,4 @@
+using LaTeXSnipper.NativeOffice.Shared;
 using Microsoft.Office.Tools.Ribbon;
 using System;
 
@@ -5,33 +6,36 @@ namespace LaTeXSnipper.Word
 {
     partial class FormulaRibbon
     {
-        private void btnInsertInline_Click(object sender, RibbonControlEventArgs e)
+        private void SendToDesktop(VstoMessage msg)
         {
             if (Globals.ThisAddIn.PipeConnected)
-                System.Windows.Forms.MessageBox.Show("请使用 LaTeXSnipper Desktop 插入行内公式。", "LaTeXSnipper");
+                Globals.ThisAddIn.PipeClient?.SendAsync(msg);
             else
                 System.Windows.Forms.MessageBox.Show("请先启动 LaTeXSnipper Desktop。", "LaTeXSnipper");
+        }
+
+        private void btnInsertInline_Click(object sender, RibbonControlEventArgs e)
+        {
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnInsertDisplay_Click(object sender, RibbonControlEventArgs e)
         {
-            if (Globals.ThisAddIn.PipeConnected)
-                System.Windows.Forms.MessageBox.Show("请使用 LaTeXSnipper Desktop 插入行间公式。", "LaTeXSnipper");
-            else
-                System.Windows.Forms.MessageBox.Show("请先启动 LaTeXSnipper Desktop。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnInsertNumbered_Click(object sender, RibbonControlEventArgs e)
         {
-            if (Globals.ThisAddIn.PipeConnected)
-                System.Windows.Forms.MessageBox.Show("请使用 LaTeXSnipper Desktop 插入编号公式。", "LaTeXSnipper");
-            else
-                System.Windows.Forms.MessageBox.Show("请先启动 LaTeXSnipper Desktop。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnOcrSelector_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("OCR 功能需要 LaTeXSnipper Desktop 支持。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestOcr
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnLoadSelected_Click(object sender, RibbonControlEventArgs e)
@@ -50,67 +54,79 @@ namespace LaTeXSnipper.Word
         private void btnDeleteSelected_Click(object sender, RibbonControlEventArgs e)
         {
             var r = Globals.ThisAddIn.Adapter.DeleteCurrent();
-            System.Windows.Forms.MessageBox.Show(r.Success ? "公式已删除。" : "删除失败: " + r.Error, "LaTeXSnipper");
+            System.Windows.Forms.MessageBox.Show(r.Success ? "公式已删除。" : "错误: " + r.Error, "LaTeXSnipper");
         }
 
         private void btnToOle_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnToOmml_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            var f = Globals.ThisAddIn.Adapter.ReadSelection();
+            var msg = f?.Omml ?? "No formula selected";
+            System.Windows.Forms.MessageBox.Show(msg.Length > 200 ? msg.Substring(0, 200) + "..." : msg, "LaTeXSnipper - OMML");
         }
 
         private void btnInsertReference_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestReference
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnAutoNumber_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestNumbering
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "auto" });
         }
 
         private void btnRenumber_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestNumbering
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "renumber" });
         }
 
         private void btnChapterBoundary_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestBoundary
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Type = "chapter" });
         }
 
         private void btnSectionBoundary_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestBoundary
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Type = "section" });
         }
 
         private void btnFormatSelected_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestFormat
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "selection" });
         }
 
         private void btnFormatAll_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("该功能尚未实现。", "LaTeXSnipper");
+            SendToDesktop(new VstoRequestFormat
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId, Action = "all" });
         }
 
         private void btnShowTaskPane_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("任务窗格功能需要 Desktop 连接。", "LaTeXSnipper");
+            SendToDesktop(new VstoOpenEditor
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnSettings_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("请在 LaTeXSnipper Desktop 中打开设置。", "LaTeXSnipper");
+            SendToDesktop(new VstoFocusSettings
+            { RequestId = Guid.NewGuid().ToString("N").Substring(0, 12), SessionId = Globals.ThisAddIn.SessionId });
         }
 
         private void btnHelp_Click(object sender, RibbonControlEventArgs e)
         {
-            System.Windows.Forms.MessageBox.Show("LaTeXSnipper — 原生 Office 公式插件\n版本 1.0.0\n使用 Desktop 应用插入和编辑公式。", "LaTeXSnipper");
+            System.Windows.Forms.MessageBox.Show("LaTeXSnipper v1.0.0\n原生 Office 公式插件\n通过 Desktop 应用插入公式。", "LaTeXSnipper");
         }
     }
 }

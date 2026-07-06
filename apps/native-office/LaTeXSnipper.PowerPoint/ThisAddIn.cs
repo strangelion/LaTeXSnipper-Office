@@ -16,6 +16,8 @@ namespace LaTeXSnipper.PowerPoint
 
         internal Host.PowerPointAdapter Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
+        internal PipeClient PipeClient => _pipeClient;
+        internal string SessionId => _sessionId;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {

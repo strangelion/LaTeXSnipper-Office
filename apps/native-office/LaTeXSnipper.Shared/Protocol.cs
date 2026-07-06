@@ -84,6 +84,25 @@ public class VstoContextChanged : VstoMessage
 }
 
 public class VstoOpenEditor : VstoMessage { }
+public class VstoFocusOcr : VstoMessage { }
+public class VstoFocusSettings : VstoMessage { }
+public class VstoRequestFormat : VstoMessage
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "selection";
+}
+public class VstoRequestNumbering : VstoMessage
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "auto";
+}
+public class VstoRequestReference : VstoMessage
+{
+    [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
+}
+public class VstoRequestOcr : VstoMessage { }
+public class VstoRequestBoundary : VstoMessage
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "chapter";
+}
 
 public class VstoReadSelection : VstoMessage
 {
