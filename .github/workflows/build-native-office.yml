@@ -52,6 +52,7 @@ jobs:
             /p:Configuration=$env:CONFIGURATION `
             /p:Platform="Any CPU" `
             /p:SignManifests=false `
+            /p:VSToolsPath="" `
             /v:minimal
 
       - name: Stage build output
