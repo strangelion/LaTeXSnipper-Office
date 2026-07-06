@@ -255,7 +255,7 @@ jobs:
         shell: pwsh
         run: |
           $toolDir = Join-Path $env:RUNNER_TEMP "wix-5"
-          dotnet tool install wix --tool-path $toolDir
+          dotnet tool install wix --tool-path $toolDir --version 5.0.3
           $wixExe = Join-Path $toolDir "wix.exe"
           if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
           $actualVersion = (& $wixExe --version | Out-String).Trim()

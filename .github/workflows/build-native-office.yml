@@ -46,12 +46,12 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      # Install pinned WiX v4.0.5 (avoid v7 resolution conflict on Runner)
+      # Install pinned WiX v5 (stable Bal extension support)
       - name: Setup WiX Toolset
         shell: pwsh
         run: |
           $toolDir = Join-Path $env:RUNNER_TEMP "wix-5"
-          dotnet tool install wix --tool-path $toolDir
+          dotnet tool install wix --tool-path $toolDir --version 5.0.3
           $wixExe = Join-Path $toolDir "wix.exe"
           if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
           $v = (& $wixExe --version | Out-String).Trim()
