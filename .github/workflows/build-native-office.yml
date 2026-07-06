@@ -46,6 +46,18 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
+      # Install Office 15.0 Primary Interop Assemblies (PIA)
+      # These provide Microsoft.Office.Core types like IRibbonExtensibility
+      - name: Install Office PIA
+        shell: pwsh
+        run: |
+          Write-Host "Installing Office 15.0 Primary Interop Assemblies..."
+          $piaUrl = "https://download.microsoft.com/download/5/A/9/5A917243-1810-4E4F-B064-3C0DE99E7F96/OfficePIA15.exe"
+          $piaInstaller = "$env:TEMP\OfficePIA15.exe"
+          Invoke-WebRequest -Uri $piaUrl -OutFile $piaInstaller -UseBasicParsing
+          Start-Process $piaInstaller -ArgumentList "/quiet /norestart" -Wait -NoNewWindow
+          Write-Host "Office PIA installed successfully"
+
       # Install WiX Toolset v4 CLI
       - name: Setup WiX Toolset v4
         run: dotnet tool install --global wix
