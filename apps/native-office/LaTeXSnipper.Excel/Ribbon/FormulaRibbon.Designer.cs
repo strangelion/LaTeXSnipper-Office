@@ -82,7 +82,6 @@ namespace LaTeXSnipper.Excel
         {
             var btn = this.Factory.CreateRibbonButton();
             btn.Label = label; btn.Name = name; btn.OfficeImageId = imageId; btn.ShowImage = true;
-            btn.ControlSize = Microsoft.Office.Tools.Ribbon.RibbonControlSize.RibbonControlSizeLarge;
             return btn;
         }
 

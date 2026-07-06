@@ -213,15 +213,10 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Settings.settings</DependentUpon>
     </Compile>
-    <Compile Include="Ribbon\FormulaRibbon.cs">
-      <SubType>Component</SubType>
+    <Compile Include="Ribbon\WordRibbonExtensibility.cs">
+      <SubType>Code</SubType>
     </Compile>
-    <Compile Include="Ribbon\FormulaRibbon.Designer.cs">
-      <DependentUpon>FormulaRibbon.cs</DependentUpon>
-    </Compile>
-    <EmbeddedResource Include="Ribbon\FormulaRibbon.resx">
-      <DependentUpon>FormulaRibbon.cs</DependentUpon>
-    </EmbeddedResource>
+    <EmbeddedResource Include="Ribbon\LaTeXSnipperRibbon.xml" />
     <Compile Include="ThisAddIn.cs">
       <SubType>Code</SubType>
     </Compile>
