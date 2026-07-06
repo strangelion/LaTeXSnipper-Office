@@ -251,61 +251,41 @@ jobs:
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
-      - name: Install WiX Toolset
-        shell: pwsh
+      - name: Build VSTO solution
         run: |
-          $toolDir = Join-Path $env:RUNNER_TEMP "wix"
-          dotnet tool install wix --tool-path $toolDir
-          $wixExe = Join-Path $toolDir "wix.exe"
-          if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
-          & $wixExe eula accept wix7
-          $actualVersion = (& $wixExe --version | Out-String).Trim()
-          Write-Host "Resolved WiX: $actualVersion"
-          "WIX_EXE=$wixExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+            "apps\native-office\LaTeXSnipper.NativeOffice.sln" `
+            /t:Build `
+            /p:Configuration=Release `
+            /p:Platform="Any CPU" `
+            /p:SignManifests=false `
+            /v:minimal
 
-      - name: Build solution and installer
-        working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -WixPath $env:WIX_EXE
-
-      - name: Sign artifacts
-        if: env.CERT_THUMBPRINT != ''
-        working-directory: apps/native-office/Installer
-        run: .\sign.ps1 -CertThumbprint "$env:CERT_THUMBPRINT" -OutputDir output
-        env:
-          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
-
-      - name: Smoke test build outputs
+      - name: Stage build output
         shell: pwsh
         run: |
           $out = "apps/native-office/Installer/output"
-          $msi = Get-ChildItem "$out" -Filter "*.msi" | Select-Object -First 1
-          $exe = Get-ChildItem "$out" -Filter "*.exe" | Select-Object -First 1
+          $staging = "$out/staging"
+          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
-          if ($msi) {
-            Write-Host "MSI found: $($msi.Name) ($([math]::Round($msi.Length/1MB,2)) MB)"
-            # Verify MSI is a valid PE file (starts with MZ header)
-            $bytes = [System.IO.File]::ReadAllBytes($msi.FullName)
-            $header = [System.Text.Encoding]::ASCII.GetString($bytes, 0, 2)
-            if ($header -eq "MZ") { Write-Host "  MSI header: valid PE" -ForegroundColor Green }
-            else { Write-Warning "MSI may not be a valid installer" }
-          } else {
-            throw "MSI not found - build failed silently"
+          foreach ($h in @("Word","Excel","PowerPoint")) {
+            $src = "apps/native-office/LaTeXSnipper.$h/bin/Release"
+            $dst = "$staging/$h"
+            if (Test-Path $src) { Copy-Item "$src/*" $dst -Recurse -Force }
           }
+          $sharedSrc = "apps/native-office/LaTeXSnipper.Shared/bin/Release"
+          $sharedDst = "$staging/Shared"
+          if (Test-Path $sharedSrc) { Copy-Item "$sharedSrc/*" $sharedDst -Recurse -Force }
 
-          if ($exe) {
-            Write-Host "Bootstrapper found: $($exe.Name) ($([math]::Round($exe.Length/1MB,2)) MB)"
-            $bytes = [System.IO.File]::ReadAllBytes($exe.FullName)
-            $header = [System.Text.Encoding]::ASCII.GetString($bytes, 0, 2)
-            if ($header -eq "MZ") { Write-Host "  EXE header: valid PE" -ForegroundColor Green }
-            else { Write-Warning "Bootstrapper may not be a valid installer" }
-          } else {
-            Write-Warning "Bootstrapper EXE not found"
+          Get-ChildItem $staging -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName.Replace($staging, ''))" -ForegroundColor Gray
           }
 
       - uses: actions/upload-artifact@v4
         with:
           name: vsto
-          path: apps/native-office/Installer/output/*
+          path: apps/native-office/Installer/output/staging/
 
   # ─────────── WPS Plugin ───────────
   wps:
@@ -497,13 +477,12 @@ jobs:
           files: |
             release/LaTeXSnipper-${{ env.VERSION }}/**/*
           generate_release_notes: true
-          body: |
+            body: |
             ## LaTeXSnipper Office v${{ env.VERSION }}
 
             ### Windows
             - **Tauri Desktop**: `windows/LaTeXSnipper*.exe` (.msi)
-            - **VSTO Add-in**: `windows/vsto/LaTeXSnipper.NativeOffice.exe`
-            - **Combined Installer**: `LaTeXSnipper-Office-${{ env.VERSION }}-Setup.exe`
+            - **VSTO Add-in**: `windows/vsto/` — DLL + .vsto 清单
             - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
             - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
 
@@ -512,6 +491,9 @@ jobs:
 
             ### Linux
             - **Tauri Desktop**: `linux/*.deb` (.rpm)
+
+            ### Office 加载项安装
+            下载 `windows/vsto/` 目录下的文件到本地，然后打开 LaTeXSnipper 桌面端 → 设置 → 开启 Office 集成，桌面端会自动注册 COM 加载项，重启 Office 生效。
 
             ### release-manifest.json
             Contains version, component list, and sizes for every release artifact.

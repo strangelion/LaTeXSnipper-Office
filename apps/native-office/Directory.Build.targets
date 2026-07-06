@@ -1,3 +1,10 @@
 <Project>
-  <!-- intentionally empty — override is per-project after VSTO import -->
+  <!--
+    Override VerifyClickOnceSigningSettings to prevent MSB4018 when
+    Microsoft.VisualStudio.Tools.Applications.Hosting assembly is not
+    in the GAC (e.g. GitHub Actions runner with VS Build Tools only).
+    Using Condition="false" ensures the target body never executes,
+    regardless of MSBuild import order.
+  -->
+  <Target Name="VerifyClickOnceSigningSettings" Condition="false" />
 </Project>

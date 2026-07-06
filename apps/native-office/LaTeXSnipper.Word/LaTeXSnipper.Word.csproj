@@ -233,9 +233,7 @@
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
-  <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != ''" />
-  <!-- Skip VSTO ClickOnce verification when hosting assembly is missing (CI) -->
-  <Target Name="VerifyClickOnceSigningSettings" />
+  <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != '' AND Exists('$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets') AND Exists('$(GAC_MSIL)\Microsoft.VisualStudio.Tools.Applications.Hosting\10.0.0.0__b03f5f7f11d50a3a\Microsoft.VisualStudio.Tools.Applications.Hosting.dll')" />
   <!-- This section defines VSTO properties that describe the host-changeable project properties. -->
   <ProjectExtensions>
     <VisualStudio>

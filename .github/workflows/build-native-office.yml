@@ -35,93 +35,66 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # Setup MSBuild in PATH (from Visual Studio Build Tools)
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # Restore NuGet packages (System.Text.Json for Shared library)
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      # Install pinned WiX v5 (stable Bal extension support)
-      - name: Setup WiX Toolset
+      - name: Build VSTO solution
+        run: |
+          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
+            "$env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln" `
+            /t:Build `
+            /p:Configuration=$env:CONFIGURATION `
+            /p:Platform="Any CPU" `
+            /p:SignManifests=false `
+            /v:minimal
+
+      - name: Stage build output
         shell: pwsh
         run: |
-          $toolDir = Join-Path $env:RUNNER_TEMP "wix"
-          dotnet tool install wix --tool-path $toolDir
-          $wixExe = Join-Path $toolDir "wix.exe"
-          if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
-          & $wixExe eula accept wix7
-          $v = (& $wixExe --version | Out-String).Trim()
-          Write-Host "Resolved WiX: $v"
-          "WIX_EXE=$wixExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $out = "$env:SOLUTION_DIR\Installer\output"
+          $staging = "$out\staging"
+          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
-      # Build MSI installer + Bootstrapper EXE (auto-generates dev PFX)
-      - name: Build Installer (MSI + Bundle)
-        working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output -WixPath $env:WIX_EXE
-
-      # Sign artifacts if a code signing certificate thumbprint is provided
-      - name: Sign artifacts
-        if: env.CERT_THUMBPRINT != ''
-        working-directory: apps/native-office/Installer
-        run: .\sign.ps1 -CertThumbprint "$env:CERT_THUMBPRINT" -OutputDir output
-        env:
-          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
-
-      # Verify signing when cert is configured
-      - name: Verify signatures
-        if: env.CERT_THUMBPRINT != ''
-        shell: pwsh
-        run: |
-          Get-ChildItem apps/native-office/Installer/output -Recurse -Include "*.msi","*.exe","*.dll" | ForEach-Object {
-            $sig = Get-AuthenticodeSignature $_.FullName
-            if ($sig.Status -ne "Valid") {
-              Write-Warning "$($_.Name): $($sig.Status)"
-            } else {
-              Write-Host "$($_.Name): Signed ✓"
-            }
+          foreach ($h in @("Word","Excel","PowerPoint")) {
+            $src = "$env:SOLUTION_DIR\LaTeXSnipper.$h\bin\$env:CONFIGURATION"
+            $dst = "$staging\$h"
+            if (Test-Path $src) { Copy-Item "$src\*" $dst -Recurse -Force }
           }
-        env:
-          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
+          $sharedSrc = "$env:SOLUTION_DIR\LaTeXSnipper.Shared\bin\$env:CONFIGURATION"
+          $sharedDst = "$staging\Shared"
+          if (Test-Path $sharedSrc) { Copy-Item "$sharedSrc\*" $sharedDst -Recurse -Force }
 
-      # Upload build artifacts
-      - name: Upload artifacts
+          Get-ChildItem $staging -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName.Replace($staging, ''))" -ForegroundColor Gray
+          }
+
+      - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
-          path: |
-            apps/native-office/Installer/output/*.msi
-            apps/native-office/Installer/output/*.exe
+          path: apps/native-office/Installer/output/staging/
 
-      # Create GitHub Release on tag push
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/native-office-v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          files: |
-            apps/native-office/Installer/output/*.msi
-            apps/native-office/Installer/output/*.exe
+          files: apps/native-office/Installer/output/staging/**/*
           generate_release_notes: true
           body: |
             ## LaTeXSnipper Native Office VSTO ${{ github.ref_name }}
 
-            ### 下载
-            - **`LaTeXSnipper.NativeOffice.exe`** — 引导安装程序（推荐，自动检查 .NET 4.8 + VSTO Runtime）
-            - **`LaTeXSnipper.NativeOffice.msi`** — MSI 安装包
+            VSTO DLL 包（.vsto / .dll.manifest / .dll）。
 
-            ### 安装说明
-            1. 运行 `LaTeXSnipper.NativeOffice.exe`
-            2. 引导程序自动安装 .NET Framework 4.8 和 VSTO Runtime（如缺少）
-            3. 安装完成后重启 Word / Excel / PowerPoint
-
-            ### 所含组件
-            - LaTeXSnipper.Word — Word COM 加载项
-            - LaTeXSnipper.Excel — Excel COM 加载项
-            - LaTeXSnipper.PowerPoint — PowerPoint COM 加载项
-            - LaTeXSnipper.Shared — 共享协议库（Pipe 通信）
+            ### 使用方式
+            1. 下载到本地
+            2. 打开 LaTeXSnipper 桌面端 → 设置 → 开启 Office 集成
+            3. 桌面端自动注册 COM 加载项，重启 Office 生效
