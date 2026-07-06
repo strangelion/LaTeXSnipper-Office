@@ -55,8 +55,8 @@ jobs:
             else
               NEW="$MAJOR.$MINOR.$((PATCH+1))"
             fi
-            sed -i "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" $CONF
-            sed -i "s/^version = .*/version = \"$NEW\"/" $CARGO
+            perl -pi -e "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" $CONF
+            perl -pi -e "s/^version = .*/version = \"$NEW\"/" $CARGO
             echo "Bumped $OLD -> $NEW"
           else
             NEW=$(grep '"version"' $CONF | head -1 | sed 's/.*"\(.*\)".*/\1/')

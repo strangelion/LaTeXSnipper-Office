@@ -137,8 +137,8 @@ jobs:
       - name: Inject version
         shell: bash
         run: |
-          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
-          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build
@@ -179,8 +179,8 @@ jobs:
       - name: Inject version
         shell: bash
         run: |
-          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
-          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build --target aarch64-apple-darwin
@@ -223,8 +223,8 @@ jobs:
       - name: Inject version
         shell: bash
         run: |
-          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
-          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build
@@ -340,7 +340,7 @@ jobs:
         working-directory: apps/obsidian-plugin
         shell: bash
         run: |
-          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' manifest.json
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' manifest.json
           echo "Obsidian manifest version set to $VERSION"
 
       - name: Install deps

@@ -56,7 +56,7 @@ jobs:
         shell: bash
         run: |
           ver="${{ github.event.inputs.version }}"
-          sed -i 's/"version": ".*"/"version": "'"$ver"'"/' manifest.json
+          perl -pi -e 's/"version": ".*"/"version": "'"$ver"'"/' manifest.json
           echo "Version set to $ver"
 
       - name: Install dependencies
