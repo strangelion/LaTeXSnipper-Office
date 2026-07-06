@@ -1,6 +1,0 @@
-<Project>
-  <!-- When SkipSigning is true (CI builds), add useofficeinterop to DefineConstants -->
-  <PropertyGroup Condition="'$(SignManifests)' == 'false'">
-    <DefineConstants>$(DefineConstants);useofficeinterop</DefineConstants>
-  </PropertyGroup>
-</Project>
