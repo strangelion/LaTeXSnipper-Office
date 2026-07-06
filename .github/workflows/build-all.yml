@@ -107,7 +107,7 @@ jobs:
 
   # ─────────── Tauri Desktop (Windows) ───────────
   tauri-windows:
-    needs: [prepare, office-addin]
+    needs: [prepare, office-addin, vsto]
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -122,6 +122,13 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with: { name: office-addin }
+
+      # Download VSTO build output so stage-resources can bundle it
+      - name: Download VSTO artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vsto
+          path: apps/native-office/Installer/output/staging
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }

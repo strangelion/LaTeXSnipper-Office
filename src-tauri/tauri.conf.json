@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:2100",
     "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build:office-addin && npm run build:vite"
+    "beforeBuildCommand": "npm run build:office-addin && npm run build:vite && pwsh -File scripts/stage-resources.ps1"
   },
   "app": {
     "windows": [
@@ -31,7 +31,9 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/OfficeJS/**/*"
+      "resources/OfficeJS/**/*",
+      "resources/WPS/**/*",
+      "resources/NativeOffice/**/*"
     ],
     "windows": {
       "webviewInstallMode": {

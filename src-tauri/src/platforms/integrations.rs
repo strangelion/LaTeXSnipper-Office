@@ -64,6 +64,7 @@ impl PlatformIntegrationResult {
 #[tauri::command]
 pub async fn install_platform_integration(platform_id: String) -> PlatformIntegrationResult {
     let fallback_platform = platform_id.clone();
+    // Run on blocking thread pool — never blocks the Tauri main/UI thread
     tauri::async_runtime::spawn_blocking(move || install_platform_integration_sync(platform_id))
         .await
         .unwrap_or_else(|err| {
@@ -1364,6 +1365,13 @@ fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathB
     let mut candidates = Vec::new();
     candidates.push(native_office_install_root().join(host_name).join(vsto_file));
 
+    // Bundled resources (production Tauri install)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("resources").join("NativeOffice").join(host_name).join(vsto_file));
+        }
+    }
+
     if let Some(root) = repo_root_from_manifest() {
         candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Release").join(vsto_file));
         candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Debug").join(vsto_file));
@@ -1954,7 +1962,16 @@ module.exports = { activate, deactivate };
 }
 
 fn wps_addin_source_dir() -> Option<PathBuf> {
-    // Primary: LaTeXSnipper-Office repo (monorepo layout)
+    // Primary: bundled resources (production Tauri install)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join("resources").join("WPS");
+            if bundled.exists() {
+                return Some(bundled);
+            }
+        }
+    }
+    // Secondary: LaTeXSnipper-Office repo (monorepo layout)
     if let Some(root) = repo_root_from_manifest() {
         let dir = root.join("apps").join("wps").join("installer");
         if dir.exists() {

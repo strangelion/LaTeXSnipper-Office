@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnAddinLoad">
+    <ribbon startFromScratch="false">
+        <tabs>
+            <tab id="LaTeXSnipperTab" label="LaTeXSnipper" insertAfterMso="TabHome">
+                <group id="FormulaGroup" label="公式">
+                    <button id="btnInsertInline" onAction="OnAction" label="行内公式" size="large" image="images/insert_inline.svg"/>
+                    <button id="btnInsertDisplay" onAction="OnAction" label="独立公式" size="large" image="images/insert_display.svg"/>
+                    <button id="btnInsertNumbered" onAction="OnAction" label="编号公式" size="large" image="images/insert_numbered.svg"/>
+                </group>
+                <group id="ToolGroup" label="工具">
+                    <button id="btnScreenshotOcr" onAction="OnAction" label="截图识别" size="large" image="images/screenshot_ocr.svg"/>
+                    <button id="btnLoadSelected" onAction="OnAction" label="加载选中" size="large" image="images/load_selected.svg"/>
+                    <button id="btnDeleteSelected" onAction="OnAction" label="删除选中" size="large" image="images/delete_selected.svg"/>
+                </group>
+                <group id="ManageGroup" label="管理">
+                    <button id="btnAutoNumber" onAction="OnAction" label="自动编号" size="large" image="images/auto_number.svg"/>
+                    <button id="btnRenumber" onAction="OnAction" label="重新编号" size="large" image="images/renumber.svg"/>
+                </group>
+                <group id="SettingGroup" label="设置">
+                    <button id="btnShowTaskPane" onAction="OnAction" label="公式面板" size="large" image="images/task_pane.svg"/>
+                    <button id="btnSettings" onAction="OnAction" label="设置" size="large" image="images/settings.svg"/>
+                    <button id="btnHelp" onAction="OnAction" label="帮助" size="large" image="images/help.svg"/>
+                </group>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>
