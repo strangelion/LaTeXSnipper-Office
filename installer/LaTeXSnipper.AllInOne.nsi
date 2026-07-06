@@ -65,6 +65,32 @@ LangString DESC_SecObsidian ${LANG_ENGLISH} "Obsidian plugin for formula inserti
   !insertmacro MUI_DESCRIPTION_TEXT ${SecObsidian} $(DESC_SecObsidian)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
+; ──── Uninstall ──────────────────────────────────────────────────────
+
+Section "Uninstall"
+  ; Remove VSTO add-ins (if present)
+  IfFileExists "$INSTDIR\vsto\${VSTO_INSTALLER}" 0 skip_vsto_uninstall
+    DetailPrint "Uninstalling VSTO add-ins..."
+    ExecWait '"$INSTDIR\vsto\${VSTO_INSTALLER}" /quiet /norestart'
+  skip_vsto_uninstall:
+  RMDir /r "$INSTDIR\vsto"
+
+  ; Remove WPS plugin and clean publish.xml
+  IfFileExists "$INSTDIR\plugins\${WPS_PLUGIN_ZIP}" 0 skip_wps_cleanup
+    DetailPrint "Removing WPS plugin..."
+  skip_wps_cleanup:
+  Delete "$INSTDIR\plugins\${WPS_PLUGIN_ZIP}"
+
+  ; Remove Obsidian plugin zip
+  Delete "$INSTDIR\plugins\${OBSIDIAN_PLUGIN_ZIP}"
+
+  ; Remove remaining files
+  RMDir /r "$INSTDIR\plugins"
+  RMDir /r "$INSTDIR"
+
+  DetailPrint "Uninstall complete."
+SectionEnd
+
 ; Modern UI
 !include "MUI2.nsh"
 !insertmacro MUI_PAGE_WELCOME
@@ -73,4 +99,6 @@ LangString DESC_SecObsidian ${LANG_ENGLISH} "Obsidian plugin for formula inserti
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"

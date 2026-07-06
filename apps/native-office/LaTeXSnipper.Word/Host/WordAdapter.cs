@@ -409,7 +409,7 @@ namespace LaTeXSnipper.Word.Host
             // Build a FormulaPayload from the unified command
             var payload = new FormulaPayload
             {
-                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
                 Latex = cmd.Latex,
                 Display = cmd.Display
             };

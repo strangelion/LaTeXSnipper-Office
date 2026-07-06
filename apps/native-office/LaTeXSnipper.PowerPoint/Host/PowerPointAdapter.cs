@@ -84,7 +84,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 {
                     return new FormulaPayload
                     {
-                        FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
                         Latex = text,
                         Display = "inline"
                     };
@@ -169,7 +169,7 @@ namespace LaTeXSnipper.PowerPoint.Host
         {
             var payload = new FormulaPayload
             {
-                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
                 Latex = cmd.Latex,
                 Display = cmd.Display
             };

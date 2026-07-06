@@ -76,25 +76,40 @@ pub async fn install_platform_integration(platform_id: String) -> PlatformIntegr
 }
 
 pub(crate) fn install_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
-    // For office, install Native Office VSTO add-ins
-    if platform_id == "office" {
-        install_native_office_vsto()
-    } else {
-        match platform_id.as_str() {
-            "obsidian" => install_obsidian(),
-            "vscode" => install_vscode(),
-            "wps" => install_wps(),
-            "typora" => install_clipboard_platform(
-                "typora",
-                "Typora uses Markdown math via clipboard: inline $...$ or display $$...$$.",
-            ),
-            "notion" => install_clipboard_platform(
-                "notion",
-                "Notion has no local plugin API. LaTeXSnipper will use clipboard equations for Notion.",
-            ),
-            "libreoffice" => install_libreoffice(),
-            other => PlatformIntegrationResult::fail(other, "unknown", "Unsupported platform."),
+    match platform_id.as_str() {
+        // Office install modes
+        "office" => install_native_office_vsto(),
+        "office-web" => install_office_js_addin(),
+        "office-native" => install_native_office_vsto(),
+        "office-hybrid" => {
+            let vsto = install_native_office_vsto();
+            let web = install_office_js_addin();
+            if !vsto.success {
+                return vsto;
+            }
+            if !web.success {
+                return web;
+            }
+            PlatformIntegrationResult::ok(
+                "office",
+                "hybrid",
+                "Installed both Office.js Add-in (Word/Excel/PPT Taskpane) and Native VSTO.",
+                true,
+            )
         }
+        "obsidian" => install_obsidian(),
+        "vscode" => install_vscode(),
+        "wps" => install_wps(),
+        "typora" => install_clipboard_platform(
+            "typora",
+            "Typora uses Markdown math via clipboard: inline $...$ or display $$...$$.",
+        ),
+        "notion" => install_clipboard_platform(
+            "notion",
+            "Notion has no local plugin API. LaTeXSnipper will use clipboard equations for Notion.",
+        ),
+        "libreoffice" => install_libreoffice(),
+        other => PlatformIntegrationResult::fail(other, "unknown", "Unsupported platform."),
     }
 }
 
@@ -117,6 +132,12 @@ pub(crate) fn uninstall_platform_integration_sync(
 ) -> PlatformIntegrationResult {
     match platform_id.as_str() {
         "office" => uninstall_native_office_vsto(),
+        "office-web" => uninstall_office_addin(),
+        "office-native" => uninstall_native_office_vsto(),
+        "office-hybrid" => {
+            let _ = uninstall_native_office_vsto();
+            uninstall_office_addin()
+        }
         "obsidian" => remove_generated_dir("obsidian", "plugin", obsidian_staging_dir()),
         "vscode" => remove_generated_dir("vscode", "plugin", vscode_extension_dir()),
         "wps" => uninstall_wps(),

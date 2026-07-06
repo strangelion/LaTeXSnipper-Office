@@ -66,11 +66,11 @@ export class OfficeHostAdapter implements HostAdapter {
 
       // ── Table ─────────────────────────────────────────────────────
       case "DetectTable":
-        return { ok: true, data: "{}" }; // placeholder, full table support TBD
+        return { ok: false, error: "DetectTable not implemented in Office.js (no table structure extraction available)" }; // placeholder, full table support TBD
 
       // ── Formatting ────────────────────────────────────────────────
       case "FormatContent":
-        return { ok: true }; // formatting applied client-side via OOXML
+        return { ok: false, error: "FormatContent not implemented (formatting applied client-side via OOXML, not via adapter)" };
 
       // ── UI ────────────────────────────────────────────────────────
       case "OpenEditor":
