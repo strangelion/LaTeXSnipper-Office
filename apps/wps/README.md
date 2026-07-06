@@ -1,6 +1,8 @@
 # LaTeXSnipper WPS 插件
 
-LaTeX 公式插入 WPS Office 插件，支持 WPS 文字和 WPS 演示。
+LaTeX 公式插入 WPS Office 插件，当前仅支持 WPS 文字。
+
+> **注意**：WPS 演示（WPP）尚未实现，仅提供文本插入能力。
 
 ## 功能
 
@@ -13,8 +15,8 @@ LaTeX 公式插入 WPS Office 插件，支持 WPS 文字和 WPS 演示。
 
 ## 环境要求
 
-- **Node.js** 18+（安装包内含自动下载逻辑）
-- **WPS Office** 2019+（需支持 JSAddIn）
+- **Node.js** 18+（server.js / proxy.js 运行需要）
+- **WPS Office** 2019+（需支持 JSAddIn，仅 WPS 文字）
 - **LaTeXSnipper Bridge**（桌面应用，提供公式渲染服务）
 
 ## 项目结构

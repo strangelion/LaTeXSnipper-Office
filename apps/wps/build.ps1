@@ -21,6 +21,13 @@ $DistDir = Join-Path $OutputDir $FullVersion
 if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Path $DistDir -Force
 
+# Inject version into manifest.xml before copying
+Write-Host "`nInjecting version $Version into manifest.xml..." -ForegroundColor Cyan
+$manifestPath = Join-Path $ScriptDir "manifest.xml"
+$manifest = Get-Content $manifestPath -Raw
+$manifest = $manifest -replace '<Version>.*?</Version>', "<Version>$Version</Version>"
+Set-Content -Path $manifestPath -Value $manifest -NoNewline
+
 # Copy plugin files
 Write-Host "`nCopying plugin files..." -ForegroundColor Cyan
 

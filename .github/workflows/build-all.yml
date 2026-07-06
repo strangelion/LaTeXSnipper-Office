@@ -71,6 +71,25 @@ jobs:
         working-directory: apps/office-addin
         run: npm ci
 
+      - name: Inject version into Office manifests
+        shell: bash
+        run: |
+          ver="${{ needs.prepare.outputs.version }}"
+          ver4="${ver}.0"
+          for f in apps/office-addin/manifests/*.xml; do
+            if [ -f "$f" ]; then
+              sed -i "s|<Version>.*</Version>|<Version>${ver4}</Version>|" "$f"
+            fi
+          done
+          echo "Office manifests version set to ${ver4}"
+
+      - name: Validate Office manifests
+        working-directory: apps/office-addin
+        run: |
+          npm run validate:word
+          npm run validate:excel
+          npm run validate:powerpoint
+
       - name: Build
         working-directory: apps/office-addin
         run: npm run build

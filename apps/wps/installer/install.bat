@@ -70,6 +70,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     $el.SetAttribute('addonType','wps'); ^
     $el.SetAttribute('online','false'); ^
     $el.SetAttribute('enable','enable_dev'); ^
+    $el.SetAttribute('url','http://127.0.0.1:8080/'); ^
     $root.AppendChild($el) ^
   }; ^
   $xml.Save('%PUBLISH_XML%')
@@ -78,9 +79,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo [4/4] Creating launcher...
 (
 echo @echo off
-echo start "" "wps.exe"
 echo start "" /B node "%%~dp0proxy.js"
 echo start "" /B node "%%~dp0server.js"
+echo timeout /t 2 /nobreak ^>nul
+echo start "" "wps.exe"
 ) > "%PLUGIN_DIR%\start.bat"
 
 echo.
