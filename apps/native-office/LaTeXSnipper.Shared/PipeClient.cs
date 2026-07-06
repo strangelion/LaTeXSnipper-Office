@@ -72,6 +72,36 @@ public class PipeClient : IDisposable
     }
 
     /// <summary>
+    /// Send a message without waiting for a response (fire-and-forget).
+    /// Used for result/event messages that do not expect a reply.
+    /// </summary>
+    public async Task SendOnlyAsync(VstoMessage message, CancellationToken ct = default)
+    {
+        if (_pipe == null || !_connected)
+            return;
+
+        try
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(message, message.GetType());
+            var payload = System.Text.Encoding.UTF8.GetBytes(json);
+            var lenBytes = BitConverter.GetBytes(payload.Length);
+
+            lock (_writeLock)
+            {
+                _pipe.Write(lenBytes, 0, 4);
+                _pipe.Write(payload, 0, payload.Length);
+                _pipe.Flush();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PipeClient] SendOnly failed: {ex.Message}");
+            _connected = false;
+            Disconnected?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    /// <summary>
     /// Send a message to the Desktop and wait for a response.
     /// Uses requestId to match responses.
     /// </summary>

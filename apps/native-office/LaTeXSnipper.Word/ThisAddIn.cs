@@ -26,7 +26,7 @@ namespace LaTeXSnipper.Word
         internal void Send(VstoMessage msg)
         {
             if (_pipeClient != null && _pipeConnected)
-                _ = _pipeClient.SendAsync(msg);
+                _pipeClient.SendOnlyAsync(msg);
         }
 
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
@@ -187,7 +187,7 @@ namespace LaTeXSnipper.Word
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[LaTeXSnipper.Word] Context mismatch: expected={docCmd.ExpectedContextId}, current={currentContext}");
-                    _ = _pipeClient.SendAsync(new VstoHostError
+                    _pipeClient.SendOnlyAsync(new VstoHostError
                     {
                         RequestId = docCmd.RequestId,
                         SessionId = docCmd.SessionId,
@@ -203,7 +203,7 @@ namespace LaTeXSnipper.Word
                 case DesktopInsertFormula cmd:
                 {
                     var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
-                    _ = _pipeClient.SendAsync(new VstoInsertResult
+                    _pipeClient.SendOnlyAsync(new VstoInsertResult
                     {
                         RequestId = cmd.RequestId,
                         SessionId = cmd.SessionId,
@@ -219,7 +219,7 @@ namespace LaTeXSnipper.Word
                 case DesktopRequestReadSelection readCmd:
                 {
                     var formula = _adapter.ReadSelection();
-                    _ = _pipeClient.SendAsync(new VstoReadSelection
+                    _pipeClient.SendOnlyAsync(new VstoReadSelection
                     {
                         RequestId = readCmd.RequestId,
                         SessionId = readCmd.SessionId,
@@ -232,7 +232,7 @@ namespace LaTeXSnipper.Word
                 case DesktopDeleteCurrent delCmd:
                 {
                     var result = _adapter.DeleteCurrent();
-                    _ = _pipeClient.SendAsync(new VstoDeleteResult
+                    _pipeClient.SendOnlyAsync(new VstoDeleteResult
                     {
                         RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
                         Success = result.Success, Error = result.Error
@@ -243,7 +243,7 @@ namespace LaTeXSnipper.Word
                 case DesktopReplaceFormula repCmd:
                 {
                     var result = _adapter.ReplaceFormula(repCmd.FormulaId, repCmd.Formula);
-                    _ = _pipeClient.SendAsync(new VstoReplaceResult
+                    _pipeClient.SendOnlyAsync(new VstoReplaceResult
                     {
                         RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
                         Success = result.Success, Error = result.Error
@@ -264,7 +264,7 @@ namespace LaTeXSnipper.Word
                 case DesktopRequestReadTable readTableCmd:
                 {
                     var table = _tableConverter.ReadSelection();
-                    _ = _pipeClient.SendAsync(new VstoReadTable
+                    _pipeClient.SendOnlyAsync(new VstoReadTable
                     {
                         RequestId = readTableCmd.RequestId,
                         SessionId = readTableCmd.SessionId,
@@ -288,7 +288,7 @@ namespace LaTeXSnipper.Word
                 System.Diagnostics.Debug.WriteLine(
                     $"[LaTeXSnipper.Word] Document changed: {contextId}");
 
-                _ = _pipeClient.SendAsync(new VstoContextChanged
+                _pipeClient.SendOnlyAsync(new VstoContextChanged
                 {
                     RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                     SessionId = _sessionId,
