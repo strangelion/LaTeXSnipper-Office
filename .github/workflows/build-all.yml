@@ -270,6 +270,13 @@ jobs:
         working-directory: apps/native-office/Installer
         run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION
 
+      - name: Sign artifacts
+        if: env.CERT_THUMBPRINT != ''
+        working-directory: apps/native-office/Installer
+        run: .\sign.ps1 -CertThumbprint "$env:CERT_THUMBPRINT" -OutputDir output
+        env:
+          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: vsto

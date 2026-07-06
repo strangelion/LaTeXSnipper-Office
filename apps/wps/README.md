@@ -95,12 +95,13 @@ pack.bat
 
 1. 下载 `dist/` 文件夹
 2. 双击 `install.bat`
-   - 自动检测 Node.js，未安装则自动下载安装
    - 自动安装插件文件到 `%AppData%\kingsoft\wps\jsaddons\`
    - 自动创建桌面快捷方式
 3. 双击桌面 **"LaTeXSnipper WPS"** 启动
    - 自动启动 server（文件服务）+ proxy（CORS 代理）
    - 自动启动 WPS Office
+
+> **前置条件**：需要 Node.js 18+ 已安装。如果未安装，请先从 [nodejs.org](https://nodejs.org/) 下载。
 
 ### 方式二：手动安装
 

@@ -76,7 +76,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   $xml.Save('%PUBLISH_XML%')
 
 :: Create launcher script
-echo [4/4] Creating launcher...
+echo [4/4] Creating launcher and desktop shortcut...
 (
 echo @echo off
 echo start "" /B node "%%~dp0proxy.js"
@@ -84,6 +84,15 @@ echo start "" /B node "%%~dp0server.js"
 echo timeout /t 2 /nobreak ^>nul
 echo start "" "wps.exe"
 ) > "%PLUGIN_DIR%\start.bat"
+
+:: Create desktop shortcut
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  $ws = New-Object -ComObject WScript.Shell; ^
+  $link = $ws.CreateShortcut( "$env:USERPROFILE\Desktop\LaTeXSnipper WPS.lnk" ); ^
+  $link.TargetPath = "%PLUGIN_DIR%\start.bat"; ^
+  $link.WorkingDirectory = "%PLUGIN_DIR%"; ^
+  $link.Description = "Start LaTeXSnipper for WPS Office"; ^
+  $link.Save()
 
 echo.
 echo ========================================

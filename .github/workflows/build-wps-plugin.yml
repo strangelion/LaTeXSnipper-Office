@@ -23,12 +23,24 @@ jobs:
   build-wps:
     runs-on: windows-latest
     env:
-      VERSION: ${{ github.event.inputs.version || '1.0.0' }}
-
+      VERSION: ${{ github.event.inputs.version || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Resolve version from tag
+        shell: bash
+        run: |
+          if [ -n "$VERSION" ]; then
+            VER="$VERSION"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/wps-v(.+)$ ]]; then
+            VER="${BASH_REMATCH[1]}"
+          else
+            VER="3.0.0"
+          fi
+          echo "VERSION=$VER" >> $GITHUB_ENV
+          echo "Version: $VER"
 
       # WPS plugin is pure JS/HTML — no npm build needed.
       # Run syntax checks before packaging.
