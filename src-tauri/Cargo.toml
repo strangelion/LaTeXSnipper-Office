@@ -1,6 +1,6 @@
 [package]
 name = "latexsnipper-office"
-version = "0.2.0"
+version = "v1.0.0"
 edition = "2021"
 description = "Independent LaTeX formula editor"
 authors = ["LaTeXSnipper"]
