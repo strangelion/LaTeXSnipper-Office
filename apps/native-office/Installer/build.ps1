@@ -45,7 +45,7 @@ function Invoke-Wix {
 
     & $script:WixExe @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "WiX command failed with exit code $LASTEXITCODE: $($Arguments -join ' ')"
+        throw "WiX command failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')"
     }
 }
 
@@ -71,7 +71,7 @@ function Stage-Directory {
         throw "$Label staging directory is empty after copy: $Destination"
     }
 
-    Write-Host "  Staged $Label: $($stagedFiles.Count) file(s)" -ForegroundColor Gray
+    Write-Host "  Staged ${Label}: $($stagedFiles.Count) file(s)" -ForegroundColor Gray
 }
 
 function Assert-RequiredFiles {
