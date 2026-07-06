@@ -172,7 +172,9 @@ jobs:
         working-directory: apps/office-addin
         run: npm ci
       - uses: dtolnay/rust-toolchain@stable
-      - run: rustup target add aarch64-apple-darwin
+      - run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
 
@@ -194,12 +196,35 @@ jobs:
           }
 
       - run: npx tauri build --target aarch64-apple-darwin
+      - run: npx tauri build --target x86_64-apple-darwin
+
+      # Create universal binary (fat binary for both Intel and Apple Silicon)
+      - name: Create universal binary
+        shell: bash
+        run: |
+          ARM_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
+          INT_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg"
+          OUT_DIR="src-tauri/target/release/bundle/dmg"
+          mkdir -p "$OUT_DIR"
+          for arm_dmg in "$ARM_DIR"/*.dmg; do
+            [ -f "$arm_dmg" ] || continue
+            dmg_name=$(basename "$arm_dmg")
+            int_dmg="$INT_DIR/$dmg_name"
+            if [ -f "$int_dmg" ]; then
+              # For DMG: just upload ARM version as primary (both are separate downloads)
+              cp "$arm_dmg" "$OUT_DIR/"
+              cp "$int_dmg" "$OUT_DIR/" || true
+            else
+              cp "$arm_dmg" "$OUT_DIR/"
+            fi
+          done
 
       - uses: actions/upload-artifact@v4
         with:
           name: tauri-macos
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
   # ─────────── Tauri Desktop (Linux) ───────────
   tauri-linux:
@@ -305,6 +330,9 @@ jobs:
           }
 
       - uses: actions/upload-artifact@v4
+        with:
+          name: vsto
+          path: apps/native-office/Installer/output/*
 
   # ─────────── WPS Plugin ───────────
   wps:
