@@ -33,8 +33,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
 
       - name: Resolve version
         id: resolve
@@ -83,8 +85,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
 
       - name: Verify submodule
         shell: pwsh
@@ -119,8 +123,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
 
       - name: Verify submodule
         run: |
@@ -153,8 +159,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
-          token: ${{ secrets.SUBMODULES_TOKEN }}
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
 
       - name: Verify submodule
         run: |
