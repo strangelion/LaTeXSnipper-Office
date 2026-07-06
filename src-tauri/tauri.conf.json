@@ -33,7 +33,8 @@
     "resources": [
       "resources/OfficeJS/**/*",
       "resources/WPS/**/*",
-      "resources/NativeOffice/**/*"
+      "resources/NativeOffice/**/*",
+      "resources/Obsidian/**/*"
     ],
     "windows": {
       "webviewInstallMode": {

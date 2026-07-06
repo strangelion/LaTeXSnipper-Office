@@ -139,7 +139,7 @@ pub(crate) fn uninstall_platform_integration_sync(
             let _ = uninstall_native_office_vsto();
             uninstall_office_addin()
         }
-        "obsidian" => remove_generated_dir("obsidian", "plugin", obsidian_staging_dir()),
+        "obsidian" => uninstall_obsidian(),
         "vscode" => remove_generated_dir("vscode", "plugin", vscode_extension_dir()),
         "wps" => uninstall_wps(),
         "typora" => remove_generated_dir(
@@ -193,12 +193,30 @@ pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIn
                 )
             }
         }
-        "obsidian" => check_path(
-            "obsidian",
-            "plugin",
-            obsidian_staging_dir(),
-            "Obsidian plugin package is prepared.",
-        ),
+        "obsidian" => {
+            let vaults = obsidian_vaults();
+            let mut installed_count = 0;
+            for vault in &vaults {
+                let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+                if plugin_dir.exists() && plugin_dir.join("main.js").exists() {
+                    installed_count += 1;
+                }
+            }
+            if installed_count > 0 {
+                PlatformIntegrationResult::ok(
+                    "obsidian",
+                    "plugin",
+                    format!("Obsidian plugin installed in {installed_count} vault(s)."),
+                    false,
+                )
+            } else {
+                PlatformIntegrationResult::fail(
+                    "obsidian",
+                    "plugin",
+                    "Obsidian plugin is not installed in any vault.",
+                )
+            }
+        }
         "vscode" => check_path(
             "vscode",
             "plugin",
@@ -1829,34 +1847,98 @@ fn obsidian_staging_dir() -> PathBuf {
         .join("latexsnipper-office")
 }
 
+fn obsidian_plugin_source() -> Option<PathBuf> {
+    // 1. Bundled resources (production Tauri install)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join("resources").join("Obsidian");
+            if bundled.join("main.js").exists() {
+                return Some(bundled);
+            }
+        }
+    }
+    // 2. Repo source (development builds)
+    if let Some(root) = repo_root_from_manifest() {
+        let dir = root.join("apps").join("obsidian-plugin");
+        if dir.join("main.js").exists() {
+            return Some(dir);
+        }
+    }
+    None
+}
+
+fn obsidian_vaults() -> Vec<PathBuf> {
+    let mut vaults = Vec::new();
+
+    // Check common vault locations
+    if let Some(home) = dirs_next::home_dir() {
+        // Obsidian default vault path
+        let default_dir = home.join("Documents").join("Obsidian");
+        if default_dir.is_dir() {
+            for entry in fs::read_dir(&default_dir).into_iter().flatten() {
+                if let Ok(e) = entry {
+                    if e.path().join(".obsidian").is_dir() {
+                        vaults.push(e.path());
+                    }
+                }
+            }
+        }
+        // Also check Desktop, Downloads for vaults
+        for folder in &["Desktop", "Documents"] {
+            let base = home.join(folder);
+            if let Ok(entries) = fs::read_dir(&base) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() && p.join(".obsidian").is_dir() && !vaults.contains(&p) {
+                        vaults.push(p);
+                    }
+                }
+            }
+        }
+    }
+
+    vaults
+}
+
 fn install_obsidian() -> PlatformIntegrationResult {
-    // Try to use built plugin from apps/obsidian-plugin first
-    let built_main_js = repo_root_from_manifest()
-        .map(|root| root.join("apps").join("obsidian-plugin").join("main.js"))
-        .filter(|p| p.exists());
-
-    let built_manifest = repo_root_from_manifest()
-        .map(|root| root.join("apps").join("obsidian-plugin").join("manifest.json"))
-        .filter(|p| p.exists());
-
-    let dir = obsidian_staging_dir();
-    if let Err(err) = fs::create_dir_all(&dir) {
+    let source = obsidian_plugin_source();
+    if source.is_none() {
         return PlatformIntegrationResult::fail(
             "obsidian",
             "plugin",
-            format!("Failed to create Obsidian plugin directory: {err}"),
+            "Obsidian plugin source not found. Build apps/obsidian-plugin first, or the plugin is not bundled in resources.",
+        );
+    }
+    let source = source.unwrap();
+
+    let vaults = obsidian_vaults();
+    if vaults.is_empty() {
+        return PlatformIntegrationResult::fail(
+            "obsidian",
+            "plugin",
+            "No Obsidian vaults found. Create a vault first, then enable the integration.",
         );
     }
 
-    // Copy built files, or generate minimal fallback
-    if let Some(src) = built_main_js {
-        let _ = fs::copy(&src, dir.join("main.js"));
-    }
-    if let Some(src) = built_manifest {
-        let _ = fs::copy(&src, dir.join("manifest.json"));
-    } else {
-        // Fallback: generate minimal manifest
-        let manifest = r#"{
+    let mut installed_to = Vec::new();
+    for vault in &vaults {
+        let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+        if let Err(err) = fs::create_dir_all(&plugin_dir) {
+            continue;
+        }
+
+        let main_js = source.join("main.js");
+        let manifest = source.join("manifest.json");
+        let styles = source.join("styles.css");
+
+        if main_js.exists() {
+            let _ = fs::copy(&main_js, plugin_dir.join("main.js"));
+        }
+        if manifest.exists() {
+            let _ = fs::copy(&manifest, plugin_dir.join("manifest.json"));
+        } else {
+            // Generate minimal manifest if source doesn't have one
+            let manifest_content = r#"{
   "id": "latexsnipper-obsidian",
   "name": "LaTeXSnipper",
   "version": "1.0.0",
@@ -1864,16 +1946,65 @@ fn install_obsidian() -> PlatformIntegrationResult {
   "description": "Insert LaTeX formulas from LaTeXSnipper into Obsidian notes.",
   "author": "LaTeXSnipper",
   "isDesktopOnly": true
-}
-"#;
-        let _ = fs::write(dir.join("manifest.json"), manifest);
+}"#;
+            let _ = fs::write(plugin_dir.join("manifest.json"), manifest_content);
+        }
+        if styles.exists() {
+            let _ = fs::copy(&styles, plugin_dir.join("styles.css"));
+        }
+
+        installed_to.push(vault.file_name().to_string_lossy().to_string());
+    }
+
+    if installed_to.is_empty() {
+        return PlatformIntegrationResult::fail(
+            "obsidian",
+            "plugin",
+            "Failed to install Obsidian plugin to any vault.",
+        );
     }
 
     PlatformIntegrationResult::ok(
         "obsidian",
         "plugin",
-        format!("Prepared Obsidian plugin at {}. This is a staging directory — you must copy it into your vault's .obsidian/plugins/ folder manually and enable it in Obsidian settings.", dir.display()),
-        false,
+        format!(
+            "Installed LaTeXSnipper plugin to {} vault(s): {}. Restart Obsidian and enable the plugin in Settings → Community plugins.",
+            installed_to.len(),
+            installed_to.join(", ")
+        ),
+        true,
+    )
+}
+
+fn uninstall_obsidian() -> PlatformIntegrationResult {
+    let vaults = obsidian_vaults();
+    let mut removed_from = Vec::new();
+
+    for vault in &vaults {
+        let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+        if plugin_dir.exists() {
+            match fs::remove_dir_all(&plugin_dir) {
+                Ok(_) => removed_from.push(vault.file_name().to_string_lossy().to_string()),
+                Err(_) => {}
+            }
+        }
+    }
+
+    // Also remove staging directory
+    let staging = obsidian_staging_dir();
+    if staging.exists() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+
+    PlatformIntegrationResult::ok(
+        "obsidian",
+        "plugin",
+        format!(
+            "Removed Obsidian plugin from {} vault(s): {}. Restart Obsidian to complete.",
+            removed_from.len(),
+            if removed_from.is_empty() { "none".to_string() } else { removed_from.join(", ") }
+        ),
+        true,
     )
 }
 

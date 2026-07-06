@@ -128,7 +128,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: vsto
-          path: apps/native-office/Installer/output/staging
+          path: _vsto_artifact
+      - name: Stage VSTO files
+        shell: pwsh
+        run: |
+          $src = "_vsto_artifact"
+          $dst = "apps/native-office/Installer/output/staging"
+          if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+          Copy-Item $src/* $dst -Recurse -Force
+          Remove-Item $src -Recurse -Force
+          Write-Host "VSTO files staged: $dst"
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
@@ -136,6 +145,12 @@ jobs:
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
         run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }

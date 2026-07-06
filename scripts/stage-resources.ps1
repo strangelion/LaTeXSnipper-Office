@@ -35,4 +35,19 @@ if (Test-Path $vstoStaging) {
     Write-Warning "  NativeOffice staging not found at $vstoStaging — skipping (run build.ps1 first)"
 }
 
+# --- Obsidian Plugin ---
+$obsidianSource = Join-Path $ProjectRoot "apps\obsidian-plugin"
+$obsidianDest = Join-Path $resourcesDir "Obsidian"
+if ((Test-Path "$obsidianSource\main.js") -and (Test-Path "$obsidianSource\manifest.json")) {
+    if (Test-Path $obsidianDest) { Remove-Item $obsidianDest -Recurse -Force }
+    New-Item -ItemType Directory -Path $obsidianDest -Force | Out-Null
+    Copy-Item "$obsidianSource\main.js" $obsidianDest
+    Copy-Item "$obsidianSource\manifest.json" $obsidianDest
+    if (Test-Path "$obsidianSource\styles.css") { Copy-Item "$obsidianSource\styles.css" $obsidianDest }
+    $fileCount = (Get-ChildItem $obsidianDest -Recurse -File).Count
+    Write-Host "  Obsidian: $fileCount files staged" -ForegroundColor Green
+} else {
+    Write-Warning "  Obsidian plugin not found at $obsidianSource — skipping (build apps/obsidian-plugin first)"
+}
+
 Write-Host "=== Resource staging complete ===" -ForegroundColor Green
