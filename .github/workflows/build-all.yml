@@ -193,6 +193,12 @@ jobs:
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
         run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
@@ -233,6 +239,12 @@ jobs:
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
         run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
       - name: Install system dependencies
         run: |
           sudo apt-get update
