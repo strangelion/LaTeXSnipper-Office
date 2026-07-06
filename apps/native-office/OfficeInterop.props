@@ -3,6 +3,11 @@
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
   </PropertyGroup>
 
+  <!-- When building without signing (CI), skip VSTO targets entirely -->
+  <PropertyGroup Condition="'$(SignManifests)' == 'false'">
+    <VSToolsPath />
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(OfficeCorePiaPath)' != '' and Exists('$(OfficeCorePiaPath)')">
     <Reference Include="Office">
       <HintPath>$(OfficeCorePiaPath)</HintPath>

@@ -259,7 +259,6 @@ jobs:
             /p:Configuration=Release `
             /p:Platform="Any CPU" `
             /p:SignManifests=false `
-            /p:VSToolsPath="" `
             /v:minimal
 
       - name: Stage build output
