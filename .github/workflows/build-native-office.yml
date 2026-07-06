@@ -61,6 +61,30 @@ jobs:
         working-directory: apps/native-office/Installer
         run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output
 
+      # Sign artifacts if a code signing certificate thumbprint is provided
+      - name: Sign artifacts
+        if: env.CERT_THUMBPRINT != ''
+        working-directory: apps/native-office/Installer
+        run: .\sign.ps1 -CertThumbprint "$env:CERT_THUMBPRINT" -OutputDir output
+        env:
+          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
+
+      # Verify signing when cert is configured
+      - name: Verify signatures
+        if: env.CERT_THUMBPRINT != ''
+        shell: pwsh
+        run: |
+          Get-ChildItem apps/native-office/Installer/output -Recurse -Include "*.msi","*.exe","*.dll" | ForEach-Object {
+            $sig = Get-AuthenticodeSignature $_.FullName
+            if ($sig.Status -ne "Valid") {
+              Write-Warning "$($_.Name): $($sig.Status)"
+            } else {
+              Write-Host "$($_.Name): Signed ✓"
+            }
+          }
+        env:
+          CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
+
       # Upload build artifacts
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

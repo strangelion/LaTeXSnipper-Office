@@ -1801,6 +1801,15 @@ fn obsidian_staging_dir() -> PathBuf {
 }
 
 fn install_obsidian() -> PlatformIntegrationResult {
+    // Try to use built plugin from apps/obsidian-plugin first
+    let built_main_js = repo_root_from_manifest()
+        .map(|root| root.join("apps").join("obsidian-plugin").join("main.js"))
+        .filter(|p| p.exists());
+
+    let built_manifest = repo_root_from_manifest()
+        .map(|root| root.join("apps").join("obsidian-plugin").join("manifest.json"))
+        .filter(|p| p.exists());
+
     let dir = obsidian_staging_dir();
     if let Err(err) = fs::create_dir_all(&dir) {
         return PlatformIntegrationResult::fail(
@@ -1810,62 +1819,32 @@ fn install_obsidian() -> PlatformIntegrationResult {
         );
     }
 
-    let manifest = r#"{
-  "id": "latexsnipper-office",
-  "name": "LaTeXSnipper Office",
+    // Copy built files, or generate minimal fallback
+    if let Some(src) = built_main_js {
+        let _ = fs::copy(&src, dir.join("main.js"));
+    }
+    if let Some(src) = built_manifest {
+        let _ = fs::copy(&src, dir.join("manifest.json"));
+    } else {
+        // Fallback: generate minimal manifest
+        let manifest = r#"{
+  "id": "latexsnipper-obsidian",
+  "name": "LaTeXSnipper",
   "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "Insert LaTeXSnipper formulas into Obsidian notes.",
+  "description": "Insert LaTeX formulas from LaTeXSnipper into Obsidian notes.",
   "author": "LaTeXSnipper",
   "isDesktopOnly": true
 }
 "#;
-    let main_js = r#"const { Plugin, Notice } = require('obsidian');
-
-module.exports = class LaTeXSnipperOfficePlugin extends Plugin {
-  async onload() {
-    this.addCommand({
-      id: 'insert-inline-formula',
-      name: 'Insert inline formula from clipboard',
-      editorCallback: async (editor) => {
-        const latex = await navigator.clipboard.readText();
-        editor.replaceRange(`$${latex}$`, editor.getCursor());
-        new Notice('Inserted inline formula');
-      }
-    });
-    this.addCommand({
-      id: 'insert-display-formula',
-      name: 'Insert display formula from clipboard',
-      editorCallback: async (editor) => {
-        const latex = await navigator.clipboard.readText();
-        editor.replaceRange(`$$\n${latex}\n$$`, editor.getCursor());
-        new Notice('Inserted display formula');
-      }
-    });
-  }
-};
-"#;
-
-    if let Err(err) = fs::write(dir.join("manifest.json"), manifest) {
-        return PlatformIntegrationResult::fail(
-            "obsidian",
-            "plugin",
-            format!("Failed to write Obsidian manifest: {err}"),
-        );
-    }
-    if let Err(err) = fs::write(dir.join("main.js"), main_js) {
-        return PlatformIntegrationResult::fail(
-            "obsidian",
-            "plugin",
-            format!("Failed to write Obsidian plugin: {err}"),
-        );
+        let _ = fs::write(dir.join("manifest.json"), manifest);
     }
 
     PlatformIntegrationResult::ok(
         "obsidian",
         "plugin",
-        format!("Prepared Obsidian plugin at {}. Copy this folder into each vault's .obsidian/plugins folder and enable it in Obsidian.", dir.display()),
-        true,
+        format!("Prepared Obsidian plugin at {}. This is a staging directory — you must copy it into your vault's .obsidian/plugins/ folder manually and enable it in Obsidian settings.", dir.display()),
+        false,
     )
 }
 

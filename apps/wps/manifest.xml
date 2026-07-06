@@ -8,11 +8,9 @@
   <ProviderName>LaTeXSnipper</ProviderName>
   <DefaultLocale>zh-CN</DefaultLocale>
   <DisplayName DefaultValue="LaTeXSnipper"/>
-  <Description DefaultValue="LaTeX formula insertion for WPS Office"/>
+  <Description DefaultValue="LaTeX formula insertion for WPS Office (Document only)"/>
   <Hosts>
     <Host Name="Document"/>
-    <Host Name="Presentation"/>
-    <Host Name="Spreadsheet"/>
   </Hosts>
   <DefaultSettings>
     <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
