@@ -45,23 +45,33 @@ if ($SkipSigning) {
     $buildArgs += "/p:SignManifests=false"
     Write-Host "  Signing: DISABLED (unsigned manifests)" -ForegroundColor Yellow
 } else {
-    # Local: use dev PFX or passed cert
+    # Local or CI: use dev PFX or passed cert
     if (-not $env:VstoManifestKeyFile) {
-        # Auto-generate a dev PFX if not provided
+        # Auto-generate a dev PFX and import to certificate store
         $devPfx = Join-Path $env:TEMP "LaTeXSnipperDev.pfx"
-        if (-not (Test-Path $devPfx)) {
-            $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
-            New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipperDev" `
-                -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Dev" `
-                -CertStoreLocation "Cert:\CurrentUser\My" `
-                -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3") `
-                | Export-PfxCertificate -FilePath $devPfx -Password $pwd
-            Write-Host "  Generated dev PFX: $devPfx" -ForegroundColor Gray
-        }
+        $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
+        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipperDev" `
+            -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Dev" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+        $cert | Export-PfxCertificate -FilePath $devPfx -Password $pwd
+        $thumbprint = $cert.Thumbprint
+        Write-Host "  Generated dev PFX: $devPfx" -ForegroundColor Gray
+        Write-Host "  Certificate thumbprint: $thumbprint" -ForegroundColor Gray
+
         $env:VstoManifestKeyFile = $devPfx
         $env:VstoManifestKeyPassword = "test"
+    } else {
+        # Thumbprint passed via env or retrieve from store
+        if ($env:VstoManifestThumbprint) {
+            $thumbprint = $env:VstoManifestThumbprint
+        } else {
+            $thumbprint = (Get-PfxCertificate -FilePath $env:VstoManifestKeyFile).Thumbprint
+        }
+        Write-Host "  Certificate thumbprint: $thumbprint" -ForegroundColor Gray
     }
     $buildArgs += "/p:SignManifests=true"
+    $buildArgs += "/p:ManifestCertificateThumbprint=$thumbprint"
     $buildArgs += "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile"
     if ($env:VstoManifestKeyPassword) {
         $buildArgs += "/p:VstoManifestKeyPassword=$env:VstoManifestKeyPassword"
