@@ -111,7 +111,10 @@ namespace LaTeXSnipper.Word.Metadata
             foreach (Microsoft.Office.Interop.Word.Paragraph para in range.Paragraphs)
             {
                 var paraRange = para.Range;
-                if (string.IsNullOrWhiteSpace(paraRange.Text))
+                // Strip end-of-cell marker (\a = char 7) and trim whitespace
+                var rawText = paraRange.Text ?? "";
+                var cleanText = rawText.TrimEnd('\r', '\n', (char)7).Trim();
+                if (string.IsNullOrEmpty(cleanText))
                     continue;
 
                 // Check for OMath in this paragraph
@@ -139,11 +142,7 @@ namespace LaTeXSnipper.Word.Metadata
                 }
                 else
                 {
-                    var text = paraRange.Text?.Trim();
-                    if (!string.IsNullOrEmpty(text))
-                    {
-                        inlines.Add(new InlineText { Text = text });
-                    }
+                    inlines.Add(new InlineText { Text = cleanText });
                 }
             }
 
