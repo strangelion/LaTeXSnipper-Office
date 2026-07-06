@@ -5,7 +5,7 @@
  * Settings and preview are provided via Obsidian's native API.
  */
 
-import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal, TextComponent } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal } from "obsidian";
 import { ObsidianAdapter, ObsidianEditorAPI, ObsidianBridgeAPI } from "./obsidian.adapter";
 import { router } from "../../core-protocol/command.router";
 
@@ -223,9 +223,13 @@ export default class LaTeXSnipperPlugin extends Plugin {
   }
 }
 
-// ─── Formula Editor Modal ────────────────────────────────────────────
+// ─── Formula Editor Modal (MathLive WYSIWYG) ─────────────────────────
+
+import "mathlive";
 
 class FormulaEditorModal extends Modal {
+  private mf!: MathfieldElement;
+
   constructor(
     app: App,
     private initial: string,
@@ -236,33 +240,62 @@ class FormulaEditorModal extends Modal {
 
   onOpen() {
     const { contentEl } = this;
+    contentEl.addClass("latexsnipper-editor-modal");
+
     contentEl.createEl("h2", { text: "LaTeX Formula Editor" });
-    contentEl.createEl("p", { text: "Enter LaTeX formula:", attr: { style: "margin-bottom:6px;font-size:13px;color:var(--text-muted)" } });
 
-    const textarea = new TextComponent(contentEl);
-    textarea.inputEl.style.cssText = "width:100%;min-height:100px;font-family:monospace;";
-    textarea.setValue(this.initial);
-    textarea.inputEl.focus();
-
-    const optionsDiv = contentEl.createDiv({ attr: { style: "margin:10px 0;display:flex;gap:12px;align-items:center;" } });
-
-    const displaySelect = optionsDiv.createEl("select");
-    displaySelect.createEl("option", { value: "inline", text: "Inline ($...$)" });
-    displaySelect.createEl("option", { value: "block", text: "Block ($$...$$)", selected: true });
-
-    const numberedLabel = optionsDiv.createEl("label");
+    // Insert/display mode bar
+    const modeRow = contentEl.createDiv({ attr: { style: "display:flex;gap:16px;align-items:center;margin-bottom:8px;" } });
+    const toggleLabel = modeRow.createEl("label", { attr: { style: "display:flex;align-items:center;gap:4px;font-size:13px;" } });
+    const toggleCb = toggleLabel.createEl("input", { attr: { type: "checkbox" } });
+  toggleLabel.appendText("Display mode ($$...$$)");
+    const numberedLabel = modeRow.createEl("label", { attr: { style: "display:flex;align-items:center;gap:4px;font-size:13px;" } });
     const numberedCb = numberedLabel.createEl("input", { attr: { type: "checkbox" } });
     numberedLabel.appendText(" Numbered");
 
-    const btnDiv = contentEl.createDiv({ attr: { style: "display:flex;gap:8px;justify-content:flex-end;" } });
+    // MathLive <math-field>
+    this.mf = contentEl.createEl("math-field", {
+      attr: {
+        style: "width:100%;min-height:140px;font-size:18px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:6px;",
+      },
+    }) as MathfieldElement;
+    this.mf.value = this.initial;
+    this.mf.addEventListener("input", () => {
+      // Update display toggle based on content
+    });
+    // Focus on open
+    setTimeout(() => this.mf.focus(), 100);
 
-    btnDiv.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+    // Virtual keyboard toggle
+    const keyboardToggle = contentEl.createEl("button", {
+      text: "Toggle virtual keyboard",
+      attr: { style: "font-size:12px;margin:4px 0 8px;padding:4px 10px;cursor:pointer;" },
+    });
+    keyboardToggle.addEventListener("click", () => {
+      (this.mf as any).virtualKeyboardMode =
+        (this.mf as any).virtualKeyboardMode === "manual" ? "off" : "manual";
+    });
+
+    // Help text
+    contentEl.createEl("p", {
+      text: "Type LaTeX directly, or use the visual toolbar and virtual keyboard.",
+      attr: { style: "font-size:12px;color:var(--text-muted);margin:2px 0 6px;" },
+    });
+
+    // Action buttons
+    const btnDiv = contentEl.createDiv({ attr: { style: "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;" } });
+    btnDiv.createEl("button", { text: "Cancel", attr: { style: "padding:6px 16px;cursor:pointer;" } })
+      .addEventListener("click", () => this.close());
     const insertBtn = btnDiv.createEl("button", {
       text: "Insert",
-      attr: { style: "background:var(--interactive-accent);color:var(--text-on-accent);border:none;padding:6px 16px;border-radius:4px;cursor:pointer;" },
+      attr: {
+        style: "background:var(--interactive-accent);color:var(--text-on-accent);border:none;padding:6px 16px;border-radius:4px;cursor:pointer;",
+      },
     });
     insertBtn.addEventListener("click", () => {
-      this.onSubmit(textarea.getValue(), displaySelect.value as "inline" | "block", numberedCb.checked);
+      const latex = this.mf.value || "";
+      const display = toggleCb.checked ? "block" : "inline";
+      this.onSubmit(latex, display, numberedCb.checked);
       this.close();
     });
   }
