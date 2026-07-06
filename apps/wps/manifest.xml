@@ -1,6 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<JsPlugin>
-  <ApiVersion>1.0.0</ApiVersion>
-  <Name>LaTeXSnipper</Name>
-  <Description>LaTeX formula plugin for WPS Office</Description>
-</JsPlugin>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/addin/2010/06"
+           xmlns:wps="http://www.wps.cn/officeApp/2018/05"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xsi:type="TaskPaneApp">
+  <Id>LaTeXSnipper.WPS</Id>
+  <Version>3.0.0</Version>
+  <ProviderName>LaTeXSnipper</ProviderName>
+  <DefaultLocale>zh-CN</DefaultLocale>
+  <DisplayName DefaultValue="LaTeXSnipper"/>
+  <Description DefaultValue="LaTeX formula insertion for WPS Office"/>
+  <Hosts>
+    <Host Name="Document"/>
+    <Host Name="Presentation"/>
+    <Host Name="Spreadsheet"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <Ribbon>
+    <Group>
+      <Control xsi:type="Button" id="InsertFormulaBtn">
+        <Label>Insert Formula</Label>
+        <Image>icons/icon.png</Image>
+        <Action xsi:type="ExecuteFunction">
+          <FunctionName>InsertFormula</FunctionName>
+        </Action>
+      </Control>
+      <Control xsi:type="Button" id="ReadSelectionBtn">
+        <Label>Read Selection</Label>
+        <Action xsi:type="ExecuteFunction">
+          <FunctionName>ReadSelection</FunctionName>
+        </Action>
+      </Control>
+    </Group>
+  </Ribbon>
+</OfficeApp>
