@@ -172,9 +172,6 @@ jobs:
         working-directory: apps/office-addin
         run: npm ci
       - uses: dtolnay/rust-toolchain@stable
-      - run: |
-          rustup target add aarch64-apple-darwin
-          rustup target add x86_64-apple-darwin
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
 
@@ -185,46 +182,13 @@ jobs:
           perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
 
-      # Ensure DirectML.dll is present for Windows builds only
-      - name: Setup DirectML (Windows only)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if (-not (Test-Path "src-tauri/resources/DirectML.dll")) {
-            # Download DirectML.dll if not in repo (should be in repo for Windows builds)
-            Write-Warning "DirectML.dll not found in resources"
-          }
-
       - run: npx tauri build --target aarch64-apple-darwin
-      - run: npx tauri build --target x86_64-apple-darwin
-
-      # Create universal binary (fat binary for both Intel and Apple Silicon)
-      - name: Create universal binary
-        shell: bash
-        run: |
-          ARM_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg"
-          INT_DIR="src-tauri/target/x86_64-apple-darwin/release/bundle/dmg"
-          OUT_DIR="src-tauri/target/release/bundle/dmg"
-          mkdir -p "$OUT_DIR"
-          for arm_dmg in "$ARM_DIR"/*.dmg; do
-            [ -f "$arm_dmg" ] || continue
-            dmg_name=$(basename "$arm_dmg")
-            int_dmg="$INT_DIR/$dmg_name"
-            if [ -f "$int_dmg" ]; then
-              # For DMG: just upload ARM version as primary (both are separate downloads)
-              cp "$arm_dmg" "$OUT_DIR/"
-              cp "$int_dmg" "$OUT_DIR/" || true
-            else
-              cp "$arm_dmg" "$OUT_DIR/"
-            fi
-          done
 
       - uses: actions/upload-artifact@v4
         with:
           name: tauri-macos
           path: |
             src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
 
   # ─────────── Tauri Desktop (Linux) ───────────
   tauri-linux:
@@ -288,7 +252,7 @@ jobs:
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
       - name: Setup WiX v4
-        run: dotnet tool install --global wix
+        run: dotnet tool install --global wix --version 4.0.5
 
       - name: Build solution and installer
         working-directory: apps/native-office/Installer
