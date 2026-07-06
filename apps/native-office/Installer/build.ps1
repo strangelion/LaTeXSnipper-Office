@@ -40,7 +40,7 @@ if ($SkipSigning) {
     $buildArgs += "/p:AssemblyOriginatorKeyFile="
     # Use pre-generated Office interop assemblies instead of COM references
     # (CI runners don't have Office installed)
-    $buildArgs += "/p:DefineConstants=VSTO40;useofficeinterop;TRACE"
+    $buildArgs += '/p:DefineConstants="VSTO40;useofficeinterop;TRACE"'
     Write-Host "  Signing: DISABLED (SkipSigning)" -ForegroundColor Yellow
     Write-Host "  Interop: using NuGet assemblies (useofficeinterop)" -ForegroundColor Yellow
 }
