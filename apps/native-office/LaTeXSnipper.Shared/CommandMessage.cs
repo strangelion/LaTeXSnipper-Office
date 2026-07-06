@@ -26,7 +26,8 @@ public abstract class CommandMessage
     public class InsertFormula : CommandMessage
     {
         [JsonPropertyName("latex")] public string Latex { get; set; } = "";
-        [JsonPropertyName("display")] public string Display { get; set; } = "inline"; // inline | block | numbered
+        [JsonPropertyName("display")] public string Display { get; set; } = "inline";
+        [JsonPropertyName("formulaId")] public string? FormulaId { get; set; }
     }
 
     public class ReplaceSelection : CommandMessage

@@ -60,6 +60,12 @@
     } catch (e) { return false; }
   }
 
+  // ─── Helpers ──────────────────────────────────────────────────────
+  var _idCounter = 0;
+  function _nextFormulaId() {
+    return 'wps-' + Date.now().toString(36) + '-' + (++_idCounter);
+  }
+
   var wpsAdapter = {
     execute: function (cmd) {
       switch (cmd.type) {
@@ -100,8 +106,6 @@
     _insertFormula: function (payload) {
       var doc = getDoc();
       if (!doc) return { ok: false, error: "No active document" };
-
-      if (isPPT()) {
         // PPT does not support OMath — caller should use InsertImage
         return { ok: false, error: "PPT requires InsertAsImage" };
       }
@@ -111,6 +115,7 @@
 
       var latex = payload.latex || "";
       if (!latex) return { ok: false, error: "Empty formula" };
+      var fid = payload.formulaId || _nextFormulaId();
 
       try {
         sel.Range.Collapse(0);

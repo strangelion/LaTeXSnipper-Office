@@ -15,7 +15,8 @@
               "type": "object",
               "properties": {
                 "latex": { "type": "string", "description": "LaTeX source" },
-                "display": { "type": "string", "enum": ["inline", "block", "numbered"], "default": "inline" }
+                "display": { "type": "string", "enum": ["inline", "block", "numbered"], "default": "inline" },
+                "formulaId": { "type": "string", "description": "Unique formula identifier for cross-host metadata roundtrip" }
               },
               "required": ["latex"]
             }

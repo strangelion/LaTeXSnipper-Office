@@ -2,7 +2,7 @@
 // All hosts implement this interface.
 
 export type Command =
-  | { type: "InsertFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered" } }
+  | { type: "InsertFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered"; formulaId?: string } }
   | { type: "ReplaceSelection"; payload: { content: string } }
   | { type: "GetSelection"; payload?: {} }
   | { type: "ConvertToOMML"; payload: { latex: string } }

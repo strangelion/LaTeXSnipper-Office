@@ -98,10 +98,12 @@ export class OfficeHostAdapter implements HostAdapter {
   private async _insertFormulaWord(payload: {
     latex: string;
     display?: string;
+    formulaId?: string;
   }): Promise<CommandResult> {
     try {
       const isNumbered = payload.display === "numbered";
       const display = payload.display === "block" || isNumbered;
+      const formulaId = payload.formulaId || crypto.randomUUID().substring(0, 12);
 
       // Step 1: Convert LaTeX to OMML via Bridge
       let omml: string | null = null;
@@ -113,24 +115,21 @@ export class OfficeHostAdapter implements HostAdapter {
           body: JSON.stringify({ latex: payload.latex, display }),
         });
         const data = await res.json();
-        if (data.success && data.omml) {
-          omml = data.omml;
-        }
-      } catch { /* fallback to text wrapping below */ }
+        if (data.success && data.omml) omml = data.omml;
+      } catch { /* fallback */ }
 
-      // Step 2: Build OOXML — use real OMML if available, else text fallback
+      // Step 2: Build OOXML with formula ID in SDT tag
       const ooxml = omml
         ? (isNumbered
-            ? this.ooxml.buildNumberedEquationOoxmlFromOmml(omml)
-            : this.ooxml.buildOoxmlFromOmml(omml, display))
-        : this.ooxml.buildFormulaOoxml(payload.latex, display);
+            ? this.ooxml.buildNumberedEquationOoxmlFromOmml(omml, formulaId)
+            : this.ooxml.buildOoxmlFromOmml(omml, display, formulaId))
+        : this.ooxml.buildFormulaOoxml(payload.latex, display, formulaId);
 
-      // Step 3: Insert into Word
       return Word.run(async (context: any) => {
         const sel = context.document.getSelection();
         sel.insertOoxml(ooxml, "Replace");
         await context.sync();
-        return { ok: true };
+        return { ok: true, data: formulaId };
       });
     } catch (e: any) {
       return { ok: false, error: `Word insert failed: ${e.message}` };

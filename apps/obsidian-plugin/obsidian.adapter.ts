@@ -37,11 +37,13 @@ export class ObsidianAdapter implements HostAdapter {
         const delim = cmd.payload.display === "block" || cmd.payload.display === "numbered"
           ? "$$" : "$";
         const latex = cmd.payload.latex;
+        const formulaId = cmd.payload.formulaId || this._nextId();
+        const meta = `<!-- LaTeXSnipper:${formulaId} -->`;
         const text = cmd.payload.display === "numbered"
-          ? `${delim}${latex}${delim} (${this.nextNumber()})`
-          : `${delim}${latex}${delim}`;
+          ? `${meta}\n${delim}${latex}${delim} (${this.nextNumber()})`
+          : `${meta}\n${delim}${latex}${delim}`;
         ed.replaceSelection(text);
-        return { ok: true };
+        return { ok: true, data: formulaId };
       }
 
       // ── Selection ─────────────────────────────────────────────────
@@ -112,5 +114,10 @@ export class ObsidianAdapter implements HostAdapter {
   private _counter = 0;
   private nextNumber(): number {
     return ++this._counter;
+  }
+
+  private _idCounter = 0;
+  private _nextId(): string {
+    return `${Date.now().toString(36)}-${++this._idCounter}`;
   }
 }
