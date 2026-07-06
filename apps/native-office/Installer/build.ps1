@@ -3,7 +3,8 @@
 
 param(
     [string]$Configuration = "Release",
-    [string]$OutputDir = ".\output"
+    [string]$OutputDir = ".\output",
+    [string]$MsBuildPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +15,18 @@ Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
 
 # Step 1: Build solution
 Write-Host "`n[1/4] Building solution..." -ForegroundColor Cyan
-& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" "$SolutionDir\LaTeXSnipper.NativeOffice.sln" /t:Build /p:Configuration=$Configuration /p:Platform="Any CPU" /v:minimal
+if (-not $MsBuildPath) {
+    # Try PATH first (e.g., GitHub Actions with setup-msbuild)
+    $msbuild = Get-Command "MSBuild.exe" -ErrorAction SilentlyContinue
+    if ($msbuild) {
+        $MsBuildPath = $msbuild.Source
+    } else {
+        # Fallback to local dev machine path
+        $MsBuildPath = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+    }
+}
+Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
+& $MsBuildPath "$SolutionDir\LaTeXSnipper.NativeOffice.sln" /t:Build /p:Configuration=$Configuration /p:Platform="Any CPU" /v:minimal
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Step 2: Collect binaries
@@ -53,7 +65,6 @@ $env:SharedBinDir = Join-Path $staging "Shared"
 $env:WordBinDir = Join-Path $staging "Word"
 $env:ExcelBinDir = Join-Path $staging "Excel"
 $env:PowerPointBinDir = Join-Path $staging "PowerPoint"
-$env:IconsDir = Join-Path $PSScriptRoot "icons"
 
 # Build MSI
 wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
@@ -61,8 +72,7 @@ wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -d SharedBinDir=$env:SharedBinDir `
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
-    -d PowerPointBinDir=$env:PowerPointBinDir `
-    -d IconsDir=$env:IconsDir
+    -d PowerPointBinDir=$env:PowerPointBinDir
 
 if ($LASTEXITCODE -ne 0) { throw "WiX build failed" }
 

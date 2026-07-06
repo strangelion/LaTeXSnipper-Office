@@ -1,0 +1,280 @@
+name: Build All (Unified Release)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 3.0.0)'
+        required: true
+        default: '3.0.0'
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  VERSION: ${{ github.event.inputs.version || '3.0.0' }}
+
+jobs:
+  # ─────────── Tauri Desktop (Windows) ───────────
+  tauri-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+
+  # ─────────── Tauri Desktop (macOS) ───────────
+  tauri-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup target add aarch64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build --target aarch64-apple-darwin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-macos
+          path: |
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+  # ─────────── Tauri Desktop (Linux) ───────────
+  tauri-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.SUBMODULES_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+      - run: npx tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+
+  # ─────────── VSTO Native Office ───────────
+  vsto:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: microsoft/setup-msbuild@v2
+      - uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet
+        run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
+
+      - name: Setup WiX v4
+        run: dotnet tool install --global wix
+
+      - name: Build solution
+        run: |
+          MSBuild.exe apps\native-office\LaTeXSnipper.NativeOffice.sln `
+            /t:Build /p:Configuration=Release /p:Platform="Any CPU" /v:minimal
+
+      - name: Build installer
+        working-directory: apps/native-office/Installer
+        run: .\build.ps1 -Configuration Release -OutputDir output
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsto
+          path: apps/native-office/Installer/output/*
+
+  # ─────────── WPS Plugin ───────────
+  wps:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Build WPS plugin
+        working-directory: apps/wps
+        run: .\build.ps1 -Version $env:VERSION -OutputDir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wps
+          path: apps/wps/dist/latexsnipper-wps_${{ env.VERSION }}.zip
+
+  # ─────────── Obsidian Plugin ───────────
+  obsidian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/obsidian-plugin/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
+
+      - name: Package
+        working-directory: apps/obsidian-plugin
+        run: |
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          $ver = (Get-Content manifest.json | ConvertFrom-Json).version
+          $d = "dist/latexsnipper-obsidian_$ver"
+          New-Item -ItemType Directory -Path $d -Force | Out-Null
+          Copy-Item main.js $d/
+          Copy-Item manifest.json $d/
+          Compress-Archive -Path "$d\*" -DestinationPath "dist/latexsnipper-obsidian_$ver.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obsidian
+          path: apps/obsidian-plugin/dist/*.zip
+
+  # ─────────── Package + Release ───────────
+  package:
+    needs: [tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+
+      - name: Organize artifacts
+        run: |
+          $ver = "${{ env.VERSION }}"
+          $release = "release/LaTeXSnipper-$ver"
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+
+          # Copy Tauri Windows
+          $tw = Get-ChildItem "artifacts/tauri-windows" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/windows" -Force
+          $tw | Copy-Item -Destination "$release/windows/" -Force
+
+          # Copy VSTO
+          $vsto = Get-ChildItem "artifacts/vsto" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/windows/vsto" -Force
+          $vsto | Copy-Item -Destination "$release/windows/vsto/" -Force
+
+          # Copy WPS
+          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
+          Copy-Item "artifacts/wps/*.zip" "$release/plugins/" -Force
+
+          # Copy Obsidian
+          Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
+
+          # Copy macOS
+          $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/macos" -Force
+          $mac | Copy-Item -Destination "$release/macos/" -Force
+
+          # Copy Linux
+          $linux = Get-ChildItem "artifacts/tauri-linux" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/linux" -Force
+          $linux | Copy-Item -Destination "$release/linux/" -Force
+
+          Write-Host "Release structure:"
+          Get-ChildItem $release -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
+          }
+
+      - name: Create combined Windows installer (if NSIS available)
+        run: |
+          $ver = "${{ env.VERSION }}"
+          $nsi = "installer/LaTeXSnipper.AllInOne.nsi"
+          if (Test-Path $nsi) {
+            $tauriExe = Get-ChildItem "release/LaTeXSnipper-$ver/windows" -Filter "*.exe" | Select-Object -First 1
+            if ($tauriExe) {
+              Write-Host "Combined NSIS installer can be built with: makensis $nsi"
+              Write-Host "Requires NSIS + MUI2 installed on runner."
+            }
+          }
+
+      - name: Upload unified release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaTeXSnipper-${{ env.VERSION }}
+          path: release/LaTeXSnipper-${{ env.VERSION }}/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          files: release/LaTeXSnipper-${{ env.VERSION }}/**/*
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper Office v${{ env.VERSION }}
+
+            ### Windows
+            - **Tauri Desktop**: `windows/LaTeXSnipper*.exe` (.msi)
+            - **VSTO Add-in**: `windows/vsto/LaTeXSnipper.NativeOffice.exe`
+            - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
+            - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
+
+            ### macOS
+            - **Tauri Desktop**: `macos/*.dmg`
+
+            ### Linux
+            - **Tauri Desktop**: `linux/*.deb` (.rpm)
+
+            ### 安装说明
+            **Windows**: 先安装 Tauri Desktop，再安装 VSTO add-in（可选）。
+            **WPS**: 解压 zip，运行 `install.bat`。
+            **Obsidian**: 解压到 `.obsidian/plugins/latexsnipper-obsidian/`。

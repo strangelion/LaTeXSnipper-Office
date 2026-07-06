@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Theme xmlns="http://wixtoolset.org/schemas/v4/thm">
+  <Window Width="500" Height="400" HexStyle="100a0000" FontId="0">
+    <Font Id="0" Height="-12" Weight="400" Foreground="000000" Background="FFFFFF">Segoe UI</Font>
+    <Font Id="1" Height="-24" Weight="700" Foreground="000000">Segoe UI Light</Font>
+    <Font Id="2" Height="-11" Weight="400" Foreground="FFFFFF">Segoe UI</Font>
+    <Page Name="Install">
+      <Text X="11" Y="20" Width="478" Height="30" FontId="1">LaTeXSnipper Native Office</Text>
+      <Hypertext Name="EulaHyperlink" X="11" Y="70" Width="478" Height="40" FontId="0" TabStop="yes" Text="Click here to view the license agreement." />
+      <Checkbox Name="EulaCheckbox" X="11" Y="120" Width="478" Height="17" FontId="0" TabStop="yes" Text="I &amp;agree to the license terms and conditions" />
+      <Button Name="InstallButton" X="280" Y="350" Width="100" Height="23" FontId="0" TabStop="yes" Text="Install">
+        <Condition Action="enable">EulaCheckbox = 1</Condition>
+        <Condition Action="disable">EulaCheckbox &lt;&gt; 1</Condition>
+      </Button>
+      <Button Name="CancelButton" X="390" Y="350" Width="100" Height="23" FontId="0" TabStop="yes" Text="Cancel">
+        <CloseWindowAction />
+      </Button>
+    </Page>
+    <Page Name="Progress">
+      <Text X="11" Y="20" Width="478" Height="30" FontId="1">Installing LaTeXSnipper Native Office...</Text>
+      <Progressbar Name="OverallProgress" X="11" Y="80" Width="478" Height="15" />
+    </Page>
+    <Page Name="Finish">
+      <Text X="11" Y="20" Width="478" Height="30" FontId="1">Installation Complete</Text>
+      <Text X="11" Y="70" Width="478" Height="60" FontId="0">LaTeXSnipper Native Office has been installed successfully. Please restart Word, Excel, and PowerPoint to load the add-ins.</Text>
+      <Button Name="FinishButton" X="280" Y="350" Width="100" Height="23" FontId="0" TabStop="yes" Text="Finish">
+        <CloseWindowAction />
+      </Button>
+      <Checkbox Name="LaunchCheckbox" X="11" Y="350" Width="250" Height="17" FontId="0" TabStop="yes" Text="Launch LaTeXSnipper" />
+    </Page>
+  </Window>
+</Theme>

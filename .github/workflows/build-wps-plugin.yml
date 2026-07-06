@@ -1,0 +1,72 @@
+name: Build WPS Plugin
+
+on:
+  push:
+    tags:
+      - 'wps-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Plugin version (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build-wps:
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ github.event.inputs.version || '1.0.0' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # WPS plugin is pure JS/HTML — no npm build needed.
+      # Run custom PowerShell build script (non-interactive, avoids wpsjs issues).
+      - name: Build WPS plugin
+        working-directory: apps/wps
+        run: .\build.ps1 -Version $env:VERSION -OutputDir dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wps-plugin-${{ env.VERSION }}
+          path: |
+            apps/wps/dist/latexsnipper-wps_${{ env.VERSION }}.zip
+            apps/wps/dist/latexsnipper-wps_${{ env.VERSION }}/
+
+      # Create GitHub Release on tag push
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/wps-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: apps/wps/dist/latexsnipper-wps_${{ env.VERSION }}.zip
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper WPS Plugin ${{ github.ref_name }}
+
+            ### 下载
+            - **`latexsnipper-wps_${{ env.VERSION }}.zip`** — 插件包
+
+            ### 安装说明
+            1. 解压 zip 文件
+            2. 双击 `install.bat` 自动安装
+            3. 重启 WPS Office
+
+            ### 所含组件
+            - 公式插入（行内/行间/编号）
+            - 公式预览（通过 LaTeXSnipper Bridge）
+            - 选中加载 / 删除
+            - 自动编号 / 重新编号
+            - 截图识别（开发中）

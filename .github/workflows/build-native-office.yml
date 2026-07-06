@@ -1,0 +1,100 @@
+name: Build Native Office VSTO
+
+on:
+  push:
+    tags:
+      - 'native-office-v*'
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration (Release/Debug)'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build-vsto:
+    runs-on: windows-latest
+    env:
+      CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
+      SOLUTION_DIR: apps/native-office
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      # Setup MSBuild in PATH (from Visual Studio Build Tools)
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # Restore NuGet packages (System.Text.Json for Shared library)
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
+
+      # Install WiX Toolset v4 CLI
+      - name: Setup WiX Toolset v4
+        run: dotnet tool install --global wix
+
+      # Build VSTO solution (Word/Excel/PowerPoint add-ins)
+      - name: Build VSTO solution
+        run: |
+          MSBuild.exe $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln `
+            /t:Build /p:Configuration=$env:CONFIGURATION /p:Platform="Any CPU" /v:minimal
+
+      # Build MSI installer + Bootstrapper EXE
+      - name: Build Installer (MSI + Bundle)
+        working-directory: apps/native-office/Installer
+        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output
+
+      # Upload build artifacts
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
+          path: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
+
+      # Create GitHub Release on tag push
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/native-office-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper Native Office VSTO ${{ github.ref_name }}
+
+            ### 下载
+            - **`LaTeXSnipper.NativeOffice.exe`** — 引导安装程序（推荐，自动检查 .NET 4.8 + VSTO Runtime）
+            - **`LaTeXSnipper.NativeOffice.msi`** — MSI 安装包
+
+            ### 安装说明
+            1. 运行 `LaTeXSnipper.NativeOffice.exe`
+            2. 引导程序自动安装 .NET Framework 4.8 和 VSTO Runtime（如缺少）
+            3. 安装完成后重启 Word / Excel / PowerPoint
+
+            ### 所含组件
+            - LaTeXSnipper.Word — Word COM 加载项
+            - LaTeXSnipper.Excel — Excel COM 加载项
+            - LaTeXSnipper.PowerPoint — PowerPoint COM 加载项
+            - LaTeXSnipper.Shared — 共享协议库（Pipe 通信）

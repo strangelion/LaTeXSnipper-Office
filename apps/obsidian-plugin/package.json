@@ -1,0 +1,15 @@
+{
+  "name": "latexsnipper-obsidian",
+  "version": "3.0.0",
+  "description": "LaTeX formula insertion and editing for Obsidian",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "lint": "eslint main.ts --ext .ts"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "obsidian": "^1.7.2",
+    "typescript": "^5.5.0"
+  }
+}

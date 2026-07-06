@@ -1,6 +1,6 @@
 import { App, Plugin, PluginSettingTab, Setting, MarkdownView } from "obsidian";
 import { ObsidianAdapter, ObsidianEditorAPI } from "./obsidian.adapter";
-import { router } from "../core-protocol/command.router";
+import { router } from "../../core-protocol/command.router";
 
 export default class LaTeXSnipperPlugin extends Plugin {
   adapter!: ObsidianAdapter;

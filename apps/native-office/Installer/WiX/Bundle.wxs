@@ -10,7 +10,6 @@
     <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
       <bal:WixStandardBootstrapperApplication
         LicenseFile="License.rtf"
-        LogoFile="Logo.png"
         ThemeFile="Theme.xml"
         xmlns:bal="http://wixtoolset.org/schemas/v4/bal" />
     </BootstrapperApplicationRef>

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+apps/obsidian-plugin/main.js
+apps/obsidian-plugin/node_modules/
 src-tauri/target/
 src-tauri/gen/
 scripts/out/
