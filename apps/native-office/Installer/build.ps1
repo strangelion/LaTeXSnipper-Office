@@ -74,6 +74,13 @@ Write-Host "`n[3/4] Building MSI installer..." -ForegroundColor Cyan
 $wixSrc = Join-Path $PSScriptRoot "WiX"
 $msiOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.msi"
 
+# Install WiX extensions if not present
+$uiExt = wix extension list 2>$null
+if ($uiExt -notmatch "WixToolset.UI.wixext") {
+    Write-Host "  Installing WiX UI extension..." -ForegroundColor Gray
+    wix extension add WixToolset.UI.wixext
+}
+
 # Set WiX variables
 $env:SharedBinDir = Join-Path $staging "Shared"
 $env:WordBinDir = Join-Path $staging "Word"
@@ -87,7 +94,8 @@ wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -d SharedBinDir=$env:SharedBinDir `
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
-    -d PowerPointBinDir=$env:PowerPointBinDir
+    -d PowerPointBinDir=$env:PowerPointBinDir `
+    -ext WixToolset.UI.wixext
 
 if ($LASTEXITCODE -ne 0) { throw "WiX build failed" }
 

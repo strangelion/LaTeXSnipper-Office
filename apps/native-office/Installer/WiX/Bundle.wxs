@@ -14,23 +14,8 @@
         xmlns:bal="http://wixtoolset.org/schemas/v4/bal" />
     </BootstrapperApplicationRef>
 
-    <!-- Detect .NET Framework 4.8 via registry (release key) -->
-    <Variable Name="NetFx48Installed" Type="numeric" Value="0" />
-    <SetVariable Name="NetFx48Installed" Value="1"
-      After="DetectNetFx48" />
+    <!-- Detect .NET Framework 4.8 via registry -->
     <Chain>
-      <ExePackage Id="DetectNetFx48" SourceFile="dummy.exe"
-                  DetectCondition="NetFx48Installed"
-                  InstallCommand="/q /norestart"
-                  Permanent="yes" Vital="no" Cache="no" >
-        <!-- Registry detection: .NET 4.8 release key -->
-        <RegistrySearch Id="NetFx48ReleaseKey" Root="HKLM"
-          Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
-          ValueName="Release" Result="value" />
-        <ExitCode Value="0" Result="Success" />
-      </ExePackage>
-
-      <!-- Install .NET 4.8 if not detected -->
       <ExePackage Id="NetFx48"
                   Cache="yes"
                   PerMachine="yes"
@@ -43,21 +28,6 @@
         <ExitCode Value="1641" Result="Success" />
         <ExitCode Value="3010" Result="Success" />
         <ExitCode Value="5100" Result="Failure" />
-      </ExePackage>
-
-      <!-- Detect VSTO Runtime via registry -->
-      <Variable Name="VstoRuntimeInstalled" Type="numeric" Value="0" />
-      <SetVariable Name="VstoRuntimeInstalled" Value="1"
-        After="DetectVstoRuntime" />
-      <ExePackage Id="DetectVstoRuntime" SourceFile="dummy.exe"
-                  DetectCondition="VstoRuntimeInstalled"
-                  InstallCommand="/quiet /norestart"
-                  Permanent="yes" Vital="no" Cache="no" >
-        <!-- Registry detection: VSTO 10.0 -->
-        <RegistrySearch Id="VstoRegKey" Root="HKLM"
-          Key="SOFTWARE\Microsoft\VSTO Runtime Setup\v4.0"
-          ValueName="Version" Result="value" />
-        <ExitCode Value="0" Result="Success" />
       </ExePackage>
 
       <!-- Install VSTO Runtime if not detected -->
