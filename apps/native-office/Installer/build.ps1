@@ -8,14 +8,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 $SolutionDir = Split-Path -Parent $PSScriptRoot
-$BinDir = Join-Path $SolutionDir "bin"
 
 Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor Green
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
 
 # Step 1: Build solution
 Write-Host "`n[1/4] Building solution..." -ForegroundColor Cyan
-dotnet build "$SolutionDir\LaTeXSnipper.NativeOffice.sln" -c $Configuration
+& "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe" "$SolutionDir\LaTeXSnipper.NativeOffice.sln" /t:Build /p:Configuration=$Configuration /p:Platform="Any CPU" /v:minimal
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Step 2: Collect binaries
@@ -24,25 +23,20 @@ $staging = Join-Path $OutputDir "staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
-$framework = "net48"
-
-# Shared
-$sharedSrc = Join-Path $BinDir "Shared\$Configuration\$framework"
+# Each project builds to its own bin\{Configuration} directory
+$sharedSrc = Join-Path $SolutionDir "LaTeXSnipper.Shared\bin\$Configuration"
 $sharedDst = Join-Path $staging "Shared"
 Copy-Item "$sharedSrc\*" $sharedDst -Recurse -Force
 
-# Word
-$wordSrc = Join-Path $BinDir "WordAddin\$Configuration\$framework"
+$wordSrc = Join-Path $SolutionDir "LaTeXSnipper.Word\bin\$Configuration"
 $wordDst = Join-Path $staging "Word"
 Copy-Item "$wordSrc\*" $wordDst -Recurse -Force
 
-# Excel
-$excelSrc = Join-Path $BinDir "ExcelAddin\$Configuration\$framework"
+$excelSrc = Join-Path $SolutionDir "LaTeXSnipper.Excel\bin\$Configuration"
 $excelDst = Join-Path $staging "Excel"
 Copy-Item "$excelSrc\*" $excelDst -Recurse -Force
 
-# PowerPoint
-$pptSrc = Join-Path $BinDir "PowerPointAddin\$Configuration\$framework"
+$pptSrc = Join-Path $SolutionDir "LaTeXSnipper.PowerPoint\bin\$Configuration"
 $pptDst = Join-Path $staging "PowerPoint"
 Copy-Item "$pptSrc\*" $pptDst -Recurse -Force
 
