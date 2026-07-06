@@ -107,6 +107,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
@@ -148,6 +151,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
       - uses: dtolnay/rust-toolchain@stable
       - run: rustup target add aarch64-apple-darwin
       - uses: swatinem/rust-cache@v2
@@ -188,6 +194,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -240,7 +249,7 @@ jobs:
 
       - name: Build installer
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration Release -OutputDir output
+        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION
 
       - uses: actions/upload-artifact@v4
         with:
@@ -383,36 +392,46 @@ jobs:
         run: |
           $ver = "$env:VERSION"
           $nsi = "installer/LaTeXSnipper.AllInOne.nsi"
-          $release = "release/LaTeXSnipper-$ver"
+          $release = Resolve-Path "release/LaTeXSnipper-$ver"
+
           $tauriExe = Get-ChildItem "$release/windows" -Filter "*.exe" | Select-Object -First 1
 
           if ($tauriExe) {
-            # Copy assets needed by NSIS script into the release dir
-            $nsisDir = "release/LaTeXSnipper-$ver/installer"
-            New-Item -ItemType Directory -Path $nsisDir -Force | Out-Null
+            # Build NSIS with absolute paths via /D defines
+            $nsisArgs = @(
+              "/DPRODUCT_VERSION=$ver"
+              "/DTAURI_INSTALLER=$($tauriExe.FullName)"
+            )
 
-            # Stage files that the NSIS script references as relative paths
-            Copy-Item $tauriExe.FullName "$nsisDir/" -Force
             $vstoBundle = Get-ChildItem "$release/windows/vsto" -Filter "*.exe" | Select-Object -First 1
-            if ($vstoBundle) { Copy-Item $vstoBundle.FullName "$nsisDir/" -Force }
+            if ($vstoBundle) {
+              $nsisArgs += "/DVSTO_INSTALLER=$($vstoBundle.FullName)"
+            }
 
-            # Copy WPS and Obsidian ZIPs to installer directory
-            Copy-Item "$release/plugins/*.zip" "$nsisDir/" -Force -ErrorAction SilentlyContinue
+            $wpsZip = Get-ChildItem "$release/plugins" -Filter "latexsnipper-wps_*.zip" | Select-Object -First 1
+            if ($wpsZip) {
+              $nsisArgs += "/DWPS_ZIP=$($wpsZip.FullName)"
+            }
 
-            # Update NSIS version
-            $nsiContent = Get-Content $nsi -Raw
-            $nsiContent = $nsiContent -replace '!define PRODUCT_VERSION ".*"', '!define PRODUCT_VERSION "' + $ver + '"'
-            Set-Content $nsi -Value $nsiContent
+            $obsidianZip = Get-ChildItem "$release/plugins" -Filter "latexsnipper-obsidian_*.zip" | Select-Object -First 1
+            if ($obsidianZip) {
+              $nsisArgs += "/DOBSIDIAN_ZIP=$($obsidianZip.FullName)"
+            }
 
-            # Build NSIS installer
-            $outPath = "release/LaTeXSnipper-$ver/LaTeXSnipper-Office-$ver-Setup.exe"
-            & makensis /DTAURI_INSTALLER="$tauriExe" $nsi
+            $nsisArgs += $nsi
+
+            Write-Host "Building NSIS with args: $($nsisArgs -join ' ')"
+            & makensis @nsisArgs
+
+            $outPath = Join-Path $release "LaTeXSnipper-Office-$ver-Setup.exe"
             if (Test-Path "LaTeXSnipper-Office-$ver-Setup.exe") {
               Move-Item "LaTeXSnipper-Office-$ver-Setup.exe" $outPath -Force
               Write-Host "Combined NSIS installer: $outPath"
             } else {
               Write-Warning "NSIS build did not produce expected output"
             }
+          } else {
+            Write-Warning "No Tauri desktop installer found, skipping NSIS"
           }
 
       - name: Upload unified release artifact
