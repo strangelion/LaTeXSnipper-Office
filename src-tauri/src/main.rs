@@ -13,6 +13,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+#[cfg(target_os = "windows")]
 use platforms::session::SessionManager;
 
 fn main() {
@@ -74,16 +75,16 @@ fn main() {
                     }
                 })?;
 
-            // Create SessionManager with app handle
-            let app_handle = app.handle().clone();
-            let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
-            app.manage(session_manager.clone());
-
-            // Start Named Pipe server (Windows only)
+            // Create SessionManager and start Named Pipe server (Windows only)
             #[cfg(target_os = "windows")]
-            tauri::async_runtime::spawn(async move {
-                platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
-            });
+            {
+                let app_handle = app.handle().clone();
+                let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
+                app.manage(session_manager.clone());
+                tauri::async_runtime::spawn(async move {
+                    platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
+                });
+            }
 
             // Start Office Bridge (HTTPS, port 19876)
             let bridge_handle = app.handle().clone();
