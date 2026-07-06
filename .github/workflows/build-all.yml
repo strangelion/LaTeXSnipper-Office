@@ -367,6 +367,10 @@ jobs:
             Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
           }
 
+      - name: Install NSIS
+        shell: bash
+        run: choco install nsis -y
+
       - name: Build combined NSIS installer
         run: |
           $ver = "$env:VERSION"
@@ -384,22 +388,22 @@ jobs:
             $vstoBundle = Get-ChildItem "$release/windows/vsto" -Filter "*.exe" | Select-Object -First 1
             if ($vstoBundle) { Copy-Item $vstoBundle.FullName "$nsisDir/" -Force }
 
+            # Copy WPS and Obsidian ZIPs to installer directory
+            Copy-Item "$release/plugins/*.zip" "$nsisDir/" -Force -ErrorAction SilentlyContinue
+
             # Update NSIS version
             $nsiContent = Get-Content $nsi -Raw
             $nsiContent = $nsiContent -replace '!define PRODUCT_VERSION ".*"', '!define PRODUCT_VERSION "' + $ver + '"'
             Set-Content $nsi -Value $nsiContent
 
-            # Build NSIS if makensis is available
-            $nsis = Get-Command "makensis" -ErrorAction SilentlyContinue
-            if ($nsis) {
-              $outPath = "release/LaTeXSnipper-$ver/LaTeXSnipper-Office-$ver-Setup.exe"
-              & makensis /DTAURI_INSTALLER="$tauriExe" $nsi
-              if (Test-Path "LaTeXSnipper-Office-$ver-Setup.exe") {
-                Move-Item "LaTeXSnipper-Office-$ver-Setup.exe" $outPath -Force
-                Write-Host "Combined NSIS installer: $outPath"
-              }
+            # Build NSIS installer
+            $outPath = "release/LaTeXSnipper-$ver/LaTeXSnipper-Office-$ver-Setup.exe"
+            & makensis /DTAURI_INSTALLER="$tauriExe" $nsi
+            if (Test-Path "LaTeXSnipper-Office-$ver-Setup.exe") {
+              Move-Item "LaTeXSnipper-Office-$ver-Setup.exe" $outPath -Force
+              Write-Host "Combined NSIS installer: $outPath"
             } else {
-              Write-Host "makensis not available. Install NSIS to build combined installer."
+              Write-Warning "NSIS build did not produce expected output"
             }
           }
 

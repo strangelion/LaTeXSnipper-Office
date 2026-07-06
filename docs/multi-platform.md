@@ -1,5 +1,8 @@
 # Multi-Platform Integration
 
+> ⚠️ 状态：历史设计（非当前实现规范）。Office/WPS/Obsidian 的集成方式与当前实现有差异。
+> 当前实现请参阅 `docs/STATUS.md`。
+
 ## 支持的平台
 
 ### 1. Office 套件

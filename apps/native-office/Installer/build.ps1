@@ -4,7 +4,8 @@
 param(
     [string]$Configuration = "Release",
     [string]$OutputDir = ".\output",
-    [string]$MsBuildPath = ""
+    [string]$MsBuildPath = "",
+    [string]$Version = "1.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +70,7 @@ $env:PowerPointBinDir = Join-Path $staging "PowerPoint"
 # Build MSI
 wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -o $msiOutput `
+    -d Version=$Version `
     -d SharedBinDir=$env:SharedBinDir `
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
@@ -86,6 +88,7 @@ $env:MsiDir = $OutputDir
 
 wix build "$wixSrc\Bundle.wxs" `
     -o $bundleOutput `
+    -d Version=$Version `
     -d NetFx48Url=$env:NetFx48Url `
     -d VstoRuntimeUrl=$env:VstoRuntimeUrl `
     -d MsiDir=$env:MsiDir

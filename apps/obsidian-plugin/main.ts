@@ -96,7 +96,10 @@ export default class LaTeXSnipperPlugin extends Plugin {
           item.setTitle("Inline formula ($...$)");
           item.setIcon("latex");
           item.onClick(() => {
-            editor.replaceSelection(`$${sel}$`);
+            router.dispatch("obsidian", {
+              type: "ReplaceSelection",
+              payload: { content: `$${sel}$` },
+            });
           });
         });
 
@@ -104,7 +107,10 @@ export default class LaTeXSnipperPlugin extends Plugin {
           item.setTitle("Block formula ($$...$$)");
           item.setIcon("latex");
           item.onClick(() => {
-            editor.replaceSelection(`$$${sel}$$`);
+            router.dispatch("obsidian", {
+              type: "ReplaceSelection",
+              payload: { content: `$$${sel}$$` },
+            });
           });
         });
       }),
@@ -138,13 +144,12 @@ export default class LaTeXSnipperPlugin extends Plugin {
     }
     const sel = ed.getSelection();
     new FormulaEditorModal(this.app, sel, (latex, display, numbered) => {
-      const cmd = {
-        type: "InsertFormula" as const,
-        payload: { latex, display: numbered ? "numbered" as const : display as "inline" | "block" },
-      };
-      ed.replaceSelection(
-        `${cmd.payload.display === "block" || cmd.payload.display === "numbered" ? "$$" : "$"}${latex}${cmd.payload.display === "numbered" ? "$$" : "$"}`,
-      );
+      const mode = numbered ? "numbered" : (display as "inline" | "block");
+      const delim = mode === "block" || mode === "numbered" ? "$$" : "$";
+      router.dispatch("obsidian", {
+        type: "InsertFormula",
+        payload: { latex, display: mode },
+      });
     }).open();
   }
 
@@ -153,7 +158,10 @@ export default class LaTeXSnipperPlugin extends Plugin {
     if (!ed) { new Notice("No active editor"); return; }
     const sel = ed.getSelection();
     if (sel) {
-      ed.replaceSelection("");
+      router.dispatch("obsidian", {
+        type: "ReplaceSelection",
+        payload: { content: "" },
+      });
       new Notice("Deleted selected content");
     } else {
       new Notice("Nothing selected");
@@ -166,7 +174,10 @@ export default class LaTeXSnipperPlugin extends Plugin {
     const sel = ed.getSelection();
     if (!sel) { new Notice("Nothing selected"); return; }
     const delim = mode === "block" ? "$$" : "$";
-    ed.replaceSelection(`${delim}${sel}${delim}`);
+    router.dispatch("obsidian", {
+      type: "ReplaceSelection",
+      payload: { content: `${delim}${sel}${delim}` },
+    });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────

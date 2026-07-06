@@ -2,10 +2,10 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
   <Bundle Name="LaTeXSnipper Native Office"
-          Manufacturer="LaTeXSnipper"
-          Version="1.0.0"
-          UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
-          Copyright="Copyright (c) LaTeXSnipper 2026">
+           Manufacturer="LaTeXSnipper"
+           Version="$(var.Version)"
+           UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
+           Copyright="Copyright (c) LaTeXSnipper 2026">
 
     <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
       <bal:WixStandardBootstrapperApplication

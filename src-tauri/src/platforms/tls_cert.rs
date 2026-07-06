@@ -214,7 +214,7 @@ fn get_cert_dir(app_handle: &tauri::AppHandle) -> PathBuf {
 }
 
 fn generate_self_signed_cert(cert_path: &PathBuf, key_path: &PathBuf) -> Result<(), String> {
-    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()])
+    let cert = rcgen::generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()])
         .map_err(|e| format!("Failed to generate cert: {e}"))?;
 
     let cert_pem = cert.cert.pem();

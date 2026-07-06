@@ -58,10 +58,9 @@ export class OfficeHostAdapter implements HostAdapter {
 
       // ── Preview ───────────────────────────────────────────────────
       case "RenderPreview": {
-        return this._convertViaBridge("/convert/latex", {
+        return this._convertViaBridge("/api/office/convert", {
           latex: cmd.payload.latex,
           display: cmd.payload.format === "svg" ? true : false,
-          targets: [cmd.payload.format || "svg"],
         });
       }
 

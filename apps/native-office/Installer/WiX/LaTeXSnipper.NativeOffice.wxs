@@ -3,7 +3,7 @@
 
   <Package Name="LaTeXSnipper.NativeOffice"
            Manufacturer="LaTeXSnipper"
-           Version="1.0.0"
+           Version="$(var.Version)"
            UpgradeCode="E5F6A7B8-9999-AAAA-BBBB-CCCCCCCCCCCC"
            Scope="perUser">
 

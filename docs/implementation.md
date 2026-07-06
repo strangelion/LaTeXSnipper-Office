@@ -1,5 +1,8 @@
 # Implementation Plan
 
+> ⚠️ 状态：历史设计（非当前实现规范）。仍描述尚未实现的 Adapter 阶段。
+> 当前实现请参阅 `docs/STATUS.md`。
+
 ## 项目阶段
 
 ### 阶段 1：基础设施（1周）

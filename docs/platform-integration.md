@@ -1,5 +1,8 @@
 # Platform Integration Guide
 
+> ⚠️ 状态：历史设计（非当前实现规范）。安装位置、注册策略与当前 HKCU/per-user WiX 实现有差异。
+> 当前实现请参阅 `docs/STATUS.md`。
+
 ## 支持的平台
 
 ### 1. Office 套件
