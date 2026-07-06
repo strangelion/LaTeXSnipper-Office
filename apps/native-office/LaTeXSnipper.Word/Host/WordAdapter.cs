@@ -4,7 +4,7 @@ using LaTeXSnipper.Word.Metadata;
 
 namespace LaTeXSnipper.Word.Host
 {
-    internal sealed class WordAdapter
+    internal sealed class WordAdapter : ICommandHostAdapter
     {
         private readonly Microsoft.Office.Interop.Word.Application _application;
 
@@ -363,7 +363,7 @@ namespace LaTeXSnipper.Word.Host
 
         private static string BuildDisplayOmml(string omml, string formulaId)
         {
-            return $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+            return $@"<w:sdt xmlns:w=""http://schemas.microsoft.com/office/word/2006/wordml""
                          xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
   <w:sdtPr>
     <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
@@ -374,6 +374,82 @@ namespace LaTeXSnipper.Word.Host
     </w:p>
   </w:sdtContent>
 </w:sdt>";
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ICommandHostAdapter implementation
+        // ═══════════════════════════════════════════════════════════════
+
+        public CommandResultMessage Execute(CommandMessage cmd)
+        {
+            switch (cmd)
+            {
+                case CommandMessage.InsertFormula ic:
+                    return ExecuteInsertFormula(ic);
+
+                case CommandMessage.GetSelection:
+                    return ExecuteGetSelection();
+
+                case CommandMessage.ReplaceSelection rs:
+                    return ExecuteReplaceSelection(rs);
+
+                default:
+                    return CommandResultMessage.Failure(
+                        cmd.RequestId,
+                        $"Unsupported command: {cmd.GetType().Name}");
+            }
+        }
+
+        private CommandResultMessage ExecuteInsertFormula(CommandMessage.InsertFormula cmd)
+        {
+            var doc = _application.ActiveDocument;
+            if (doc == null)
+                return CommandResultMessage.Failure(cmd.RequestId, "No active document");
+
+            // Build a FormulaPayload from the unified command
+            var payload = new FormulaPayload
+            {
+                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                Latex = cmd.Latex,
+                Display = cmd.Display
+            };
+
+            var mode = cmd.Display switch
+            {
+                "numbered" => InsertMode.DisplayNumbered,
+                "block" => InsertMode.Display,
+                _ => InsertMode.Inline
+            };
+
+            var result = InsertFormula(payload, mode);
+            return result.Success
+                ? CommandResultMessage.Success(cmd.RequestId, result.FormulaId)
+                : CommandResultMessage.Failure(cmd.RequestId, result.Error ?? "Insert failed");
+        }
+
+        private CommandResultMessage ExecuteGetSelection()
+        {
+            var payload = ReadSelection();
+            if (payload == null)
+                return CommandResultMessage.Failure("", "No formula selected");
+
+            // Return OMML — Desktop will convert to LaTeX if needed
+            return CommandResultMessage.Success("", payload.Omml);
+        }
+
+        private CommandResultMessage ExecuteReplaceSelection(CommandMessage.ReplaceSelection cmd)
+        {
+            try
+            {
+                var range = _application.Selection.Range;
+                range.Delete();
+                _application.Selection.TypeText(cmd.Content);
+                return CommandResultMessage.Success(cmd.RequestId);
+            }
+            catch (Exception ex)
+            {
+                return CommandResultMessage.Failure(cmd.RequestId, ex.Message);
+            }
         }
     }
 

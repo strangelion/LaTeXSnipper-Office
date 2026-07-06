@@ -1,240 +1,140 @@
-import { WordOfficeAdapter } from '../adapters/word';
-import type { InsertFormulaRequest } from '../types/index';
+/**
+ * LaTeXSnipper Office Add-in — Taskpane UI v3.0
+ *
+ * All host operations route through router.dispatch("office", cmd).
+ * No direct Word.run / Excel.run / Office.context calls here.
+ */
 
-type InsertMode = 'inline' | 'display' | 'display-numbered';
-type StatusType = 'info' | 'success' | 'error';
+import { router } from "core-protocol/command.router";
+import { OfficeHostAdapter } from "../adapters/unified-adapter";
 
-interface HostAdapter {
-  load(): Promise<string>;
-  insert(latex: string, mode: InsertMode): Promise<void>;
-  delete(): Promise<void>;
+type InsertMode = "inline" | "display" | "display-numbered";
+type StatusType = "info" | "success" | "error";
+
+// ─── Register adapter once ──────────────────────────────────────────
+
+let registered = false;
+
+function ensureAdapter(): void {
+  if (!registered) {
+    router.register("office", new OfficeHostAdapter());
+    registered = true;
+  }
 }
+
+// ─── Bridge base URL ────────────────────────────────────────────────
 
 const bridgeBase = (() => {
   const { protocol, hostname, port } = window.location;
-  if ((hostname === '127.0.0.1' || hostname === 'localhost') && port === '19876') {
-    return '';
+  if ((hostname === "127.0.0.1" || hostname === "localhost") && port === "19876") {
+    return "";
   }
-  return 'https://127.0.0.1:19876';
+  return "https://127.0.0.1:19876";
 })();
 
-class WordTaskpaneAdapter implements HostAdapter {
-  private readonly adapter = new WordOfficeAdapter();
+// ─── Dispatch wrapper ───────────────────────────────────────────────
 
-  async load(): Promise<string> {
-    const fragment = await this.adapter.getSelection();
-    const firstBlock = fragment.blocks[0];
-    if (!firstBlock) {
-      return '';
-    }
-    if (firstBlock.type === 'equation') {
-      return firstBlock.math.content;
-    }
-    if (firstBlock.type === 'paragraph') {
-      return firstBlock.content.inlines
-        .map((inline) => inline.type === 'formula' ? inline.formula.content : ('text' in inline ? inline.text : ''))
-        .join('');
-    }
-    return '';
-  }
-
-  async insert(latex: string, mode: InsertMode): Promise<void> {
-    const request: InsertFormulaRequest = {
-      fragment: {
-        version: 1,
-        blocks: [{
-          type: 'equation',
-          math: { type: 'latex', content: latex },
-          display: mode !== 'inline',
-          numbered: mode === 'display-numbered',
-        }],
-      },
-      mode,
-    };
-    await this.adapter.insertFormula(request);
-  }
-
-  async delete(): Promise<void> {
-    await this.adapter.deleteCurrentBlock();
-  }
+async function exec(cmd: any): Promise<any> {
+  ensureAdapter();
+  return router.dispatch("office", cmd);
 }
 
-class ExcelTaskpaneAdapter implements HostAdapter {
-  async load(): Promise<string> {
-    return Excel.run(async (context) => {
-      const range = context.workbook.getSelectedRange();
-      range.load('text');
-      await context.sync();
-      return range.text?.[0]?.[0] || '';
-    });
-  }
-
-  async insert(latex: string, mode: InsertMode): Promise<void> {
-    const value = mode === 'inline' ? `$${latex}$` : `$$${latex}$$`;
-    return Excel.run(async (context) => {
-      const range = context.workbook.getSelectedRange();
-      range.values = [[value]];
-      await context.sync();
-    });
-  }
-
-  async delete(): Promise<void> {
-    return Excel.run(async (context) => {
-      const range = context.workbook.getSelectedRange();
-      range.clear(Excel.ClearApplyTo.contents);
-      await context.sync();
-    });
-  }
-}
-
-class PowerPointTaskpaneAdapter implements HostAdapter {
-  async load(): Promise<string> {
-    return new Promise((resolve, reject) => {
-      Office.context.document.getSelectedDataAsync(Office.CoercionType.Text, (result) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded) {
-          resolve(String(result.value || ''));
-        } else {
-          reject(new Error(result.error.message));
-        }
-      });
-    });
-  }
-
-  async insert(latex: string, mode: InsertMode): Promise<void> {
-    const value = mode === 'inline' ? `$${latex}$` : `$$\n${latex}\n$$`;
-    return new Promise((resolve, reject) => {
-      Office.context.document.setSelectedDataAsync(
-        value,
-        { coercionType: Office.CoercionType.Text },
-        (result) => {
-          if (result.status === Office.AsyncResultStatus.Succeeded) {
-            resolve();
-          } else {
-            reject(new Error(result.error.message));
-          }
-        },
-      );
-    });
-  }
-
-  async delete(): Promise<void> {
-    return this.insert('', 'inline');
-  }
-}
-
-let adapter: HostAdapter | null = null;
+// ─── UI handlers ────────────────────────────────────────────────────
 
 Office.onReady((info) => {
-  adapter = createAdapter(info.host);
-  const hostName = info.host ? String(info.host) : 'Office';
+  ensureAdapter();
+  const hostName = info.host ? String(info.host) : "Office";
   setHostLabel(hostName);
   void sendHeartbeat(hostName);
 
-  document.getElementById('loadBtn')?.addEventListener('click', () => void handleLoad());
-  document.getElementById('insertBtn')?.addEventListener('click', () => void handleInsert());
-  document.getElementById('deleteBtn')?.addEventListener('click', () => void handleDelete());
-  setStatus('Ready');
+  document.getElementById("loadBtn")?.addEventListener("click", () => void handleLoad());
+  document.getElementById("insertBtn")?.addEventListener("click", () => void handleInsert());
+  document.getElementById("deleteBtn")?.addEventListener("click", () => void handleDelete());
+  setStatus("Ready");
 });
-
-function createAdapter(host?: Office.HostType): HostAdapter {
-  if (host === Office.HostType.Excel) {
-    return new ExcelTaskpaneAdapter();
-  }
-  if (host === Office.HostType.PowerPoint) {
-    return new PowerPointTaskpaneAdapter();
-  }
-  return new WordTaskpaneAdapter();
-}
 
 async function sendHeartbeat(host: string) {
   try {
     await fetch(`${bridgeBase}/api/office/heartbeat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ host }),
     });
   } catch {
-    // The desktop bridge may be offline; document editing still works where possible.
+    // Desktop bridge may be offline; document editing still works
   }
 }
 
-function setStatus(message: string, type: StatusType = 'info') {
-  const el = document.getElementById('status');
+function setStatus(message: string, type: StatusType = "info") {
+  const el = document.getElementById("status");
   if (!el) return;
   el.textContent = message;
   el.className = `status ${type}`;
 }
 
 function setHostLabel(host: string) {
-  const el = document.getElementById('hostLabel');
-  if (el) {
-    el.textContent = host;
-  }
+  const el = document.getElementById("hostLabel");
+  if (el) el.textContent = host;
 }
 
 function getEditorContent(): string {
-  const el = document.getElementById('editor') as HTMLTextAreaElement | null;
-  return el?.value?.trim() || '';
+  const el = document.getElementById("editor") as HTMLTextAreaElement | null;
+  return el?.value?.trim() || "";
 }
 
 function setEditorContent(text: string) {
-  const el = document.getElementById('editor') as HTMLTextAreaElement | null;
-  if (el) {
-    el.value = text;
-  }
+  const el = document.getElementById("editor") as HTMLTextAreaElement | null;
+  if (el) el.value = text;
 }
 
 function getInsertMode(): InsertMode {
-  const sel = document.getElementById('modeSelect') as HTMLSelectElement | null;
-  if (sel?.value === 'numbered') return 'display-numbered';
-  if (sel?.value === 'inline') return 'inline';
-  return 'display';
+  const sel = document.getElementById("modeSelect") as HTMLSelectElement | null;
+  if (sel?.value === "numbered") return "display-numbered";
+  if (sel?.value === "inline") return "inline";
+  return "display";
+}
+
+function modeToDisplay(mode: InsertMode): "inline" | "block" | "numbered" {
+  if (mode === "inline") return "inline";
+  if (mode === "display-numbered") return "numbered";
+  return "block";
 }
 
 async function handleLoad() {
-  if (!adapter) return;
-  setStatus('Loading selection...');
-  try {
-    const text = await adapter.load();
-    if (!text) {
-      setStatus('No supported selection found', 'error');
-      return;
-    }
-    setEditorContent(text);
-    setStatus('Loaded selection', 'success');
-  } catch (err) {
-    setStatus(`Load failed: ${formatError(err)}`, 'error');
+  setStatus("Loading selection...");
+  const result = await exec({ type: "GetSelection" });
+  if (!result.ok || !result.data) {
+    setStatus("No supported selection found", "error");
+    return;
   }
+  setEditorContent(result.data);
+  setStatus("Loaded selection", "success");
 }
 
 async function handleInsert() {
-  if (!adapter) return;
   const content = getEditorContent();
   if (!content) {
-    setStatus('Enter a LaTeX formula first', 'error');
+    setStatus("Enter a LaTeX formula first", "error");
     return;
   }
-
-  setStatus('Inserting...');
-  try {
-    await adapter.insert(content, getInsertMode());
-    setStatus('Inserted', 'success');
-  } catch (err) {
-    setStatus(`Insert failed: ${formatError(err)}`, 'error');
+  setStatus("Inserting...");
+  const result = await exec({
+    type: "InsertFormula",
+    payload: { latex: content, display: modeToDisplay(getInsertMode()) },
+  });
+  if (result.ok) {
+    setStatus("Inserted", "success");
+  } else {
+    setStatus(`Insert failed: ${result.error}`, "error");
   }
 }
 
 async function handleDelete() {
-  if (!adapter) return;
-  setStatus('Deleting...');
-  try {
-    await adapter.delete();
-    setStatus('Deleted', 'success');
-  } catch (err) {
-    setStatus(`Delete failed: ${formatError(err)}`, 'error');
+  setStatus("Deleting...");
+  const result = await exec({ type: "ReplaceSelection", payload: { content: "" } });
+  if (result.ok) {
+    setStatus("Deleted", "success");
+  } else {
+    setStatus(`Delete failed: ${result.error}`, "error");
   }
-}
-
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

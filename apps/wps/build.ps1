@@ -41,7 +41,7 @@ foreach ($file in $files) {
 
 # Subdirectories
 $subdirs = @(
-    @{Src="js"; Files=@("ribbon.js", "util.js")},
+    @{Src="js"; Files=@("command-layer.js", "ribbon.js", "util.js")},
     @{Src="ui"; Files=@("taskpane.html")},
     @{Src="images"; Files=(Get-ChildItem (Join-Path $ScriptDir "images") -Filter "*.svg" | Select-Object -ExpandProperty Name)}
 )

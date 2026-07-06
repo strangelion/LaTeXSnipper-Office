@@ -5,7 +5,7 @@ using PowerPointApp = Microsoft.Office.Interop.PowerPoint.Application;
 
 namespace LaTeXSnipper.PowerPoint.Host
 {
-    internal sealed class PowerPointAdapter
+    internal sealed class PowerPointAdapter : ICommandHostAdapter
     {
         private readonly PowerPointApp _application;
 
@@ -139,6 +139,70 @@ namespace LaTeXSnipper.PowerPoint.Host
             }
             catch { }
             return false;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // ICommandHostAdapter implementation
+        // ═══════════════════════════════════════════════════════════════
+
+        public CommandResultMessage Execute(CommandMessage cmd)
+        {
+            switch (cmd)
+            {
+                case CommandMessage.InsertFormula ic:
+                    return ExecuteInsertFormula(ic);
+
+                case CommandMessage.GetSelection:
+                    return ExecuteGetSelection();
+
+                case CommandMessage.ReplaceSelection rs:
+                    return ExecuteReplaceSelection(rs);
+
+                default:
+                    return CommandResultMessage.Failure(
+                        cmd.RequestId,
+                        $"Unsupported command: {cmd.GetType().Name}");
+            }
+        }
+
+        private CommandResultMessage ExecuteInsertFormula(CommandMessage.InsertFormula cmd)
+        {
+            var payload = new FormulaPayload
+            {
+                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                Latex = cmd.Latex,
+                Display = cmd.Display
+            };
+            var mode = cmd.Display == "numbered" ? InsertMode.DisplayNumbered : InsertMode.Inline;
+            var result = InsertFormula(payload, mode);
+            return result.Success
+                ? CommandResultMessage.Success(cmd.RequestId, result.FormulaId)
+                : CommandResultMessage.Failure(cmd.RequestId, result.Error ?? "Insert failed");
+        }
+
+        private CommandResultMessage ExecuteGetSelection()
+        {
+            var payload = ReadSelection();
+            if (payload == null)
+                return CommandResultMessage.Failure("", "No selection");
+            return CommandResultMessage.Success("", payload.Latex);
+        }
+
+        private CommandResultMessage ExecuteReplaceSelection(CommandMessage.ReplaceSelection cmd)
+        {
+            try
+            {
+                var sel = _application.ActiveWindow.Selection;
+                if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionText)
+                {
+                    sel.TextRange.Text = cmd.Content;
+                }
+                return CommandResultMessage.Success(cmd.RequestId);
+            }
+            catch (Exception ex)
+            {
+                return CommandResultMessage.Failure(cmd.RequestId, ex.Message);
+            }
         }
     }
 

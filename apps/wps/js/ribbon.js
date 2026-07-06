@@ -1,3 +1,7 @@
+// LaTeXSnipper WPS Ribbon v3.0
+// All actions route through CommandLayer.dispatch().
+// No direct WPS API calls — see command-layer.js for adapter logic.
+
 function OnAddinLoad(ribbonUI) {
     if (typeof (window.Application.ribbonUI) != "object") {
         window.Application.ribbonUI = ribbonUI
@@ -33,17 +37,28 @@ function OnAddinLoad(ribbonUI) {
 function OnAction(control) {
     const eleId = control.Id
     switch (eleId) {
-        case "btnInsertInline": insertFormula(false); break
-        case "btnInsertDisplay": insertFormula(true); break
-        case "btnInsertNumbered": insertFormulaNumbered(); break
-        case "btnScreenshotOcr": screenshotOcr(); break
-        case "btnLoadSelected": loadSelectedFormula(); break
-        case "btnDeleteSelected": deleteSelectedFormula(); break
-        case "btnAutoNumber": autoNumberFormulas(); break
-        case "btnRenumber": renumberAll(); break
-        case "btnShowTaskPane": showTaskPane(); break
-        case "btnSettings": showTaskPane(); break
-        case "btnHelp": window.open("https://latexsnipper.readthedocs.io/", "_blank"); break
+        case "btnInsertInline":
+            insertFromStorage("inline"); break
+        case "btnInsertDisplay":
+            insertFromStorage("block"); break
+        case "btnInsertNumbered":
+            insertFromStorage("numbered"); break
+        case "btnScreenshotOcr":
+            CommandLayer.dispatch("wps", { type: "OpenEditor" }); break
+        case "btnLoadSelected":
+            loadSelectedFormula(); break
+        case "btnDeleteSelected":
+            deleteSelectedFormula(); break
+        case "btnAutoNumber":
+            autoNumberFormulas(); break
+        case "btnRenumber":
+            renumberAll(); break
+        case "btnShowTaskPane":
+            CommandLayer.dispatch("wps", { type: "OpenEditor" }); break
+        case "btnSettings":
+            CommandLayer.dispatch("wps", { type: "OpenSettings" }); break
+        case "btnHelp":
+            window.open("https://latexsnipper.readthedocs.io/", "_blank"); break
     }
     return true
 }
@@ -69,98 +84,73 @@ function GetImage(control) {
 function OnGetEnabled(control) { return true }
 function OnGetVisible(control) { return true }
 
-function showTaskPane() {
-    let tsId = window.Application.PluginStorage.getItem("taskpane_id")
-    if (!tsId) {
-        let tskpane = window.Application.CreateTaskPane(GetUrlPath() + "/ui/taskpane.html")
-        let id = tskpane.ID
-        window.Application.PluginStorage.setItem("taskpane_id", id)
-        tskpane.Visible = true
-    } else {
-        let tskpane = window.Application.GetTaskPane(tsId)
-        tskpane.Visible = !tskpane.Visible
-    }
+// ─── Dispatch helpers ────────────────────────────────────────────────
+
+function insertFromStorage(display) {
+    var latex = window.Application.PluginStorage.getItem("current_latex") || ""
+    if (!latex.trim()) { alert("请先在公式编辑器中输入 LaTeX 公式"); return }
+    CommandLayer.dispatch("wps", {
+        type: "InsertFormula",
+        payload: { latex: latex, display: display }
+    }).then(function(result) {
+        if (!result.ok) alert("插入失败: " + result.error)
+    })
 }
 
-function insertEquation(latex, display) {
-    let doc = window.Application.ActiveDocument
-    if (!doc) return false
-
-    let selection = window.Application.Selection
-    let startPos = selection.Range.End
-
-    selection.TypeText(latex)
-    let endPos = selection.Range.End
-    let insertedRange = doc.Range(startPos, endPos)
-    insertedRange.Select()
-
-    selection.OMaths.Add(selection.Range)
-
-    if (selection.OMaths.Count > 0) {
-        let oMath = selection.OMaths.Item(1)
-        if (display) { try { oMath.Justification = 1 } catch(e) {} }
-        try { oMath.BuildUp() } catch(e) {}
-
-        selection.Range.Collapse(0)
-        return true
-    }
-
-    selection.Range.Collapse(0)
-    return false
+function loadSelectedFormula() {
+    CommandLayer.dispatch("wps", { type: "GetSelection" }).then(function(result) {
+        if (result.ok && result.data) {
+            window.Application.PluginStorage.setItem("current_latex", result.data)
+            window.bridgeLog("Loaded selection: " + result.data.substring(0, 60))
+            alert("已加载选中公式")
+        } else {
+            alert("请先选中一个公式")
+        }
+    })
 }
 
-function insertFormula(display) {
-    let doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
-    let latex = window.Application.PluginStorage.getItem("current_latex") || ""
-    if (!latex.trim()) { alert("请先输入 LaTeX 公式"); return }
-    insertEquation(latex, display)
+function deleteSelectedFormula() {
+    CommandLayer.dispatch("wps", { type: "ReplaceSelection", payload: { content: "" } }).then(function(result) {
+        if (result.ok) {
+            window.bridgeLog("Deleted selection")
+        } else {
+            alert("删除失败: " + result.error)
+        }
+    })
 }
+
+// ─── Numbering helpers ───────────────────────────────────────────────
 
 function getNextEquationNumber(doc) {
-    let storage = window.Application.PluginStorage
-    let counter = parseInt(storage.getItem("equation_counter") || "0") + 1
+    var storage = window.Application.PluginStorage
+    var counter = parseInt(storage.getItem("equation_counter") || "0") + 1
     storage.setItem("equation_counter", String(counter))
     return counter
 }
 
-function insertFormulaNumbered() {
-    let doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
-    let latex = window.Application.PluginStorage.getItem("current_latex") || ""
-    if (!latex.trim()) { alert("请先输入 LaTeX 公式"); return }
-
-    let num = getNextEquationNumber(doc)
-    insertEquation(latex, true)
-
-    let selection = window.Application.Selection
-    selection.Range.InsertAfter("\t(" + num + ")")
-    selection.Range.Collapse(0)
-}
-
 function renumberAll() {
-    let doc = window.Application.ActiveDocument
+    var doc = window.Application.ActiveDocument
     if (!doc) { alert("请先打开一个文档"); return }
 
-    let selection = window.Application.Selection
-    let savedRange = null
+    var selection = window.Application.Selection
+    var savedRange = null
     try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) {}
 
-    let fullRange = doc.Range(0, doc.Range().End)
-    let find = fullRange.Find
+    var fullRange = doc.Range(0, doc.Range().End)
+    var find = fullRange.Find
     find.ClearFormatting()
     find.Text = "\\([0-9]@\\)"
     find.MatchWildcards = true
     find.Forward = true
     find.Wrap = 0
 
-    let matches = []
+    var matches = []
     while (find.Execute()) {
         matches.push({ start: find.Parent.Start, end: find.Parent.End })
     }
 
-    for (let i = matches.length - 1; i >= 0; i--) {
-        let r = doc.Range(matches[i].start, matches[i].end)
+    for (var i = matches.length - 1; i >= 0; i--) {
+        var r = doc.Range(matches[i].start, matches[i].end)
         r.Text = "(" + (i + 1) + ")"
     }
 
@@ -175,29 +165,29 @@ function renumberAll() {
 }
 
 function autoNumberFormulas() {
-    let doc = window.Application.ActiveDocument
+    var doc = window.Application.ActiveDocument
     if (!doc) { alert("请先打开一个文档"); return }
 
-    let selection = window.Application.Selection
-    let savedRange = null
+    var selection = window.Application.Selection
+    var savedRange = null
     try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) {}
 
-    let paragraphs = doc.Paragraphs
-    let equations = []
+    var paragraphs = doc.Paragraphs
+    var equations = []
 
-    for (let i = 1; i <= paragraphs.Count; i++) {
-        let para = paragraphs.Item(i)
-        let range = para.Range
-        let hasOMath = false
+    for (var i = 1; i <= paragraphs.Count; i++) {
+        var para = paragraphs.Item(i)
+        var range = para.Range
+        var hasOMath = false
         try { hasOMath = range.OMaths.Count > 0 } catch(e) {}
         if (!hasOMath) continue
 
-        let oMath = range.OMaths.Item(1)
-        let hasNumber = false
+        var oMath = range.OMaths.Item(1)
+        var hasNumber = false
 
         try {
-            let oRange = oMath.Range
-            let oFind = oRange.Find
+            var oRange = oMath.Range
+            var oFind = oRange.Find
             oFind.ClearFormatting()
             oFind.Text = "\\([0-9]@\\)"
             oFind.MatchWildcards = true
@@ -207,7 +197,7 @@ function autoNumberFormulas() {
 
         if (!hasNumber) {
             try {
-                let paraFind = range.Find
+                var paraFind = range.Find
                 paraFind.ClearFormatting()
                 paraFind.Text = "\\([0-9]@\\)"
                 paraFind.MatchWildcards = true
@@ -219,40 +209,40 @@ function autoNumberFormulas() {
         equations.push({ paraIndex: i, hasNumber: hasNumber })
     }
 
-    let fullRange = doc.Range(0, doc.Range().End)
-    let find = fullRange.Find
+    var fullRange = doc.Range(0, doc.Range().End)
+    var find = fullRange.Find
     find.ClearFormatting()
     find.Text = "\\([0-9]@\\)"
     find.MatchWildcards = true
     find.Forward = true
     find.Wrap = 0
 
-    let existingMatches = []
+    var existingMatches = []
     while (find.Execute()) {
         existingMatches.push({ start: find.Parent.Start, end: find.Parent.End })
     }
 
-    for (let i = existingMatches.length - 1; i >= 0; i--) {
-        let r = doc.Range(existingMatches[i].start, existingMatches[i].end)
-        r.Text = "(" + (i + 1) + ")"
+    for (var j = existingMatches.length - 1; j >= 0; j--) {
+        var r = doc.Range(existingMatches[j].start, existingMatches[j].end)
+        r.Text = "(" + (j + 1) + ")"
     }
 
-    let nextNum = existingMatches.length + 1
-    let added = 0
+    var nextNum = existingMatches.length + 1
+    var added = 0
 
-    for (let eq of equations) {
+    for (var eq of equations) {
         if (eq.hasNumber) continue
-        let para = paragraphs.Item(eq.paraIndex)
-        let range = para.Range
-        let oMath = range.OMaths.Item(1)
-        let oMathEnd = oMath.Range.End
-        let insertRange = doc.Range(oMathEnd, oMathEnd)
+        var para = paragraphs.Item(eq.paraIndex)
+        var range = para.Range
+        var oMath = range.OMaths.Item(1)
+        var oMathEnd = oMath.Range.End
+        var insertRange = doc.Range(oMathEnd, oMathEnd)
         insertRange.InsertAfter("\t(" + nextNum + ")")
         nextNum++
         added++
     }
 
-    let total = existingMatches.length + added
+    var total = existingMatches.length + added
     window.Application.PluginStorage.setItem("equation_counter", String(total))
 
     if (total === 0) {
@@ -262,28 +252,4 @@ function autoNumberFormulas() {
     }
 
     if (savedRange) { try { savedRange.Select() } catch(e) {} }
-}
-
-function screenshotOcr() { alert("截图识别功能开发中") }
-
-function loadSelectedFormula() {
-    let doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
-    let selection = window.Application.Selection
-    if (selection.InlineShapes.Count > 0 || selection.OMaths.Count > 0) {
-        alert("已选中公式")
-    } else {
-        alert("请先选中一个公式")
-    }
-}
-
-function deleteSelectedFormula() {
-    let doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
-    let selection = window.Application.Selection
-    if (selection.InlineShapes.Count > 0 || selection.OMaths.Count > 0) {
-        selection.Range.Delete()
-    } else {
-        alert("请先选中一个公式")
-    }
 }

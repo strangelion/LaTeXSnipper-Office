@@ -44,6 +44,8 @@
     <Compile Include="PipeClient.cs" />
     <Compile Include="Handshake.cs" />
     <Compile Include="WindowsIdentityHelper.cs" />
+    <Compile Include="CommandMessage.cs" />
+    <Compile Include="ICommandHostAdapter.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

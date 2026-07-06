@@ -24,6 +24,11 @@ export default defineConfig({
   root: 'src',
   publicDir: resolve(__dirname, 'public'),
   base: '/office/',
+  resolve: {
+    alias: {
+      'core-protocol': resolve(__dirname, '../../core-protocol'),
+    },
+  },
   build: {
     outDir: '../dist',
     emptyOutDir: true,
