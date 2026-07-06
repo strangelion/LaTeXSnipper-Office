@@ -1696,18 +1696,23 @@ class UIController {
           selector.appendChild(opt);
         }
 
-        // Auto-select first
-        const first = selector.querySelector('.custom-select-option');
-        if (first) {
-          const trigger = selectorContainer.querySelector('.custom-select-trigger');
-          trigger.querySelector('span').textContent = first.textContent;
-          trigger.dataset.value = first.dataset.value;
-          first.classList.add('selected');
-          this._selectedSessionId = first.dataset.value;
+        // Auto-select: keep previous selection if still valid, else pick first
+        const trigger = selectorContainer.querySelector('.custom-select-trigger');
+        let selectedOption = null;
+        if (this._selectedSessionId) {
+          selectedOption = selector.querySelector(`[data-value="${this._selectedSessionId}"]`);
+        }
+        if (!selectedOption) {
+          selectedOption = selector.querySelector('.custom-select-option');
+        }
+        if (selectedOption) {
+          trigger.querySelector('span').textContent = selectedOption.textContent;
+          trigger.dataset.value = selectedOption.dataset.value;
+          selectedOption.classList.add('selected');
+          this._selectedSessionId = selectedOption.dataset.value;
         }
 
         // Toggle dropdown
-        const trigger = selectorContainer.querySelector('.custom-select-trigger');
         trigger.addEventListener('click', (e) => {
           e.stopPropagation();
           document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
@@ -1936,6 +1941,11 @@ class UIController {
       listen('native-office-context-changed', async (event) => {
         const { sessionId, documentTitle } = event.payload;
         Logger.info(`Native Office: context changed for ${sessionId}: ${documentTitle}`);
+        // Update session title in local list immediately
+        const session = this._sessions?.find(s => s.session_id === sessionId);
+        if (session && documentTitle) {
+          session.document_title = documentTitle;
+        }
         await this.updateOfficeHostSelector();
       });
 

@@ -197,6 +197,9 @@ impl SessionManager {
 
                 if let Some(session) = self.sessions.write().await.get_mut(&sid) {
                     session.document_id = Some(ctx_id.clone());
+                    if title.is_some() {
+                        session.document_title = title.clone();
+                    }
                     log::info!(
                         "[Session] CONTEXT_CHANGED (session={}, title={:?})",
                         sid,
