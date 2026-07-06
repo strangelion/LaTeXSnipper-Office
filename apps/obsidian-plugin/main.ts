@@ -110,18 +110,12 @@ export default class LaTeXSnipperPlugin extends Plugin {
       }),
     );
 
-    // ── Markdown post-processor for LaTeX code blocks ──────────────
-    this.registerMarkdownPostProcessor((el) => {
-      // Render ```latex ... ``` blocks as rendered formulas
-      el.querySelectorAll("code.language-latex").forEach((code) => {
-        const text = code.textContent || "";
-        const display = (code.parentElement?.tagName === "PRE") ? "$$" : "$";
-        const wrapper = document.createElement("span");
-        wrapper.className = "latexsnipper-formula";
-        wrapper.textContent = `${display}${text}${display}`;
-        code.replaceWith(wrapper);
-      });
-    });
+    // ── Markdown post-processor ─────────────────────────────────────
+    // Obsidian renders $...$ and $$...$$ natively via MathJax.
+    // The plugin's job is to insert properly delimited formulas.
+    // No custom post-processor needed — native rendering handles it.
+    // (Removed; the old approach of injecting $ signs via textContent
+    //  would not be picked up by MathJax at post-processor stage.)
 
     // ── Settings tab ────────────────────────────────────────────────
     this.addSettingTab(new LaTeXSnipperSettingTab(this.app, this));

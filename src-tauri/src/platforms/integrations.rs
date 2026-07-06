@@ -1954,6 +1954,14 @@ module.exports = { activate, deactivate };
 }
 
 fn wps_addin_source_dir() -> Option<PathBuf> {
+    // Primary: LaTeXSnipper-Office repo (monorepo layout)
+    if let Some(root) = repo_root_from_manifest() {
+        let dir = root.join("apps").join("wps").join("installer");
+        if dir.exists() {
+            return Some(dir);
+        }
+    }
+    // Fallback: old layout for backward compatibility
     let github_root = github_root_from_manifest()?;
     let dir = github_root
         .join("LaTeXSnipper")
@@ -1981,20 +1989,57 @@ fn wps_publish_file() -> PathBuf {
 }
 
 fn write_wps_publish(enabled: bool) -> std::io::Result<()> {
+    let path = wps_publish_file();
     fs::create_dir_all(wps_jsaddons_root())?;
-    let content = if enabled {
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+
+    // Parse existing XML if present, otherwise create a new document
+    let mut xml = if path.exists() {
+        match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(_) => String::new(),
+        }
+    } else {
+        String::new()
+    };
+
+    if enabled {
+        // Upsert: add LaTeXSnipper entry if not present
+        if !xml.contains("latexsnipper-wps") {
+            if xml.is_empty() {
+                xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <jsplugins>
     <jspluginonline name="latexsnipper-wps" addonType="wps" online="false" enable="enable_dev"/>
 </jsplugins>
-"#
+"#.to_string();
+            } else {
+                // Insert before closing </jsplugins>
+                if let Some(pos) = xml.rfind("</jsplugins>") {
+                    xml.insert_str(pos, "    <jspluginonline name=\"latexsnipper-wps\" addonType=\"wps\" online=\"false\" enable=\"enable_dev\"/>\n");
+                }
+            }
+        }
     } else {
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<jsplugins>
-</jsplugins>
-"#
-    };
-    fs::write(wps_publish_file(), content)
+        // Remove only our entry, preserve others
+        let mut result = String::new();
+        let mut in_plugin = false;
+        for line in xml.lines() {
+            if line.contains("latexsnipper-wps") {
+                in_plugin = true;
+                continue;
+            }
+            if in_plugin && line.trim().starts_with("</jspluginonline>") {
+                in_plugin = false;
+                continue;
+            }
+            if !in_plugin {
+                result.push_str(line);
+                result.push('\n');
+            }
+        }
+        xml = result;
+    }
+
+    fs::write(&path, xml)
 }
 
 fn copy_dir_recursive(source: &Path, dest: &Path) -> std::io::Result<()> {
@@ -2018,7 +2063,7 @@ fn install_wps() -> PlatformIntegrationResult {
         return PlatformIntegrationResult::fail(
             "wps",
             "wps-jsaddin",
-            "WPS JSAddIn package was not found. Keep LaTeXSnipper/office_plugin/hosts/WpsAddIn beside this project, or bundle the WPS add-in installer files.",
+            "WPS JSAddIn package was not found. Run a build (apps/wps/build.ps1) or keep the installer directory at apps/wps/installer.",
         );
     };
 
