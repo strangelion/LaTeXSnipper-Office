@@ -9,17 +9,45 @@
 export class WordOoxmlHelper {
   /**
    * Build a Flat OPC OOXML package for inserting a formula into Word.
+   * Falls back to wrapping LaTeX as plain text in an OMML run.
    */
   buildFormulaOoxml(latex: string, display: boolean): string {
     const mathTag = display ? "m:oMathPara" : "m:oMath";
-    // Wrap LaTeX in an OMath run so Word can build it up
     const mathContent = `<m:r><m:t xml:space="preserve">${this.escapeXml(latex)}</m:t></m:r>`;
     const body = this.wrapInSdt(`<w:p><${mathTag}>${mathContent}</${mathTag}></w:p>`);
     return this.wrapInFlatOpc(body);
   }
 
   /**
+   * Build OOXML from pre-converted OMML (Bridge output).
+   * The OMML should contain a complete <m:oMath>...</m:oMath> structure.
+   */
+  buildOoxmlFromOmml(omml: string, display: boolean): string {
+    const mathTag = display ? "m:oMathPara" : "m:oMath";
+    // Ensure OMML is wrapped in the right math tag
+    const content = omml.startsWith("<m:oMath") ? omml : `<${mathTag}>${omml}</${mathTag}>`;
+    const body = this.wrapInSdt(`<w:p>${content}</w:p>`);
+    return this.wrapInFlatOpc(body);
+  }
+
+  /**
+   * Build a numbered equation from pre-converted OMML (3-column table layout).
+   */
+  buildNumberedEquationOoxmlFromOmml(omml: string): string {
+    const content = omml.startsWith("<m:oMath") ? omml : `<m:oMathPara>${omml}</m:oMathPara>`;
+    const body = this.wrapInSdt(
+      `<w:tbl><w:tr>` +
+        `<w:tc><w:p><w:r><w:t xml:space="preserve"> </w:t></w:r></w:p></w:tc>` +
+        `<w:tc><w:tcPr><w:jc w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr>${content}</w:p></w:tc>` +
+        `<w:tc><w:p><w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> SEQ \\\\* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:tc>` +
+        `</w:tr></w:tbl>`,
+    );
+    return this.wrapInFlatOpc(body);
+  }
+
+  /**
    * Build an OOXML snippet for a numbered equation (3-column table layout).
+   * Fallback: wraps LaTeX as plain text.
    */
   buildNumberedEquationOoxml(latex: string): string {
     const mathContent = `<m:r><m:t xml:space="preserve">${this.escapeXml(latex)}</m:t></m:r>`;
