@@ -108,18 +108,5 @@
       Id="WixUI_InstallDir"
       InstallDirectory="INSTALLDIR" />
 
-    <!-- Icons (TODO: add LaTeXSnipper.ico) -->
-
-    <Feature Id="Complete" Title="LaTeXSnipper Native Office" Level="1">
-      <ComponentRef Id="SharedComponent" />
-      <ComponentRef Id="WordComponent" />
-      <ComponentRef Id="ExcelComponent" />
-      <ComponentRef Id="PowerPointComponent" />
-    </Feature>
-
-    <ui:WixUI
-        Id="WixUI_InstallDir"
-        InstallDirectory="INSTALLDIR" />
-
   </Package>
 </Wix>
