@@ -40,10 +40,7 @@ if ($SkipSigning) {
     $buildArgs += "/p:AssemblyOriginatorKeyFile="
     Write-Host "  Signing: DISABLED (SkipSigning)" -ForegroundColor Yellow
 }
-# Use pre-generated Office interop assemblies instead of COM references
-# Must be separate from array splatting — semicolons confuse MSBuild arg parsing
-$defineConstants = "/p:DefineConstants=VSTO40;useofficeinterop;TRACE"
-& $MsBuildPath @buildArgs $defineConstants
+& $MsBuildPath @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Step 2: Collect binaries
