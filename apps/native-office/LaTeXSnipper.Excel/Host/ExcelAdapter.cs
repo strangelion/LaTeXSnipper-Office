@@ -88,6 +88,57 @@ namespace LaTeXSnipper.Excel.Host
             catch { }
             return null;
         }
+
+        public bool DeleteCurrent()
+        {
+            try
+            {
+                var selectedShapes = _application.ActiveSheet?.Shapes;
+                if (selectedShapes == null) return false;
+                // Try to delete shape at selection
+                for (int i = selectedShapes.Count; i >= 1; i--)
+                {
+                    var shape = selectedShapes[i];
+                    if (shape.Name?.StartsWith("LSNO_") == true)
+                    {
+                        shape.Delete();
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public bool ReplaceFormula(string formulaId, FormulaPayload payload)
+        {
+            try
+            {
+                var sheet = _application.ActiveSheet;
+                if (sheet == null) return false;
+                // Find existing shape by name
+                foreach (Microsoft.Office.Interop.Excel.Shape shape in sheet.Shapes)
+                {
+                    if (shape.Name == $"LSNO_{formulaId}")
+                    {
+                        shape.Delete();
+                        // Insert new SVG
+                        if (payload.Render?.Svg != null)
+                        {
+                            var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                            File.WriteAllText(tempPath, payload.Render.Svg);
+                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+                            sheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, 50f, 50f, w, h);
+                        }
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
     }
 
     internal sealed class InsertResult

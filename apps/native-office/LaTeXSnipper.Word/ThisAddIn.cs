@@ -214,6 +214,28 @@ namespace LaTeXSnipper.Word
                     break;
                 }
 
+                case DesktopDeleteCurrent delCmd:
+                {
+                    var result = _adapter.DeleteCurrent();
+                    _ = _pipeClient.SendAsync(new VstoDeleteResult
+                    {
+                        RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
+                        Success = result.Success, Error = result.Error
+                    });
+                    break;
+                }
+
+                case DesktopReplaceFormula repCmd:
+                {
+                    var result = _adapter.ReplaceFormula(repCmd.FormulaId, repCmd.Formula);
+                    _ = _pipeClient.SendAsync(new VstoReplaceResult
+                    {
+                        RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
+                        Success = result.Success, Error = result.Error
+                    });
+                    break;
+                }
+
                 case DesktopPing:
                     System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] Ping received");
                     break;

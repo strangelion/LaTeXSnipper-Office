@@ -116,7 +116,6 @@ namespace LaTeXSnipper.Word.Host
         {
             if (string.IsNullOrEmpty(xml)) return null;
 
-            // Search for <m:oMath> or <m:oMathPara> in the XML
             int oMathStart = -1;
             string closeTag = "";
 
@@ -131,7 +130,6 @@ namespace LaTeXSnipper.Word.Host
                 var mathStart = xml.IndexOf("<m:oMath");
                 if (mathStart >= 0)
                 {
-                    // Check it's not <m:oMathPara> (longer tag matched first)
                     var afterTag = xml.Substring(mathStart + 8, 1);
                     if (afterTag != "P" && afterTag != ">")
                     {
@@ -147,6 +145,53 @@ namespace LaTeXSnipper.Word.Host
             if (endTag < 0) return null;
 
             return xml.Substring(oMathStart, endTag + closeTag.Length - oMathStart);
+        }
+
+        public InsertResult DeleteCurrent()
+        {
+            try
+            {
+                var range = _application.Selection.Range;
+                if (_application.Selection.OMaths.Count > 0)
+                {
+                    _application.Selection.OMaths[1].Range.Delete();
+                    return new InsertResult { Success = true };
+                }
+                range.Delete();
+                return new InsertResult { Success = true };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        public InsertResult ReplaceFormula(string formulaId, FormulaPayload newPayload)
+        {
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null) return new InsertResult { Success = false, Error = "No document" };
+
+                // Find formula by bookmark
+                foreach (Microsoft.Office.Interop.Word.Bookmark bm in doc.Bookmarks)
+                {
+                    if (bm.Name == $"LSNO:formula:{formulaId}")
+                    {
+                        var range = bm.Range;
+                        range.Delete();
+                        // Insert new formula text
+                        _application.Selection.SetRange(range.Start, range.Start);
+                        _application.Selection.TypeText(newPayload.Latex);
+                        return new InsertResult { Success = true, FormulaId = formulaId };
+                    }
+                }
+                return new InsertResult { Success = false, Error = "Formula not found" };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult { Success = false, Error = ex.Message };
+            }
         }
 
         public void InsertText(string value)

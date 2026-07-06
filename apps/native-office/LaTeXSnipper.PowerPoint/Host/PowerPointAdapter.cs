@@ -87,6 +87,54 @@ namespace LaTeXSnipper.PowerPoint.Host
             }
             return null;
         }
+
+        public bool DeleteCurrent()
+        {
+            try
+            {
+                var slide = _application.ActiveWindow.View.Slide;
+                if (slide == null) return false;
+                for (int i = slide.Shapes.Count; i >= 1; i--)
+                {
+                    var shape = slide.Shapes[i];
+                    if (shape.Name?.StartsWith("LSNO_") == true && shape.SelectionType == Microsoft.Office.Core.MsoTriState.msoTrue)
+                    {
+                        shape.Delete();
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        public bool ReplaceFormula(string formulaId, FormulaPayload payload)
+        {
+            try
+            {
+                var slide = _application.ActiveWindow.View.Slide;
+                if (slide == null) return false;
+                foreach (Microsoft.Office.Interop.PowerPoint.Shape shape in slide.Shapes)
+                {
+                    if (shape.Name == $"LSNO_{formulaId}")
+                    {
+                        shape.Delete();
+                        if (payload.Render?.Svg != null)
+                        {
+                            var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                            File.WriteAllText(tempPath, payload.Render.Svg);
+                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+                            slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, 50f, 50f, w, h);
+                        }
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
     }
 
     internal sealed class InsertResult

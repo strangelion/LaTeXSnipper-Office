@@ -104,6 +104,28 @@ namespace LaTeXSnipper.PowerPoint
                     });
                     break;
                 }
+                case DesktopDeleteCurrent delCmd:
+                {
+                    var ok = _adapter.DeleteCurrent();
+                    _ = _pipeClient.SendAsync(new VstoDeleteResult
+                    {
+                        RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
+                        Success = ok
+                    });
+                    break;
+                }
+                case DesktopReplaceFormula repCmd:
+                {
+                    var ok = _adapter.ReplaceFormula(repCmd.FormulaId, repCmd.Formula);
+                    _ = _pipeClient.SendAsync(new VstoReplaceResult
+                    {
+                        RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
+                        Success = ok
+                    });
+                    break;
+                }
+                case DesktopPing:
+                    break;
             }
         }
 
