@@ -106,7 +106,7 @@
     _insertFormula: function (payload) {
       var doc = getDoc();
       if (!doc) return { ok: false, error: "No active document" };
-        // PPT does not support OMath — caller should use InsertImage
+      if (isPPT()) {
         return { ok: false, error: "PPT requires InsertAsImage" };
       }
 

@@ -31,7 +31,8 @@ $files = @(
     "manifest.json",
     "ribbon.xml",
     "package.json",
-    "proxy.js"
+    "proxy.js",
+    "server.js"
 )
 
 foreach ($file in $files) {

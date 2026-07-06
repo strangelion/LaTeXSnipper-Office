@@ -156,6 +156,8 @@ jobs:
           $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
           Set-Content src-tauri/Cargo.toml -Value $cargo
 
+      - run: npx tauri build --target aarch64-apple-darwin
+
       - uses: actions/upload-artifact@v4
         with:
           name: tauri-macos

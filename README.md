@@ -14,11 +14,11 @@
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
-| Windows | ✅ | Tauri 原生支持 |
+| Windows | ✅ | Tauri 原生支持，正式目标 |
 | Linux | ✅ | Tauri 原生支持 |
-| macOS | ✅ | Tauri 原生支持 |
-| iOS | ✅ | Tauri 2.0 支持 |
-| Android | ✅ | Tauri 2.0 支持 |
+| macOS | ✅ | Tauri 原生支持，CI 需验证 |
+| iOS | ⚠️ | 未作为当前发行目标 |
+| Android | ⚠️ | 未作为当前发行目标 |
 
 ## 功能特性
 
@@ -89,4 +89,4 @@ cargo tauri android build
 
 GNU Affero General Public License v3.0 (AGPL-3.0-only)
 
-本项目采用 AGPL-3.0 许可证，禁止商业使用。
+本项目采用 AGPL-3.0 许可证，允许商业使用、修改和分发，但须遵守 AGPL-3.0 的相应源代码提供义务。需要不同授权安排请联系项目维护者。

@@ -18,6 +18,7 @@ copy /Y "%SCRIPT_DIR%manifest.json" "%DIST_DIR%\%PLUGIN_NAME%\" >nul
 copy /Y "%SCRIPT_DIR%ribbon.xml" "%DIST_DIR%\%PLUGIN_NAME%\" >nul
 copy /Y "%SCRIPT_DIR%package.json" "%DIST_DIR%\%PLUGIN_NAME%\" >nul
 copy /Y "%SCRIPT_DIR%proxy.js" "%DIST_DIR%\%PLUGIN_NAME%\" >nul
+copy /Y "%SCRIPT_DIR%server.js" "%DIST_DIR%\%PLUGIN_NAME%\" >nul
 mkdir "%DIST_DIR%\%PLUGIN_NAME%\js"
 copy /Y "%SCRIPT_DIR%js\command-layer.js" "%DIST_DIR%\%PLUGIN_NAME%\js\" >nul
 copy /Y "%SCRIPT_DIR%js\ribbon.js" "%DIST_DIR%\%PLUGIN_NAME%\js\" >nul
