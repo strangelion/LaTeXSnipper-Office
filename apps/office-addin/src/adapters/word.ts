@@ -314,19 +314,19 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ latex, display }),
       });
-      if (!response.ok) return this.fallbackOmml(latex);
+      if (!response.ok) {
+        throw new Error(`Bridge conversion failed (${response.status})`);
+      }
       const data = await response.json();
-      return data.omml || this.fallbackOmml(latex);
-    } catch {
-      return this.fallbackOmml(latex);
+      const omml = data.omml || data.result?.omml;
+      if (!omml) {
+        throw new Error('Bridge conversion returned no OMML');
+      }
+      return omml;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Cannot convert LaTeX to Word equation: ${message}`);
     }
-  }
-
-  /**
-   * Fallback when Bridge is unreachable: wrap LaTeX in text run
-   */
-  private fallbackOmml(latex: string): string {
-    return `<m:r><m:t>${this.escapeXml(latex)}</m:t></m:r>`;
   }
 
   /**

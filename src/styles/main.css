@@ -184,6 +184,10 @@ a:hover { color: var(--accent-hover); }
   overflow-y: auto;
   scrollbar-width: none;
 }
+.custom-select.dropup .custom-select-dropdown {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
 .custom-select-dropdown::-webkit-scrollbar {
   width: 0;
 }

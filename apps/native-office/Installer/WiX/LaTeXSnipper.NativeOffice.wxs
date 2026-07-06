@@ -35,9 +35,9 @@
 
       <!-- Word Add-in -->
       <Component Id="WordComponent" Directory="WordDir" Guid="B2C3D4E5-2222-3333-4444-555566667777">
-        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.dll" />
-        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.vsto" />
-        <File Source="$(var.WordBinDir)\LaTeXSnipper.NativeOffice.Word.manifest" />
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.dll" />
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.vsto" />
+        <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.dll.manifest" />
 
         <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Word\Addins\LaTeXSnipper.NativeOffice.Word">
@@ -45,15 +45,15 @@
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Word" />
           <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
           <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
-          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Word\LaTeXSnipper.NativeOffice.Word.vsto|vstolocal" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Word\LaTeXSnipper.Word.vsto|vstolocal" />
         </RegistryKey>
       </Component>
 
       <!-- Excel Add-in -->
       <Component Id="ExcelComponent" Directory="ExcelDir" Guid="C3D4E5F6-3333-4444-5555-666677778888">
-        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.dll" />
-        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.vsto" />
-        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.NativeOffice.Excel.manifest" />
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.dll" />
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.vsto" />
+        <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.dll.manifest" />
 
         <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Excel\Addins\LaTeXSnipper.NativeOffice.Excel">
@@ -61,15 +61,15 @@
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Excel" />
           <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
           <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
-          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Excel\LaTeXSnipper.NativeOffice.Excel.vsto|vstolocal" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]Excel\LaTeXSnipper.Excel.vsto|vstolocal" />
         </RegistryKey>
       </Component>
 
       <!-- PowerPoint Add-in -->
       <Component Id="PowerPointComponent" Directory="PowerPointDir" Guid="D4E5F6A7-4444-5555-6666-777788889999">
-        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.dll" />
-        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.vsto" />
-        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.NativeOffice.PowerPoint.manifest" />
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.dll" />
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.vsto" />
+        <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.dll.manifest" />
 
         <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\PowerPoint\Addins\LaTeXSnipper.NativeOffice.PowerPoint">
@@ -77,7 +77,7 @@
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for PowerPoint" />
           <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
           <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
-          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]PowerPoint\LaTeXSnipper.NativeOffice.PowerPoint.vsto|vstolocal" />
+          <RegistryValue Type="string" Name="Manifest" Value="[NativeOfficeDir]PowerPoint\LaTeXSnipper.PowerPoint.vsto|vstolocal" />
         </RegistryKey>
       </Component>
 

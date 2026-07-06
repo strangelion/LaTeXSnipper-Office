@@ -1,0 +1,12 @@
+{
+  "manifest_version": "1.0.0",
+  "name": "LaTeXSnipper",
+  "version": "1.0.0",
+  "description": "LaTeX公式插入插件，支持在WPS文字和演示中插入、预览和管理LaTeX公式",
+  "author": "LaTeXSnipper",
+  "homepage": "https://latexsnipper.com",
+  "icon": "images/insert_inline.svg",
+  "host_application": ["wps", "wpp"],
+  "entry_point": "index.html",
+  "permissions": ["activeDocument", "selection", "pluginStorage", "taskPane"]
+}

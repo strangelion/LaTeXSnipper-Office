@@ -1,15 +1,14 @@
-
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.0.31903.59
+# Visual Studio Version 18
+VisualStudioVersion = 18.7.11925.98
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Shared", "Shared\LaTeXSnipper.NativeOffice.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Shared", "LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Word", "WordAddin\LaTeXSnipper.NativeOffice.Word.csproj", "{B2C3D4E5-2222-3333-4444-555566667777}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Word", "LaTeXSnipper.Word\LaTeXSnipper.Word.csproj", "{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.Excel", "ExcelAddin\LaTeXSnipper.NativeOffice.Excel.csproj", "{C3D4E5F6-3333-4444-5555-666677778888}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.PowerPoint", "LaTeXSnipper.PowerPoint\LaTeXSnipper.PowerPoint.csproj", "{F00793C0-1FFD-4878-A62C-F11D0D132A8F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.NativeOffice.PowerPoint", "PowerPointAddin\LaTeXSnipper.NativeOffice.PowerPoint.csproj", "{D4E5F6A7-4444-5555-6666-777788889999}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Excel", "LaTeXSnipper.Excel\LaTeXSnipper.Excel.csproj", "{29F1E47A-7210-40ED-83B5-9603A86846B4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,17 +20,23 @@ Global
 		{A1B2C3D4-1111-2222-3333-444455556666}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-1111-2222-3333-444455556666}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B2C3D4E5-2222-3333-4444-555566667777}.Release|Any CPU.Build.0 = Release|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{C3D4E5F6-3333-4444-5555-666677778888}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D4E5F6A7-4444-5555-6666-777788889999}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F00793C0-1FFD-4878-A62C-F11D0D132A8F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F00793C0-1FFD-4878-A62C-F11D0D132A8F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F00793C0-1FFD-4878-A62C-F11D0D132A8F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F00793C0-1FFD-4878-A62C-F11D0D132A8F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {571E52C1-5D4C-4F3C-A688-230C1F41AAFE}
 	EndGlobalSection
 EndGlobal

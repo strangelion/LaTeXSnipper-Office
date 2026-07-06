@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LaTeXSnipper</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --line: #d7dfec;
+      --text: #182235;
+      --muted: #667085;
+      --accent: #2e7be6;
+      --accent-hover: #2165c8;
+      --info-bg: #eef4ff;
+      --info-line: #b2ccff;
+      --info-text: #1849a9;
+      --success-bg: #ecfdf3;
+      --success-line: #abefc6;
+      --success-text: #067647;
+      --error-bg: #fff1f0;
+      --error-line: #ffccc7;
+      --error-text: #cf1322;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; color: var(--text); background: var(--bg); font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif; }
+    button, input, textarea { font: inherit; }
+    .taskpane-shell { min-height: 100vh; padding: 14px; }
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    h1 { margin: 0; font-size: 18px; font-weight: 700; }
+    p { margin: 3px 0 0; color: #52637f; font-size: 12px; }
+    .status-banner { min-height: 42px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--info-line); border-radius: 6px; color: var(--info-text); background: var(--info-bg); font-size: 13px; line-height: 1.4; }
+    .status-banner.success { border-color: var(--success-line); color: var(--success-text); background: var(--success-bg); }
+    .status-banner.error { border-color: var(--error-line); color: var(--error-text); background: var(--error-bg); }
+    .panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+    label { color: #24324a; font-size: 12px; font-weight: 700; }
+    .preview-host { min-height: 66px; max-height: 220px; overflow-x: auto; overflow-y: auto; padding: 10px; border: 1px solid #c8d3e2; border-radius: 4px; background: #ffffff; display: flex; align-items: center; justify-content: center; }
+    .preview-host img { max-width: 100%; max-height: 200px; }
+    .preview-placeholder { color: var(--muted); font-size: 13px; }
+    textarea { width: 100%; min-height: 112px; padding: 9px 10px; border: 1px solid #c8d3e2; border-radius: 4px; color: #101828; background: #ffffff; outline: none; resize: vertical; font: 14px/1.45 Consolas, "Cascadia Mono", monospace; }
+    textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(46, 123, 230, 0.14); }
+    .options-row { display: grid; grid-template-columns: auto auto 1fr; gap: 7px; align-items: center; }
+    .options-row label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 12px; font-weight: 500; }
+    .options-row input[type="checkbox"] { width: auto; margin: 0; }
+    .actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+    button { min-height: 38px; padding: 8px 12px; border: 1px solid #c8d3e2; border-radius: 4px; color: #182235; background: #ffffff; cursor: pointer; }
+    button:hover:not(:disabled) { border-color: #9bb8de; background: #f7fbff; }
+    button.primary { border-color: var(--accent); color: #ffffff; background: var(--accent); font-weight: 700; }
+    button.primary:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); }
+    button:disabled { cursor: default; opacity: 0.58; }
+    .ghost-button { width: auto; min-width: 84px; }
+  </style>
+</head>
+<body>
+  <main class="taskpane-shell">
+    <section class="toolbar">
+      <div>
+        <h1>LaTeXSnipper</h1>
+        <p>WPS 插件</p>
+      </div>
+      <button id="connectButton" type="button" class="ghost-button">连接</button>
+    </section>
+
+    <div id="statusBanner" class="status-banner" role="status">
+      <span id="statusText">就绪。</span>
+    </div>
+
+    <section class="panel">
+      <label for="latexSource">LaTeX</label>
+      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: e^{i\pi}+1=0">e^{i\pi}+1=0</textarea>
+      <div id="previewSection">
+        <label>预览</label>
+        <div id="previewHost" class="preview-host">
+          <span class="preview-placeholder">输入公式后显示预览</span>
+        </div>
+      </div>
+      <div class="options-row">
+        <label><input id="displayMode" type="checkbox"><span>行间公式</span></label>
+        <label><input id="autoNumber" type="checkbox"><span>自动编号</span></label>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button id="insertButton" type="button" class="primary">插入公式</button>
+    </section>
+  </main>
+
+  <script>
+    const BRIDGE_URL = location.origin + "/bridge";
+
+    const els = {
+      connectButton: document.getElementById("connectButton"),
+      statusBanner: document.getElementById("statusBanner"),
+      statusText: document.getElementById("statusText"),
+      previewHost: document.getElementById("previewHost"),
+      latexSource: document.getElementById("latexSource"),
+      displayMode: document.getElementById("displayMode"),
+      insertButton: document.getElementById("insertButton"),
+    };
+
+    let bridgeConnected = false;
+    let bridgeToken = "";
+
+    function setStatus(kind, message) {
+      els.statusBanner.className = "status-banner " + kind;
+      els.statusText.textContent = message;
+    }
+
+    function syncToStorage() {
+      try {
+        window.parent.window.Application.PluginStorage.setItem("current_latex", els.latexSource.value);
+        window.parent.window.Application.PluginStorage.setItem("current_display", els.displayMode.checked);
+      } catch (e) {}
+    }
+
+    async function checkBridge() {
+      try {
+        const response = await fetch(BRIDGE_URL + "/config");
+        const data = await response.json();
+        bridgeToken = data.result?.token || "";
+        bridgeConnected = true;
+        try {
+          window.parent.window.Application.PluginStorage.setItem("bridge_token", bridgeToken);
+        } catch (e) {}
+        setStatus("success", "已连接到 LaTeXSnipper Bridge");
+        els.connectButton.textContent = "已连接";
+        els.connectButton.disabled = true;
+        syncToStorage();
+        updatePreview();
+      } catch (e) {
+        bridgeConnected = false;
+        bridgeToken = "";
+        setStatus("error", "Bridge 未连接，请启动 LaTeXSnipper 桌面应用");
+        els.connectButton.textContent = "连接";
+        els.connectButton.disabled = false;
+      }
+    }
+
+    async function updatePreview() {
+      const latex = els.latexSource.value.trim();
+      if (!latex) {
+        els.previewHost.innerHTML = '<span class="preview-placeholder">输入公式后显示预览</span>';
+        return;
+      }
+      if (!bridgeConnected) {
+        els.previewHost.innerHTML = '<span class="preview-placeholder">需要连接 Bridge 才能预览</span>';
+        return;
+      }
+      try {
+        const response = await fetch(BRIDGE_URL + "/convert/latex", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bridgeToken },
+          body: JSON.stringify({ latex: latex, display: els.displayMode.checked, targets: ["png"] })
+        });
+        const result = await response.json();
+        if (result.ok && result.result.png_base64) {
+          els.previewHost.innerHTML = '<img src="data:image/png;base64,' + result.result.png_base64 + '" alt="公式预览">';
+        } else {
+          els.previewHost.innerHTML = '<span class="preview-placeholder">预览失败</span>';
+        }
+      } catch (e) {
+        els.previewHost.innerHTML = '<span class="preview-placeholder">预览失败: ' + e.message + '</span>';
+      }
+    }
+
+    function insertFormula() {
+      const latex = els.latexSource.value.trim();
+      if (!latex) { alert("请先输入 LaTeX 公式"); return; }
+
+      try {
+        const app = window.parent.window.Application;
+        const doc = app.ActiveDocument;
+        if (!doc) { alert("请先打开一个文档"); return; }
+
+        const selection = app.Selection;
+        selection.Range.Collapse(0);
+
+        let startPos = selection.Range.End;
+        selection.TypeText(latex);
+        let endPos = selection.Range.End;
+        let insertedRange = doc.Range(startPos, endPos);
+        insertedRange.Select();
+
+        selection.OMaths.Add(selection.Range);
+
+        if (selection.OMaths.Count > 0) {
+          const oMath = selection.OMaths.Item(1);
+          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) {} }
+          try { oMath.BuildUp(); } catch(e) {}
+          selection.Range.Collapse(0);
+          setStatus("success", "公式插入成功");
+        } else {
+          setStatus("error", "公式创建失败");
+        }
+      } catch (e) {
+        setStatus("error", "插入失败: " + e.message);
+      }
+    }
+
+    let previewTimer = null;
+    function debouncedPreview() {
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => { updatePreview(); syncToStorage(); }, 500);
+    }
+
+    els.latexSource.addEventListener("input", debouncedPreview);
+    els.displayMode.addEventListener("change", () => { updatePreview(); syncToStorage(); });
+    els.connectButton.addEventListener("click", checkBridge);
+    els.insertButton.addEventListener("click", insertFormula);
+
+    checkBridge();
+    updatePreview();
+  </script>
+</body>
+</html>

@@ -1362,6 +1362,7 @@ class UIController {
     this.applySettings();
     this.themeManager.updateButton();
     this.loadPlatforms();
+    this.syncOfficeSettingsToggle();
     this.renderPlatformList();
     this.updateOfficeInsertButton();
     this.updateMdCopyButton();
@@ -1524,6 +1525,8 @@ class UIController {
 
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
     document.getElementById('loadFromWord')?.addEventListener('click', () => this.loadFromWord());
+    document.getElementById('insertTableBtn')?.addEventListener('click', () => this.insertTableToWord());
+    document.getElementById('readTableBtn')?.addEventListener('click', () => this.readTableFromWord());
     this.updateOfficeInsertButton();
     this.updateMdCopyButton();
     this.updateMdCopyButton();
@@ -1636,6 +1639,20 @@ class UIController {
       Logger.info(`Settings: bridgeUrl = ${e.target.value}`);
     });
 
+    document.getElementById('officeEnabledToggle')?.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      e.target.disabled = true;
+      this.settingsManager.set('officeEnabled', enabled);
+      Logger.info(`Settings: officeEnabled = ${enabled}`);
+      const ok = await this.setPlatformEnabled('office', enabled);
+      if (!ok) {
+        this.settingsManager.set('officeEnabled', !enabled);
+        e.target.checked = !enabled;
+      }
+      e.target.disabled = false;
+      this.updateTabVisibility();
+    });
+
     document.getElementById('ocrEnabledToggle')?.addEventListener('change', (e) => {
       this.settingsManager.set('ocrEnabled', e.target.checked);
       this.updateTabVisibility();
@@ -1666,47 +1683,65 @@ class UIController {
         if (!selector || !selectorContainer) return;
 
         if (this._sessions.length === 0) {
-          selector.innerHTML = '<option value="">未连接 Office</option>';
+          selector.innerHTML = '';
           selectorContainer.style.display = 'none';
+          this._selectedSessionId = null;
           return;
         }
 
-        selectorContainer.style.display = '';
+        selectorContainer.style.display = 'inline-block';
         selector.innerHTML = '';
 
         for (const session of this._sessions) {
-          const opt = document.createElement('option');
-          opt.value = session.session_id;
+          const opt = document.createElement('div');
+          opt.className = 'custom-select-option';
+          opt.dataset.value = session.session_id;
           opt.textContent = `${session.host_type} - ${session.document_title || '未命名'}`;
+          opt.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const trigger = selectorContainer.querySelector('.custom-select-trigger');
+            trigger.querySelector('span').textContent = opt.textContent;
+            trigger.dataset.value = opt.dataset.value;
+            this._selectedSessionId = opt.dataset.value;
+            selectorContainer.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+            opt.classList.add('selected');
+            selectorContainer.classList.remove('open');
+            Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
+          });
           selector.appendChild(opt);
         }
 
-        // Auto-select if only one session
-        if (this._sessions.length === 1) {
-          selector.value = this._sessions[0].session_id;
-          this._selectedSessionId = this._sessions[0].session_id;
-        } else if (this._selectedSessionId) {
-          // Keep previous selection if still valid
-          const exists = this._sessions.find(s => s.session_id === this._selectedSessionId);
-          if (exists) {
-            selector.value = this._selectedSessionId;
-          } else {
-            this._selectedSessionId = null;
-          }
+        // Auto-select: keep previous selection if still valid, else pick first
+        const trigger = selectorContainer.querySelector('.custom-select-trigger');
+        let selectedOption = null;
+        if (this._selectedSessionId) {
+          selectedOption = selector.querySelector(`[data-value="${this._selectedSessionId}"]`);
         }
+        if (!selectedOption) {
+          selectedOption = selector.querySelector('.custom-select-option');
+        }
+        if (selectedOption) {
+          trigger.querySelector('span').textContent = selectedOption.textContent;
+          trigger.dataset.value = selectedOption.dataset.value;
+          selectedOption.classList.add('selected');
+          this._selectedSessionId = selectedOption.dataset.value;
+        }
+
+        // Toggle dropdown
+        trigger.onclick = (e) => {
+          e.stopPropagation();
+          document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+          selectorContainer.classList.toggle('open');
+        };
       } catch (e) {
         Logger.error('Failed to update host selector:', e);
       }
     };
 
-    // Listen for selector changes
-    const selector = document.getElementById('officeTargetHost');
-    if (selector) {
-      selector.addEventListener('change', (e) => {
-        this._selectedSessionId = e.target.value || null;
-        Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
-      });
-    }
+    // Close dropdown on outside click
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+    });
 
     // Listen for session changes
     this.initNativeOfficeEvents();
@@ -1735,7 +1770,9 @@ class UIController {
         }
 
         // Get OMML from Rust
+        console.log(`[Insert] Converting LaTeX: "${latex}"`);
         const omml = await invoke('latex_to_omml', { latex });
+        console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
         // Render SVG for Excel/PPT (Word uses OMML directly)
         let svg = null;
@@ -1771,6 +1808,7 @@ class UIController {
           }
         }
 
+        console.log(`[Insert] Sending to session ${sessionId} (${session.host_type})`);
         await invoke('native_office_insert_formula', {
           sessionId: sessionId,
           formulaId: crypto.randomUUID(),
@@ -1918,6 +1956,11 @@ class UIController {
       listen('native-office-context-changed', async (event) => {
         const { sessionId, documentTitle } = event.payload;
         Logger.info(`Native Office: context changed for ${sessionId}: ${documentTitle}`);
+        // Update session title in local list immediately
+        const session = this._sessions?.find(s => s.session_id === sessionId);
+        if (session && documentTitle) {
+          session.document_title = documentTitle;
+        }
         await this.updateOfficeHostSelector();
       });
 
@@ -2970,6 +3013,7 @@ class UIController {
     if (ocrTab) {
       ocrTab.style.display = settings.ocrEnabled ? '' : 'none';
     }
+    this.updateOfficeInsertButton();
     
     Logger.debug('Tab visibility updated');
   }
@@ -3036,6 +3080,7 @@ class UIController {
 
   async insertToWord() {
     const latex = this.editor.getLatex();
+    console.log('[Insert] latex:', latex);
     if (!latex) {
       this.showStatus('请先输入公式');
       return;
@@ -3057,7 +3102,9 @@ class UIController {
         return;
       }
 
+      console.log('[Insert] Converting LaTeX to OMML...');
       const omml = await invoke('latex_to_omml', { latex });
+      console.log('[Insert] OMML length:', omml?.length || 0);
 
       // Render SVG for Excel/PPT (Word uses OMML directly)
       let svg = null;
@@ -3095,6 +3142,7 @@ class UIController {
         }
       }
 
+      console.log('[Insert] Sending to session:', sessionId);
       await invoke('native_office_insert_formula', {
         sessionId: sessionId,
         formulaId: crypto.randomUUID(),
@@ -3106,6 +3154,7 @@ class UIController {
         widthPt: widthPt,
         heightPt: heightPt
       });
+      console.log('[Insert] Success');
       this.showToast(`已插入到 ${session.host_type}`);
       this.addHistoryItem(latex);
     } catch (error) {
@@ -3138,16 +3187,64 @@ class UIController {
     }
   }
 
+  async insertTableToWord() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const latex = this.editor?.getLatex();
+      const content = latex ? `${latex}` : "x";
+
+      // Build a minimal 2x2 test table with formula in cell
+      const table = {
+        tableId: crypto.randomUUID(),
+        table: {
+          rows: [
+            { cells: [{ inlines: [{ type: "text", text: "Cell 1" }] }, { inlines: [{ type: "text", text: "Cell 2" }] }] },
+            { cells: [{ inlines: [{ type: "text", text: "Cell 3" }] }, { inlines: [{ type: "text", text: content }] }] }
+          ]
+        }
+      };
+
+      await invoke('native_office_insert_table', {
+        sessionId,
+        tableJson: JSON.stringify(table)
+      });
+      this.showToast('表格已发送');
+    } catch (e) {
+      this.showToast('插入表格失败: ' + (e.message || e));
+    }
+  }
+
+  async readTableFromWord() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('native_office_request_read_table', { sessionId });
+      this.showToast('表格读取请求已发送');
+    } catch (e) {
+      this.showToast('读取表格失败: ' + (e.message || e));
+    }
+  }
+
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find(p => p.id === 'office');
+    const enabled = officePlatform?.enabled && this.settingsManager.get('officeEnabled');
     const btn = document.getElementById('insertToWord');
-    if (btn) {
-      btn.style.display = officePlatform?.enabled ? '' : 'none';
-    }
+    if (btn) btn.style.display = enabled ? '' : 'none';
     const loadBtn = document.getElementById('loadFromWord');
-    if (loadBtn) {
-      loadBtn.style.display = officePlatform?.enabled ? '' : 'none';
-    }
+    if (loadBtn) loadBtn.style.display = enabled ? '' : 'none';
+    const tableInsert = document.getElementById('insertTableBtn');
+    if (tableInsert) tableInsert.style.display = enabled ? '' : 'none';
+    const tableRead = document.getElementById('readTableBtn');
+    if (tableRead) tableRead.style.display = enabled ? '' : 'none';
   }
 
   updateMdCopyButton() {
@@ -3303,6 +3400,15 @@ class UIController {
     localStorage.setItem('platforms', JSON.stringify(data));
   }
 
+  syncOfficeSettingsToggle() {
+    const officePlatform = this.platforms.find(p => p.id === 'office');
+    const officeToggle = document.getElementById('officeEnabledToggle');
+    if (officeToggle && officePlatform) {
+      officeToggle.checked = officePlatform.enabled;
+      this.settingsManager.set('officeEnabled', officePlatform.enabled);
+    }
+  }
+
   _officeStatusCache = null;
 
   async getOfficeStatus() {
@@ -3344,14 +3450,22 @@ class UIController {
         if (officeStatus.word && officeStatus.word.available) parts.push('Word');
         if (officeStatus.excel && officeStatus.excel.available) parts.push('Excel');
         if (officeStatus.powerpoint && officeStatus.powerpoint.available) parts.push('PowerPoint');
-        officePlatform.desc = parts.join(' / ');
-        if (officeStatus.word && officeStatus.word.plugin_installed) officePlatform.desc += ' · 已安装';
+        officePlatform.desc = parts.join(' / ') || 'Office detected';
       } else {
         officePlatform.desc = '未检测到 Office';
       }
     }
 
     if (refreshStatus) {
+      if (officePlatform && officeStatus?.installed) {
+        const officeIntegration = await this.getPlatformIntegrationStatus('office');
+        if (officeIntegration.success) {
+          officePlatform.desc += ' · 插件已启用';
+        } else if (officeIntegration.message) {
+          officePlatform.desc += ' · 插件未启用';
+        }
+      }
+
       const wpsPlatform = this.platforms.find(p => p.id === 'wps');
       if (wpsPlatform) {
         const wpsStatus = await this.getPlatformIntegrationStatus('wps');
@@ -3387,36 +3501,49 @@ class UIController {
         const platformId = e.target.dataset.platform;
         const platform = this.platforms.find(p => p.id === platformId);
         if (platform) {
-          if (this.platformOperations.has(platformId)) {
-            e.target.checked = platform.enabled;
-            return;
-          }
-
-          const requestedEnabled = e.target.checked;
-          const previousEnabled = platform.enabled;
-          platform.enabled = requestedEnabled;
-          this.platformOperations.add(platformId);
-          await this.renderPlatformList();
-
-          let ok = false;
-          if (requestedEnabled) {
-            ok = await this.registerPlatform(platform);
-          } else {
-            ok = await this.unregisterPlatform(platform);
-          }
-
-          if (!ok) {
-            platform.enabled = previousEnabled;
-          }
-
-          this.savePlatforms();
-          this.platformOperations.delete(platformId);
-          await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
-          this.updateOfficeInsertButton();
-    this.updateMdCopyButton();
+          const ok = await this.setPlatformEnabled(platformId, e.target.checked);
+          if (!ok) e.target.checked = platform.enabled;
         }
       });
     });
+  }
+
+  async setPlatformEnabled(platformId, requestedEnabled) {
+    const platform = this.platforms.find(p => p.id === platformId);
+    if (!platform) return false;
+    if (this.platformOperations.has(platformId)) return false;
+
+    const previousEnabled = platform.enabled;
+    platform.enabled = requestedEnabled;
+    this.platformOperations.add(platformId);
+    await this.renderPlatformList();
+
+    let ok = false;
+    if (requestedEnabled) {
+      ok = await this.registerPlatform(platform);
+    } else {
+      ok = await this.unregisterPlatform(platform);
+    }
+
+    if (!ok) {
+      platform.enabled = previousEnabled;
+    }
+
+    this.savePlatforms();
+    this.platformOperations.delete(platformId);
+    await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
+    this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
+
+    if (platformId === 'office') {
+      const officeToggle = document.getElementById('officeEnabledToggle');
+      if (officeToggle) {
+        officeToggle.checked = platform.enabled;
+      }
+      this.settingsManager.set('officeEnabled', platform.enabled);
+    }
+
+    return ok;
   }
 
   platformSupport = {
@@ -3450,15 +3577,14 @@ class UIController {
             return false;
           }
 
-          // Use Native Office install command
-          const { invoke } = await import('@tauri-apps/api/core');
-          const result = await invoke('native_office_install');
+          const result = await invoke('install_platform_integration', { platformId: 'office' });
           this.clearOfficeStatusCache();
-          if (result.operation_id) {
-            this.showToast('安装已启动，请按照安装程序提示操作');
+          if (result.success) {
+            this.showToast('Office 插件已启用，请重启 Office 加载插件');
             return true;
           } else {
-            this.showToast('安装启动失败: ' + (result.message || result.error));
+            this.showToast('启用失败: ' + (result.message || result.error));
+            platform.enabled = false;
             return false;
           }
         }
@@ -3491,13 +3617,13 @@ class UIController {
     if (platform.id === 'office') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('native_office_uninstall');
+        const result = await invoke('uninstall_platform_integration', { platformId: 'office' });
         this.clearOfficeStatusCache();
-        if (result.operation_id) {
-          this.showToast('卸载已启动，请按照安装程序提示操作');
+        if (result.success) {
+          this.showToast('Office 插件已停用，请重启 Office 生效');
           return true;
         } else {
-          this.showToast('卸载启动失败: ' + (result.message || result.error));
+          this.showToast('停用失败: ' + (result.message || result.error));
           return false;
         }
       } catch (e) {
