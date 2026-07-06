@@ -255,12 +255,7 @@ jobs:
       - name: Setup WiX v4
         run: dotnet tool install --global wix
 
-      - name: Build solution
-        run: |
-          MSBuild.exe apps\native-office\LaTeXSnipper.NativeOffice.sln `
-            /t:Build /p:Configuration=Release /p:Platform="Any CPU" /v:minimal
-
-      - name: Build installer
+      - name: Build solution and installer
         working-directory: apps/native-office/Installer
         run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -SkipSigning
 
