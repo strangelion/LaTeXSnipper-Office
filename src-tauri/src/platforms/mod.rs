@@ -3,6 +3,7 @@ pub mod acl;
 pub mod handshake;
 pub mod integrations;
 pub mod office;
+pub mod office_bridge;
 #[cfg(target_os = "windows")]
 pub mod pipe_protocol;
 #[cfg(target_os = "windows")]
