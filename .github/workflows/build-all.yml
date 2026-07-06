@@ -477,7 +477,7 @@ jobs:
           files: |
             release/LaTeXSnipper-${{ env.VERSION }}/**/*
           generate_release_notes: true
-            body: |
+          body: |
             ## LaTeXSnipper Office v${{ env.VERSION }}
 
             ### Windows
