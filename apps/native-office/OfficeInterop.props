@@ -1,0 +1,9 @@
+<Project>
+  <!-- Office Core PIA — provides MsoTriState, IRibbonExtensibility, etc. -->
+  <ItemGroup>
+    <Reference Include="Office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
+      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

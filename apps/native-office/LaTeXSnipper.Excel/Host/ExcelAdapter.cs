@@ -81,7 +81,7 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         return new FormulaPayload
                         {
-                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
+                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
                             Latex = text,
                             Display = "inline"
                         };
