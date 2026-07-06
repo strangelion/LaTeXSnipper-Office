@@ -5,5 +5,5 @@
   "minAppVersion": "1.0.0",
   "description": "LaTeX formula insertion and editing for Obsidian",
   "author": "LaTeXSnipper",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }

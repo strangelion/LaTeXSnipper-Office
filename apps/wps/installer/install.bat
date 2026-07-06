@@ -30,7 +30,7 @@ set PLUGIN_DIR=%JSADDONS%\%PLUGIN_NAME%
 set SCRIPT_DIR=%~dp0
 
 :: Create directories
-echo [1/3] Creating directories...
+echo [1/4] Creating directories...
 if not exist "%JSADDONS%" mkdir "%JSADDONS%"
 if not exist "%PLUGIN_DIR%" mkdir "%PLUGIN_DIR%"
 if not exist "%PLUGIN_DIR%\js" mkdir "%PLUGIN_DIR%\js"
@@ -38,24 +38,50 @@ if not exist "%PLUGIN_DIR%\images" mkdir "%PLUGIN_DIR%\images"
 if not exist "%PLUGIN_DIR%\ui" mkdir "%PLUGIN_DIR%\ui"
 
 :: Copy plugin files
-echo [2/3] Copying plugin files...
+echo [2/4] Copying plugin files...
 copy /Y "%SCRIPT_DIR%index.html" "%PLUGIN_DIR%\" >nul
 copy /Y "%SCRIPT_DIR%main.js" "%PLUGIN_DIR%\" >nul
 copy /Y "%SCRIPT_DIR%manifest.xml" "%PLUGIN_DIR%\" >nul
 copy /Y "%SCRIPT_DIR%ribbon.xml" "%PLUGIN_DIR%\" >nul
+copy /Y "%SCRIPT_DIR%server.js" "%PLUGIN_DIR%\" >nul
+copy /Y "%SCRIPT_DIR%proxy.js" "%PLUGIN_DIR%\" >nul
+copy /Y "%SCRIPT_DIR%js\command-layer.js" "%PLUGIN_DIR%\js\" >nul
 copy /Y "%SCRIPT_DIR%js\ribbon.js" "%PLUGIN_DIR%\js\" >nul
 copy /Y "%SCRIPT_DIR%js\util.js" "%PLUGIN_DIR%\js\" >nul
 copy /Y "%SCRIPT_DIR%images\*.svg" "%PLUGIN_DIR%\images\" >nul
 copy /Y "%SCRIPT_DIR%ui\taskpane.html" "%PLUGIN_DIR%\ui\" >nul
 
-:: Create publish.xml for offline mode
-echo [3/3] Creating publish.xml...
+:: Register in publish.xml (upsert — preserves other plugins)
+echo [3/4] Registering plugin in publish.xml...
+set PUBLISH_XML=%JSADDONS%\publish.xml
+if not exist "%PUBLISH_XML%" (
+    echo ^<?xml version="1.0" encoding="UTF-8"?^>
+    echo ^<jsplugins^>
+    echo ^</jsplugins^>
+) > "%PUBLISH_XML%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  $xml = [xml](Get-Content '%PUBLISH_XML%' -Raw -ErrorAction SilentlyContinue); ^
+  if (-not $xml) { $xml = [xml]'^<?xml version="1.0" encoding="UTF-8"?^>^<jsplugins/^>' }; ^
+  $root = $xml.DocumentElement; ^
+  $existing = $root.SelectNodes('//jspluginonline[@name="latexsnipper-wps"]'); ^
+  if ($existing.Count -eq 0) { ^
+    $el = $xml.CreateElement('jspluginonline'); ^
+    $el.SetAttribute('name','latexsnipper-wps'); ^
+    $el.SetAttribute('addonType','wps'); ^
+    $el.SetAttribute('online','false'); ^
+    $el.SetAttribute('enable','enable_dev'); ^
+    $root.AppendChild($el) ^
+  }; ^
+  $xml.Save('%PUBLISH_XML%')
+
+:: Create launcher script
+echo [4/4] Creating launcher...
 (
-echo ^<?xml version="1.0" encoding="UTF-8"?^>
-echo ^<jsplugins^>
-echo     ^<jspluginonline name="latexsnipper-wps" addonType="wps" online="false" enable="enable_dev"/^>
-echo ^</jsplugins^>
-) > "%JSADDONS%\publish.xml"
+echo @echo off
+echo start "" "wps.exe"
+echo start "" /B node "%%~dp0proxy.js"
+echo start "" /B node "%%~dp0server.js"
+) > "%PLUGIN_DIR%\start.bat"
 
 echo.
 echo ========================================
@@ -63,6 +89,8 @@ echo   Installation Complete!
 echo ========================================
 echo.
 echo Plugin installed to: %PLUGIN_DIR%
+echo.
+echo Launcher: %PLUGIN_DIR%\start.bat
 echo.
 echo Please restart WPS Office to use LaTeXSnipper.
 echo.
