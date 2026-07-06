@@ -413,54 +413,53 @@ jobs:
             Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
           }
 
-      - name: Install NSIS
-        shell: bash
-        run: choco install nsis -y
-
-      - name: Build combined NSIS installer
+      - name: Prepare release structure
+        shell: pwsh
         run: |
           $ver = "$env:VERSION"
-          $nsi = "installer/LaTeXSnipper.AllInOne.nsi"
-          $release = Resolve-Path "release/LaTeXSnipper-$ver"
+          $release = "release/LaTeXSnipper-$ver"
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
 
-          $tauriExe = Get-ChildItem "$release/windows" -Filter "*.exe" | Select-Object -First 1
+          # Tauri Windows
+          $tw = Get-ChildItem "artifacts/tauri-windows" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/windows" -Force
+          $tw | Copy-Item -Destination "$release/windows/" -Force
 
-          if ($tauriExe) {
-            # Build NSIS with absolute paths via /D defines
-            $nsisArgs = @(
-              "/DPRODUCT_VERSION=$ver"
-              "/DTAURI_INSTALLER=$($tauriExe.FullName)"
-            )
+          # VSTO
+          $vsto = Get-ChildItem "artifacts/vsto" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/windows/vsto" -Force
+          $vsto | Copy-Item -Destination "$release/windows/vsto/" -Force
 
-            $vstoBundle = Get-ChildItem "$release/windows/vsto" -Filter "*.exe" | Select-Object -First 1
-            if ($vstoBundle) {
-              $nsisArgs += "/DVSTO_INSTALLER=$($vstoBundle.FullName)"
+          # WPS
+          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
+          Copy-Item "artifacts/wps/*.zip" "$release/plugins/" -Force
+
+          # Obsidian
+          Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
+
+          # macOS
+          $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/macos" -Force
+          $mac | Copy-Item -Destination "$release/macos/" -Force
+
+          # Linux
+          $linux = Get-ChildItem "artifacts/tauri-linux" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/linux" -Force
+          $linux | Copy-Item -Destination "$release/linux/" -Force
+
+          # Build release-manifest.json
+          $manifest = @{ version = $ver; components = @() }
+          Get-ChildItem $release -Recurse -File | ForEach-Object {
+            $manifest.components += @{
+              path = $_.FullName.Replace((Get-Location).Path + "\release\", "")
+              size = $_.Length
             }
+          }
+          $manifest | ConvertTo-Json -Depth 10 | Out-File (Join-Path $release "release-manifest.json") -Encoding UTF8
 
-            $wpsZip = Get-ChildItem "$release/plugins" -Filter "latexsnipper-wps_*.zip" | Select-Object -First 1
-            if ($wpsZip) {
-              $nsisArgs += "/DWPS_ZIP=$($wpsZip.FullName)"
-            }
-
-            $obsidianZip = Get-ChildItem "$release/plugins" -Filter "latexsnipper-obsidian_*.zip" | Select-Object -First 1
-            if ($obsidianZip) {
-              $nsisArgs += "/DOBSIDIAN_ZIP=$($obsidianZip.FullName)"
-            }
-
-            $nsisArgs += $nsi
-
-            Write-Host "Building NSIS with args: $($nsisArgs -join ' ')"
-            & makensis @nsisArgs
-
-            $outPath = Join-Path $release "LaTeXSnipper-Office-$ver-Setup.exe"
-            if (Test-Path "LaTeXSnipper-Office-$ver-Setup.exe") {
-              Move-Item "LaTeXSnipper-Office-$ver-Setup.exe" $outPath -Force
-              Write-Host "Combined NSIS installer: $outPath"
-            } else {
-              Write-Warning "NSIS build did not produce expected output"
-            }
-          } else {
-            Write-Warning "No Tauri desktop installer found, skipping NSIS"
+          Write-Host "Release structure:"
+          Get-ChildItem $release -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
           }
 
       - name: Upload unified release artifact
