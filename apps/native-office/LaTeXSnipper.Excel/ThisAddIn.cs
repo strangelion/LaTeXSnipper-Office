@@ -15,6 +15,7 @@ namespace LaTeXSnipper.Excel
         private bool _pipeConnected;
 
         internal Host.ExcelAdapter Adapter => _adapter;
+        internal bool PipeConnected => _pipeConnected;
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {

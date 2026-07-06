@@ -219,6 +219,15 @@
     <Compile Include="Host\ExcelAdapter.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="Ribbon\FormulaRibbon.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="Ribbon\FormulaRibbon.Designer.cs">
+      <DependentUpon>FormulaRibbon.cs</DependentUpon>
+    </Compile>
+    <EmbeddedResource Include="Ribbon\FormulaRibbon.resx">
+      <DependentUpon>FormulaRibbon.cs</DependentUpon>
+    </EmbeddedResource>
     <AppDesigner Include="Properties\" />
   </ItemGroup>
   <ItemGroup>
