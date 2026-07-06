@@ -1524,6 +1524,8 @@ class UIController {
 
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
     document.getElementById('loadFromWord')?.addEventListener('click', () => this.loadFromWord());
+    document.getElementById('insertTableBtn')?.addEventListener('click', () => this.insertTableToWord());
+    document.getElementById('readTableBtn')?.addEventListener('click', () => this.readTableFromWord());
     this.updateOfficeInsertButton();
     this.updateMdCopyButton();
     this.updateMdCopyButton();
@@ -3159,16 +3161,64 @@ class UIController {
     }
   }
 
+  async insertTableToWord() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const latex = this.editor?.getLatex();
+      const content = latex ? `${latex}` : "x";
+
+      // Build a minimal 2x2 test table with formula in cell
+      const table = {
+        tableId: crypto.randomUUID(),
+        table: {
+          rows: [
+            { cells: [{ inlines: [{ type: "text", text: "Cell 1" }] }, { inlines: [{ type: "text", text: "Cell 2" }] }] },
+            { cells: [{ inlines: [{ type: "text", text: "Cell 3" }] }, { inlines: [{ type: "text", text: content }] }] }
+          ]
+        }
+      };
+
+      await invoke('native_office_insert_table', {
+        sessionId,
+        tableJson: JSON.stringify(table)
+      });
+      this.showToast('表格已发送');
+    } catch (e) {
+      this.showToast('插入表格失败: ' + (e.message || e));
+    }
+  }
+
+  async readTableFromWord() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('native_office_request_read_table', { sessionId });
+      this.showToast('表格读取请求已发送');
+    } catch (e) {
+      this.showToast('读取表格失败: ' + (e.message || e));
+    }
+  }
+
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find(p => p.id === 'office');
+    const enabled = officePlatform?.enabled;
     const btn = document.getElementById('insertToWord');
-    if (btn) {
-      btn.style.display = officePlatform?.enabled ? '' : 'none';
-    }
+    if (btn) btn.style.display = enabled ? '' : 'none';
     const loadBtn = document.getElementById('loadFromWord');
-    if (loadBtn) {
-      loadBtn.style.display = officePlatform?.enabled ? '' : 'none';
-    }
+    if (loadBtn) loadBtn.style.display = enabled ? '' : 'none';
+    const tableInsert = document.getElementById('insertTableBtn');
+    if (tableInsert) tableInsert.style.display = enabled ? '' : 'none';
+    const tableRead = document.getElementById('readTableBtn');
+    if (tableRead) tableRead.style.display = enabled ? '' : 'none';
   }
 
   updateMdCopyButton() {

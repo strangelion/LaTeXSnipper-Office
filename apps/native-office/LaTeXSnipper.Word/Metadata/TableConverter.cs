@@ -195,10 +195,21 @@ namespace LaTeXSnipper.Word.Metadata
                             }
                             else if (inline is InlineFormula formulaInline)
                             {
+                                string latex = "";
                                 if (payload.Formulas != null &&
                                     payload.Formulas.TryGetValue(formulaInline.FormulaRef, out var fPayload))
                                 {
-                                    cellRange.InsertAfter("[" + (fPayload.Latex ?? fPayload.FormulaId) + "]");
+                                    latex = fPayload.Latex ?? "";
+                                }
+
+                                if (!string.IsNullOrEmpty(latex))
+                                {
+                                    // Use OMaths.Add + TypeText + BuildUp like WordAdapter
+                                    cellRange.Text = "";
+                                    _app.Selection.SetRange(cellRange.Start, cellRange.End);
+                                    _app.Selection.OMaths.Add(cellRange);
+                                    _app.Selection.TypeText(latex);
+                                    try { _app.Selection.OMaths.BuildUp(); } catch { }
                                 }
                                 else
                                 {
