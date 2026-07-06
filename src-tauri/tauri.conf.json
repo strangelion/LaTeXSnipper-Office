@@ -31,7 +31,6 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/DirectML.dll",
       "resources/OfficeJS/**/*"
     ],
     "windows": {

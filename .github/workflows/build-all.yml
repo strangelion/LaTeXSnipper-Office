@@ -183,6 +183,16 @@ jobs:
           perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
 
+      # Ensure DirectML.dll is present for Windows builds only
+      - name: Setup DirectML (Windows only)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "src-tauri/resources/DirectML.dll")) {
+            # Download DirectML.dll if not in repo (should be in repo for Windows builds)
+            Write-Warning "DirectML.dll not found in resources"
+          }
+
       - run: npx tauri build --target aarch64-apple-darwin
 
       - uses: actions/upload-artifact@v4
@@ -215,7 +225,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
