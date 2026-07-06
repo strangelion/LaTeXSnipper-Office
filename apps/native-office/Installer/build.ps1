@@ -188,7 +188,7 @@ Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
 $bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"
 
 Write-Host "  Restoring WiX Bal extension..." -ForegroundColor Gray
-& $WixPath extension add -g WixToolset.Bal.wixext/4.0.5 2>$null
+& $WixPath extension add WixToolset.Bal.wixext 2>$null
 
 $env:NetFx48Url = "https://go.microsoft.com/fwlink/?LinkId=2085329"
 $env:VstoRuntimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
