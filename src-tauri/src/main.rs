@@ -84,6 +84,12 @@ fn main() {
                 platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
             });
 
+            // Start Office Bridge (HTTPS, port 19876)
+            let bridge_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                platforms::office_bridge::start_bridge_server(bridge_handle).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

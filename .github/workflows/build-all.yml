@@ -8,8 +8,8 @@ on:
     inputs:
       version:
         description: 'Release version (e.g. 3.0.0)'
-        required: true
-        default: '3.0.0'
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -20,12 +20,73 @@ defaults:
     shell: pwsh
 
 env:
-  VERSION: ${{ github.event.inputs.version || '3.0.0' }}
+  # Resolve version: tag name → semver, or input, or default
+  VERSION: ${{ github.event.inputs.version || '' }}
 
 jobs:
+  # ─────────── Resolve version ──────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Resolve version
+        id: resolve
+        run: |
+          if [ -n "${{ env.VERSION }}" ]; then
+            VER="${{ env.VERSION }}"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VER="${BASH_REMATCH[1]}"
+          else
+            VER="3.0.0"
+          fi
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "Version: $VER"
+
+  # ─────────── Office Web Add-in ────────────────────────────────────
+  office-addin:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/office-addin/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/office-addin
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/office-addin
+        run: npm run build
+
+      - name: Stage Office assets for Tauri bundle
+        run: node scripts/stage-office-addin.mjs
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-addin
+          path: |
+            apps/office-addin/dist/
+            src-tauri/resources/OfficeJS/
+
   # ─────────── Tauri Desktop (Windows) ───────────
   tauri-windows:
+    needs: [prepare, office-addin]
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,12 +94,22 @@ jobs:
           submodules: recursive
           token: ${{ secrets.SUBMODULES_TOKEN || secrets.GITHUB_TOKEN }}
 
+      - uses: actions/download-artifact@v4
+        with: { name: office-addin }
+
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
       - run: npm ci
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      # Inject version into Cargo.toml and tauri.conf.json
+      - run: |
+          $ver = "$env:VERSION"
+          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
+          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
+
       - run: npx tauri build
 
       - uses: actions/upload-artifact@v4
@@ -50,7 +121,10 @@ jobs:
 
   # ─────────── Tauri Desktop (macOS) ───────────
   tauri-macos:
+    needs: prepare
     runs-on: macos-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,6 +139,12 @@ jobs:
       - run: rustup target add aarch64-apple-darwin
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      - run: |
+          $ver = "$env:VERSION"
+          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
+          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
+
       - run: npx tauri build --target aarch64-apple-darwin
 
       - uses: actions/upload-artifact@v4
@@ -75,7 +155,10 @@ jobs:
 
   # ─────────── Tauri Desktop (Linux) ───────────
   tauri-linux:
+    needs: prepare
     runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -93,6 +176,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      - run: |
+          $ver = "$env:VERSION"
+          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
+          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
+
       - run: npx tauri build
 
       - uses: actions/upload-artifact@v4
@@ -104,7 +193,10 @@ jobs:
 
   # ─────────── VSTO Native Office ───────────
   vsto:
+    needs: prepare
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -134,7 +226,10 @@ jobs:
 
   # ─────────── WPS Plugin ───────────
   wps:
+    needs: prepare
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -150,7 +245,10 @@ jobs:
 
   # ─────────── Obsidian Plugin ───────────
   obsidian:
+    needs: prepare
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -160,6 +258,10 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: apps/obsidian-plugin/package-lock.json
+
+      - name: Set version in manifest
+        working-directory: apps/obsidian-plugin
+        run: (Get-Content manifest.json) -replace '"version": ".*"', "`"version`": `"$env:VERSION`"" | Set-Content manifest.json
 
       - name: Install deps
         working-directory: apps/obsidian-plugin
@@ -173,12 +275,11 @@ jobs:
         working-directory: apps/obsidian-plugin
         run: |
           New-Item -ItemType Directory -Path "dist" -Force | Out-Null
-          $ver = (Get-Content manifest.json | ConvertFrom-Json).version
-          $d = "dist/latexsnipper-obsidian_$ver"
+          $d = "dist/latexsnipper-obsidian_$env:VERSION"
           New-Item -ItemType Directory -Path $d -Force | Out-Null
           Copy-Item main.js $d/
           Copy-Item manifest.json $d/
-          Compress-Archive -Path "$d\*" -DestinationPath "dist/latexsnipper-obsidian_$ver.zip"
+          Compress-Archive -Path "$d\*" -DestinationPath "dist/latexsnipper-obsidian_$env:VERSION.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -187,8 +288,10 @@ jobs:
 
   # ─────────── Package + Release ───────────
   package:
-    needs: [tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian]
+    needs: [prepare, tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian]
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
@@ -196,53 +299,85 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
 
-      - name: Organize artifacts
+      - name: Organize release artifacts
         run: |
-          $ver = "${{ env.VERSION }}"
+          $ver = "$env:VERSION"
           $release = "release/LaTeXSnipper-$ver"
           New-Item -ItemType Directory -Path $release -Force | Out-Null
 
-          # Copy Tauri Windows
+          # Tauri Windows
           $tw = Get-ChildItem "artifacts/tauri-windows" -Recurse -File
           $null = New-Item -ItemType Directory -Path "$release/windows" -Force
           $tw | Copy-Item -Destination "$release/windows/" -Force
 
-          # Copy VSTO
+          # VSTO
           $vsto = Get-ChildItem "artifacts/vsto" -Recurse -File
           $null = New-Item -ItemType Directory -Path "$release/windows/vsto" -Force
           $vsto | Copy-Item -Destination "$release/windows/vsto/" -Force
 
-          # Copy WPS
+          # WPS
           $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
           Copy-Item "artifacts/wps/*.zip" "$release/plugins/" -Force
 
-          # Copy Obsidian
+          # Obsidian
           Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
 
-          # Copy macOS
+          # macOS
           $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
           $null = New-Item -ItemType Directory -Path "$release/macos" -Force
           $mac | Copy-Item -Destination "$release/macos/" -Force
 
-          # Copy Linux
+          # Linux
           $linux = Get-ChildItem "artifacts/tauri-linux" -Recurse -File
           $null = New-Item -ItemType Directory -Path "$release/linux" -Force
           $linux | Copy-Item -Destination "$release/linux/" -Force
+
+          # Build release-manifest.json
+          $manifest = @{ version = $ver; components = @() }
+          Get-ChildItem $release -Recurse -File | ForEach-Object {
+            $manifest.components += @{
+              path = $_.FullName.Replace((Get-Location).Path + "\release\", "")
+              size = $_.Length
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 10 | Out-File (Join-Path $release "release-manifest.json") -Encoding UTF8
 
           Write-Host "Release structure:"
           Get-ChildItem $release -Recurse -File | ForEach-Object {
             Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
           }
 
-      - name: Create combined Windows installer (if NSIS available)
+      - name: Build combined NSIS installer
         run: |
-          $ver = "${{ env.VERSION }}"
+          $ver = "$env:VERSION"
           $nsi = "installer/LaTeXSnipper.AllInOne.nsi"
-          if (Test-Path $nsi) {
-            $tauriExe = Get-ChildItem "release/LaTeXSnipper-$ver/windows" -Filter "*.exe" | Select-Object -First 1
-            if ($tauriExe) {
-              Write-Host "Combined NSIS installer can be built with: makensis $nsi"
-              Write-Host "Requires NSIS + MUI2 installed on runner."
+          $release = "release/LaTeXSnipper-$ver"
+          $tauriExe = Get-ChildItem "$release/windows" -Filter "*.exe" | Select-Object -First 1
+
+          if ($tauriExe) {
+            # Copy assets needed by NSIS script into the release dir
+            $nsisDir = "release/LaTeXSnipper-$ver/installer"
+            New-Item -ItemType Directory -Path $nsisDir -Force | Out-Null
+
+            # Stage files that the NSIS script references as relative paths
+            Copy-Item $tauriExe.FullName "$nsisDir/" -Force
+            $vstoBundle = Get-ChildItem "$release/windows/vsto" -Filter "*.exe" | Select-Object -First 1
+            if ($vstoBundle) { Copy-Item $vstoBundle.FullName "$nsisDir/" -Force }
+
+            # Update NSIS version
+            (Get-Content $nsi) -replace '!define PRODUCT_VERSION ".*"', "!define PRODUCT_VERSION `"$ver`"" | Set-Content $nsi
+
+            # Build NSIS if makensis is available
+            $nsis = Get-Command "makensis" -ErrorAction SilentlyContinue
+            if ($nsis) {
+              $outPath = "release/LaTeXSnipper-$ver/LaTeXSnipper-Office-$ver-Setup.exe"
+              & makensis /DTAURI_INSTALLER="$tauriExe" $nsi
+              if (Test-Path "LaTeXSnipper-Office-$ver-Setup.exe") {
+                Move-Item "LaTeXSnipper-Office-$ver-Setup.exe" $outPath -Force
+                Write-Host "Combined NSIS installer: $outPath"
+              }
+            } else {
+              Write-Host "makensis not available. Install NSIS to build combined installer."
             }
           }
 
@@ -257,7 +392,8 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
-          files: release/LaTeXSnipper-${{ env.VERSION }}/**/*
+          files: |
+            release/LaTeXSnipper-${{ env.VERSION }}/**/*
           generate_release_notes: true
           body: |
             ## LaTeXSnipper Office v${{ env.VERSION }}
@@ -265,6 +401,7 @@ jobs:
             ### Windows
             - **Tauri Desktop**: `windows/LaTeXSnipper*.exe` (.msi)
             - **VSTO Add-in**: `windows/vsto/LaTeXSnipper.NativeOffice.exe`
+            - **Combined Installer**: `LaTeXSnipper-Office-${{ env.VERSION }}-Setup.exe`
             - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
             - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
 
@@ -274,7 +411,5 @@ jobs:
             ### Linux
             - **Tauri Desktop**: `linux/*.deb` (.rpm)
 
-            ### 安装说明
-            **Windows**: 先安装 Tauri Desktop，再安装 VSTO add-in（可选）。
-            **WPS**: 解压 zip，运行 `install.bat`。
-            **Obsidian**: 解压到 `.obsidian/plugins/latexsnipper-obsidian/`。
+            ### release-manifest.json
+            Contains version, component list, and sizes for every release artifact.
