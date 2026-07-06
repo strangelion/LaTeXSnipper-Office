@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" 
+          onLoad="OnAddInLoad">
+    <ribbon startFromScratch="false">
+        <tabs>
+            <tab id="LaTeXSnipperTab" label="LaTeXSnipper" insertAfterMso="TabHome">
+                <group id="FormulaGroup" label="公式">
+                    <button id="InsertFormulaBtn" 
+                            onAction="OnInsertFormula" 
+                            label="插入公式"
+                            size="large"
+                            getImage="GetInsertFormulaIcon"/>
+                    <button id="InsertImageBtn" 
+                            onAction="OnInsertImage" 
+                            label="插入图片"
+                            size="large"
+                            getImage="GetInsertImageIcon"/>
+                </group>
+                <group id="ManageGroup" label="管理">
+                    <button id="ManageFormulasBtn" 
+                            onAction="OnManageFormulas" 
+                            label="管理公式"
+                            size="large"
+                            getImage="GetManageIcon"/>
+                    <button id="SettingsBtn" 
+                            onAction="OnSettings" 
+                            label="设置"
+                            size="large"
+                            getImage="GetSettingsIcon"/>
+                </group>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>

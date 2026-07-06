@@ -1362,6 +1362,7 @@ class UIController {
     this.applySettings();
     this.themeManager.updateButton();
     this.loadPlatforms();
+    this.syncOfficeSettingsToggle();
     this.renderPlatformList();
     this.updateOfficeInsertButton();
     this.updateMdCopyButton();
@@ -1638,6 +1639,20 @@ class UIController {
       Logger.info(`Settings: bridgeUrl = ${e.target.value}`);
     });
 
+    document.getElementById('officeEnabledToggle')?.addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      e.target.disabled = true;
+      this.settingsManager.set('officeEnabled', enabled);
+      Logger.info(`Settings: officeEnabled = ${enabled}`);
+      const ok = await this.setPlatformEnabled('office', enabled);
+      if (!ok) {
+        this.settingsManager.set('officeEnabled', !enabled);
+        e.target.checked = !enabled;
+      }
+      e.target.disabled = false;
+      this.updateTabVisibility();
+    });
+
     document.getElementById('ocrEnabledToggle')?.addEventListener('change', (e) => {
       this.settingsManager.set('ocrEnabled', e.target.checked);
       this.updateTabVisibility();
@@ -1713,11 +1728,11 @@ class UIController {
         }
 
         // Toggle dropdown
-        trigger.addEventListener('click', (e) => {
+        trigger.onclick = (e) => {
           e.stopPropagation();
           document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
           selectorContainer.classList.toggle('open');
-        });
+        };
       } catch (e) {
         Logger.error('Failed to update host selector:', e);
       }
@@ -2998,6 +3013,7 @@ class UIController {
     if (ocrTab) {
       ocrTab.style.display = settings.ocrEnabled ? '' : 'none';
     }
+    this.updateOfficeInsertButton();
     
     Logger.debug('Tab visibility updated');
   }
@@ -3220,7 +3236,7 @@ class UIController {
 
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find(p => p.id === 'office');
-    const enabled = officePlatform?.enabled;
+    const enabled = officePlatform?.enabled && this.settingsManager.get('officeEnabled');
     const btn = document.getElementById('insertToWord');
     if (btn) btn.style.display = enabled ? '' : 'none';
     const loadBtn = document.getElementById('loadFromWord');
@@ -3384,6 +3400,15 @@ class UIController {
     localStorage.setItem('platforms', JSON.stringify(data));
   }
 
+  syncOfficeSettingsToggle() {
+    const officePlatform = this.platforms.find(p => p.id === 'office');
+    const officeToggle = document.getElementById('officeEnabledToggle');
+    if (officeToggle && officePlatform) {
+      officeToggle.checked = officePlatform.enabled;
+      this.settingsManager.set('officeEnabled', officePlatform.enabled);
+    }
+  }
+
   _officeStatusCache = null;
 
   async getOfficeStatus() {
@@ -3425,14 +3450,22 @@ class UIController {
         if (officeStatus.word && officeStatus.word.available) parts.push('Word');
         if (officeStatus.excel && officeStatus.excel.available) parts.push('Excel');
         if (officeStatus.powerpoint && officeStatus.powerpoint.available) parts.push('PowerPoint');
-        officePlatform.desc = parts.join(' / ');
-        if (officeStatus.word && officeStatus.word.plugin_installed) officePlatform.desc += ' · 已安装';
+        officePlatform.desc = parts.join(' / ') || 'Office detected';
       } else {
         officePlatform.desc = '未检测到 Office';
       }
     }
 
     if (refreshStatus) {
+      if (officePlatform && officeStatus?.installed) {
+        const officeIntegration = await this.getPlatformIntegrationStatus('office');
+        if (officeIntegration.success) {
+          officePlatform.desc += ' · 插件已启用';
+        } else if (officeIntegration.message) {
+          officePlatform.desc += ' · 插件未启用';
+        }
+      }
+
       const wpsPlatform = this.platforms.find(p => p.id === 'wps');
       if (wpsPlatform) {
         const wpsStatus = await this.getPlatformIntegrationStatus('wps');
@@ -3468,36 +3501,49 @@ class UIController {
         const platformId = e.target.dataset.platform;
         const platform = this.platforms.find(p => p.id === platformId);
         if (platform) {
-          if (this.platformOperations.has(platformId)) {
-            e.target.checked = platform.enabled;
-            return;
-          }
-
-          const requestedEnabled = e.target.checked;
-          const previousEnabled = platform.enabled;
-          platform.enabled = requestedEnabled;
-          this.platformOperations.add(platformId);
-          await this.renderPlatformList();
-
-          let ok = false;
-          if (requestedEnabled) {
-            ok = await this.registerPlatform(platform);
-          } else {
-            ok = await this.unregisterPlatform(platform);
-          }
-
-          if (!ok) {
-            platform.enabled = previousEnabled;
-          }
-
-          this.savePlatforms();
-          this.platformOperations.delete(platformId);
-          await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
-          this.updateOfficeInsertButton();
-    this.updateMdCopyButton();
+          const ok = await this.setPlatformEnabled(platformId, e.target.checked);
+          if (!ok) e.target.checked = platform.enabled;
         }
       });
     });
+  }
+
+  async setPlatformEnabled(platformId, requestedEnabled) {
+    const platform = this.platforms.find(p => p.id === platformId);
+    if (!platform) return false;
+    if (this.platformOperations.has(platformId)) return false;
+
+    const previousEnabled = platform.enabled;
+    platform.enabled = requestedEnabled;
+    this.platformOperations.add(platformId);
+    await this.renderPlatformList();
+
+    let ok = false;
+    if (requestedEnabled) {
+      ok = await this.registerPlatform(platform);
+    } else {
+      ok = await this.unregisterPlatform(platform);
+    }
+
+    if (!ok) {
+      platform.enabled = previousEnabled;
+    }
+
+    this.savePlatforms();
+    this.platformOperations.delete(platformId);
+    await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
+    this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
+
+    if (platformId === 'office') {
+      const officeToggle = document.getElementById('officeEnabledToggle');
+      if (officeToggle) {
+        officeToggle.checked = platform.enabled;
+      }
+      this.settingsManager.set('officeEnabled', platform.enabled);
+    }
+
+    return ok;
   }
 
   platformSupport = {
@@ -3531,15 +3577,14 @@ class UIController {
             return false;
           }
 
-          // Use Native Office install command
-          const { invoke } = await import('@tauri-apps/api/core');
-          const result = await invoke('native_office_install');
+          const result = await invoke('install_platform_integration', { platformId: 'office' });
           this.clearOfficeStatusCache();
-          if (result.operation_id) {
-            this.showToast('安装已启动，请按照安装程序提示操作');
+          if (result.success) {
+            this.showToast('Office 插件已启用，请重启 Office 加载插件');
             return true;
           } else {
-            this.showToast('安装启动失败: ' + (result.message || result.error));
+            this.showToast('启用失败: ' + (result.message || result.error));
+            platform.enabled = false;
             return false;
           }
         }
@@ -3572,13 +3617,13 @@ class UIController {
     if (platform.id === 'office') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        const result = await invoke('native_office_uninstall');
+        const result = await invoke('uninstall_platform_integration', { platformId: 'office' });
         this.clearOfficeStatusCache();
-        if (result.operation_id) {
-          this.showToast('卸载已启动，请按照安装程序提示操作');
+        if (result.success) {
+          this.showToast('Office 插件已停用，请重启 Office 生效');
           return true;
         } else {
-          this.showToast('卸载启动失败: ' + (result.message || result.error));
+          this.showToast('停用失败: ' + (result.message || result.error));
           return false;
         }
       } catch (e) {

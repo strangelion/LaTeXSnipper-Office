@@ -1325,11 +1325,35 @@ fn check_office_addin() -> PlatformIntegrationResult {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Native Office VSTO Add-in identifiers
-const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str)] = &[
-    ("Word", "LaTeXSnipper.NativeOffice.Word", "LaTeXSnipper Native Office — Word"),
-    ("Excel", "LaTeXSnipper.NativeOffice.Excel", "LaTeXSnipper Native Office — Excel"),
-    ("PowerPoint", "LaTeXSnipper.NativeOffice.PowerPoint", "LaTeXSnipper Native Office — PowerPoint"),
+const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
+    ("Word", "LaTeXSnipper.NativeOffice.Word", "LaTeXSnipper Native Office — Word", "LaTeXSnipper.Word.vsto"),
+    ("Excel", "LaTeXSnipper.NativeOffice.Excel", "LaTeXSnipper Native Office — Excel", "LaTeXSnipper.Excel.vsto"),
+    ("PowerPoint", "LaTeXSnipper.NativeOffice.PowerPoint", "LaTeXSnipper Native Office — PowerPoint", "LaTeXSnipper.PowerPoint.vsto"),
 ];
+
+fn native_office_install_root() -> PathBuf {
+    dirs_next::data_local_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Programs")
+        .join("LaTeXSnipper")
+        .join("NativeOffice")
+}
+
+fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    candidates.push(native_office_install_root().join(host_name).join(vsto_file));
+
+    if let Some(root) = repo_root_from_manifest() {
+        candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Release").join(vsto_file));
+        candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Debug").join(vsto_file));
+    }
+
+    candidates.into_iter().find(|path| path.exists())
+}
+
+fn office_manifest_value(path: &Path) -> String {
+    format!("file:///{}|vstolocal", path.to_string_lossy().replace('\\', "/"))
+}
 
 /// Install Native Office VSTO add-ins by registering in Windows registry.
 fn install_native_office_vsto() -> PlatformIntegrationResult {
@@ -1346,7 +1370,17 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
     {
         let mut installed = Vec::new();
 
-        for (host_name, addin_id, friendly_name) in NATIVE_OFFICE_ADDINS {
+        for (host_name, addin_id, friendly_name, vsto_file) in NATIVE_OFFICE_ADDINS {
+            let Some(manifest) = native_office_vsto_manifest(host_name, vsto_file) else {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!(
+                        "{} VSTO manifest was not found. Build apps/native-office first or run apps/native-office/Installer/build.ps1.",
+                        host_name
+                    ),
+                );
+            };
             let reg_key = format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
                 match *host_name {
@@ -1394,6 +1428,14 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
                 );
             }
 
+            if let Err(e) = reg_add_string(&reg_key, "Manifest", &office_manifest_value(&manifest)) {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!("Failed to write {} Manifest: {}", host_name, e),
+                );
+            }
+
             installed.push(*host_name);
         }
 
@@ -1401,7 +1443,7 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             "office",
             "native-vsto",
             format!(
-                "已写入 Native Office VSTO 注册表 ({} 个宿主)。请使用安装器部署 VSTO 文件后重启 Office。",
+                "已启用 Native Office VSTO ({} 个宿主)。请重启 Office 以加载插件。",
                 installed.join(", ")
             ),
             true,
@@ -1418,7 +1460,7 @@ fn check_native_office_vsto() -> bool {
 
     #[cfg(target_os = "windows")]
     {
-        for (host_name, addin_id, _) in NATIVE_OFFICE_ADDINS {
+        for (host_name, addin_id, _, vsto_file) in NATIVE_OFFICE_ADDINS {
             let reg_key = format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
                 match *host_name {
@@ -1430,13 +1472,19 @@ fn check_native_office_vsto() -> bool {
                 addin_id
             );
 
-            let output = super::process::background_command("reg.exe")
+            let load_behavior_ok = super::process::background_command("reg.exe")
                 .args(["query", &reg_key, "/v", "LoadBehavior"])
                 .output()
                 .map(|out| out.status.success())
                 .unwrap_or(false);
 
-            if !output {
+            let manifest_ok = super::process::background_command("reg.exe")
+                .args(["query", &reg_key, "/v", "Manifest"])
+                .output()
+                .map(|out| out.status.success())
+                .unwrap_or(false);
+
+            if !load_behavior_ok || !manifest_ok || native_office_vsto_manifest(host_name, vsto_file).is_none() {
                 return false;
             }
         }
@@ -1459,7 +1507,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
     {
         let mut uninstalled = Vec::new();
 
-        for (host_name, addin_id, _) in NATIVE_OFFICE_ADDINS {
+        for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
             let reg_key = format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
                 match *host_name {
@@ -2219,6 +2267,12 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
 }
 
 fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
+    let vsto_file = match host_name {
+        "Word" => "LaTeXSnipper.Word.vsto",
+        "Excel" => "LaTeXSnipper.Excel.vsto",
+        "PowerPoint" => "LaTeXSnipper.PowerPoint.vsto",
+        _ => "",
+    };
     let reg_key = format!(
         r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.NativeOffice.{}",
         office_app, host_name
@@ -2242,13 +2296,7 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
         .unwrap_or(false);
 
     // Check VSTO file exists
-    let install_root = dirs_next::data_local_dir()
-        .unwrap_or_default()
-        .join("Programs")
-        .join("LaTeXSnipper")
-        .join("NativeOffice")
-        .join(host_name);
-    let vsto_file_exists = install_root.join(format!("LaTeXSnipper.NativeOffice.{}.vsto", host_name)).exists();
+    let vsto_file_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
 
     // Determine state
     let state = if !office_detected {
@@ -2341,17 +2389,25 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
     }
 
     // Check in install directory
-    let install_root = dirs_next::data_local_dir()
-        .unwrap_or_default()
-        .join("Programs")
-        .join("LaTeXSnipper")
-        .join("NativeOffice");
-    let bootstrapper = install_root.join("LaTeXSnipper.NativeOffice.Bootstrapper.exe");
+    let install_root = native_office_install_root();
+    let bootstrapper = install_root.join("LaTeXSnipper.NativeOffice.exe");
     if bootstrapper.exists() {
         return Ok(bootstrapper);
     }
 
-    Err("Bootstrapper not found. Please reinstall LaTeXSnipper.".to_string())
+    if let Some(root) = repo_root_from_manifest() {
+        let candidate = root
+            .join("apps")
+            .join("native-office")
+            .join("Installer")
+            .join("output")
+            .join("LaTeXSnipper.NativeOffice.exe");
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err("Native Office bootstrapper was not found. Run apps/native-office/Installer/build.ps1, or use the quick Office switch in Settings > Platform to register existing VSTO build output.".to_string())
 }
 
 fn uuid_simple() -> String {

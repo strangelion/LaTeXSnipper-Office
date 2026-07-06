@@ -224,60 +224,16 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] OMML to insert: [{payload.Omml}]");
 
-                // Strip <m:rPr> (may contain invalid <w:rPr> from converter)
-                var cleanOmml = System.Text.RegularExpressions.Regex.Replace(
-                    payload.Omml,
-                    @"<m:rPr>.*?</m:rPr>",
-                    "",
-                    System.Text.RegularExpressions.RegexOptions.Singleline);
+                var cleanOmml = NormalizeOmml(payload.Omml, mode);
+                if (string.IsNullOrWhiteSpace(cleanOmml))
+                    return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
 
-                // Wrap <m:r> in <m:oMath> if missing inside <m:oMathPara>
-                if (cleanOmml.Contains("<m:oMathPara>") && !cleanOmml.Contains("<m:oMath>"))
-                {
-                    cleanOmml = cleanOmml.Replace("<m:oMathPara>", "<m:oMathPara><m:oMath>");
-                    cleanOmml = cleanOmml.Replace("</m:oMathPara>", "</m:oMath></m:oMathPara>");
-                }
+                var body = mode == InsertMode.DisplayNumbered
+                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId)
+                    : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
+                var flatOpc = BuildFlatOpc(body);
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] Cleaned OMML: [{cleanOmml}]");
-
-                // Extract <m:oMath> from <m:oMathPara> - InsertXML works with <m:oMath> inside <w:p>
-                var mathContent = cleanOmml;
-                if (mathContent.Contains("<m:oMathPara>"))
-                {
-                    var start = mathContent.IndexOf("<m:oMath>");
-                    var end = mathContent.LastIndexOf("</m:oMath>") + "</m:oMath>".Length;
-                    if (start >= 0 && end > start)
-                        mathContent = mathContent.Substring(start, end - start);
-                }
-
-                // Use Word's OMath object model instead of InsertXML
-                // OMaths.Add creates a math zone at the selection
-                System.Diagnostics.Debug.WriteLine("[WordAdapter] Creating OMath...");
-                var oMath = _application.Selection.OMaths.Add(range);
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordAdapter] OMath created, OMaths count: {_application.Selection.OMaths.Count}");
-
-                // Type the LaTeX source into the math zone
-                var latex = payload.Latex;
-                if (!string.IsNullOrEmpty(latex))
-                {
-                    _application.Selection.TypeText(latex);
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[WordAdapter] Typed LaTeX: {latex}");
-
-                    // Build up the equation (convert linear to professional)
-                    try
-                    {
-                        _application.Selection.OMaths.BuildUp();
-                        System.Diagnostics.Debug.WriteLine("[WordAdapter] BuildUp succeeded");
-                    }
-                    catch (Exception buildEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[WordAdapter] BuildUp error (non-fatal): {buildEx.Message}");
-                    }
-                }
+                range.InsertXML(flatOpc);
 
                 FormulaMetadata.Write(doc, payload.FormulaId, payload);
 
@@ -299,6 +255,94 @@ namespace LaTeXSnipper.Word.Host
                     Error = $"Insert failed: {ex.Message}"
                 };
             }
+        }
+
+        private static string NormalizeOmml(string omml, InsertMode mode)
+        {
+            if (string.IsNullOrWhiteSpace(omml)) return "";
+
+            var clean = System.Text.RegularExpressions.Regex.Replace(
+                omml,
+                @"<m:rPr>.*?</m:rPr>",
+                "",
+                System.Text.RegularExpressions.RegexOptions.Singleline);
+
+            if (clean.Contains("<m:oMathPara>"))
+            {
+                var start = clean.IndexOf("<m:oMath>");
+                var end = clean.LastIndexOf("</m:oMath>");
+                if (start >= 0 && end > start)
+                    clean = clean.Substring(start, end + "</m:oMath>".Length - start);
+            }
+            else if (!clean.Contains("<m:oMath"))
+            {
+                clean = $"<m:oMath>{clean}</m:oMath>";
+            }
+
+            if (mode == InsertMode.Inline && clean.Contains("<m:oMathPara>"))
+                clean = clean.Replace("<m:oMathPara>", "").Replace("</m:oMathPara>", "");
+
+            return clean;
+        }
+
+        private static string BuildFormulaBody(string omml, string formulaId, InsertMode mode)
+        {
+            var paragraphProperties = mode == InsertMode.Display
+                ? "<w:pPr><w:jc w:val=\"center\"/></w:pPr>"
+                : "";
+
+            return $@"<w:sdt>
+  <w:sdtPr>
+    <w:alias w:val=""LaTeXSnipper Formula""/>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:p>
+      {paragraphProperties}
+      {omml}
+    </w:p>
+  </w:sdtContent>
+</w:sdt>";
+        }
+
+        private static string BuildNumberedEquationBody(string omml, string formulaId)
+        {
+            return $@"<w:sdt>
+  <w:sdtPr>
+    <w:alias w:val=""LaTeXSnipper Numbered Formula""/>
+    <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
+  </w:sdtPr>
+  <w:sdtContent>
+    <w:tbl>
+      <w:tr>
+        <w:tc><w:p/></w:tc>
+        <w:tc><w:p><w:pPr><w:jc w:val=""center""/></w:pPr>{omml}</w:p></w:tc>
+        <w:tc><w:p><w:pPr><w:jc w:val=""right""/></w:pPr><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r></w:p></w:tc>
+      </w:tr>
+    </w:tbl>
+  </w:sdtContent>
+</w:sdt>";
+        }
+
+        private static string BuildFlatOpc(string body)
+        {
+            return $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+<pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">
+  <pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"">
+    <pkg:xmlData>
+      <Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">
+        <Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>
+      </Relationships>
+    </pkg:xmlData>
+  </pkg:part>
+  <pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">
+    <pkg:xmlData>
+      <w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main"" xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+        <w:body>{body}</w:body>
+      </w:document>
+    </pkg:xmlData>
+  </pkg:part>
+</pkg:package>";
         }
 
         private static string BuildInlineOmml(string omml, string formulaId)

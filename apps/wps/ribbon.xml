@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnAddinLoad">
+    <ribbon startFromScratch="false">
+        <tabs>
+            <tab id="LaTeXSnipperTab" label="LaTeXSnipper" insertAfterMso="TabHome">
+                <group id="FormulaGroup" label="公式">
+                    <button id="btnInsertInline" label="行内公式" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnInsertDisplay" label="行间公式" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnInsertNumbered" label="编号公式" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnScreenshotOcr" label="截图识别" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                </group>
+                <group id="EditGroup" label="编辑">
+                    <button id="btnLoadSelected" label="加载选中" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnDeleteSelected" label="删除选中" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                </group>
+                <group id="NumberingGroup" label="编号">
+                    <button id="btnAutoNumber" label="自动编号" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnRenumber" label="重新编号" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                </group>
+                <group id="ToolsGroup" label="工具">
+                    <button id="btnShowTaskPane" label="任务窗格" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnSettings" label="设置" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                    <button id="btnHelp" label="帮助" onAction="OnAction" getEnabled="OnGetEnabled" getImage="GetImage" size="large"/>
+                </group>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>
