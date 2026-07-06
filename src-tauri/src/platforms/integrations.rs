@@ -2244,9 +2244,11 @@ fn check_path(
 // Native Office VSTO lifecycle management
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
 use crate::commands::native_office::*;
 
 /// Get comprehensive Native Office installation status.
+#[cfg(windows)]
 pub fn get_native_office_status() -> NativeOfficeStatus {
     let platform_supported = cfg!(target_os = "windows");
 
@@ -2311,6 +2313,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
     }
 }
 
+#[cfg(windows)]
 fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     let vsto_file = match host_name {
         "Word" => "LaTeXSnipper.Word.vsto",
@@ -2321,6 +2324,7 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     let reg_key = format!(
         r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.NativeOffice.{}",
         office_app, host_name
+
     );
 
     // Check registry key
@@ -2367,6 +2371,7 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
 }
 
 /// Start Native Office installation via bootstrapper.
+#[cfg(windows)]
 pub fn start_native_office_install() -> Result<NativeOfficeOperationStarted, String> {
     // Find bootstrapper executable
     let bootstrapper = find_bootstrapper()?;
@@ -2385,6 +2390,7 @@ pub fn start_native_office_install() -> Result<NativeOfficeOperationStarted, Str
 }
 
 /// Start Native Office repair via bootstrapper.
+#[cfg(windows)]
 pub fn start_native_office_repair() -> Result<NativeOfficeOperationStarted, String> {
     let bootstrapper = find_bootstrapper()?;
     let operation_id = format!("repair-{}", uuid_simple());
@@ -2401,6 +2407,7 @@ pub fn start_native_office_repair() -> Result<NativeOfficeOperationStarted, Stri
 }
 
 /// Start Native Office uninstall via bootstrapper.
+#[cfg(windows)]
 pub fn start_native_office_uninstall() -> Result<NativeOfficeOperationStarted, String> {
     let bootstrapper = find_bootstrapper()?;
     let operation_id = format!("uninstall-{}", uuid_simple());
@@ -2417,6 +2424,7 @@ pub fn start_native_office_uninstall() -> Result<NativeOfficeOperationStarted, S
 }
 
 /// Find the bootstrapper executable.
+#[cfg(windows)]
 fn find_bootstrapper() -> Result<PathBuf, String> {
     // Check in app resources
     if let Ok(exe_path) = std::env::current_exe() {
@@ -2455,6 +2463,7 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
     Err("Native Office bootstrapper was not found. Run apps/native-office/Installer/build.ps1, or use the quick Office switch in Settings > Platform to register existing VSTO build output.".to_string())
 }
 
+#[cfg(windows)]
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

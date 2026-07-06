@@ -46,9 +46,13 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      # Install WiX Toolset v4 CLI
-      - name: Setup WiX Toolset v4
+      # Install WiX Toolset CLI (nightly for uwf support)
+      - name: Setup WiX Toolset
         run: dotnet tool install --global wix
+
+      # Accept WiX OSMF EULA (required since v7 for extension usage)
+      - name: Accept WiX EULA
+        run: wix eula accept wix7
 
       # Build MSI installer + Bootstrapper EXE
       - name: Build Installer (MSI + Bundle)
