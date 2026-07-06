@@ -53,10 +53,11 @@ jobs:
       - name: Set version
         if: github.event.inputs.version != ''
         working-directory: apps/obsidian-plugin
+        shell: bash
         run: |
-          $ver = "${{ github.event.inputs.version }}"
-          (Get-Content manifest.json) -replace '"version": ".*"', '"version": "'+$ver+'"' | Set-Content manifest.json
-          Write-Host "Version set to $ver"
+          ver="${{ github.event.inputs.version }}"
+          sed -i 's/"version": ".*"/"version": "'"$ver"'"/' manifest.json
+          echo "Version set to $ver"
 
       - name: Install dependencies
         working-directory: apps/obsidian-plugin
