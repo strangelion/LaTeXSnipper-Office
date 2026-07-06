@@ -29,7 +29,7 @@ namespace LaTeXSnipper.PowerPoint.Host
             if (pres == null)
                 return new InsertResult { Success = false, Error = "No active presentation" };
 
-            var slide = _application.ActiveWindow.View.Slide;
+            var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
             if (slide == null)
                 return new InsertResult { Success = false, Error = "No active slide" };
 
@@ -97,7 +97,7 @@ namespace LaTeXSnipper.PowerPoint.Host
         {
             try
             {
-                var slide = _application.ActiveWindow.View.Slide;
+                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
                 if (slide == null) return false;
                 for (int i = slide.Shapes.Count; i >= 1; i--)
                 {
@@ -117,7 +117,7 @@ namespace LaTeXSnipper.PowerPoint.Host
         {
             try
             {
-                var slide = _application.ActiveWindow.View.Slide;
+                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
                 if (slide == null) return false;
                 foreach (Microsoft.Office.Interop.PowerPoint.Shape shape in slide.Shapes)
                 {

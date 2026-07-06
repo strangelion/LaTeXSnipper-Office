@@ -6,4 +6,8 @@
       <Private>False</Private>
     </Reference>
   </ItemGroup>
+  <!-- When building without signing (CI), skip Office VSTO targets that require VSTO runtime -->
+  <PropertyGroup Condition="'$(SignManifests)' == 'false'">
+    <VSToolsPath></VSToolsPath>
+  </PropertyGroup>
 </Project>

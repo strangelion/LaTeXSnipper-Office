@@ -43,9 +43,10 @@ namespace LaTeXSnipper.Excel.Host
                     float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
                     double cellLeft = 0, cellTop = 0;
-                    try { cellLeft = cell.Left; cellTop = cell.Top; } catch { }
+                    try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
 
-                    var shape = sheet.Shapes.AddPicture(
+                    var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
+                    var shape = excelSheet?.Shapes.AddPicture(
                         tempPath,
                         Microsoft.Office.Core.MsoTriState.msoFalse,
                         Microsoft.Office.Core.MsoTriState.msoTrue,
@@ -96,7 +97,9 @@ namespace LaTeXSnipper.Excel.Host
         {
             try
             {
-                var selectedShapes = _application.ActiveSheet?.Shapes;
+                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (excelSheet == null) return false;
+                var selectedShapes = excelSheet.Shapes;
                 if (selectedShapes == null) return false;
                 // Try to delete shape at selection
                 for (int i = selectedShapes.Count; i >= 1; i--)
@@ -117,10 +120,9 @@ namespace LaTeXSnipper.Excel.Host
         {
             try
             {
-                var sheet = _application.ActiveSheet;
-                if (sheet == null) return false;
-                // Find existing shape by name
-                foreach (Microsoft.Office.Interop.Excel.Shape shape in sheet.Shapes)
+                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (excelSheet == null) return false;
+                foreach (Microsoft.Office.Interop.Excel.Shape shape in excelSheet.Shapes)
                 {
                     if (shape.Name == $"LSNO_{formulaId}")
                     {
@@ -132,7 +134,7 @@ namespace LaTeXSnipper.Excel.Host
                             File.WriteAllText(tempPath, payload.Render.Svg);
                             float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                             float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
-                            sheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, 50f, 50f, w, h);
                         }
                         return true;
