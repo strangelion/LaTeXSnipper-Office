@@ -78,7 +78,7 @@ jobs:
           ver4="${ver}.0"
           for f in apps/office-addin/manifests/*.xml; do
             if [ -f "$f" ]; then
-              sed -i "s|<Version>.*</Version>|<Version>${ver4}</Version>|" "$f"
+              perl -pi -e "s|<Version>.*</Version>|<Version>${ver4}</Version>|" "$f"
             fi
           done
           echo "Office manifests version set to ${ver4}"
@@ -262,7 +262,7 @@ jobs:
 
       - name: Build installer
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION
+        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -SkipSigning
 
       - name: Sign artifacts
         if: env.CERT_THUMBPRINT != ''

@@ -5,7 +5,8 @@ param(
     [string]$Configuration = "Release",
     [string]$OutputDir = ".\output",
     [string]$MsBuildPath = "",
-    [string]$Version = "1.0.0"
+    [string]$Version = "1.0.0",
+    [switch]$SkipSigning
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,7 +28,19 @@ if (-not $MsBuildPath) {
     }
 }
 Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
-& $MsBuildPath "$SolutionDir\LaTeXSnipper.NativeOffice.sln" /t:Build /p:Configuration=$Configuration /p:Platform="Any CPU" /v:minimal
+$buildArgs = @(
+    "$SolutionDir\LaTeXSnipper.NativeOffice.sln"
+    "/t:Build"
+    "/p:Configuration=$Configuration"
+    "/p:Platform=Any CPU"
+    "/v:minimal"
+)
+if ($SkipSigning) {
+    $buildArgs += "/p:SignManifests=false"
+    $buildArgs += "/p:AssemblyOriginatorKeyFile="
+    Write-Host "  Signing: DISABLED (SkipSigning)" -ForegroundColor Yellow
+}
+& $MsBuildPath @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Step 2: Collect binaries
