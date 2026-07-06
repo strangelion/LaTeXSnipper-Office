@@ -1,7 +1,6 @@
 <Project>
   <PropertyGroup>
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
-    <OfficeCorePiaPath Condition="'$(OfficeCorePiaPath)' == ''"></OfficeCorePiaPath>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(OfficeCorePiaPath)' != '' and Exists('$(OfficeCorePiaPath)')">

@@ -265,7 +265,7 @@ jobs:
 
       - name: Build solution and installer
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -SkipSigning -WixPath $env:WIX_EXE
+        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -WixPath $env:WIX_EXE
 
       - name: Sign artifacts
         if: env.CERT_THUMBPRINT != ''

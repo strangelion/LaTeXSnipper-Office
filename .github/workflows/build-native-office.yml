@@ -58,10 +58,10 @@ jobs:
           if ($v -notmatch '^4\.0\.5') { throw "Expected 4.0.5, got: $v" }
           "WIX_EXE=$wixExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # Build MSI installer + Bootstrapper EXE
+      # Build MSI installer + Bootstrapper EXE (auto-generates dev PFX)
       - name: Build Installer (MSI + Bundle)
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output -SkipSigning -WixPath $env:WIX_EXE
+        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output -WixPath $env:WIX_EXE
 
       # Sign artifacts if a code signing certificate thumbprint is provided
       - name: Sign artifacts

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/bal">
 
   <Bundle Name="LaTeXSnipper Native Office"
            Manufacturer="LaTeXSnipper"
@@ -7,46 +8,43 @@
            UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
            Copyright="Copyright (c) LaTeXSnipper 2026">
 
-    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense">
-      <bal:WixStandardBootstrapperApplication
-        LicenseFile="License.rtf"
-        ThemeFile="Theme.xml"
-        xmlns:bal="http://wixtoolset.org/schemas/v4/bal" />
-    </BootstrapperApplicationRef>
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense" />
 
-    <!-- Detect .NET Framework 4.8 via registry -->
     <Chain>
+      <!-- .NET Framework 4.8 -->
       <ExePackage Id="NetFx48"
-                  Cache="yes"
+                  Name="NetFx48.exe"
+                  Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
-                  Source="$(var.NetFx48Url)"
-                  InstallCommand="/q /norestart"
+                  DownloadUrl="$(var.NetFx48Url)"
+                  InstallArguments="/q /norestart"
                   DetectCondition="NetFx48Installed">
-        <ExitCode Value="0" Result="Success" />
-        <ExitCode Value="1641" Result="Success" />
-        <ExitCode Value="3010" Result="Success" />
-        <ExitCode Value="5100" Result="Failure" />
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="1641" Behavior="success" />
+        <ExitCode Value="3010" Behavior="success" />
+        <ExitCode Value="5100" Behavior="error" />
       </ExePackage>
 
-      <!-- Install VSTO Runtime if not detected -->
+      <!-- VSTO Runtime -->
       <ExePackage Id="VstoRuntime"
-                  Cache="yes"
+                  Name="VstoRuntime.exe"
+                  Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
-                  Source="$(var.VstoRuntimeUrl)"
-                  InstallCommand="/quiet /norestart"
+                  DownloadUrl="$(var.VstoRuntimeUrl)"
+                  InstallArguments="/quiet /norestart"
                   DetectCondition="VstoRuntimeInstalled">
-        <ExitCode Value="0" Result="Success" />
-        <ExitCode Value="1641" Result="Success" />
-        <ExitCode Value="3010" Result="Success" />
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="1641" Behavior="success" />
+        <ExitCode Value="3010" Behavior="success" />
       </ExePackage>
 
-      <!-- Main MSI Package -->
+      <!-- Main MSI -->
       <MsiPackage Id="MainMsi"
-                  Cache="yes"
+                  Cache="keep"
                   Vital="yes"
                   SourceFile="$(var.MsiDir)\LaTeXSnipper.NativeOffice.msi"
                   InstallCondition="NOT Installed">
