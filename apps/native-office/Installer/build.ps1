@@ -38,13 +38,12 @@ $buildArgs = @(
 if ($SkipSigning) {
     $buildArgs += "/p:SignManifests=false"
     $buildArgs += "/p:AssemblyOriginatorKeyFile="
-    # Use pre-generated Office interop assemblies instead of COM references
-    # (CI runners don't have Office installed)
-    $buildArgs += '/p:DefineConstants="VSTO40;useofficeinterop;TRACE"'
     Write-Host "  Signing: DISABLED (SkipSigning)" -ForegroundColor Yellow
-    Write-Host "  Interop: using NuGet assemblies (useofficeinterop)" -ForegroundColor Yellow
 }
-& $MsBuildPath @buildArgs
+# Use pre-generated Office interop assemblies instead of COM references
+# Must be separate from array splatting — semicolons confuse MSBuild arg parsing
+$defineConstants = "/p:DefineConstants=VSTO40;useofficeinterop;TRACE"
+& $MsBuildPath @buildArgs $defineConstants
 if ($LASTEXITCODE -ne 0) { throw "Build failed" }
 
 # Step 2: Collect binaries
