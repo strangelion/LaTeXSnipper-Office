@@ -20,7 +20,7 @@ defaults:
     shell: pwsh
 
 env:
-  # Resolve version: tag name → semver, or input, or default
+  # Resolve version: tag name -> semver, or input, or default
   VERSION: ${{ github.event.inputs.version || '' }}
 
 jobs:
@@ -110,8 +110,12 @@ jobs:
       # Inject version into Cargo.toml and tauri.conf.json
       - run: |
           $ver = "$env:VERSION"
-          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
-          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
+          $json = Get-Content src-tauri/tauri.conf.json -Raw
+          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
+          Set-Content src-tauri/tauri.conf.json -Value $json
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
+          Set-Content src-tauri/Cargo.toml -Value $cargo
 
       - run: npx tauri build
 
@@ -145,10 +149,12 @@ jobs:
 
       - run: |
           $ver = "$env:VERSION"
-          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
-          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
-
-      - run: npx tauri build --target aarch64-apple-darwin
+          $json = Get-Content src-tauri/tauri.conf.json -Raw
+          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
+          Set-Content src-tauri/tauri.conf.json -Value $json
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
+          Set-Content src-tauri/Cargo.toml -Value $cargo
 
       - uses: actions/upload-artifact@v4
         with:
@@ -182,8 +188,12 @@ jobs:
 
       - run: |
           $ver = "$env:VERSION"
-          (Get-Content src-tauri/tauri.conf.json) -replace '"version": ".*"', "`"version`": `"$ver`"" | Set-Content src-tauri/tauri.conf.json
-          (Get-Content src-tauri/Cargo.toml) -replace '^version = .*', "version = `"$ver`"" | Set-Content src-tauri/Cargo.toml
+          $json = Get-Content src-tauri/tauri.conf.json -Raw
+          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
+          Set-Content src-tauri/tauri.conf.json -Value $json
+          $cargo = Get-Content src-tauri/Cargo.toml -Raw
+          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
+          Set-Content src-tauri/Cargo.toml -Value $cargo
 
       - run: npx tauri build
 
@@ -264,7 +274,12 @@ jobs:
 
       - name: Set version in manifest
         working-directory: apps/obsidian-plugin
-        run: (Get-Content manifest.json) -replace '"version": ".*"', "`"version`": `"$env:VERSION`"" | Set-Content manifest.json
+        shell: pwsh
+        run: |
+          $ver = "$env:VERSION"
+          $json = Get-Content manifest.json -Raw
+          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
+          Set-Content manifest.json -Value $json
 
       - name: Install deps
         working-directory: apps/obsidian-plugin
@@ -368,7 +383,9 @@ jobs:
             if ($vstoBundle) { Copy-Item $vstoBundle.FullName "$nsisDir/" -Force }
 
             # Update NSIS version
-            (Get-Content $nsi) -replace '!define PRODUCT_VERSION ".*"', "!define PRODUCT_VERSION `"$ver`"" | Set-Content $nsi
+            $nsiContent = Get-Content $nsi -Raw
+            $nsiContent = $nsiContent -replace '!define PRODUCT_VERSION ".*"', '!define PRODUCT_VERSION "' + $ver + '"'
+            Set-Content $nsi -Value $nsiContent
 
             # Build NSIS if makensis is available
             $nsis = Get-Command "makensis" -ErrorAction SilentlyContinue
