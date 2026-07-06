@@ -159,7 +159,7 @@ if (-not $WixPath) {
 if (-not (Test-Path $WixPath)) { throw "WiX executable does not exist: $WixPath" }
 $wixVersion = (& $WixPath --version | Out-String).Trim()
 Write-Host "  WiX: $WixPath ($wixVersion)" -ForegroundColor Gray
-if ($wixVersion -notmatch '^5\.') { throw "Native Office installer requires WiX 5.x. Resolved: $wixVersion" }
+if ($wixVersion -notmatch '^[457]\.') { throw "Native Office installer requires WiX 4.x/5.x/7.x. Resolved: $wixVersion" }
 
 # Install WiX extensions
 Write-Host "  Restoring WiX UI extension..." -ForegroundColor Gray
