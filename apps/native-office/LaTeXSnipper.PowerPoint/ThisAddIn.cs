@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -6,6 +7,7 @@ using LaTeXSnipper.NativeOffice.Shared;
 
 namespace LaTeXSnipper.PowerPoint
 {
+    [ComVisible(true)]
     public partial class ThisAddIn
     {
         private Host.PowerPointAdapter _adapter;
@@ -18,6 +20,17 @@ namespace LaTeXSnipper.PowerPoint
         internal bool PipeConnected => _pipeConnected;
         internal PipeClient PipeClient => _pipeClient;
         internal string SessionId => _sessionId;
+
+        internal void Send(VstoMessage msg)
+        {
+            if (_pipeClient != null && _pipeConnected)
+                _ = _pipeClient.SendAsync(msg);
+        }
+
+        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
+        {
+            return new PowerPointRibbonExtensibility();
+        }
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {

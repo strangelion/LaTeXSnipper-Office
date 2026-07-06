@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<customUI xmlns="http://schemas.microsoft.com/office/2009/07/customui">
+  <ribbon>
+    <tabs>
+      <tab id="LaTeXSnipperExcelTab" label="LaTeXSnipper" keytip="LS">
+        <group id="FormulaGroup" label="Formula">
+          <button id="btnInsertFormula" label="Insert Formula" size="large" imageMso="EquationProfessional" onAction="OnButtonClick" tag="insertFormula"/>
+          <button id="btnOcrSelector" label="Screenshot OCR" size="large" imageMso="ScreenshotInsertGallery" onAction="OnButtonClick" tag="ocr"/>
+        </group>
+        <group id="EditGroup" label="Edit">
+          <button id="btnLoadSelected" label="Read Selection" size="large" imageMso="ReviewDisplayForReview" onAction="OnButtonClick" tag="readSelection"/>
+          <button id="btnDeleteSelected" label="Delete" size="large" imageMso="Delete" onAction="OnButtonClick" tag="delete"/>
+        </group>
+        <group id="ConversionGroup" label="Conversion">
+          <button id="btnToOle" label="To OLE" size="large" imageMso="ObjectEditDialog" onAction="OnButtonClick" tag="toOle"/>
+          <button id="btnToPng" label="To PNG" size="large" imageMso="PictureInsertFromFile" onAction="OnButtonClick" tag="toPng"/>
+        </group>
+        <group id="FormattingGroup" label="Formatting">
+          <button id="btnFormatSelected" label="Format Selected" size="large" imageMso="FormatPainter" onAction="OnButtonClick" tag="formatSelected"/>
+          <button id="btnFormatAll" label="Format All" size="large" imageMso="FontDialog" onAction="OnButtonClick" tag="formatAll"/>
+        </group>
+        <group id="ToolsGroup" label="Tools">
+          <button id="btnShowTaskPane" label="Show Pane" size="large" imageMso="ReviewingPane" onAction="OnButtonClick" tag="showPane"/>
+          <button id="btnSettings" label="Settings" size="large" imageMso="AdvancedFileProperties" onAction="OnButtonClick" tag="settings"/>
+          <button id="btnHelp" label="Help" size="large" imageMso="Help" onAction="OnButtonClick" tag="help"/>
+        </group>
+      </tab>
+    </tabs>
+  </ribbon>
+</customUI>
