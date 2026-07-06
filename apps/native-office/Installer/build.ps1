@@ -82,6 +82,13 @@ if ($LASTEXITCODE -ne 0) { throw "WiX build failed" }
 Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
 $bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"
 
+# Install WiX Bal extension if not present
+$balExt = wix extension list 2>$null
+if ($balExt -notmatch "WixToolset.Bal.wixext") {
+    Write-Host "  Installing WiX Bal extension..." -ForegroundColor Gray
+    wix extension add WixToolset.Bal.wixext
+}
+
 $env:NetFx48Url = "https://go.microsoft.com/fwlink/?LinkId=2085329"
 $env:VstoRuntimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
 $env:MsiDir = $OutputDir

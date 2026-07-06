@@ -277,10 +277,35 @@ jobs:
         env:
           CERT_THUMBPRINT: ${{ secrets.VSTO_CERT_THUMBPRINT }}
 
+      - name: Smoke test build outputs
+        shell: pwsh
+        run: |
+          $out = "apps/native-office/Installer/output"
+          $msi = Get-ChildItem "$out" -Filter "*.msi" | Select-Object -First 1
+          $exe = Get-ChildItem "$out" -Filter "*.exe" | Select-Object -First 1
+
+          if ($msi) {
+            Write-Host "MSI found: $($msi.Name) ($([math]::Round($msi.Length/1MB,2)) MB)"
+            # Verify MSI is a valid PE file (starts with MZ header)
+            $bytes = [System.IO.File]::ReadAllBytes($msi.FullName)
+            $header = [System.Text.Encoding]::ASCII.GetString($bytes, 0, 2)
+            if ($header -eq "MZ") { Write-Host "  MSI header: valid PE" -ForegroundColor Green }
+            else { Write-Warning "MSI may not be a valid installer" }
+          } else {
+            throw "MSI not found - build failed silently"
+          }
+
+          if ($exe) {
+            Write-Host "Bootstrapper found: $($exe.Name) ($([math]::Round($exe.Length/1MB,2)) MB)"
+            $bytes = [System.IO.File]::ReadAllBytes($exe.FullName)
+            $header = [System.Text.Encoding]::ASCII.GetString($bytes, 0, 2)
+            if ($header -eq "MZ") { Write-Host "  EXE header: valid PE" -ForegroundColor Green }
+            else { Write-Warning "Bootstrapper may not be a valid installer" }
+          } else {
+            Write-Warning "Bootstrapper EXE not found"
+          }
+
       - uses: actions/upload-artifact@v4
-        with:
-          name: vsto
-          path: apps/native-office/Installer/output/*
 
   # ─────────── WPS Plugin ───────────
   wps:
