@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using System.Web.Script.Serialization;
 using LaTeXSnipper.NativeOffice.Shared;
 using Word = Microsoft.Office.Interop.Word;
 
@@ -228,12 +227,11 @@ namespace LaTeXSnipper.Word
                 case DesktopRequestReadTable readTableCmd:
                 {
                     var table = _tableConverter.ReadSelection();
-                    var json = table != null ? new JavaScriptSerializer().Serialize(table) : null;
                     _ = _pipeClient.SendAsync(new VstoReadTable
                     {
                         RequestId = readTableCmd.RequestId,
                         SessionId = readTableCmd.SessionId,
-                        TableXml = json
+                        Table = table
                     });
                     break;
                 }
