@@ -35,6 +35,7 @@ jobs:
 
       - name: Resolve version
         id: resolve
+        shell: bash
         run: |
           if [ -n "${{ env.VERSION }}" ]; then
             VER="${{ env.VERSION }}"
@@ -47,6 +48,7 @@ jobs:
           echo "Version: $VER"
 
       - name: Validate protocol schema
+        shell: bash
         run: node core-protocol/schema-validate.mjs
 
   # ─────────── Office Web Add-in ────────────────────────────────────
