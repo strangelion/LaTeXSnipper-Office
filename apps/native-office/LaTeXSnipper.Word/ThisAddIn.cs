@@ -245,6 +245,7 @@ namespace LaTeXSnipper.Word
             try
             {
                 var contextId = _adapter?.GetCurrentContextId();
+                var doc = Application.ActiveDocument;
                 if (string.IsNullOrEmpty(contextId)) return;
 
                 System.Diagnostics.Debug.WriteLine(
@@ -254,7 +255,8 @@ namespace LaTeXSnipper.Word
                 {
                     RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
                     SessionId = _sessionId,
-                    DocumentContextId = contextId
+                    DocumentContextId = contextId,
+                    DocumentTitle = doc?.Name
                 });
             }
             catch (Exception ex)

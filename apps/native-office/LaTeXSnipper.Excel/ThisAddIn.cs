@@ -23,6 +23,28 @@ namespace LaTeXSnipper.Excel
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
             _adapter = new Host.ExcelAdapter(Application);
             _ = InitializePipeAsync();
+
+            // Track workbook/sheet changes
+            Application.WorkbookActivate += OnWorkbookChange;
+            Application.SheetActivate += OnWorkbookChange;
+        }
+
+        private void OnWorkbookChange(object workbook)
+        {
+            if (_pipeClient == null || _sessionId == null || _adapter == null) return;
+            try
+            {
+                var ctx = _adapter.GetCurrentContextId();
+                var wb = Application.ActiveWorkbook;
+                _ = _pipeClient.SendAsync(new VstoContextChanged
+                {
+                    RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                    SessionId = _sessionId,
+                    DocumentContextId = ctx,
+                    DocumentTitle = wb?.Name
+                });
+            }
+            catch { }
         }
 
         private async Task InitializePipeAsync()
