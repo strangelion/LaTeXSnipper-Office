@@ -134,14 +134,12 @@ jobs:
         with: { workspaces: src-tauri -> target }
 
       # Inject version into Cargo.toml and tauri.conf.json
-      - run: |
-          $ver = "$env:VERSION"
-          $json = Get-Content src-tauri/tauri.conf.json -Raw
-          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
-          Set-Content src-tauri/tauri.conf.json -Value $json
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
-          Set-Content src-tauri/Cargo.toml -Value $cargo
+      - name: Inject version
+        shell: bash
+        run: |
+          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build
 
@@ -178,14 +176,12 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
 
-      - run: |
-          $ver = "$env:VERSION"
-          $json = Get-Content src-tauri/tauri.conf.json -Raw
-          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
-          Set-Content src-tauri/tauri.conf.json -Value $json
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
-          Set-Content src-tauri/Cargo.toml -Value $cargo
+      - name: Inject version
+        shell: bash
+        run: |
+          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build --target aarch64-apple-darwin
 
@@ -224,14 +220,12 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
 
-      - run: |
-          $ver = "$env:VERSION"
-          $json = Get-Content src-tauri/tauri.conf.json -Raw
-          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
-          Set-Content src-tauri/tauri.conf.json -Value $json
-          $cargo = Get-Content src-tauri/Cargo.toml -Raw
-          $cargo = $cargo -replace '^version = .*', "version = `"$ver`""
-          Set-Content src-tauri/Cargo.toml -Value $cargo
+      - name: Inject version
+        shell: bash
+        run: |
+          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          sed -i 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build
 
@@ -344,12 +338,10 @@ jobs:
 
       - name: Set version in manifest
         working-directory: apps/obsidian-plugin
-        shell: pwsh
+        shell: bash
         run: |
-          $ver = "$env:VERSION"
-          $json = Get-Content manifest.json -Raw
-          $json = $json -replace '"version": ".*"', '"version": "' + $ver + '"'
-          Set-Content manifest.json -Value $json
+          sed -i 's/"version": ".*"/"version": "'"$VERSION"'"/' manifest.json
+          echo "Obsidian manifest version set to $VERSION"
 
       - name: Install deps
         working-directory: apps/obsidian-plugin
