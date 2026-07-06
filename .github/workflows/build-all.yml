@@ -46,6 +46,9 @@ jobs:
           echo "version=$VER" >> $GITHUB_OUTPUT
           echo "Version: $VER"
 
+      - name: Validate protocol schema
+        run: node core-protocol/schema-validate.mjs
+
   # ─────────── Office Web Add-in ────────────────────────────────────
   office-addin:
     needs: prepare
