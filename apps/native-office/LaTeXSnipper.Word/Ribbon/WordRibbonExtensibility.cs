@@ -1,3 +1,4 @@
+#if OFFICE_PIA
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -33,14 +34,14 @@ namespace LaTeXSnipper.Word
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
                             MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
                         else
-                            MessageBox.Show("未选中公式。", "LaTeXSnipper");
+                            MessageBox.Show("未选中公式", "LaTeXSnipper");
                     }
                     catch (Exception ex) { MessageBox.Show("错误: " + ex.Message, "LaTeXSnipper"); }
                     break;
 
                 case "delete":
                     var r = addIn.Adapter.DeleteCurrent();
-                    MessageBox.Show(r.Success ? "已删除。" : "失败: " + r.Error, "LaTeXSnipper");
+                    MessageBox.Show(r.Success ? "已删除" : "失败: " + r.Error, "LaTeXSnipper");
                     break;
 
                 case "toOmml":
@@ -87,3 +88,5 @@ namespace LaTeXSnipper.Word
         }
     }
 }
+
+#endif

@@ -1,3 +1,4 @@
+#if OFFICE_PIA
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -33,13 +34,13 @@ namespace LaTeXSnipper.Excel
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
                             MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
                         else
-                            MessageBox.Show("未选中公式。", "LaTeXSnipper");
+                            MessageBox.Show("未选中公式", "LaTeXSnipper");
                     }
                     catch (Exception ex) { MessageBox.Show("错误: " + ex.Message, "LaTeXSnipper"); }
                     break;
 
                 case "delete":
-                    MessageBox.Show(addIn.Adapter.DeleteCurrent() ? "已删除。" : "未找到公式。", "LaTeXSnipper");
+                    MessageBox.Show(addIn.Adapter.DeleteCurrent() ? "已删除" : "未找到公式", "LaTeXSnipper");
                     break;
 
                 case "settings":
@@ -66,3 +67,5 @@ namespace LaTeXSnipper.Excel
         }
     }
 }
+
+#endif
