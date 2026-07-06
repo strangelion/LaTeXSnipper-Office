@@ -79,7 +79,8 @@ fn main() {
             let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
             app.manage(session_manager.clone());
 
-            // Start Named Pipe server with shared SessionManager
+            // Start Named Pipe server (Windows only)
+            #[cfg(target_os = "windows")]
             tauri::async_runtime::spawn(async move {
                 platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
             });
@@ -130,20 +131,35 @@ fn main() {
             math::latex_to_omml,
             math::mathml_to_latex,
             math::convert_formula,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_sessions,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_formula,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_replace_formula,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_table,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_delete_current,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_format_selection,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_format_all,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_renumber_word,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_reference,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_selection,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_table,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_install,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_repair,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_uninstall,
         ])
         .run(tauri::generate_context!())
