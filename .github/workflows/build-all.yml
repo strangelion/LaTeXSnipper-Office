@@ -251,12 +251,21 @@ jobs:
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
-      - name: Setup WiX v4
-        run: dotnet tool install --global wix --version 4.0.5
+      - name: Install pinned WiX v4.0.5
+        shell: pwsh
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP "wix-4.0.5"
+          dotnet tool install wix --tool-path $toolDir --version 4.0.5
+          $wixExe = Join-Path $toolDir "wix.exe"
+          if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
+          $actualVersion = (& $wixExe --version | Out-String).Trim()
+          Write-Host "Resolved WiX: $actualVersion"
+          if ($actualVersion -notmatch '^4\.0\.5') { throw "Expected 4.0.5, got: $actualVersion" }
+          "WIX_EXE=$wixExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build solution and installer
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -SkipSigning
+        run: .\build.ps1 -Configuration Release -OutputDir output -Version $env:VERSION -SkipSigning -WixPath $env:WIX_EXE
 
       - name: Sign artifacts
         if: env.CERT_THUMBPRINT != ''

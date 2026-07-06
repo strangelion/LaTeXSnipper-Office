@@ -46,14 +46,22 @@ jobs:
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      # Install WiX Toolset v4 (build.ps1 targets v4 syntax)
+      # Install pinned WiX v4.0.5 (avoid v7 resolution conflict on Runner)
       - name: Setup WiX Toolset
-        run: dotnet tool install --global wix --version 4.0.5
+        shell: pwsh
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP "wix-4.0.5"
+          dotnet tool install wix --tool-path $toolDir --version 4.0.5
+          $wixExe = Join-Path $toolDir "wix.exe"
+          if (-not (Test-Path $wixExe)) { throw "WiX not found: $wixExe" }
+          $v = (& $wixExe --version | Out-String).Trim()
+          if ($v -notmatch '^4\.0\.5') { throw "Expected 4.0.5, got: $v" }
+          "WIX_EXE=$wixExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       # Build MSI installer + Bootstrapper EXE
       - name: Build Installer (MSI + Bundle)
         working-directory: apps/native-office/Installer
-        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output -SkipSigning
+        run: .\build.ps1 -Configuration $env:CONFIGURATION -OutputDir output -SkipSigning -WixPath $env:WIX_EXE
 
       # Sign artifacts if a code signing certificate thumbprint is provided
       - name: Sign artifacts

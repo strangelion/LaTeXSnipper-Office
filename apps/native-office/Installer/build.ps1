@@ -6,11 +6,30 @@ param(
     [string]$OutputDir = ".\output",
     [string]$MsBuildPath = "",
     [string]$Version = "1.0.0",
+    [string]$WixPath = "",
     [switch]$SkipSigning
 )
 
 $ErrorActionPreference = "Stop"
 $SolutionDir = Split-Path -Parent $PSScriptRoot
+
+# Resolve pinned WiX executable
+if (-not $WixPath) {
+    $resolvedWix = Get-Command "wix.exe" -ErrorAction SilentlyContinue
+    if (-not $resolvedWix) { $resolvedWix = Get-Command "wix" -ErrorAction SilentlyContinue }
+    if (-not $resolvedWix) { throw "WiX executable not found. Pass -WixPath explicitly." }
+    $WixPath = $resolvedWix.Source
+}
+if (-not (Test-Path $WixPath)) { throw "WiX executable does not exist: $WixPath" }
+$wixVersion = (& $WixPath --version | Out-String).Trim()
+Write-Host "  WiX: $WixPath ($wixVersion)" -ForegroundColor Gray
+if ($wixVersion -notmatch '^4\.0\.5') { throw "Native Office installer requires WiX 4.0.5. Resolved: $wixVersion" }
+
+function Invoke-Wix {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+    & $WixPath @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "WiX command failed ($LASTEXITCODE): $($Arguments -join ' ')" }
+}
 
 Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor Green
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
@@ -75,11 +94,8 @@ $wixSrc = Join-Path $PSScriptRoot "WiX"
 $msiOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.msi"
 
 # Install WiX extensions if not present
-$uiExt = wix extension list 2>$null
-if ($uiExt -notmatch "WixToolset.UI.wixext") {
-    Write-Host "  Installing WiX UI extension..." -ForegroundColor Gray
-    wix extension add WixToolset.UI.wixext
-}
+Write-Host "  Restoring WiX UI extension..." -ForegroundColor Gray
+Invoke-Wix extension add -g WixToolset.UI.wixext/4.0.5
 
 # Set WiX variables
 $env:SharedBinDir = Join-Path $staging "Shared"
@@ -88,7 +104,7 @@ $env:ExcelBinDir = Join-Path $staging "Excel"
 $env:PowerPointBinDir = Join-Path $staging "PowerPoint"
 
 # Build MSI
-wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
+Invoke-Wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -o $msiOutput `
     -d Version=$Version `
     -d SharedBinDir=$env:SharedBinDir `
@@ -97,31 +113,25 @@ wix build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -d PowerPointBinDir=$env:PowerPointBinDir `
     -ext WixToolset.UI.wixext
 
-if ($LASTEXITCODE -ne 0) { throw "WiX build failed" }
-
 # Step 4: Build Bundle (Bootstrapper)
 Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
 $bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"
 
 # Install WiX Bal extension if not present
-$balExt = wix extension list 2>$null
-if ($balExt -notmatch "WixToolset.Bal.wixext") {
-    Write-Host "  Installing WiX Bal extension..." -ForegroundColor Gray
-    wix extension add WixToolset.Bal.wixext
-}
+Write-Host "  Restoring WiX Bal extension..." -ForegroundColor Gray
+Invoke-Wix extension add -g WixToolset.Bal.wixext/4.0.5
 
 $env:NetFx48Url = "https://go.microsoft.com/fwlink/?LinkId=2085329"
 $env:VstoRuntimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
 $env:MsiDir = $OutputDir
 
-wix build "$wixSrc\Bundle.wxs" `
+Invoke-Wix build "$wixSrc\Bundle.wxs" `
     -o $bundleOutput `
     -d Version=$Version `
     -d NetFx48Url=$env:NetFx48Url `
     -d VstoRuntimeUrl=$env:VstoRuntimeUrl `
-    -d MsiDir=$env:MsiDir
-
-if ($LASTEXITCODE -ne 0) { throw "Bundle build failed" }
+    -d MsiDir=$env:MsiDir `
+    -ext WixToolset.Bal.wixext
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "MSI: $msiOutput" -ForegroundColor Yellow
