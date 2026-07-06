@@ -173,6 +173,7 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <None Include="LaTeXSnipper.Word_TemporaryKey.pfx" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -184,7 +185,9 @@
     <Compile Include="Ribbon\WordRibbonExtensibility.cs">
       <SubType>Code</SubType>
     </Compile>
-    <EmbeddedResource Include="Ribbon\LaTeXSnipperRibbon.xml" />
+    <EmbeddedResource Include="Ribbon\LaTeXSnipperRibbon.xml">
+      <LogicalName>LaTeXSnipper.Word.Ribbon.LaTeXSnipperRibbon.xml</LogicalName>
+    </EmbeddedResource>
     <Compile Include="ThisAddIn.cs">
       <SubType>Code</SubType>
     </Compile>
@@ -216,9 +219,21 @@
   <PropertyGroup Condition="'$(VstoManifestKeyFile)' != ''">
     <ManifestKeyFile>$(VstoManifestKeyFile)</ManifestKeyFile>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(VstoManifestKeyPassword)' != ''">
+    <ManifestKeyPassword>$(VstoManifestKeyPassword)</ManifestKeyPassword>
+  </PropertyGroup>
+  <PropertyGroup>
+    <SignManifests>true</SignManifests>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestKeyFile>LaTeXSnipper.Word_TemporaryKey.pfx</ManifestKeyFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestCertificateThumbprint>EF58EA3B140B96FA2DC9842ECFCE249119A3595C</ManifestCertificateThumbprint>
+  </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
-  <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != ''" />
+  <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != '' AND '$(SignManifests)' == 'true'" />
   <!-- This section defines VSTO properties that describe the host-changeable project properties. -->
   <ProjectExtensions>
     <VisualStudio>

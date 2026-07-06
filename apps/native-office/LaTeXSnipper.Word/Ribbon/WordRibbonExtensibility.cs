@@ -1,4 +1,3 @@
-#if OFFICE_PIA
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -10,6 +9,8 @@ namespace LaTeXSnipper.Word
     [ComVisible(true)]
     public sealed class WordRibbonExtensibility : IRibbonExtensibility
     {
+        private IRibbonUI _ribbon;
+
         public string GetCustomUI(string ribbonId)
         {
             var asm = System.Reflection.Assembly.GetExecutingAssembly();
@@ -19,74 +20,116 @@ namespace LaTeXSnipper.Word
             return reader.ReadToEnd();
         }
 
+        public void OnRibbonLoad(IRibbonUI ribbon)
+        {
+            _ribbon = ribbon;
+        }
+
+        public bool GetDesktopCommandEnabled(IRibbonControl control)
+        {
+            var addIn = Globals.ThisAddIn;
+            return addIn != null && addIn.PipeConnected;
+        }
+
         public void OnButtonClick(IRibbonControl control)
         {
             var addIn = Globals.ThisAddIn;
+            if (addIn == null) return;
+
             string rid = Guid.NewGuid().ToString("N").Substring(0, 12);
             var sid = addIn.SessionId;
 
             switch (control.Tag as string)
             {
+                case "insertInline":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "insert",
+                        Display = "inline"
+                    });
+                    break;
+
+                case "insertDisplay":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "insert",
+                        Display = "display"
+                    });
+                    break;
+
+                case "insertNumbered":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "insert",
+                        Display = "numbered"
+                    });
+                    break;
+
                 case "readSelection":
                     try
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
                             MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
+                        else if (f != null && !string.IsNullOrEmpty(f.Omml))
+                            addIn.Send(new VstoOpenEditor
+                            {
+                                RequestId = rid,
+                                SessionId = sid,
+                                Action = "edit",
+                                Omml = f.Omml
+                            });
                         else
-                            MessageBox.Show("未选中公式", "LaTeXSnipper");
+                            MessageBox.Show("No formula selected", "LaTeXSnipper");
                     }
-                    catch (Exception ex) { MessageBox.Show("错误: " + ex.Message, "LaTeXSnipper"); }
+                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, "LaTeXSnipper"); }
                     break;
 
                 case "delete":
-                    var r = addIn.Adapter.DeleteCurrent();
-                    MessageBox.Show(r.Success ? "已删除" : "失败: " + r.Error, "LaTeXSnipper");
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "delete"
+                    });
                     break;
 
-                case "toOmml":
-                    var f2 = addIn.Adapter.ReadSelection();
-                    var xml = f2?.Omml ?? "";
-                    MessageBox.Show(xml.Length > 100 ? xml.Substring(0, 100) + "..." : (xml.Length > 0 ? xml : "无公式"), "LaTeXSnipper - OMML");
+                case "showPane":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "focus"
+                    });
+                    break;
+
+                case "ocr":
+                    addIn.Send(new VstoFocusOcr { RequestId = rid, SessionId = sid });
                     break;
 
                 case "settings":
                     addIn.Send(new VstoFocusSettings { RequestId = rid, SessionId = sid });
                     break;
 
-                case "ocr":
-                    addIn.Send(new VstoRequestOcr { RequestId = rid, SessionId = sid });
-                    break;
-
-                case "insertReference":
-                    addIn.Send(new VstoRequestReference { RequestId = rid, SessionId = sid });
-                    break;
-
-                case "autoNumber":
-                case "renumber":
-                    addIn.Send(new VstoRequestNumbering { RequestId = rid, SessionId = sid, Action = control.Tag as string });
-                    break;
-
-                case "chapterBoundary":
-                case "sectionBoundary":
-                    addIn.Send(new VstoRequestBoundary { RequestId = rid, SessionId = sid, Type = control.Tag as string });
-                    break;
-
-                case "formatSelected":
-                case "formatAll":
-                    addIn.Send(new VstoRequestFormat { RequestId = rid, SessionId = sid, Action = control.Tag as string });
-                    break;
-
                 case "help":
-                    MessageBox.Show("LaTeXSnipper v1.0.0\n原生 Office 公式插件", "LaTeXSnipper");
+                    MessageBox.Show("LaTeXSnipper v1.0.0\nNative Office formula plugin", "LaTeXSnipper");
                     break;
 
-                default: // insertInline, insertDisplay, insertNumbered, toOle, showPane
-                    addIn.Send(new VstoOpenEditor { RequestId = rid, SessionId = sid });
+                default:
+                    MessageBox.Show("Not implemented: " + control.Tag, "LaTeXSnipper");
                     break;
             }
         }
+
+        public void NotifyConnected()
+        {
+            _ribbon?.Invalidate();
+        }
     }
 }
-
-#endif

@@ -1,4 +1,3 @@
-#if OFFICE_PIA
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -10,6 +9,8 @@ namespace LaTeXSnipper.Excel
     [ComVisible(true)]
     public sealed class ExcelRibbonExtensibility : IRibbonExtensibility
     {
+        private IRibbonUI _ribbon;
+
         public string GetCustomUI(string ribbonId)
         {
             var asm = System.Reflection.Assembly.GetExecutingAssembly();
@@ -19,14 +20,37 @@ namespace LaTeXSnipper.Excel
             return reader.ReadToEnd();
         }
 
+        public void OnRibbonLoad(IRibbonUI ribbon)
+        {
+            _ribbon = ribbon;
+        }
+
+        public bool GetDesktopCommandEnabled(IRibbonControl control)
+        {
+            var addIn = Globals.ThisAddIn;
+            return addIn != null && addIn.PipeConnected;
+        }
+
         public void OnButtonClick(IRibbonControl control)
         {
             var addIn = Globals.ThisAddIn;
+            if (addIn == null) return;
+
             string rid = Guid.NewGuid().ToString("N").Substring(0, 12);
             var sid = addIn.SessionId;
 
             switch (control.Tag as string)
             {
+                case "insertFormula":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "insert",
+                        Display = "display"
+                    });
+                    break;
+
                 case "readSelection":
                     try
                     {
@@ -34,26 +58,31 @@ namespace LaTeXSnipper.Excel
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
                             MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
                         else
-                            MessageBox.Show("未选中公式", "LaTeXSnipper");
+                            MessageBox.Show("No formula selected", "LaTeXSnipper");
                     }
-                    catch (Exception ex) { MessageBox.Show("错误: " + ex.Message, "LaTeXSnipper"); }
+                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, "LaTeXSnipper"); }
                     break;
 
                 case "delete":
-                    MessageBox.Show(addIn.Adapter.DeleteCurrent() ? "已删除" : "未找到公式", "LaTeXSnipper");
+                    var ok = addIn.Adapter.DeleteCurrent();
+                    MessageBox.Show(ok ? "Deleted" : "No formula found", "LaTeXSnipper");
+                    break;
+
+                case "showPane":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "focus"
+                    });
+                    break;
+
+                case "ocr":
+                    addIn.Send(new VstoFocusOcr { RequestId = rid, SessionId = sid });
                     break;
 
                 case "settings":
                     addIn.Send(new VstoFocusSettings { RequestId = rid, SessionId = sid });
-                    break;
-
-                case "ocr":
-                    addIn.Send(new VstoRequestOcr { RequestId = rid, SessionId = sid });
-                    break;
-
-                case "formatSelected":
-                case "formatAll":
-                    addIn.Send(new VstoRequestFormat { RequestId = rid, SessionId = sid, Action = control.Tag as string });
                     break;
 
                 case "help":
@@ -61,11 +90,14 @@ namespace LaTeXSnipper.Excel
                     break;
 
                 default:
-                    addIn.Send(new VstoOpenEditor { RequestId = rid, SessionId = sid });
+                    MessageBox.Show("Not implemented: " + control.Tag, "LaTeXSnipper");
                     break;
             }
         }
+
+        public void NotifyConnected()
+        {
+            _ribbon?.Invalidate();
+        }
     }
 }
-
-#endif

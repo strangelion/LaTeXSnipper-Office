@@ -4,10 +4,20 @@ using System.IO;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
+
+internal static class ProtocolJson
+{
+    internal static readonly JsonSerializerOptions Options = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+}
 
 /// <summary>
 /// Named Pipe client for communicating with LaTeXSnipper Desktop.
@@ -82,7 +92,7 @@ public class PipeClient : IDisposable
 
         try
         {
-            var json = System.Text.Json.JsonSerializer.Serialize(message, message.GetType());
+            var json = JsonSerializer.Serialize<VstoMessage>(message, ProtocolJson.Options);
             var payload = System.Text.Encoding.UTF8.GetBytes(json);
             var lenBytes = BitConverter.GetBytes(payload.Length);
 
@@ -116,7 +126,7 @@ public class PipeClient : IDisposable
 
         try
         {
-            var json = JsonSerializer.Serialize(message);
+            var json = JsonSerializer.Serialize<VstoMessage>(message, ProtocolJson.Options);
             var payload = Encoding.UTF8.GetBytes(json);
             var lenBytes = BitConverter.GetBytes(payload.Length);
 
@@ -222,7 +232,7 @@ public class PipeClient : IDisposable
         await _pipe.ReadExactAsync(payload, 0, len, ct);
 
         var json = Encoding.UTF8.GetString(payload);
-        return JsonSerializer.Deserialize<DesktopMessage>(json);
+        return JsonSerializer.Deserialize<DesktopMessage>(json, ProtocolJson.Options);
     }
 
     /// <summary>

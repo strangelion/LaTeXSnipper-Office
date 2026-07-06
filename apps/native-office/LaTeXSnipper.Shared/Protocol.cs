@@ -1,3 +1,4 @@
+#nullable enable
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -23,6 +24,13 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoHostReady), "HOST_READY")]
 [JsonDerivedType(typeof(VstoContextChanged), "VSTO_CONTEXT_CHANGED")]
 [JsonDerivedType(typeof(VstoOpenEditor), "OPEN_EDITOR")]
+[JsonDerivedType(typeof(VstoFocusOcr), "FOCUS_OCR")]
+[JsonDerivedType(typeof(VstoFocusSettings), "FOCUS_SETTINGS")]
+[JsonDerivedType(typeof(VstoRequestOcr), "REQUEST_OCR")]
+[JsonDerivedType(typeof(VstoRequestFormat), "REQUEST_FORMAT")]
+[JsonDerivedType(typeof(VstoRequestNumbering), "REQUEST_NUMBERING")]
+[JsonDerivedType(typeof(VstoRequestReference), "REQUEST_REFERENCE")]
+[JsonDerivedType(typeof(VstoRequestBoundary), "REQUEST_BOUNDARY")]
 [JsonDerivedType(typeof(VstoReadSelection), "READ_SELECTION")]
 [JsonDerivedType(typeof(VstoReadTable), "READ_TABLE")]
 [JsonDerivedType(typeof(VstoInsertResult), "INSERT_RESULT")]
@@ -83,7 +91,13 @@ public class VstoContextChanged : VstoMessage
     [JsonPropertyName("documentKind")] public string? DocumentKind { get; set; }
 }
 
-public class VstoOpenEditor : VstoMessage { }
+public class VstoOpenEditor : VstoMessage
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "insert";
+    [JsonPropertyName("display")] public string? Display { get; set; }
+    [JsonPropertyName("omml")] public string? Omml { get; set; }
+    [JsonPropertyName("sourceHost")] public string? SourceHost { get; set; }
+}
 public class VstoFocusOcr : VstoMessage { }
 public class VstoFocusSettings : VstoMessage { }
 public class VstoRequestFormat : VstoMessage
@@ -101,7 +115,7 @@ public class VstoRequestReference : VstoMessage
 public class VstoRequestOcr : VstoMessage { }
 public class VstoRequestBoundary : VstoMessage
 {
-    [JsonPropertyName("type")] public string Type { get; set; } = "chapter";
+    [JsonPropertyName("boundaryType")] public string BoundaryType { get; set; } = "chapter";
 }
 
 public class VstoReadSelection : VstoMessage
@@ -252,6 +266,7 @@ public class PresentationData
 public class RenderData
 {
     [JsonPropertyName("svg")] public string? Svg { get; set; }
+    [JsonPropertyName("png")] public string? Png { get; set; }
     [JsonPropertyName("widthPt")] public float WidthPt { get; set; }
     [JsonPropertyName("heightPt")] public float HeightPt { get; set; }
 }

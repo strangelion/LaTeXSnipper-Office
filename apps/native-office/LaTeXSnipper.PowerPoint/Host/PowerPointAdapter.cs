@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.IO;
 using LaTeXSnipper.NativeOffice.Shared;
@@ -35,10 +36,27 @@ namespace LaTeXSnipper.PowerPoint.Host
 
             try
             {
-                if (payload.Render?.Svg != null)
+                // Prefer PNG over SVG (Office renders PNG more reliably)
+                string? imageExt = null;
+                string? imageData = null;
+                if (payload.Render?.Png != null)
                 {
-                    var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                    File.WriteAllText(tempPath, payload.Render.Svg);
+                    imageExt = ".png";
+                    imageData = "PNG";
+                }
+                else if (payload.Render?.Svg != null)
+                {
+                    imageExt = ".svg";
+                    imageData = "SVG";
+                }
+
+                if (imageExt != null && imageData != null)
+                {
+                    var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}{imageExt}");
+                    if (imageExt == ".png")
+                        File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                    else
+                        File.WriteAllText(tempPath, payload.Render.Svg);
 
                     float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                     float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
@@ -55,6 +73,8 @@ namespace LaTeXSnipper.PowerPoint.Host
                         left, top, width, height
                     );
                     shape.Name = $"LSNO_{payload.FormulaId}";
+                    shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+                    System.Diagnostics.Debug.WriteLine($"[PPTAdapter] {imageData} shape added: name={shape.Name}, left={left}, top={top}, w={width}, h={height}");
                 }
                 else if (!string.IsNullOrEmpty(payload.Latex))
                 {
@@ -63,6 +83,8 @@ namespace LaTeXSnipper.PowerPoint.Host
                         50f, 100f, 200f, 40f
                     );
                     textShape.TextFrame.TextRange.Text = payload.Latex;
+                    textShape.Name = $"LSNO_{payload.FormulaId}";
+                    textShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
                 }
 
                 return new InsertResult { Success = true, FormulaId = payload.FormulaId };
@@ -77,6 +99,28 @@ namespace LaTeXSnipper.PowerPoint.Host
         public FormulaPayload? ReadSelection()
         {
             var sel = _application.ActiveWindow.Selection;
+
+            // Layer 1: check if a shape is selected and has LSNO formula data
+            if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
+            {
+                var shapeRange = sel.ShapeRange;
+                if (shapeRange != null && shapeRange.Count > 0)
+                {
+                    var shape = shapeRange[1];
+                    var altText = shape.AlternativeText as string;
+                    if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
+                    {
+                        return new FormulaPayload
+                        {
+                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                            Latex = altText.Substring("LSNO_FORMULA:".Length),
+                            Display = "inline"
+                        };
+                    }
+                }
+            }
+
+            // Layer 2: check text selection
             if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionText)
             {
                 var text = sel.TextRange?.Text ?? "";
@@ -99,10 +143,28 @@ namespace LaTeXSnipper.PowerPoint.Host
             {
                 var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
                 if (slide == null) return false;
+
+                // Check if a shape is selected in the current selection
+                var sel = _application.ActiveWindow.Selection;
+                if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
+                {
+                    var shapeRange = sel.ShapeRange;
+                    if (shapeRange != null && shapeRange.Count > 0)
+                    {
+                        var shape = shapeRange[1];
+                        if (shape.Name?.StartsWith("LSNO_") == true)
+                        {
+                            shape.Delete();
+                            return true;
+                        }
+                    }
+                }
+
+                // Fallback: iterate all shapes to find LSNO shapes
                 for (int i = slide.Shapes.Count; i >= 1; i--)
                 {
                     var shape = slide.Shapes[i];
-                    if (shape.Name?.StartsWith("LSNO_") == true && shape.SelectionType == Microsoft.Office.Core.MsoTriState.msoTrue)
+                    if (shape.Name?.StartsWith("LSNO_") == true)
                     {
                         shape.Delete();
                         return true;
@@ -123,15 +185,22 @@ namespace LaTeXSnipper.PowerPoint.Host
                 {
                     if (shape.Name == $"LSNO_{formulaId}")
                     {
+                        // Preserve geometry before deleting
+                        float oldLeft = shape.Left;
+                        float oldTop = shape.Top;
+                        float oldWidth = shape.Width;
+                        float oldHeight = shape.Height;
                         shape.Delete();
+
                         if (payload.Render?.Svg != null)
                         {
                             var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
                             File.WriteAllText(tempPath, payload.Render.Svg);
-                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
-                            slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, 50f, 50f, w, h);
+                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
+                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
+                            var newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                            newShape.Name = $"LSNO_{formulaId}";
                         }
                         return true;
                     }

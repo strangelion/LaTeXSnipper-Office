@@ -28,6 +28,7 @@ pub async fn native_office_insert_formula(
     display: String,
     mode: String,
     svg: Option<String>,
+    png: Option<String>,
     width_pt: Option<f32>,
     height_pt: Option<f32>,
 ) -> Result<String, String> {
@@ -39,9 +40,15 @@ pub async fn native_office_insert_formula(
         presentation: None,
         render: svg.map(|s| RenderData {
             svg: Some(s),
+            png: png.clone(),
             width_pt: width_pt.unwrap_or(120.0),
             height_pt: height_pt.unwrap_or(30.0),
-        }),
+        }).or_else(|| png.map(|p| RenderData {
+            svg: None,
+            png: Some(p),
+            width_pt: width_pt.unwrap_or(120.0),
+            height_pt: height_pt.unwrap_or(30.0),
+        })),
         source: None,
     };
 

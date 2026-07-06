@@ -27,12 +27,10 @@ namespace LaTeXSnipper.Excel
                 _ = _pipeClient.SendAsync(msg);
         }
 
-#if OFFICE_PIA
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
             return new ExcelRibbonExtensibility();
         }
-#endif
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {

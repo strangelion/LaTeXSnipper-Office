@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.Word.Metadata;
@@ -119,6 +120,7 @@ namespace LaTeXSnipper.Word.Host
             int oMathStart = -1;
             string closeTag = "";
 
+            // Prefer full <m:oMathPara>; fallback to <m:oMath>
             var paraStart = xml.IndexOf("<m:oMathPara");
             if (paraStart >= 0)
             {
@@ -131,7 +133,8 @@ namespace LaTeXSnipper.Word.Host
                 if (mathStart >= 0)
                 {
                     var afterTag = xml.Substring(mathStart + 8, 1);
-                    if (afterTag != "P" && afterTag != ">")
+                    // Allow '>' for <m:oMath>; skip 'P' (already handled above for <m:oMathPara>)
+                    if (afterTag != "P")
                     {
                         oMathStart = mathStart;
                         closeTag = "</m:oMath>";
@@ -151,19 +154,58 @@ namespace LaTeXSnipper.Word.Host
         {
             try
             {
-                var range = _application.Selection.Range;
-                if (_application.Selection.OMaths.Count > 0)
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                    return new InsertResult { Success = false, Error = "No active document" };
+
+                var sel = _application.Selection;
+                if (sel == null)
+                    return new InsertResult { Success = false, Error = "No selection" };
+
+                // Check if current selection is inside a LaTeXSnipper Content Control
+                var cc = sel.Range.ContentControls;
+                if (cc != null && cc.Count > 0)
                 {
-                    _application.Selection.OMaths[1].Range.Delete();
-                    return new InsertResult { Success = true };
+                    var control = cc[1];
+                    var tag = control.Tag as string;
+                    if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                    {
+                        control.Delete();
+                        return new InsertResult { Success = true };
+                    }
                 }
-                range.Delete();
-                return new InsertResult { Success = true };
+
+                // Also check OMath inside LSNO content control (for deep cursor positions)
+                if (sel.OMaths.Count > 0)
+                {
+                    var parentCc = FindParentLsnContentControl(sel.Range);
+                    if (parentCc != null)
+                    {
+                        parentCc.Delete();
+                        return new InsertResult { Success = true };
+                    }
+                }
+
+                return new InsertResult { Success = false, Error = "No LaTeXSnipper formula selected" };
             }
             catch (Exception ex)
             {
                 return new InsertResult { Success = false, Error = ex.Message };
             }
+        }
+
+        private static Microsoft.Office.Interop.Word.ContentControl FindParentLsnContentControl(
+            Microsoft.Office.Interop.Word.Range range)
+        {
+            // Walk up the content control hierarchy
+            var parent = range.ParentContentControl;
+            if (parent != null)
+            {
+                var tag = parent.Tag as string;
+                if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                    return parent;
+            }
+            return null;
         }
 
         public InsertResult ReplaceFormula(string formulaId, FormulaPayload newPayload)
@@ -173,19 +215,23 @@ namespace LaTeXSnipper.Word.Host
                 var doc = _application.ActiveDocument;
                 if (doc == null) return new InsertResult { Success = false, Error = "No document" };
 
-                // Find formula by bookmark
-                foreach (Microsoft.Office.Interop.Word.Bookmark bm in doc.Bookmarks)
+                // Find formula by ContentControl tag (insertion uses w:tag, not Bookmark)
+                foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
                 {
-                    if (bm.Name == $"LSNO:formula:{formulaId}")
+                    var tag = cc.Tag as string;
+                    if (tag == $"latexsnipper:formula:{formulaId}")
                     {
-                        var range = bm.Range;
-                        range.Delete();
-                        // Insert new formula text
+                        var range = cc.Range.Duplicate;
+                        cc.Delete();
+
+                        // Re-insert at the same location
                         _application.Selection.SetRange(range.Start, range.Start);
-                        _application.Selection.TypeText(newPayload.Latex);
-                        return new InsertResult { Success = true, FormulaId = formulaId };
+                        var mode = string.IsNullOrEmpty(newPayload.Display) || newPayload.Display == "inline"
+                            ? InsertMode.Inline : InsertMode.Display;
+                        return InsertFormula(newPayload, mode);
                     }
                 }
+
                 return new InsertResult { Success = false, Error = "Formula not found" };
             }
             catch (Exception ex)

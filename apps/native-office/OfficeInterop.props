@@ -1,13 +1,25 @@
 <Project>
-  <!-- Office Core PIA — provides MsoTriState, IRibbonExtensibility, etc. -->
-  <ItemGroup>
+  <PropertyGroup>
+    <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
+    <OfficeCorePiaPath Condition="'$(OfficeCorePiaPath)' == ''"></OfficeCorePiaPath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(OfficeCorePiaPath)' != '' and Exists('$(OfficeCorePiaPath)')">
+    <Reference Include="Office">
+      <HintPath>$(OfficeCorePiaPath)</HintPath>
+      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OfficeCorePiaPath)' == '' or !Exists('$(OfficeCorePiaPath)')">
     <Reference Include="Office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
       <EmbedInteropTypes>False</EmbedInteropTypes>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
-  <!-- When building without signing (CI), skip Office VSTO targets that require VSTO runtime -->
-  <PropertyGroup Condition="'$(SignManifests)' == 'false'">
-    <VSToolsPath></VSToolsPath>
-  </PropertyGroup>
+
+  <Target Name="ValidateOfficeCorePia" BeforeTargets="ResolveReferences" Condition="'$(OfficeCorePiaPath)' != '' and !Exists('$(OfficeCorePiaPath)')">
+    <Error Text="Office Core PIA (office.dll) not resolved at $(OfficeCorePiaPath). Install Office/VSTO build prerequisites or omit OfficeCorePiaPath for auto-resolution from GAC/VSSDK." />
+  </Target>
 </Project>

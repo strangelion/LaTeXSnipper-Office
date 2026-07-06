@@ -300,6 +300,7 @@ pub struct Presentation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderData {
     pub svg: Option<String>,
+    pub png: Option<String>,
     #[serde(rename = "widthPt")]
     pub width_pt: f32,
     #[serde(rename = "heightPt")]

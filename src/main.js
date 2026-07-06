@@ -1643,14 +1643,17 @@ class UIController {
       const enabled = e.target.checked;
       e.target.disabled = true;
       this.settingsManager.set('officeEnabled', enabled);
-      Logger.info(`Settings: officeEnabled = ${enabled}`);
+      Logger.info(`[Office] Toggle → ${enabled ? 'ON' : 'OFF'}`);
       const ok = await this.setPlatformEnabled('office', enabled);
+      Logger.info(`[Office] setPlatformEnabled('office', ${enabled}) → ${ok}`);
       if (!ok) {
+        Logger.warn('[Office] Platform enable failed, reverting toggle');
         this.settingsManager.set('officeEnabled', !enabled);
         e.target.checked = !enabled;
       }
       e.target.disabled = false;
       this.updateTabVisibility();
+      Logger.info(`[Office] After toggle: platform=${this.platforms.find(p => p.id === 'office')?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
     });
 
     document.getElementById('ocrEnabledToggle')?.addEventListener('change', (e) => {
@@ -2550,6 +2553,12 @@ class UIController {
   }
 
   async addHistoryItem(latex) {
+    // Dedup: skip if the most recent history item has the same content
+    if (await this._latestHistoryEquals(latex)) {
+      Logger.debug(`[History] Skipped duplicate: "${latex.substring(0, 30)}..."`);
+      return;
+    }
+
     const item = {
       latex,
       type: 'formula',
@@ -2571,6 +2580,30 @@ class UIController {
       localStorage.setItem('formulaHistory', JSON.stringify(history.slice(0, 50)));
     }
     this.renderHistoryList();
+  }
+
+  async _latestHistoryEquals(latex) {
+    try {
+      if (this.historyDb) {
+        // IndexedDB: get the latest item by createdAt index (descending)
+        const latest = await new Promise((resolve, reject) => {
+          const tx = this.historyDb.transaction('results', 'readonly');
+          const index = tx.objectStore('results').index('createdAt');
+          const req = index.openCursor(null, 'prev');
+          req.onsuccess = () => {
+            const cursor = req.result;
+            resolve(cursor ? cursor.value : null);
+          };
+          req.onerror = () => reject(req.error);
+        });
+        return latest != null && latest.latex === latex;
+      }
+      // localStorage fallback: first item is latest
+      const history = JSON.parse(localStorage.getItem('formulaHistory') || '[]');
+      return history.length > 0 && history[0].latex === latex;
+    } catch {
+      return false; // don't block on errors
+    }
   }
 
   async getHistoryItems(filter = 'all') {
@@ -3089,6 +3122,9 @@ class UIController {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
 
+      // Refresh sessions before insert to avoid selecting stale entries
+      await this.updateOfficeHostSelector();
+
       // Get selected session from dropdown
       const sessionId = this._selectedSessionId;
       if (!sessionId) {
@@ -3112,37 +3148,82 @@ class UIController {
       let heightPt = 0;
       if (session.host_type !== 'word') {
         try {
-          if (!window.MathJax) {
+          // Ensure MathJax is loaded
+          if (!window.MathJax || !window.MathJax.tex2svgPromise) {
             await new Promise((resolve, reject) => {
               const script = document.createElement('script');
               script.src = './public/mathjax/tex-svg.js';
               script.onload = resolve;
-              script.onerror = reject;
+              script.onerror = () => reject(new Error('MathJax script failed to load'));
               document.head.appendChild(script);
             });
           }
 
-          if (window.MathJax) {
-            await window.MathJax.startup.promise;
-            const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
-            const svgElement = node.querySelector('svg');
-            if (svgElement) {
-              svg = svgElement.outerHTML;
+          await window.MathJax.startup.promise;
+          const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
+          const svgElement = node.querySelector('svg');
+          if (svgElement) {
+            svg = svgElement.outerHTML;
+            // Use explicit width/height attributes (ex/em) or fallback to viewBox
+            const svgWidth = svgElement.getAttribute('width');
+            const svgHeight = svgElement.getAttribute('height');
+            if (svgWidth && svgHeight) {
+              // Parse '36.949ex' → 36.949, assume 1ex ≈ 6pt (roughly 1ex = 0.5em = 6pt)
+              const wMatch = svgWidth.match(/^([\d.]+)/);
+              const hMatch = svgHeight.match(/^([\d.]+)/);
+              widthPt = (wMatch ? parseFloat(wMatch[1]) * 6 : 120);
+              heightPt = (hMatch ? parseFloat(hMatch[1]) * 6 : 30);
+            } else {
               const viewBox = svgElement.getAttribute('viewBox');
               if (viewBox) {
                 const parts = viewBox.split(' ');
-                widthPt = parseFloat(parts[2]) || 120;
-                heightPt = parseFloat(parts[3]) || 30;
+                // viewBox internal units are ~10 per pt for 72dpi; scale down
+                widthPt = (parseFloat(parts[2]) || 1200) / 10;
+                heightPt = (parseFloat(parts[3]) || 300) / 10;
               }
             }
+            // Clamp to reasonable range
+            widthPt = Math.max(18, Math.min(600, widthPt));
+            heightPt = Math.max(18, Math.min(400, heightPt));
+          } else {
+            throw new Error('MathJax did not produce an SVG element');
           }
         } catch (e) {
-          Logger.error('SVG render error:', e);
-          this.showToast('SVG 渲染失败，Excel/PPT 插入可能不完整');
+          Logger.error('[Insert] SVG render error for Excel/PPT:', e);
+          this.showToast(`Excel/PPT 需要 SVG 渲染但失败: ${e.message}，插入已取消`);
+          return; // block insert — don't send SVG-less request
         }
       }
 
       console.log('[Insert] Sending to session:', sessionId);
+
+      // Convert SVG to PNG for Excel/PPT (SVG rendering is unreliable in Office)
+      let pngBase64 = null;
+      if (session.host_type !== 'word' && svg) {
+        try {
+          const canvas = document.createElement('canvas');
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = Math.round(widthPt * dpr);
+          canvas.height = Math.round(heightPt * dpr);
+          const ctx = canvas.getContext('2d');
+          ctx.scale(dpr, dpr);
+          ctx.fillStyle = 'white';
+          ctx.fillRect(0, 0, widthPt, heightPt);
+
+          const img = new Image();
+          const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          await new Promise((resolve, reject) => {
+            img.onload = () => { ctx.drawImage(img, 0, 0, widthPt, heightPt); URL.revokeObjectURL(url); resolve(); };
+            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG→Image decode failed')); };
+            img.src = url;
+          });
+          pngBase64 = canvas.toDataURL('image/png').split(',')[1]; // strip data: prefix
+        } catch (e) {
+          Logger.warn('[Insert] SVG→PNG conversion failed, falling back to SVG:', e);
+        }
+      }
+
       await invoke('native_office_insert_formula', {
         sessionId: sessionId,
         formulaId: crypto.randomUUID(),
@@ -3150,7 +3231,8 @@ class UIController {
         omml: omml,
         display: isDisplay ? 'block' : 'inline',
         mode: isDisplay ? 'display' : 'inline',
-        svg: svg,
+        svg: session.host_type === 'word' ? null : svg,
+        png: pngBase64,
         widthPt: widthPt,
         heightPt: heightPt
       });
@@ -3237,6 +3319,7 @@ class UIController {
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find(p => p.id === 'office');
     const enabled = officePlatform?.enabled && this.settingsManager.get('officeEnabled');
+    Logger.info(`[Office] updateOfficeInsertButton → enabled=${enabled}, platform=${officePlatform?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
     const btn = document.getElementById('insertToWord');
     if (btn) btn.style.display = enabled ? '' : 'none';
     const loadBtn = document.getElementById('loadFromWord');
@@ -3532,9 +3615,8 @@ class UIController {
     this.savePlatforms();
     this.platformOperations.delete(platformId);
     await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
-    this.updateOfficeInsertButton();
-    this.updateMdCopyButton();
 
+    // Sync settingsManager before updating buttons (order matters)
     if (platformId === 'office') {
       const officeToggle = document.getElementById('officeEnabledToggle');
       if (officeToggle) {
@@ -3542,6 +3624,9 @@ class UIController {
       }
       this.settingsManager.set('officeEnabled', platform.enabled);
     }
+
+    this.updateOfficeInsertButton();
+    this.updateMdCopyButton();
 
     return ok;
   }
@@ -3571,6 +3656,7 @@ class UIController {
         const { invoke } = await import('@tauri-apps/api/core');
         if (platform.id === 'office') {
           const status = await this.getOfficeStatus();
+          Logger.info(`[Office] detect_office result: installed=${status.installed}, word=${status.word?.available}, excel=${status.excel?.available}, ppt=${status.powerpoint?.available}`);
           if (!status.installed) {
           this.showToast('未检测到 Microsoft Office，请先安装 Office');
           platform.enabled = false;
@@ -3578,6 +3664,7 @@ class UIController {
           }
 
           const result = await invoke('install_platform_integration', { platformId: 'office' });
+          Logger.info(`[Office] install_platform_integration result: success=${result.success}, message=${result.message}`);
           this.clearOfficeStatusCache();
           if (result.success) {
             this.showToast('Office 插件已启用，请重启 Office 加载插件');

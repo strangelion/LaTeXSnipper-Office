@@ -29,12 +29,10 @@ namespace LaTeXSnipper.Word
                 _pipeClient.SendOnlyAsync(msg);
         }
 
-#if OFFICE_PIA
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
             return new WordRibbonExtensibility();
         }
-#endif
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
