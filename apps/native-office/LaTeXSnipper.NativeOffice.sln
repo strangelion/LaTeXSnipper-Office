@@ -2,7 +2,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
 VisualStudioVersion = 18.7.11925.98
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Shared", "Shared\LaTeXSnipper.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Shared", "LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj", "{A1B2C3D4-1111-2222-3333-444455556666}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Word", "LaTeXSnipper.Word\LaTeXSnipper.Word.csproj", "{8D829C55-CB4D-474D-8AFB-C4753CE45EA1}"
 EndProject

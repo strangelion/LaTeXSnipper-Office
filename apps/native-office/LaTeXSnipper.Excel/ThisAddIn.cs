@@ -1,36 +1,121 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Xml.Linq;
-using Excel = Microsoft.Office.Interop.Excel;
-using Office = Microsoft.Office.Core;
-using Microsoft.Office.Tools.Excel;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using LaTeXSnipper.NativeOffice.Shared;
 
 namespace LaTeXSnipper.Excel
 {
     public partial class ThisAddIn
     {
+        private Host.ExcelAdapter _adapter;
+        private PipeClient _pipeClient;
+        private SynchronizationContext _syncContext;
+        private string _sessionId;
+        private bool _pipeConnected;
+
+        internal Host.ExcelAdapter Adapter => _adapter;
+
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
+            System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Startup reached.");
+            _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            _adapter = new Host.ExcelAdapter(Application);
+            _ = InitializePipeAsync();
+        }
+
+        private async Task InitializePipeAsync()
+        {
+            for (int attempt = 1; attempt <= 60; attempt++)
+            {
+                try
+                {
+                    if (_pipeClient != null) { _pipeClient.Dispose(); _pipeClient = null; }
+                    _pipeClient = new PipeClient();
+                    if (!await _pipeClient.ConnectAsync())
+                    {
+                        if (attempt == 1) System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Waiting for Desktop...");
+                        await Task.Delay(3000);
+                        continue;
+                    }
+                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Pipe connected.");
+                    _pipeClient.MessageReceived += OnMessageReceived;
+                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
+                    var secret = Handshake.GetOrCreateSecret();
+                    if (await _pipeClient.SendHelloAsync(_sessionId, secret, "excel", Application.Version))
+                    {
+                        _pipeConnected = true;
+                        _syncContext.Post(_ =>
+                        {
+                            try
+                            {
+                                var ctx = _adapter.GetCurrentContextId();
+                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "excel", Application.Version, ctx);
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] HOST_READY error: " + ex.Message);
+                            }
+                        }, null);
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Init " + attempt + ": " + ex.Message);
+                }
+                await Task.Delay(3000);
+            }
+        }
+
+        private void OnMessageReceived(object sender, DesktopMessage message)
+        {
+            if (_adapter == null) return;
+            _syncContext?.Post(_ =>
+            {
+                try { HandleCommand(message); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Handler error: " + ex.Message); }
+            }, null);
+        }
+
+        private void HandleCommand(DesktopMessage message)
+        {
+            if (_adapter == null || _pipeClient == null) return;
+            switch (message)
+            {
+                case DesktopInsertFormula cmd:
+                {
+                    var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
+                    _ = _pipeClient.SendAsync(new VstoInsertResult
+                    {
+                        RequestId = cmd.RequestId, SessionId = cmd.SessionId,
+                        Success = result.Success, FormulaId = result.FormulaId, Error = result.Error
+                    });
+                    break;
+                }
+                case DesktopRequestReadSelection readCmd:
+                {
+                    var formula = _adapter.ReadSelection();
+                    _ = _pipeClient.SendAsync(new VstoReadSelection
+                    {
+                        RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
+                        Formula = formula, RangeXml = formula?.Omml
+                    });
+                    break;
+                }
+            }
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            _pipeClient?.Disconnect();
         }
 
-        #region VSTO 生成的代码
-
-        /// <summary>
-        /// 设计器支持所需的方法 - 不要修改
-        /// 使用代码编辑器修改此方法的内容。
-        /// </summary>
         private void InternalStartup()
         {
             this.Startup += new System.EventHandler(ThisAddIn_Startup);
             this.Shutdown += new System.EventHandler(ThisAddIn_Shutdown);
         }
-        
-        #endregion
     }
 }

@@ -234,7 +234,8 @@ impl SessionManager {
                 // Priority: formula.latex > rangeXml OMML conversion
                 if let Some(ref f) = formula {
                     if !f.latex.is_empty() {
-                        log::info!("[Session] Using FormulaPayload.latex: {}", &f.latex[..f.latex.len().min(50)]);
+                        log::info!("[Session] Using FormulaPayload.latex: {}",
+                            f.latex.chars().take(50).collect::<String>());
                         let _ = self.app_handle.emit(
                             "native-office-latex-loaded",
                             serde_json::json!({ "latex": f.latex, "sessionId": sid }),
