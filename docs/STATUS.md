@@ -1,0 +1,78 @@
+# LaTeXSnipper Office — 当前实现状态
+
+> 本文档只描述 **已实现** 的内容和已知限制。  
+> 计划/路线图内容请移步 `docs/roadmap.md`（TODO）。
+
+---
+
+## 协议
+
+| 项目 | 状态 |
+|------|------|
+| `core-protocol/command.schema.ts` | ✅ 10 个 command，TS 类型定义 |
+| `core-protocol/command.schema.json` | ✅ JSON Schema — 单一真源 |
+| `core-protocol/command.router.ts` | ✅ 注册 + 分发逻辑 |
+| C# `CommandMessage.cs` / `ICommandHostAdapter` | ✅ 镜像 TS schema，Word/Excel/PPT 实现 |
+| 代码生成（Schema → TS / C#） | ❌ 未实现，手动同步 |
+
+## 宿主支持
+
+| 宿主 | 当前状态 | 已知限制 |
+|------|----------|----------|
+| Word (Office.js) | ✅ OOXML 插入，Bridge 转换 | 编号公式未差异处理 |
+| Excel (Office.js) | ⚠️ 文本降级（`$...$`） | 无 SVG/图片公式 |
+| PowerPoint (Office.js) | ⚠️ 文本降级（`$$...$$`） | 无 SVG/图片公式 |
+| WPS 文字 | ✅ OMath 插入 + BuildUp | PPT/表格未实现 |
+| WPS 演示 | ❌ 明确拒绝（返回错误） | manifest 已移除声明 |
+| WPS 表格 | ❌ 未实现 | manifest 已移除声明 |
+| VSTO Word | ✅ Named Pipe，OMML 插入 | 签名依赖开发证书 |
+| VSTO Excel | ✅ SVG 图片插入 | 公式 ID 保持不完整 |
+| VSTO PowerPoint | ✅ SVG 图片插入 | 形状位置保持不完整 |
+| Obsidian | ✅ Markdown `$...$` / `$$...$$` | 仅桌面端（`isDesktopOnly: true`） |
+
+## Bridge 服务端口
+
+| 端口 | 服务 | 协议 | 用途 |
+|------|------|------|------|
+| **19876** | Office Web Bridge | HTTPS (自签 TLS) | Office.js 静态文件托管 + LaTeX↔OMML 转换 API |
+| **28765** | LaTeXSnipper Desktop Bridge | HTTP | 公式转换/渲染核心 API（由 Tauri 桌面应用提供） |
+| **28766** | WPS CORS 代理 | HTTP | 转发请求到 28765 并添加 CORS 头，用于 WPS taskpane |
+
+**设计说明**：三个端口服务于不同场景，暂不合并。`19876` 是 Office.js 宿主要求的 HTTPS 端点（需要 TLS），`28765` 是桌面应用内部 API，`28766` 是 WPS 专用的 CORS 代理。未来可通过统一网关层收敛。
+
+## CI / 发布
+
+| 项目 | 状态 |
+|------|------|
+| Tauri 桌面端构建 (Win/Mac/Linux) | ✅ `build.yml` |
+| VSTO Native Office 构建 | ✅ `build-native-office.yml` |
+| WPS 插件打包 | ✅ `build-wps-plugin.yml` |
+| Obsidian 插件构建 | ✅ `build-obsidian-plugin.yml` |
+| 统一发布 | ✅ `build-all.yml`（6 并行 job → 汇聚 → Release） |
+| Office Web Add-in 构建 | ✅ `build-all.yml` 中 `office-addin` job |
+| NSIS 组合安装器 | ⚠️ 需 CI runner 安装 makensis |
+| VSTO 代码签名 | ⚠️ 有 `sign.ps1`，依赖 `VSTO_CERT_THUMBPRINT` secret |
+| release-manifest.json | ✅ CI 产出 |
+
+## 安装方式
+
+| 组件 | 安装方式 | 自动/手动 |
+|------|----------|-----------|
+| Tauri 桌面应用 | MSI / NSIS / DMG / DEB / RPM | 自动 |
+| VSTO Native Office | `LaTeXSnipper.NativeOffice.exe` 引导程序 | 自动（需 UAC） |
+| WPS 插件 | `install.bat` → 复制到 jsaddons + publish.xml upsert | 手动双击 |
+| Obsidian 插件 | 复制到 vault 的 `.obsidian/plugins/` | 手动 |
+| Office.js Add-in | Tauri 内嵌启动 + 注册表配置 | 自动 |
+
+## 测试
+
+| 项目 | 状态 |
+|------|------|
+| core-protocol schema 单元测试 | ❌ 未实现 |
+| Adapter command coverage 测试 | ❌ 未实现 |
+| Office manifest schema validation | ❌ 未实现 |
+| WPS package file-list / hash 测试 | ❌ 未实现 |
+| Obsidian plugin build / typecheck | ✅ CI 中执行 |
+| VSTO compile / sign verification | ⚠️ 编译在 CI 中，签名依赖证书 |
+| Windows clean-machine 回归测试 | ❌ 未实现 |
+| E2E 宿主测试清单 | ❌ 未实现 |

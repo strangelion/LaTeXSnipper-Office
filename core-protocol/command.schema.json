@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://latexsnipper.com/schemas/command/v3.json",
+  "title": "LaTeXSnipper Unified Protocol v3.0",
+  "description": "Single source of truth for all cross-host commands. TS types (command.schema.ts) and C# types (CommandMessage.cs) derive from this schema.",
+  "definitions": {
+    "Command": {
+      "oneOf": [
+        {
+          "title": "InsertFormula",
+          "type": "object",
+          "properties": {
+            "type": { "const": "InsertFormula" },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "latex": { "type": "string", "description": "LaTeX source" },
+                "display": { "type": "string", "enum": ["inline", "block", "numbered"], "default": "inline" }
+              },
+              "required": ["latex"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "ReplaceSelection",
+          "type": "object",
+          "properties": {
+            "type": { "const": "ReplaceSelection" },
+            "payload": {
+              "type": "object",
+              "properties": { "content": { "type": "string" } },
+              "required": ["content"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "GetSelection",
+          "type": "object",
+          "properties": {
+            "type": { "const": "GetSelection" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "ConvertToOMML",
+          "type": "object",
+          "properties": {
+            "type": { "const": "ConvertToOMML" },
+            "payload": {
+              "type": "object",
+              "properties": { "latex": { "type": "string" } },
+              "required": ["latex"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "ConvertToLaTeX",
+          "type": "object",
+          "properties": {
+            "type": { "const": "ConvertToLaTeX" },
+            "payload": {
+              "type": "object",
+              "properties": { "omml": { "type": "string" } },
+              "required": ["omml"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "RenderPreview",
+          "type": "object",
+          "properties": {
+            "type": { "const": "RenderPreview" },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "latex": { "type": "string" },
+                "format": { "type": "string", "enum": ["svg", "mathml"], "default": "svg" }
+              },
+              "required": ["latex"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "DetectTable",
+          "type": "object",
+          "properties": {
+            "type": { "const": "DetectTable" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "FormatContent",
+          "type": "object",
+          "properties": {
+            "type": { "const": "FormatContent" },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "fontFamily": { "type": "string" },
+                "fontSize": { "type": "number" },
+                "color": { "type": "string" }
+              },
+              "required": []
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "OpenEditor",
+          "type": "object",
+          "properties": {
+            "type": { "const": "OpenEditor" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "OpenSettings",
+          "type": "object",
+          "properties": {
+            "type": { "const": "OpenSettings" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        }
+      ]
+    },
+    "CommandResult": {
+      "oneOf": [
+        {
+          "title": "Success",
+          "type": "object",
+          "properties": {
+            "ok": { "const": true },
+            "data": { "type": "string" }
+          },
+          "required": ["ok"]
+        },
+        {
+          "title": "Failure",
+          "type": "object",
+          "properties": {
+            "ok": { "const": false },
+            "error": { "type": "string" }
+          },
+          "required": ["ok", "error"]
+        }
+      ]
+    },
+    "Capability": {
+      "type": "object",
+      "description": "Per-host capability declaration. Each host declares which commands it supports and which fallback it uses.",
+      "properties": {
+        "nativeOmml": { "type": "boolean", "description": "Can insert native OMML math" },
+        "imageFormula": { "type": "boolean", "description": "Inserts formula as rendered image" },
+        "textMarkup": { "type": "boolean", "description": "Inserts formula as plain text markers" },
+        "editableMetadata": { "type": "boolean", "description": "Supports formula ID/metadata roundtrip" },
+        "selectionRead": { "type": "boolean", "description": "Can read selection back as LaTeX" },
+        "tableExtraction": { "type": "boolean", "description": "Supports table structure extraction" }
+      },
+      "required": []
+    }
+  }
+}
