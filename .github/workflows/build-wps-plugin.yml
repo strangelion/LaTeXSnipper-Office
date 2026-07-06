@@ -31,7 +31,16 @@ jobs:
           fetch-depth: 0
 
       # WPS plugin is pure JS/HTML — no npm build needed.
-      # Run custom PowerShell build script (non-interactive, avoids wpsjs issues).
+      # Run syntax checks before packaging.
+      - name: Verify JS syntax
+        working-directory: apps/wps
+        shell: bash
+        run: |
+          node --check js/command-layer.js
+          node --check js/ribbon.js
+          node --check main.js
+          echo "All WPS scripts passed syntax check"
+
       - name: Build WPS plugin
         working-directory: apps/wps
         run: .\build.ps1 -Version $env:VERSION -OutputDir dist

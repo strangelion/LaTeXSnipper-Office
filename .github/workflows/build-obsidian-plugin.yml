@@ -47,6 +47,10 @@ jobs:
         working-directory: apps/obsidian-plugin
         run: npm ci
 
+      - name: TypeScript check
+        working-directory: apps/obsidian-plugin
+        run: npx tsc --noEmit
+
       - name: Build plugin (esbuild)
         working-directory: apps/obsidian-plugin
         run: npm run build -- --production

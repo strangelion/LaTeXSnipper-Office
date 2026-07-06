@@ -33,7 +33,18 @@ export default class LaTeXSnipperPlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
     const editorFn = () => this.getEditor();
-    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge());
+    const counterStore = {
+      load: async () => {
+        const data = await this.loadData();
+        return data?.equationCounter || 0;
+      },
+      save: async (n: number) => {
+        const data = (await this.loadData()) || {};
+        data.equationCounter = n;
+        await this.saveData(data);
+      },
+    };
+    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore);
     router.register("obsidian", this.adapter);
 
     // ── Command palette entries ─────────────────────────────────────

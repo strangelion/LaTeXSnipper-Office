@@ -23,10 +23,20 @@ export interface ObsidianBridgeAPI {
 }
 
 export class ObsidianAdapter implements HostAdapter {
+  private _counter = 0;
+  private _idCounter = 0;
+  private _counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> };
+
   constructor(
     private editor: () => ObsidianEditorAPI | null,
     private bridge: () => ObsidianBridgeAPI | null = () => null,
-  ) {}
+    counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> },
+  ) {
+    if (counterStore) {
+      this._counterStore = counterStore;
+      counterStore.load().then((n) => { this._counter = n; });
+    }
+  }
 
   async execute(cmd: Command): Promise<CommandResult> {
     switch (cmd.type) {
@@ -111,12 +121,6 @@ export class ObsidianAdapter implements HostAdapter {
     }
   }
 
-  private _counter = 0;
-  private nextNumber(): number {
-    return ++this._counter;
-  }
-
-  private _idCounter = 0;
   private _nextId(): string {
     return `${Date.now().toString(36)}-${++this._idCounter}`;
   }

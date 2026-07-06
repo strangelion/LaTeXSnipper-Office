@@ -110,6 +110,73 @@ try {
   check(false, `Failed to read C# types: ${e.message}`);
 }
 
+// ─── 4. Schema structural validation ────────────────────────────────
+console.log("\n[4] Schema structural validation:");
+try {
+  const schema = JSON.parse(
+    readFileSync(resolve(ROOT, "core-protocol", "command.schema.json"), "utf-8")
+  );
+  const commands = schema.definitions.Command.oneOf;
+  const commandNames = commands.map((c) => c.title);
+
+  // Check each command has type and payload
+  for (const cmd of commands) {
+    const props = cmd.properties;
+    check(props?.type?.const === cmd.title, `"${cmd.title}" has correct type const`);
+    check(cmd.required.includes("type"), `"${cmd.title}" requires "type" field`);
+    check(cmd.required.includes("payload"), `"${cmd.title}" requires "payload" field`);
+  }
+
+  // Check InsertFormula has formulaId
+  const insertCmd = commands.find((c) => c.title === "InsertFormula");
+  check(
+    insertCmd.properties.payload.properties.formulaId !== undefined,
+    "InsertFormula payload includes formulaId"
+  );
+
+  // Check CommandResult has ok
+  const result = schema.definitions.CommandResult;
+  check(result.oneOf.length === 2, "CommandResult has success and failure variants");
+
+  // Validate fixture instances against schema structure
+  const fixtures = [
+    { type: "InsertFormula", payload: { latex: "x^2", display: "block", formulaId: "test-id" } },
+    { type: "ReplaceSelection", payload: { content: "$e^{i\\pi}$" } },
+    { type: "GetSelection", payload: {} },
+    { type: "ConvertToOMML", payload: { latex: "\\alpha" } },
+    { type: "ConvertToLaTeX", payload: { omml: "<m:oMath/>" } },
+    { type: "RenderPreview", payload: { latex: "E=mc^2", format: "svg" } },
+    { type: "DetectTable", payload: {} },
+    { type: "FormatContent", payload: { fontFamily: "serif", fontSize: 12 } },
+    { type: "OpenEditor", payload: {} },
+    { type: "OpenSettings", payload: {} },
+  ];
+
+  for (const fixture of fixtures) {
+    const matchingCmd = commands.find((c) => c.title === fixture.type);
+    check(
+      matchingCmd !== undefined,
+      `Fixture "${fixture.type}" matches a schema command`
+    );
+    if (matchingCmd) {
+      const payloadProps = matchingCmd.properties.payload.properties || {};
+      const requiredPayloadFields = matchingCmd.properties.payload.required || [];
+      const fixturePayload = fixture.payload || {};
+      const missing = requiredPayloadFields.filter(
+        (f) => !(f in fixturePayload)
+      );
+      check(
+        missing.length === 0,
+        `Fixture "${fixture.type}" has all required payload fields`
+      );
+    }
+  }
+
+  console.log(`  ✅ ${fixtures.length} fixture instances validated`);
+} catch (e) {
+  check(false, `Failed schema structural validation: ${e.message}`);
+}
+
 // ─── Summary ────────────────────────────────────────────────────────
 console.log(`\n${errors.length > 0 ? "❌ FAILED" : "✅ ALL PASSED"} — ${errors.length} error(s)`);
 errors.forEach((e) => console.log(`  ${e}`));
