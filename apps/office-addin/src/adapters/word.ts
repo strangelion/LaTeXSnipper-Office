@@ -10,6 +10,9 @@ import type {
   Inline,
 } from '../types/index';
 
+declare const Word: any;
+declare const Office: any;
+
 /**
  * Word Office.js Adapter
  * 
@@ -30,7 +33,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Get the current selection as a DocumentFragment
    */
   async getSelection(): Promise<DocumentFragment> {
-    return Word.run(async (context) => {
+    return Word.run(async (context: any) => {
       const selection = context.document.getSelection();
       const ooxml = selection.getOoxml();
       await context.sync();
@@ -43,7 +46,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Get the selected formula (if any)
    */
   async getSelectedFormula(): Promise<EquationBlock | null> {
-    return Word.run(async (context) => {
+    return Word.run(async (context: any) => {
       const selection = context.document.getSelection();
       const ooxml = selection.getOoxml();
       await context.sync();
@@ -57,7 +60,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    */
   async getSelectedTable(): Promise<TableIR | null> {
     try {
-      return await Word.run(async (context) => {
+      return await Word.run(async (context: any) => {
         const selection = context.document.getSelection();
         const tables = selection.tables;
         await context.sync();
@@ -77,7 +80,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   async insertFormula(request: InsertFormulaRequest): Promise<void> {
     const ooxml = await this.buildFormulaOoxml(request);
 
-    return Word.run(async (context) => {
+    return Word.run(async (context: any) => {
       const selection = context.document.getSelection();
       selection.insertOoxml(ooxml, Word.InsertLocation.replace);
       await context.sync();
@@ -90,7 +93,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
   async replaceSelectedFormula(request: ReplaceFormulaRequest): Promise<void> {
     const ooxml = await this.buildEquationOoxml(request.formula);
 
-    return Word.run(async (context) => {
+    return Word.run(async (context: any) => {
       const selection = context.document.getSelection();
       selection.insertOoxml(ooxml, Word.InsertLocation.replace);
       await context.sync();
@@ -101,7 +104,7 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * Delete the current LaTeXSnipper block (ContentControl)
    */
   async deleteCurrentBlock(): Promise<void> {
-    return Word.run(async (context) => {
+    return Word.run(async (context: any) => {
       const selection = context.document.getSelection();
       const parentCc = selection.parentContentControl;
       await context.sync();
@@ -225,8 +228,8 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
    * NOTE: Not yet implemented. Requires table.getOoxml() → Rust OOXML Table Parser → TableIR.
    */
   private async extractTableData(
-    _table: Word.Table,
-    _context: Word.RequestContext
+    _table: any,
+    _context: any
   ): Promise<TableIR> {
     throw new Error('Table extraction is not yet implemented');
   }
