@@ -43,11 +43,16 @@ namespace LaTeXSnipper.PowerPoint.Host
                     float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                     float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
+                    // Center on slide
+                    float slideWidth = pres.PageSetup.SlideWidth;
+                    float left = (slideWidth - width) / 2f;
+                    float top = 100f;
+
                     var shape = slide.Shapes.AddPicture(
                         tempPath,
                         Microsoft.Office.Core.MsoTriState.msoFalse,
                         Microsoft.Office.Core.MsoTriState.msoTrue,
-                        50f, 50f, width, height
+                        left, top, width, height
                     );
                     shape.Name = $"LSNO_{payload.FormulaId}";
                 }
@@ -55,7 +60,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 {
                     var textShape = slide.Shapes.AddTextbox(
                         Microsoft.Office.Core.MsoTextOrientation.msoTextOrientationHorizontal,
-                        50f, 50f, 200f, 40f
+                        50f, 100f, 200f, 40f
                     );
                     textShape.TextFrame.TextRange.Text = payload.Latex;
                 }

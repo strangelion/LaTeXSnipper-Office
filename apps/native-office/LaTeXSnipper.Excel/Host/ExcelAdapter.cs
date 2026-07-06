@@ -28,9 +28,9 @@ namespace LaTeXSnipper.Excel.Host
             if (sheet == null)
                 return new InsertResult { Success = false, Error = "No active sheet" };
 
-            var cell = _application.Selection as Microsoft.Office.Interop.Excel.Range;
+            var cell = _application.ActiveCell;
             if (cell == null)
-                return new InsertResult { Success = false, Error = "No selection" };
+                return new InsertResult { Success = false, Error = "No active cell" };
 
             try
             {
@@ -42,11 +42,14 @@ namespace LaTeXSnipper.Excel.Host
                     float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                     float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
+                    double cellLeft = 0, cellTop = 0;
+                    try { cellLeft = cell.Left; cellTop = cell.Top; } catch { }
+
                     var shape = sheet.Shapes.AddPicture(
                         tempPath,
                         Microsoft.Office.Core.MsoTriState.msoFalse,
                         Microsoft.Office.Core.MsoTriState.msoTrue,
-                        (float)cell.Left, (float)cell.Top,
+                        (float)cellLeft, (float)cellTop,
                         width, height
                     );
                     shape.Name = $"LSNO_{payload.FormulaId}";
