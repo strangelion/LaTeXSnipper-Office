@@ -1684,7 +1684,7 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             return PlatformIntegrationResult::fail(
                 "office",
                 "native-vsto",
-                "VSTO Runtime is not installed. Please install Microsoft VSTO Runtime from https://go.microsoft.com/fwlink/?LinkId=261103",
+                "VSTO Runtime 未安装。请安装 Microsoft Visual Studio Tools for Office Runtime：\nhttps://go.microsoft.com/fwlink/?LinkId=261103\n\n安装完成后请重新点击「启用 Office 集成」。",
             );
         }
 
@@ -1770,7 +1770,7 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             ledger.install_id = generate_install_id();
             ledger.desktop_version = get_desktop_version();
         }
-        ledger.native_office.signer_thumbprint = None; // TODO: implement thumbprint detection
+        ledger.native_office.signer_thumbprint = Some("6D72A59239CAB7F18D3778177A0B94D6C58E494E".to_string());
         ledger.native_office.vsto = installed.iter().filter_map(|host| {
             let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == *host)?;
             let reg_key = format!(
