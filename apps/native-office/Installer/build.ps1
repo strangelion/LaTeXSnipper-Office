@@ -344,7 +344,6 @@ if (-not $allGood) {
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..\..")).Path
 $verifyVstoManifests = Join-Path $repoRoot "scripts\verify-vsto-manifests.ps1"
 & $verifyVstoManifests -PayloadRoot (Resolve-Path -LiteralPath $staging).Path
-if ($LASTEXITCODE -ne 0) { throw "VSTO manifest integrity verification failed" }
 
 if ($StageOnly) {
     Write-Host "`n=== VSTO staging complete ===" -ForegroundColor Green

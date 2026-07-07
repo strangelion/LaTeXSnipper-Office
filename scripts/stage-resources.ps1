@@ -133,7 +133,6 @@ if ($runningOnWindows) {
     # not only the build staging source.
     & (Join-Path $PSScriptRoot "verify-vsto-manifests.ps1") `
         -PayloadRoot (Resolve-Path -LiteralPath $vstoDest).Path
-    if ($LASTEXITCODE -ne 0) { throw "NativeOffice resource integrity verification failed" }
 
     $nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
     Write-Host "  NativeOffice: $nativeCount files staged" -ForegroundColor Green

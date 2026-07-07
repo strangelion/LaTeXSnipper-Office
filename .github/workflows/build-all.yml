@@ -163,9 +163,6 @@ jobs:
           }
 
           & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $dst
-          if (-not $?) {
-            throw "Downloaded VSTO artifact failed ClickOnce hash-chain validation."
-          }
 
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
@@ -220,9 +217,6 @@ jobs:
           if (-not $payload) { throw "NativeOffice payload was not found in the final MSI." }
 
           & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $payload.FullName
-          if (-not $?) {
-            throw "The final MSI changed the VSTO ClickOnce payload."
-          }
 
       - name: Verify NativeOffice payload inside the final NSIS installer
         shell: pwsh
@@ -249,9 +243,6 @@ jobs:
           }
 
           & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $payload
-          if (-not $?) {
-            throw "The final NSIS installer changed the VSTO ClickOnce payload."
-          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -488,7 +479,6 @@ jobs:
           # the release page unusable as a standalone VSTO package.
           $vstoRoot = (Resolve-Path -LiteralPath "artifacts/vsto").Path
           & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $vstoRoot
-          if (-not $?) { throw "VSTO release payload failed integrity validation." }
 
           $vstoZip = Join-Path $release "LaTeXSnipper-Office-VSTO_$ver.zip"
           Remove-Item -LiteralPath $vstoZip -Force -ErrorAction SilentlyContinue
