@@ -134,10 +134,18 @@ jobs:
         run: |
           $src = "_vsto_artifact"
           $dst = "apps/native-office/Installer/output/staging"
+          Write-Host "VSTO artifact source: $src (exists: $(Test-Path $src))"
+          if (Test-Path $src) {
+            $count = (Get-ChildItem $src -Recurse -File).Count
+            Write-Host "VSTO artifact files: $count"
+          }
           if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-          Copy-Item $src/* $dst -Recurse -Force
-          Remove-Item $src -Recurse -Force
-          Write-Host "VSTO files staged: $dst"
+          if (Test-Path $src) {
+            Copy-Item $src/* $dst -Recurse -Force
+          }
+          Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue
+          $staged = (Get-ChildItem $dst -Recurse -File -ErrorAction SilentlyContinue).Count
+          Write-Host "VSTO files staged: $staged files to $dst"
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
