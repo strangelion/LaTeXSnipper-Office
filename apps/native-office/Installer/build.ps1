@@ -10,7 +10,8 @@ param(
     [string]$MsBuildPath = "",
     [string]$Version = "1.0.0",
     [string]$WixPath = "",
-    [switch]$SkipSigning
+    [switch]$SkipSigning,
+    [switch]$StageOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,21 +21,88 @@ Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
 
 # ─── Resolve MSBuild ────────────────────────────────────────────────
-Write-Host "`n[1/4] Building solution..." -ForegroundColor Cyan
-if (-not $MsBuildPath) {
-    $msbuild = Get-Command "MSBuild.exe" -ErrorAction SilentlyContinue
-    if ($msbuild) {
-        $MsBuildPath = $msbuild.Source
-    } else {
-        $MsBuildPath = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+function Resolve-MsBuildPath {
+    param(
+        [string]$RequestedPath
+    )
 
-        if(!$msbuild){
-         throw "MSBuild not found"
+    if ($RequestedPath) {
+        if (-not (Test-Path -LiteralPath $RequestedPath)) {
+            throw "Specified MSBuild path does not exist: $RequestedPath"
         }
-        
-        $MsBuildPath=$msbuild.Source
+        return (Resolve-Path -LiteralPath $RequestedPath).Path
     }
+
+    # 1. Developer command prompt / setup-msbuild may have added it to PATH.
+    $fromPath = Get-Command "MSBuild.exe" -ErrorAction SilentlyContinue
+    if ($fromPath) {
+        return $fromPath.Source
+    }
+
+    # 2. Normal Visual Studio installation discovery.
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    $vswhereCandidates = @()
+
+    if ($programFilesX86) {
+        $vswhereCandidates += Join-Path $programFilesX86 `
+            "Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+
+    if ($env:ProgramFiles) {
+        $vswhereCandidates += Join-Path $env:ProgramFiles `
+            "Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+
+    foreach ($vswhere in $vswhereCandidates) {
+        if (-not (Test-Path -LiteralPath $vswhere)) {
+            continue
+        }
+
+        $installPath = & $vswhere `
+            -latest `
+            -products * `
+            -requires Microsoft.Component.MSBuild `
+            -property installationPath 2>$null |
+            Select-Object -First 1
+
+        if (-not $installPath) {
+            continue
+        }
+
+        foreach ($relativePath in @(
+            "MSBuild\Current\Bin\MSBuild.exe",
+            "MSBuild\Current\Bin\amd64\MSBuild.exe"
+        )) {
+            $candidate = Join-Path $installPath $relativePath
+            if (Test-Path -LiteralPath $candidate) {
+                return (Resolve-Path -LiteralPath $candidate).Path
+            }
+        }
+    }
+
+    # 3. Last-resort fallback for hosted runners and local installations.
+    foreach ($majorVersion in @("18", "17")) {
+        foreach ($edition in @("Community", "Professional", "Enterprise", "BuildTools")) {
+            $candidate = Join-Path $env:ProgramFiles `
+                "Microsoft Visual Studio\$majorVersion\$edition\MSBuild\Current\Bin\MSBuild.exe"
+
+            if (Test-Path -LiteralPath $candidate) {
+                return (Resolve-Path -LiteralPath $candidate).Path
+            }
+        }
+    }
+
+    return $null
 }
+
+Write-Host "`n[1/4] Building solution..." -ForegroundColor Cyan
+
+$MsBuildPath = Resolve-MsBuildPath -RequestedPath $MsBuildPath
+
+if (-not $MsBuildPath) {
+    throw "MSBuild not found. Checked PATH, vswhere, and Visual Studio 17/18 installation paths."
+}
+
 Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
 
 # Build signing arguments — VSTO targets generate .vsto + .dll.manifest only when signed
@@ -165,6 +233,12 @@ foreach ($hostName in $hosts) {
 
 if (-not $allGood) {
     throw "Native Office staging is incomplete."
+}
+
+if ($StageOnly) {
+    Write-Host "`n=== VSTO staging complete ===" -ForegroundColor Green
+    Write-Host "Staging: $staging" -ForegroundColor Yellow
+    return
 }
 
 Write-Host "  Staged files:" -ForegroundColor Gray

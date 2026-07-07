@@ -38,6 +38,15 @@ if (hasRequiredStaging()) {
   process.exit(0);
 }
 
-execFileSync(process.execPath, [path.join("scripts", "build-native-office.js")], {
-  stdio: "inherit",
-});
+if (process.env.CI === "true") {
+  throw new Error(
+    "[native-office] Downloaded VSTO artifact is incomplete. " +
+      "The vsto job must produce a complete signed staging payload."
+  );
+}
+
+execFileSync(
+  process.execPath,
+  [path.join("scripts", "build-native-office.js")],
+  { stdio: "inherit" },
+);

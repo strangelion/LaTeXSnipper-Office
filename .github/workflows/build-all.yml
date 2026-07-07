@@ -293,42 +293,20 @@ jobs:
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
-      - name: Build VSTO solution
-        run: |
-          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            "apps\native-office\LaTeXSnipper.NativeOffice.sln" `
-            /t:Build `
-            /p:Configuration=Release `
-            /p:Platform="Any CPU" `
-            /p:SignManifests=false `
-            /v:minimal
-
-      - name: Stage build output
+      - name: Build and stage VSTO payload
         shell: pwsh
         run: |
-          $out = "apps/native-office/Installer/output"
-          $staging = "$out/staging"
-          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-          New-Item -ItemType Directory -Path $staging -Force | Out-Null
-
-          foreach ($h in @("Word","Excel","PowerPoint")) {
-            $src = "apps/native-office/LaTeXSnipper.$h/bin/Release"
-            $dst = "$staging/$h"
-            if (Test-Path $src) { Copy-Item "$src/*" $dst -Recurse -Force }
-          }
-          $sharedSrc = "apps/native-office/LaTeXSnipper.Shared/bin/Release"
-          $sharedDst = "$staging/Shared"
-          if (Test-Path $sharedSrc) { Copy-Item "$sharedSrc/*" $sharedDst -Recurse -Force }
-
-          Get-ChildItem $staging -Recurse -File | ForEach-Object {
-            Write-Host "  $($_.FullName.Replace($staging, ''))" -ForegroundColor Gray
-          }
+          & .\apps\native-office\Installer\build.ps1 `
+            -Configuration Release `
+            -OutputDir .\apps\native-office\Installer\output `
+            -Version $env:VERSION `
+            -StageOnly
 
       - uses: actions/upload-artifact@v4
         with:
           name: vsto
           path: apps/native-office/Installer/output/staging/
-
+              
   # ─────────── WPS Plugin ───────────
   wps:
     needs: prepare
