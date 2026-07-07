@@ -91,7 +91,7 @@ namespace LaTeXSnipper.Word
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show("LaTeX: " + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
+                            MessageBox.Show(RibbonLocalizer.GetString("ReadFormulaPrefix") + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
                         else if (f != null && !string.IsNullOrEmpty(f.Omml))
                             addIn.Send(new VstoOpenEditor
                             {

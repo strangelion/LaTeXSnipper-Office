@@ -71,7 +71,7 @@ namespace LaTeXSnipper.PowerPoint
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show("LaTeX: " + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
+                            MessageBox.Show(RibbonLocalizer.GetString("ReadFormulaPrefix") + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
                         else
                             MessageBox.Show(RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     }

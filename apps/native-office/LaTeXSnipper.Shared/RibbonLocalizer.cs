@@ -61,6 +61,8 @@ public static class RibbonLocalizer
             ["ErrorContextChanged"] = "Document context changed — please retry.",
             ["ErrorNoRenderData"] = "No image data for the current storage mode.",
             ["HelpText"] = "LaTeXSnipper v1.0.0\nNative Office plugin for Word, Excel, PowerPoint.",
+            ["ReadFormulaPrefix"] = "LaTeX: ",
+            ["ErrorPrefix"] = "Error: ",
         },
         ["zh-CN"] = new()
         {
@@ -111,6 +113,8 @@ public static class RibbonLocalizer
             ["ErrorContextChanged"] = "文档上下文已变更，请重试。",
             ["ErrorNoRenderData"] = "当前存储模式没有可用图像数据。",
             ["HelpText"] = "LaTeXSnipper v1.0.0\nWord、Excel、PowerPoint 的原生 Office 公式插件。",
+            ["ReadFormulaPrefix"] = "LaTeX: ",
+            ["ErrorPrefix"] = "错误: ",
         },
     };
 

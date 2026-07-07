@@ -111,6 +111,7 @@ public:
 private:
     void NotifyPresentationChanged();
     HRESULT StartEditSession();
+    HRESULT CopyLatexToClipboard();
 
     volatile LONG refCount_ = 1;
     ATL::CComPtr<IOleClientSite> clientSite_;

@@ -94,8 +94,8 @@
       </Component>
 
       <!-- OLE Formula Object (x86). Only installed when Office is 32-bit. -->
-      <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA" Win64="no">
-        <File Id="OleDllX86" Source="$(var.OleBinDir)\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll" Name="OleFormulaObject.x86.dll" />
+      <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA">
+        <File Id="OleDllX86" Source="$(var.OleBinDir)\OleFormulaObject.x86.dll" Name="OleFormulaObject.x86.dll" />
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />
@@ -134,8 +134,8 @@
       </Component>
 
       <!-- OLE Formula Object (x64). Only installed when Office is 64-bit. -->
-      <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB" Win64="yes">
-        <File Id="OleDllX64" Source="$(var.OleBinDir)\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll" Name="OleFormulaObject.x64.dll" />
+      <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB">
+        <File Id="OleDllX64" Source="$(var.OleBinDir)\OleFormulaObject.x64.dll" Name="OleFormulaObject.x64.dll" />
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />

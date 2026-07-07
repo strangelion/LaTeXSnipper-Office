@@ -131,6 +131,28 @@ namespace LaTeXSnipper.PowerPoint.Host
                     // Extract formulaId from shape name: LSNO_{formulaId}
                     var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
 
+                    // Layer 1a: OLE object — read full payload via COM automation
+                    try
+                    {
+                        var oleObj = shape.OLEFormat?.Object;
+                        if (oleObj != null)
+                        {
+                            var json = OleFormulaInterop.GetPayloadJson(oleObj);
+                            if (!string.IsNullOrEmpty(json))
+                            {
+                                var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
+                                    return payload;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Not an OLE object, continue
+                    }
+
+                    // Layer 1b: Old-style LSNO_FORMULA: alt text format
                     var altText = shape.AlternativeText as string;
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
                     {
@@ -139,6 +161,18 @@ namespace LaTeXSnipper.PowerPoint.Host
                             FormulaId = formulaId ?? FormulaIdHelper.NewId(),
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
                             Display = "inline"
+                        };
+                    }
+
+                    // Layer 1c: v3 alt text format
+                    if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO:v3:"))
+                    {
+                        return new FormulaPayload
+                        {
+                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
+                            Latex = "",
+                            Display = "inline",
+                            StorageMode = "ole"
                         };
                     }
                 }
@@ -196,7 +230,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 }
 
                 // Verify round-trip
-                if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload.FormulaId))
+                if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload))
                 {
                     shape.Delete();
                     return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
@@ -313,11 +347,15 @@ namespace LaTeXSnipper.PowerPoint.Host
                         if (!hasRender)
                             return false;
 
-                        // Preserve geometry before deleting
+                        // Preserve properties before deleting
                         float oldLeft = shape.Left;
                         float oldTop = shape.Top;
                         float oldWidth = shape.Width;
                         float oldHeight = shape.Height;
+                        float oldRotation = shape.Rotation;
+                        string oldAltText = shape.AlternativeText ?? "";
+                        int oldZOrder = 0;
+                        try { oldZOrder = shape.ZOrderPosition; } catch { }
                         shape.Delete();
 
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
@@ -336,6 +374,21 @@ namespace LaTeXSnipper.PowerPoint.Host
                             Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         newShape.Name = $"LSNO_{formulaId}";
                         newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+
+                        // Restore preserved properties
+                        if (Math.Abs(oldRotation) > 0.01f)
+                        {
+                            try { newShape.Rotation = oldRotation; } catch { }
+                        }
+                        if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
+                        {
+                            try { newShape.AlternativeText = oldAltText; } catch { }
+                        }
+                        // Restore z-order
+                        if (oldZOrder > 1)
+                        {
+                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch { }
+                        }
                         return true;
                     }
                 }

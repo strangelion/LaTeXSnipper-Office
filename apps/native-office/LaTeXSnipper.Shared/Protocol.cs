@@ -1,4 +1,5 @@
 #nullable enable
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,36 @@ public static class NativeOfficeProtocol
     public const int Version = 3;
     public const string PipePrefix = "LaTeXSnipper.NativeOffice.v3";
     public const string CustomXmlNamespace = "urn:latexsnipper:office:objects:v3";
+
+    /// <summary>
+    /// Validate that the current document context matches the command's expected context.
+    /// If mismatched, sends VstoHostError to the pipe and returns false.
+    /// </summary>
+    public static bool EnsureExpectedContext(
+        DesktopDocumentCommand command,
+        string currentContext,
+        PipeClient? pipeClient)
+    {
+        if (string.IsNullOrEmpty(command.ExpectedContextId))
+            return true;
+
+        if (string.IsNullOrEmpty(currentContext) ||
+            !StringComparer.Ordinal.Equals(command.ExpectedContextId, currentContext))
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[Context] Mismatch: expected={command.ExpectedContextId}, current={currentContext}");
+            pipeClient?.SendOnlyAsync(new VstoHostError
+            {
+                RequestId = command.RequestId,
+                SessionId = command.SessionId,
+                ErrorCode = "CONTEXT_CHANGED",
+                Error = "Document context changed since command was issued"
+            });
+            return false;
+        }
+
+        return true;
+    }
 }
 
 // ---------------------------------------------------------------------------

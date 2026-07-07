@@ -282,8 +282,23 @@ STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, H
 {
     WriteNativeOleLog(L"FormulaOleObject DoVerb.");
 
-    if (verb == OLEIVERB_PRIMARY || verb == OLEIVERB_SHOW || verb == 0)
+    if (verb == OLEIVERB_PRIMARY || verb == OLEIVERB_SHOW || verb == 0 || verb == 1)
     {
+        // Verb 0: Edit Formula
+        // Verb 1: Open in LaTeXSnipper (same as edit)
+        return StartEditSession();
+    }
+
+    if (verb == 2)
+    {
+        // Verb 2: Copy LaTeX to clipboard
+        return CopyLatexToClipboard();
+    }
+
+    if (verb == 3)
+    {
+        // Verb 3: Refresh Preview — re-render and update
+        // For now, trigger a light edit session that re-renders
         return StartEditSession();
     }
 
@@ -927,17 +942,43 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     _bstr_t json(payloadJson);
     std::wstring wsJson((const wchar_t*)json, json.length());
 
+    // Validate required fields
+    std::wstring formulaId = ExtractJsonString(wsJson, L"formulaId");
+    if (formulaId.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — missing formulaId");
+        return E_INVALIDARG;
+    }
+
+    double schemaVersion = ExtractJsonNumber(wsJson, L"schemaVersion");
+    if (schemaVersion < 1.0 || schemaVersion > 5.0)
+    {
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — incompatible schemaVersion");
+        return E_INVALIDARG;
+    }
+
+    std::wstring latex = ExtractJsonString(wsJson, L"latex");
+    if (latex.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — empty latex");
+        return E_INVALIDARG;
+    }
+
+    std::wstring storageMode = ExtractJsonString(wsJson, L"storageMode");
+    if (storageMode.empty())
+    {
+        // Default to "ole" for OLE objects
+        storageMode = L"ole";
+    }
+
     FormulaPresentation loaded = CreatePresentationFromPayload(wsJson);
     if (loaded.latex.empty())
         return E_FAIL;
 
     presentation_ = std::move(loaded);
-    canonicalPayloadJson_ = wsJson; // store canonical JSON for round-trip
+    canonicalPayloadJson_ = wsJson;
+    formulaId_ = formulaId;
     dirty_ = true;
-
-    std::wstring id = ExtractJsonString(wsJson, L"formulaId");
-    if (!id.empty())
-        formulaId_ = id;
 
     NotifyPresentationChanged();
     WriteNativeOleLog(L"FormulaOleObject initialized from JSON payload.");
@@ -1100,6 +1141,46 @@ STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wF
     }
 }
 
+/// Verb 2: Copy LaTeX source to clipboard as Unicode text.
+HRESULT FormulaOleObject::CopyLatexToClipboard()
+{
+    WriteNativeOleLog(L"FormulaOleObject: CopyLaTeX to clipboard.");
+
+    if (presentation_.latex.empty())
+        return S_FALSE;
+
+    if (!OpenClipboard(nullptr))
+        return HResultFromWin32LastError();
+
+    EmptyClipboard();
+
+    // Allocate global memory for the Unicode string
+    size_t byteCount = (presentation_.latex.size() + 1) * sizeof(wchar_t);
+    HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE, byteCount);
+    if (handle == nullptr)
+    {
+        CloseClipboard();
+        return E_OUTOFMEMORY;
+    }
+
+    auto* buffer = static_cast<wchar_t*>(GlobalLock(handle));
+    if (buffer == nullptr)
+    {
+        GlobalFree(handle);
+        CloseClipboard();
+        return E_OUTOFMEMORY;
+    }
+
+    wcscpy_s(buffer, presentation_.latex.size() + 1, presentation_.latex.c_str());
+    GlobalUnlock(handle);
+
+    SetClipboardData(CF_UNICODETEXT, handle);
+    CloseClipboard();
+
+    WriteNativeOleLog(L"FormulaOleObject: LaTeX copied to clipboard.");
+    return S_OK;
+}
+
 HRESULT FormulaOleObject::StartEditSession()
 {
     WriteNativeOleLog(L"FormulaOleObject: Starting edit session via Named Pipe.");
@@ -1120,6 +1201,18 @@ HRESULT FormulaOleObject::StartEditSession()
     if (hr == S_OK)
     {
         dirty_ = true;
+
+        // Update canonical payload JSON from the edited presentation
+        if (!presentation_.payloadJson.empty())
+        {
+            canonicalPayloadJson_ = presentation_.payloadJson;
+
+            // Re-extract formulaId in case it changed
+            std::wstring id = ExtractJsonString(canonicalPayloadJson_, L"formulaId");
+            if (!id.empty())
+                formulaId_ = id;
+        }
+
         if (storage_ != nullptr)
         {
             Save(storage_, FALSE);

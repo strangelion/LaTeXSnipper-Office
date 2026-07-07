@@ -19,3 +19,4 @@ HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes);
 
 // JSON field extraction (used by FormulaOleObject automation)
 std::wstring ExtractJsonString(const std::wstring& json, const std::wstring& propertyName);
+double ExtractJsonNumber(const std::wstring& json, const std::wstring& propertyName);

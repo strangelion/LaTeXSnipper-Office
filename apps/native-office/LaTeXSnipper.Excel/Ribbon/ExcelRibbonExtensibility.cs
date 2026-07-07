@@ -71,11 +71,11 @@ namespace LaTeXSnipper.Excel
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show("LaTeX: " + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
+                            MessageBox.Show(RibbonLocalizer.GetString("ReadFormulaPrefix") + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
                         else
                             MessageBox.Show(RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     }
-                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, RibbonLocalizer.GetString("ErrorTitle")); }
+                    catch (Exception ex) { MessageBox.Show(RibbonLocalizer.GetString("ErrorPrefix") + ex.Message, RibbonLocalizer.GetString("ErrorTitle")); }
                     break;
 
                 case "delete":

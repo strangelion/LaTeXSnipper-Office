@@ -54,14 +54,39 @@ public static class OleFormulaInterop
     }
 
     /// <summary>
-    /// Verify round-trip: payload.FormulaId matches what the OLE object reports.
+    /// Verify round-trip: payload.FormulaId matches what the OLE object reports,
+    /// and key fields (latex, schemaVersion, storageMode) are consistent.
     /// </summary>
-    public static bool VerifyRoundTrip(dynamic oleAutomationObject, string expectedFormulaId)
+    public static bool VerifyRoundTrip(dynamic oleAutomationObject, FormulaPayload expectedPayload)
     {
         try
         {
+            // Check FormulaId matches
             string? formulaId = oleAutomationObject.GetFormulaId();
-            return string.Equals(formulaId, expectedFormulaId, StringComparison.Ordinal);
+            if (!string.Equals(formulaId, expectedPayload.FormulaId, StringComparison.Ordinal))
+                return false;
+
+            // Check full payload round-trip via GetPayloadJson
+            string? json = oleAutomationObject.GetPayloadJson();
+            if (string.IsNullOrEmpty(json))
+                return false;
+
+            var actual = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (actual == null)
+                return false;
+
+            // Structural comparison of key fields
+            if (actual.FormulaId != expectedPayload.FormulaId)
+                return false;
+            if (actual.SchemaVersion != expectedPayload.SchemaVersion)
+                return false;
+            if (actual.Revision != expectedPayload.Revision)
+                return false;
+            if (actual.StorageMode != expectedPayload.StorageMode)
+                return false;
+
+            return true;
         }
         catch (Exception ex)
         {

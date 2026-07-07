@@ -363,7 +363,7 @@ if (Test-Path $oleDllX64) {
 } else {
     throw "OLE x64 DLL not found after build at $oleDllX64 — OLE will not be available on 64-bit Office"
 }
-$env:OleBinDir = $oleProjPath
+$env:OleBinDir = $stagingAbs
 
 # A VSTO deployment manifest hashes its application manifest and the application
 # manifest hashes every payload dependency. Verify the copied staging tree before

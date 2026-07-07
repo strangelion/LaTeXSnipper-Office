@@ -28,6 +28,37 @@ namespace LaTeXSnipper.Word.Host
                 var range = _application.Selection.Range;
                 if (range == null) return null;
 
+                // Layer 0: OLE InlineShape — read full payload via COM automation
+                try
+                {
+                    foreach (Microsoft.Office.Interop.Word.InlineShape inlineShape in range.InlineShapes)
+                    {
+                        if (inlineShape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        {
+                            try
+                            {
+                                var oleObj = inlineShape.OLEFormat?.Object;
+                                if (oleObj != null)
+                                {
+                                    var json = OleFormulaInterop.GetPayloadJson(oleObj);
+                                    if (!string.IsNullOrEmpty(json))
+                                    {
+                                        var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
+                                            return payload;
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Not our OLE object, skip
+                            }
+                        }
+                    }
+                }
+                catch { }
+
                 // Find formulaId from ContentControl tag first
                 var existingFormulaId = Metadata.FormulaMetadata.FindFormulaIdAtRange(range);
 
@@ -386,7 +417,7 @@ namespace LaTeXSnipper.Word.Host
                         oleShape.Delete();
                         return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
                     }
-                    if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload.FormulaId))
+                    if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload))
                     {
                         oleShape.Delete();
                         return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
@@ -491,78 +522,85 @@ namespace LaTeXSnipper.Word.Host
                     _ => "native-omml"
                 };
 
-                var newFormulaId = FormulaIdHelper.NewId();
+                // Keep the same FormulaId across conversion — identity must not change
+                // Only generate new ID for explicit "copy as new" scenarios
+                string convertedFormulaId = formulaId;
 
                 if (newStorageMode == "native-omml")
                 {
                     // Convert to native OMML (only works in Word)
-                    // Build formula body with OMML from existing payload
                     var omml = existing.Omml;
                     if (string.IsNullOrEmpty(omml))
                     {
                         // Ask Desktop to render LaTeX → OMML
                         // For now, reuse existing ContentControl with new tag
-                        existingCc.Tag = $"latexsnipper:formula:{newFormulaId}";
+                        existingCc.Tag = $"latexsnipper:formula:{convertedFormulaId}";
                     }
                     else
                     {
                         // Insert new ContentControl with OMML at same position
                         var range = existingCc.Range.Duplicate;
                         var modeEnum = existing.Display == "inline" ? InsertMode.Inline : InsertMode.Display;
-                        var body = BuildFormulaBody(omml, newFormulaId, modeEnum);
+                        var body = BuildFormulaBody(omml, convertedFormulaId, modeEnum);
                         var flatOpc = BuildFlatOpc(body);
-                        existingCc.Delete();
+
+                        // First insert new content (before deleting old)
                         _application.Selection.SetRange(range.Start, range.Start);
                         _application.Selection.Range.InsertXML(flatOpc);
+
+                        // Delete old ContentControl only after successful insertion
+                        existingCc.Delete();
                     }
 
                     // Update manifest
                     var newPayload = new FormulaPayload
                     {
-                        FormulaId = newFormulaId,
+                        FormulaId = convertedFormulaId,
                         Latex = existing.Latex,
                         Omml = existing.Omml,
                         Display = existing.Display,
                         StorageMode = "native-omml",
-                        Revision = 1
+                        Revision = existing.Revision + 1
                     };
                     FormulaDocumentManifest.Write(doc, newPayload);
                     FormulaDocumentManifest.Remove(doc, formulaId);
 
-                    return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "native-omml" };
+                    return new InsertResult { Success = true, FormulaId = convertedFormulaId, StorageMode = "native-omml" };
                 }
 
                 if (newStorageMode == "ole")
                 {
-                    // Convert to OLE object
+                    // --- Transactional OLE conversion ---
+                    // 1. Create a temporary formula payload
+                    var olePayload = new FormulaPayload
+                    {
+                        FormulaId = convertedFormulaId,
+                        Latex = existing.Latex ?? "",
+                        Omml = existing.Omml ?? "",
+                        Display = existing.Display ?? "inline",
+                        StorageMode = "ole",
+                        Revision = existing.Revision + 1,
+                        SchemaVersion = 3,
+                    };
+
+                    // 2. Insert OLE object BEFORE deleting old ContentControl
                     var range = existingCc.Range.Duplicate;
+                    _application.Selection.SetRange(range.Start, range.Start);
+                    var oleResult = InsertOleObject(doc, range, olePayload);
+                    if (!oleResult.Success)
+                    {
+                        // OLE creation failed — old object remains untouched
+                        return new InsertResult { Success = false, Error = $"OLE conversion failed: {oleResult.Error}" };
+                    }
+
+                    // 3. OLE created and verified — safe to delete old ContentControl
                     existingCc.Delete();
 
-                    _application.Selection.SetRange(range.Start, range.Start);
-
-                    float width = 120f, height = 30f;
-                    var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
-                        _application.Selection.InlineShapes.AddOLEObject(
-                            ClassType: "LaTeXSnipper.Formula.1",
-                            FileName: Type.Missing,
-                            LinkToFile: false,
-                            DisplayAsIcon: false);
-
-                    oleShape.Height = height;
-                    oleShape.Width = width;
-
-                    var newPayload = new FormulaPayload
-                    {
-                        FormulaId = newFormulaId,
-                        Latex = existing.Latex,
-                        Display = existing.Display,
-                        StorageMode = "ole",
-                        Revision = 1
-                    };
-                    FormulaDocumentManifest.Write(doc, newPayload);
+                    // 4. Update manifest (remove old entry, keep same FormulaId)
                     FormulaDocumentManifest.Remove(doc, formulaId);
+                    FormulaDocumentManifest.Write(doc, olePayload);
 
-                    return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "ole" };
+                    return new InsertResult { Success = true, FormulaId = convertedFormulaId, StorageMode = "ole" };
                 }
 
                 // image-manifest: keep current OMML content but mark as image-manifest

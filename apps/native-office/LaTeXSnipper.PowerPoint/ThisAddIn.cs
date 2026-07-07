@@ -99,6 +99,12 @@ namespace LaTeXSnipper.PowerPoint
         private void HandleCommand(DesktopMessage message)
         {
             if (_adapter == null || _pipeClient == null) return;
+
+            // Context validation for document-scoped commands
+            if (message is DesktopDocumentCommand docCmd &&
+                !NativeOfficeProtocol.EnsureExpectedContext(docCmd, _adapter.GetCurrentContextId(), _pipeClient))
+                return;
+
             switch (message)
             {
                 case DesktopInsertFormula cmd:
@@ -141,12 +147,18 @@ namespace LaTeXSnipper.PowerPoint
                 }
                 case DesktopDeleteCurrent delCmd:
                 {
-                    var ok = false;
                     var formulaId = delCmd.FormulaId;
+
+                    // If no formulaId provided, try to extract from selection
+                    if (string.IsNullOrEmpty(formulaId))
+                        formulaId = ExtractFormulaIdFromSelection();
+
+                    var ok = false;
                     if (!string.IsNullOrEmpty(formulaId))
                         ok = _adapter.DeleteFormula(formulaId);
                     else
                         ok = _adapter.DeleteCurrent();
+
                     if (ok && !string.IsNullOrEmpty(formulaId))
                     {
                         try
@@ -186,6 +198,30 @@ namespace LaTeXSnipper.PowerPoint
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
             _pipeClient?.Disconnect();
+        }
+
+        /// <summary>
+        /// Extract formulaId from the currently selected LSNO_ shape.
+        /// </summary>
+        private string? ExtractFormulaIdFromSelection()
+        {
+            try
+            {
+                var sel = Application.ActiveWindow.Selection;
+                if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
+                {
+                    var shapeRange = sel.ShapeRange;
+                    if (shapeRange != null && shapeRange.Count > 0)
+                    {
+                        var shape = shapeRange[1];
+                        var name = shape.Name as string;
+                        if (!string.IsNullOrEmpty(name) && name.StartsWith("LSNO_") && name.Length > 5)
+                            return name.Substring(5);
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static void ResolveStorageMode(DesktopInsertFormula cmd)

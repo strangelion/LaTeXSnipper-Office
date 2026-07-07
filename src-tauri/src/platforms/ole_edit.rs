@@ -11,8 +11,9 @@
 //! Architecture: single full-duplex connection — read envelope, then write response.
 //! No second pipe connection (the server is single-instance).
 
-use std::io::Read;
 use serde::{Deserialize, Serialize};
+
+use super::pipe_protocol::FormulaPayload;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OleEnvelope {
@@ -30,9 +31,15 @@ pub struct OleEnvelope {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OleResponse {
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: u32,
     pub action: String,
-    pub latex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula: Option<FormulaPayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub formula_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latex: Option<String>,
 }
 
 type Handle = isize;
@@ -70,7 +77,7 @@ fn connect_to_pipe(pipe_name: &str) -> Result<Handle, String> {
             0, // no sharing — exclusive access
             std::ptr::null_mut(),
             OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED,
+            FILE_ATTRIBUTE_NORMAL, // synchronous I/O
             std::ptr::null_mut(),
         )
     };
@@ -83,19 +90,22 @@ fn connect_to_pipe(pipe_name: &str) -> Result<Handle, String> {
 
 fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
     let mut size_buf = [0u8; 4];
-    if unsafe { ReadFile(handle, size_buf.as_mut_ptr(), 4, std::ptr::null_mut(), std::ptr::null_mut()) } == 0 {
-        // Use overlapped I/O with GetOverlappedResult or fallback to synchronous
-        // For simplicity, the C++ side writes synchronously so we read synchronously
-        return Err("Failed to read envelope size".to_string());
+    let mut read_bytes: u32 = 0;
+    if unsafe { ReadFile(handle, size_buf.as_mut_ptr(), 4, &mut read_bytes, std::ptr::null_mut()) } == 0 || read_bytes != 4 {
+        let err = unsafe { GetLastError() };
+        return Err(format!("Failed to read envelope size: read={} err={}", read_bytes, err));
     }
     let payload_size = u32::from_le_bytes(size_buf) as usize;
-    if payload_size == 0 || payload_size > 65536 {
-        return Err("Invalid envelope size".to_string());
+    const MAX_PAYLOAD: usize = 4 * 1024 * 1024; // 4 MiB for full FormulaPayload
+    if payload_size == 0 || payload_size > MAX_PAYLOAD {
+        return Err(format!("Invalid envelope size: {} (max {})", payload_size, MAX_PAYLOAD));
     }
 
     let mut payload_buf = vec![0u8; payload_size];
-    if unsafe { ReadFile(handle, payload_buf.as_mut_ptr(), payload_size as u32, std::ptr::null_mut(), std::ptr::null_mut()) } == 0 {
-        return Err("Failed to read envelope payload".to_string());
+    read_bytes = 0;
+    if unsafe { ReadFile(handle, payload_buf.as_mut_ptr(), payload_size as u32, &mut read_bytes, std::ptr::null_mut()) } == 0 || read_bytes as usize != payload_size {
+        let err = unsafe { GetLastError() };
+        return Err(format!("Failed to read envelope payload: read={} err={}", read_bytes, err));
     }
 
     let u16_slice: &[u16] = unsafe {
@@ -107,14 +117,29 @@ fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
 }
 
 /// Open editor and produce a response. Real implementation would open the
-/// editor window and wait for user action.
+/// editor window and wait for user action, then return a full FormulaPayload.
 fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse, String> {
-    // TODO: Open actual editor, wait for user to save/cancel
-    // For now, echo the original latex as a "save" (placeholder)
+    // TODO: Open actual editor, wait for user to save/cancel.
+    // The response must carry a full FormulaPayload on save.
+    // For now, echo back the original data as a save placeholder.
+    let formula = FormulaPayload {
+        schema_version: Some(envelope.schema_version as i32),
+        formula_id: envelope.formula_id.clone(),
+        latex: envelope.latex.clone(),
+        omml: String::new(),
+        display: "inline".to_string(),
+        presentation: None,
+        render: None,
+        source: None,
+        storage_mode: Some("ole".to_string()),
+        revision: envelope.revision as i32,
+    };
     Ok(OleResponse {
+        protocol_version: 2,
         action: "save".to_string(),
-        latex: Some(envelope.latex.clone()),
+        formula: Some(formula),
         formula_id: Some(envelope.formula_id.clone()),
+        latex: Some(envelope.latex.clone()),
     })
 }
 
@@ -126,21 +151,24 @@ fn write_response_on_handle(handle: Handle, response: &OleResponse) -> Result<()
 
     // Write size
     let mut written: u32 = 0;
-    if unsafe { WriteFile(handle, &payload_size as *const u32 as *const u8, 4, &mut written, std::ptr::null_mut()) } == 0 {
-        return Err(format!("Failed to write response size: err={}", unsafe { GetLastError() }));
+    if unsafe { WriteFile(handle, &payload_size as *const u32 as *const u8, 4, &mut written, std::ptr::null_mut()) } == 0 || written != 4 {
+        return Err(format!("Failed to write response size: written={} err={}", written, unsafe { GetLastError() }));
     }
 
     // Write UTF-16 payload
     if !json_u16.is_empty() {
-        if unsafe { WriteFile(handle, json_u16.as_ptr() as *const u8, (json_u16.len() * 2) as u32, &mut written, std::ptr::null_mut()) } == 0 {
-            return Err(format!("Failed to write response payload: err={}", unsafe { GetLastError() }));
+        let to_write = (json_u16.len() * 2) as u32;
+        written = 0;
+        if unsafe { WriteFile(handle, json_u16.as_ptr() as *const u8, to_write, &mut written, std::ptr::null_mut()) } == 0 || written != to_write {
+            return Err(format!("Failed to write response payload: written={} err={}", written, unsafe { GetLastError() }));
         }
     }
 
     // Write null terminator
     let null: u16 = 0;
-    if unsafe { WriteFile(handle, &null as *const u16 as *const u8, 2, &mut written, std::ptr::null_mut()) } == 0 {
-        return Err(format!("Failed to write null terminator: err={}", unsafe { GetLastError() }));
+    written = 0;
+    if unsafe { WriteFile(handle, &null as *const u16 as *const u8, 2, &mut written, std::ptr::null_mut()) } == 0 || written != 2 {
+        return Err(format!("Failed to write null terminator: written={} err={}", written, unsafe { GetLastError() }));
     }
 
     Ok(())
@@ -158,7 +186,7 @@ const INVALID_HANDLE_VALUE: isize = -1;
 const GENERIC_READ: u32 = 0x80000000;
 const GENERIC_WRITE: u32 = 0x40000000;
 const OPEN_EXISTING: u32 = 3;
-const FILE_FLAG_OVERLAPPED: u32 = 0x40000000;
+const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
 
 extern "system" {
     fn CreateFileW(

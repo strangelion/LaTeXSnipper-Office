@@ -58,8 +58,11 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                             Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.Omml)))
                 ));
 
+                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
+
+                // Add new part BEFORE deleting old one (protect against Add failure)
+                doc.CustomXMLParts.Add(newXml);
                 existing.Delete();
-                doc.CustomXMLParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
             }
             catch (Exception ex)
             {
@@ -86,16 +89,17 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
                 if (entry == null) return null;
 
-                return new FormulaPayload
-                {
-                    FormulaId = formulaId,
-                    Latex = entry.Element("latex")?.Value ?? "",
-                    Display = entry.Element("display")?.Value ?? "inline",
-                    Revision = (int?)entry.Attribute("revision") ?? 0,
-                    StorageMode = (string?)entry.Attribute("storageMode"),
-                    SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
-                    Omml = DecodeOmml(entry.Element("omml")),
-                };
+                return DeserializeFromEntry(entry, formulaId)
+                    ?? new FormulaPayload
+                    {
+                        FormulaId = formulaId,
+                        Latex = entry.Element("latex")?.Value ?? "",
+                        Display = entry.Element("display")?.Value ?? "inline",
+                        Revision = (int?)entry.Attribute("revision") ?? 0,
+                        StorageMode = (string?)entry.Attribute("storageMode"),
+                        SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
+                        Omml = DecodeOmml(entry.Element("omml")),
+                    };
             }
             catch (Exception ex)
             {
@@ -124,15 +128,16 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     var id = (string?)entry.Attribute("id");
                     if (string.IsNullOrEmpty(id)) continue;
 
-                    result[id] = new FormulaPayload
-                    {
-                        FormulaId = id,
-                        Latex = entry.Element("latex")?.Value ?? "",
-                        Display = entry.Element("display")?.Value ?? "inline",
-                        Revision = (int?)entry.Attribute("revision") ?? 0,
-                        StorageMode = (string?)entry.Attribute("storageMode"),
-                        SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
-                    };
+                    result[id] = DeserializeFromEntry(entry, id)
+                        ?? new FormulaPayload
+                        {
+                            FormulaId = id,
+                            Latex = entry.Element("latex")?.Value ?? "",
+                            Display = entry.Element("display")?.Value ?? "inline",
+                            Revision = (int?)entry.Attribute("revision") ?? 0,
+                            StorageMode = (string?)entry.Attribute("storageMode"),
+                            SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
+                        };
                 }
             }
             catch (Exception ex)
@@ -162,8 +167,9 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
                 entry.Remove();
 
+                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
+                doc.CustomXMLParts.Add(newXml);
                 part.Delete();
-                doc.CustomXMLParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
             }
             catch (Exception ex)
             {
@@ -243,6 +249,32 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 return Encoding.UTF8.GetString(Convert.FromBase64String(ommlEl.Value));
             }
             catch { return ""; }
+        }
+
+        /// <summary>
+        /// Deserialize a FormulaPayload from the entry's &lt;payload&gt; element (base64 canonical JSON).
+        /// Returns null if no valid payload element exists.
+        /// </summary>
+        private static FormulaPayload? DeserializeFromEntry(XElement entry, string formulaId)
+        {
+            var payloadEl = entry.Element("payload");
+            if (payloadEl == null || string.IsNullOrEmpty(payloadEl.Value))
+                return null;
+
+            try
+            {
+                var json = Encoding.UTF8.GetString(Convert.FromBase64String(payloadEl.Value));
+                var result = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (result != null && result.FormulaId == formulaId)
+                    return result;
+                // Payload formulaId mismatch — fall back to entry-level data
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         // ── Excel/PowerPoint manifest helpers (via document-level CustomXML) ──
@@ -332,9 +364,11 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
                     root.Add(BuildEntryElement(payload, locator));
 
-                    // HACK: Office interop requires delete+add for updates
-                    try { existing.Delete(); } catch { }
                     xml = xdoc.ToString(SaveOptions.DisableFormatting);
+
+                    // Add new Part first, then delete old Part (avoid orphan on failure)
+                    customXmlParts.Add(xml);
+                    try { existing.Delete(); } catch { }
                 }
                 else
                 {

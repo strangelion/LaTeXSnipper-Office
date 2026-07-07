@@ -115,17 +115,25 @@ std::wstring JsonEscapeString(const std::wstring& input)
 }
 
 std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
-                                const FormulaPresentation& presentation)
+                                const FormulaPresentation& presentation,
+                                int revision)
 {
+    // Convert HIMETRIC to points (1 pt = 1/72 inch, 1 HIMETRIC = 0.01 mm)
+    // himetricSize stores 1/100 mm units; convert to points via (himetric * 72) / 2540
+    int widthPt = static_cast<int>((static_cast<long long>(presentation.himetricSize.cx) * 72 + 1270) / 2540);
+    int heightPt = static_cast<int>((static_cast<long long>(presentation.himetricSize.cy) * 72 + 1270) / 2540);
+    if (widthPt <= 0) widthPt = 180;
+    if (heightPt <= 0) heightPt = 42;
+
     std::wstring json;
-    json += L"{\"protocolVersion\":1,";
+    json += L"{\"protocolVersion\":2,";
     json += L"\"sessionType\":\"ole_edit_request\",";
     json += L"\"formulaId\":\"" + JsonEscapeString(formulaId) + L"\",";
     json += L"\"latex\":\"" + JsonEscapeString(presentation.latex) + L"\",";
-    json += L"\"widthPt\":180,";
-    json += L"\"heightPt\":42,";
+    json += L"\"widthPt\":" + std::to_wstring(widthPt) + L",";
+    json += L"\"heightPt\":" + std::to_wstring(heightPt) + L",";
     json += L"\"schemaVersion\":3,";
-    json += L"\"revision\":0";
+    json += L"\"revision\":" + std::to_wstring(revision);
     json += L"}";
     return json;
 }
@@ -246,6 +254,47 @@ static void FreeSecurityAttributes(SECURITY_ATTRIBUTES* sa)
     HeapFree(GetProcessHeap(), 0, sa);
 }
 
+// ReadFile with timeout (overlapped I/O).
+// Returns true if read completed, false on timeout/error.
+static bool ReadFileWithTimeout(HANDLE pipe, void* buffer, DWORD bytesToRead, DWORD* bytesRead, DWORD timeoutMs)
+{
+    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (event == nullptr)
+        return false;
+
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = event;
+
+    BOOL result = ReadFile(pipe, buffer, bytesToRead, bytesRead, &overlapped);
+    if (result)
+    {
+        // Completed synchronously
+        CloseHandle(event);
+        return true;
+    }
+
+    if (GetLastError() != ERROR_IO_PENDING)
+    {
+        CloseHandle(event);
+        return false;
+    }
+
+    // Wait for completion or timeout
+    DWORD waitResult = WaitForSingleObject(event, timeoutMs);
+    if (waitResult == WAIT_OBJECT_0)
+    {
+        GetOverlappedResult(pipe, &overlapped, bytesRead, FALSE);
+        CloseHandle(event);
+        return true;
+    }
+
+    // Timeout — cancel pending operation
+    CancelIo(pipe);
+    CloseHandle(event);
+    SetLastError(ERROR_TIMEOUT);
+    return false;
+}
+
 HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                               FormulaPresentation* presentation,
                               HWND parentWindow)
@@ -259,15 +308,21 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
     std::wstring token = GenerateSessionToken();
     std::wstring pipeName = std::wstring(kOleEditPipePrefix) + token;
 
-    // 2. Build envelope JSON
-    std::wstring envelope = BuildEnvelopeJson(formulaId, *presentation);
+    // 2. Build envelope JSON with real size and revision from payload
+    int revision = 0;
+    if (!presentation->payloadJson.empty())
+    {
+        double rev = ExtractJsonNumber(presentation->payloadJson, L"revision");
+        if (rev > 0) revision = static_cast<int>(rev);
+    }
+    std::wstring envelope = BuildEnvelopeJson(formulaId, *presentation, revision);
     DWORD envelopeSize = static_cast<DWORD>((envelope.size() + 1) * sizeof(wchar_t));
 
-    // 3. Create Named Pipe Server (single instance, current user only)
+    // 3. Create Named Pipe Server (single instance, current user only, overlapped for timeout)
     SECURITY_ATTRIBUTES* pipeSa = CreateCurrentUserOnlySecurityAttributes();
     HANDLE pipe = CreateNamedPipeW(
         pipeName.c_str(),
-        PIPE_ACCESS_DUPLEX,
+        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
         PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
         1,                    // max instances
         65536,                // out buffer
@@ -340,27 +395,35 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
         return HResultFromWin32LastError();
     }
 
-    // 7. Wait for response from Desktop (SAVE / CANCEL)
-    // Response format: 4 bytes = response size, then response JSON
+    // 7. Wait for response from Desktop (SAVE / CANCEL) with 10-minute total timeout
+    // Response format: 4 bytes = response size, then response JSON (UTF-16)
+    constexpr DWORD kEditTotalTimeoutMs = 600000; // 10 minutes
     DWORD responseSize = 0;
     DWORD readBytes = 0;
-    if (!ReadFile(pipe, &responseSize, sizeof(responseSize), &readBytes, nullptr))
+    if (!ReadFileWithTimeout(pipe, &responseSize, sizeof(responseSize), &readBytes, kEditTotalTimeoutMs))
     {
-        WriteNativeOleLog(L"OleEditSession: Failed to read response size.");
+        WriteNativeOleLog(L"OleEditSession: Timed out waiting for response size.");
         CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
     }
 
-    if (responseSize == 0 || responseSize > 65536)
+    // Response body limit: support full FormulaPayload including PNG/SVG base64
+    if (responseSize == 0 || responseSize > 4 * 1024 * 1024)
     {
-        // Empty response = cancel
-        WriteNativeOleLog(L"OleEditSession: Empty response (cancel).");
+        // Empty response = cancel; oversized = protocol error
+        if (responseSize == 0)
+        {
+            WriteNativeOleLog(L"OleEditSession: Empty response (cancel).");
+            CloseHandle(pipe);
+            return S_FALSE;
+        }
+        WriteNativeOleLog(L"OleEditSession: Response too large.");
         CloseHandle(pipe);
-        return S_FALSE;
+        return E_FAIL;
     }
 
     std::vector<wchar_t> responseBuffer(responseSize / sizeof(wchar_t) + 1, 0);
-    if (!ReadFile(pipe, responseBuffer.data(), responseSize, &readBytes, nullptr))
+    if (!ReadFileWithTimeout(pipe, responseBuffer.data(), responseSize, &readBytes, kEditTotalTimeoutMs))
     {
         WriteNativeOleLog(L"OleEditSession: Failed to read response.");
         CloseHandle(pipe);
@@ -370,46 +433,86 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
     std::wstring response(responseBuffer.data());
 
     // 8. Parse response — check for "action": "save"
-    bool isSave = (response.find(L"\"action\":\"save\"") != std::wstring::npos) ||
-                  (response.find(L"\"action\": \"save\"") != std::wstring::npos);
+    std::wstring action = ExtractJsonString(response, L"action");
+    bool isSave = (action == L"save");
 
     if (isSave)
     {
-        // Extract updated latex
-        std::wstring newLatex;
-        size_t latexStart;
-        if ((latexStart = response.find(L"\"latex\":")) != std::wstring::npos)
+        // Try the new v2 protocol: read full payload from "formula" sub-object
+        // as {"formula":{"formulaId":"...","latex":"...","revision":5,...}}
+        std::wstring newPayloadJson;
+        size_t formulaStart = response.find(L"\"formula\":{");
+        if (formulaStart != std::wstring::npos)
         {
-            latexStart = response.find(L'"', latexStart + 8);
-            if (latexStart != std::wstring::npos)
+            // Extract the formula sub-object by brace matching
+            size_t braceStart = response.find(L'{', formulaStart + 10);
+            if (braceStart != std::wstring::npos)
             {
-                ++latexStart;
-                for (size_t i = latexStart; i < response.size(); ++i)
+                int depth = 1;
+                size_t end = braceStart + 1;
+                while (end < response.size() && depth > 0)
                 {
-                    if (response[i] == L'"') break;
-                    newLatex += response[i];
+                    if (response[end] == L'{') ++depth;
+                    else if (response[end] == L'}') --depth;
+                    ++end;
+                }
+                if (depth == 0)
+                {
+                    newPayloadJson = L"{" + response.substr(braceStart + 1, end - braceStart - 2) + L"}";
                 }
             }
         }
 
-        // Update presentation
+        // Extract latex (from formula.latex or top-level latex)
+        std::wstring newLatex;
+        if (!newPayloadJson.empty())
+        {
+            newLatex = ExtractJsonString(newPayloadJson, L"latex");
+        }
+        if (newLatex.empty())
+        {
+            // Fallback: try top-level latex
+            newLatex = ExtractJsonString(response, L"latex");
+        }
+
         if (!newLatex.empty())
         {
             presentation->latex = newLatex;
 
-            // Regenerate EMF preview — use placeholder renderer
-            // In production, Desktop should also send updated EMF/SVG
-            FormulaPresentation fresh = CreatePlaceholderPresentation(newLatex);
-            if (!fresh.enhancedMetafile.empty())
+            // If we have a full payload JSON, rebuild the entire presentation
+            if (!newPayloadJson.empty())
             {
-                presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
-                presentation->himetricSize = fresh.himetricSize;
+                FormulaPresentation fresh = CreatePresentationFromPayload(newPayloadJson);
+                if (!fresh.enhancedMetafile.empty())
+                {
+                    presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
+                    presentation->himetricSize = fresh.himetricSize;
+                }
+                presentation->payloadJson = newPayloadJson;
+            }
+            else
+            {
+                // Fallback: placeholder renderer
+                FormulaPresentation fresh = CreatePlaceholderPresentation(newLatex);
+                if (!fresh.enhancedMetafile.empty())
+                {
+                    presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
+                    presentation->himetricSize = fresh.himetricSize;
+                }
             }
 
             WriteNativeOleLog(L"OleEditSession: Formula updated from Desktop.");
             CloseHandle(pipe);
             return S_OK;
         }
+    }
+
+    // Check for explicit cancel
+    if (action == L"cancel")
+    {
+        WriteNativeOleLog(L"OleEditSession: Desktop cancelled editing.");
+        CloseHandle(pipe);
+        return S_FALSE;
     }
 
     WriteNativeOleLog(L"OleEditSession: Desktop cancelled or invalid response.");

@@ -49,20 +49,20 @@ pub async fn delete_selection() -> Result<OfficeCommandResponse, String> {
 #[command]
 pub async fn convert_to_ole() -> Result<OfficeCommandResponse, String> {
     Logger::info("Converting to OLE...");
-    // OLE conversion requires native DLL support - not yet implemented
+    // DEPRECATED: Use native_office_convert_formula via VSTO pipe instead
     Ok(OfficeCommandResponse {
         success: false,
-        message: "OLE 转换需要原生 DLL 支持，将在后续版本实现".to_string(),
+        message: "请通过「Office 集成」中的转换功能操作".to_string(),
     })
 }
 
 #[command]
 pub async fn convert_to_word() -> Result<OfficeCommandResponse, String> {
     Logger::info("Converting to Word...");
-    // Word native format conversion - not yet implemented
+    // DEPRECATED: Use native_office_convert_formula via VSTO pipe instead
     Ok(OfficeCommandResponse {
         success: false,
-        message: "Word 原生格式转换将在后续版本实现".to_string(),
+        message: "请通过「Office 集成」中的转换功能操作".to_string(),
     })
 }
 
