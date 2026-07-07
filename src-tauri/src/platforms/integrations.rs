@@ -39,6 +39,12 @@ pub struct PlatformIntegrationResult {
     pub restart_required: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OleStatus {
+    pub available: bool,
+    pub bitness_mismatch: bool,
+}
+
 impl PlatformIntegrationResult {
     fn ok(platform: &str, mode: &str, message: impl Into<String>, restart_required: bool) -> Self {
         Self {
@@ -3056,15 +3062,15 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
             && find_ole_dll_path(ole_constants::DLL_NAME_X86).is_none()
     };
 
-    crate::commands::native_office::OleStatus {
+    OleStatus {
         available: registry_exists && dll_found && !bitness_mismatch,
         bitness_mismatch,
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
-    crate::commands::native_office::OleStatus {
+pub fn check_ole_status() -> OleStatus {
+    OleStatus {
         available: false,
         bitness_mismatch: false,
     }

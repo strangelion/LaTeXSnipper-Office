@@ -453,11 +453,7 @@ pub struct NativeOfficeStatus {
     pub action: RecommendedAction,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OleStatus {
-    pub available: bool,
-    pub bitness_mismatch: bool,
-}
+pub use crate::platforms::integrations::OleStatus;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
