@@ -4,21 +4,11 @@ const path = require("path");
 
 const isWindows = os.platform() === "win32";
 const shell = isWindows ? "powershell.exe" : "pwsh";
-const version = process.env.VERSION || "1.0.0";
 const args = ["-NoProfile"];
 
 if (isWindows) {
   args.push("-ExecutionPolicy", "Bypass");
 }
 
-args.push(
-  "-File",
-  path.join("apps", "wps", "build.ps1"),
-  "-OutputDir",
-  path.join("apps", "wps", "dist"),
-  "-Version",
-  version,
-);
-
-console.log(`[wps] building package for ${os.platform()} (version ${version})`);
+args.push("-File", path.join("scripts", "stage-resources.ps1"));
 execFileSync(shell, args, { stdio: "inherit" });

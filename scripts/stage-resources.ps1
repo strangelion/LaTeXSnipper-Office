@@ -1,16 +1,32 @@
-# scripts/stage-resources.ps1
-# Copy platform add-ins to Tauri resources and fail when required payloads are missing.
+# Copy platform add-ins to Tauri resources.
+# OfficeJS and WPS are bundled on every desktop target; VSTO is required only on Windows.
 
 param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
 )
 
 $ErrorActionPreference = "Stop"
+$isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    [System.Runtime.InteropServices.OSPlatform]::Windows
+)
+
 function Join-PathParts {
     param([Parameter(Mandatory = $true)][string[]]$Parts)
     $path = $Parts[0]
     for ($i = 1; $i -lt $Parts.Count; $i++) {
         $path = Join-Path $path $Parts[$i]
+    }
+    $path
+}
+
+function Resolve-RelativePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$Base,
+        [Parameter(Mandatory = $true)][string]$Relative
+    )
+    $path = $Base
+    foreach ($part in ($Relative -split '[\\/]+' | Where-Object { $_ })) {
+        $path = Join-Path $path $part
     }
     $path
 }
@@ -53,6 +69,7 @@ function Get-LatestWpsBuild {
 Write-Host "=== Staging resources for Tauri bundle ===" -ForegroundColor Green
 Write-Host "  Project root: $ProjectRoot"
 Write-Host "  Resources: $resourcesDir"
+Write-Host "  Host platform: $(if ($isWindows) { 'Windows' } else { 'non-Windows' })"
 New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
 
 # Office.js is produced by scripts/stage-office-addin.mjs before this script runs.
@@ -65,7 +82,7 @@ foreach ($officeHost in @("word", "excel", "powerpoint")) {
 }
 Write-Host "  OfficeJS: ready" -ForegroundColor Green
 
-# WPS JSAddin. Prefer the built package because it includes proxy/server files.
+# WPS JSAddIn. It is JavaScript-only and is staged from its build output on all hosts.
 $wpsBuild = Get-LatestWpsBuild
 if (-not $wpsBuild) {
     throw "WPS build output missing. Run npm run build:wps before packaging."
@@ -79,30 +96,40 @@ foreach ($file in @(
     "ribbon.xml",
     "proxy.js",
     "server.js",
-    "js\command-layer.js",
-    "js\ribbon.js",
-    "js\util.js",
-    "ui\taskpane.html"
+    "js/command-layer.js",
+    "js/ribbon.js",
+    "js/util.js",
+    "ui/taskpane.html"
 )) {
-    Require-File (Join-Path $wpsSource $file) "WPS payload"
+    Require-File (Resolve-RelativePath $wpsSource $file) "WPS payload"
 }
 Copy-CleanDir $wpsSource $wpsDest
 $wpsCount = (Get-ChildItem -LiteralPath $wpsDest -Recurse -File).Count
 Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Green
 
-# NativeOffice VSTO.
-$vstoStaging = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
+# NativeOffice VSTO. It is a Windows-only payload.
 $vstoDest = Join-Path $resourcesDir "NativeOffice"
-foreach ($nativeHost in @("Word", "Excel", "PowerPoint")) {
-    Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
-    Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll.manifest") "NativeOffice $nativeHost DLL manifest"
-    Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll") "NativeOffice $nativeHost DLL"
+if ($isWindows) {
+    $vstoStaging = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
+    foreach ($nativeHost in @("Word", "Excel", "PowerPoint")) {
+        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
+        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll.manifest") "NativeOffice $nativeHost DLL manifest"
+        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll") "NativeOffice $nativeHost DLL"
+    }
+    Require-Dir (Join-Path $vstoStaging "Shared") "NativeOffice shared directory"
+    Require-File (Join-Path $vstoStaging "Shared\LaTeXSnipper.NativeOffice.Shared.dll") "NativeOffice shared DLL"
+    Copy-CleanDir $vstoStaging $vstoDest
+    $nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
+    Write-Host "  NativeOffice: $nativeCount files staged" -ForegroundColor Green
+} else {
+    if (Test-Path -LiteralPath $vstoDest) {
+        Remove-Item -LiteralPath $vstoDest -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $vstoDest "UNSUPPORTED.txt") `
+        -Value "Native Office VSTO is bundled only in Windows packages." -Encoding ASCII
+    Write-Host "  NativeOffice: intentionally excluded (Windows-only)" -ForegroundColor Yellow
 }
-Require-Dir (Join-Path $vstoStaging "Shared") "NativeOffice shared directory"
-Require-File (Join-Path $vstoStaging "Shared\LaTeXSnipper.NativeOffice.Shared.dll") "NativeOffice shared DLL"
-Copy-CleanDir $vstoStaging $vstoDest
-$nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
-Write-Host "  NativeOffice: $nativeCount files staged" -ForegroundColor Green
 
 # Obsidian is optional for Office packaging, but keep resources valid when it is built.
 $obsidianSource = Join-PathParts @($ProjectRoot, "apps", "obsidian-plugin")

@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:2100",
     "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build:office-addin && npm run build:wps && npm run build:native-office && npm run build:vite && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stage-resources.ps1"
+    "beforeBuildCommand": "npm run build:office-addin && npm run build:wps && npm run prepare:native-office && npm run build:vite && npm run stage:resources"
   },
   "app": {
     "windows": [
@@ -25,7 +25,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis", "dmg", "deb", "rpm"],
+    "targets": [
+      "msi",
+      "nsis",
+      "dmg",
+      "deb",
+      "rpm"
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
@@ -43,11 +49,13 @@
       "nsis": {
         "displayLanguageSelector": true,
         "installMode": "both",
-        "languages": ["english"]
+        "languages": [
+          "english"
+        ]
       }
     },
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "12.0"
     }
   },
   "plugins": {

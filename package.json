@@ -16,7 +16,9 @@
     "build:ios": "tauri ios build",
     "build:android": "tauri android build",
     "lint": "eslint src --ext .js,.ts",
-    "format": "prettier --write src/**/*.{js,ts,css}"
+    "format": "prettier --write src/**/*.{js,ts,css}",
+    "stage:resources": "node scripts/stage-resources.js",
+    "prepare:native-office": "node scripts/prepare-native-office.js"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

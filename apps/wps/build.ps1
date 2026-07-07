@@ -80,7 +80,7 @@ foreach ($file in $installerFiles) {
 Write-Host "`nCreating zip archive..." -ForegroundColor Cyan
 $zipPath = Join-Path $OutputDir "$FullVersion.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path "$DistDir\*" -DestinationPath $zipPath
+Compress-Archive -Path (Join-Path $DistDir "*") -DestinationPath $zipPath
 
 Write-Host "  $zipPath" -ForegroundColor Gray
 
