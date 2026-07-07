@@ -6,8 +6,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$isWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+$runningOnWindows = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
     [System.Runtime.InteropServices.OSPlatform]::Windows
+)
+
+$runningOnMacOS = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    [System.Runtime.InteropServices.OSPlatform]::OSX
+)
+
+$runningOnLinux = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+    [System.Runtime.InteropServices.OSPlatform]::Linux
 )
 
 function Join-PathParts {
@@ -69,7 +77,7 @@ function Get-LatestWpsBuild {
 Write-Host "=== Staging resources for Tauri bundle ===" -ForegroundColor Green
 Write-Host "  Project root: $ProjectRoot"
 Write-Host "  Resources: $resourcesDir"
-Write-Host "  Host platform: $(if ($isWindows) { 'Windows' } else { 'non-Windows' })"
+Write-Host "  Host platform: $(if ($runningOnWindows) { 'Windows' } else { 'non-Windows' })"
 New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
 
 # Office.js is produced by scripts/stage-office-addin.mjs before this script runs.
@@ -109,7 +117,7 @@ Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Gree
 
 # NativeOffice VSTO. It is a Windows-only payload.
 $vstoDest = Join-Path $resourcesDir "NativeOffice"
-if ($isWindows) {
+if ($runningOnWindows) {
     $vstoStaging = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
     foreach ($nativeHost in @("Word", "Excel", "PowerPoint")) {
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
