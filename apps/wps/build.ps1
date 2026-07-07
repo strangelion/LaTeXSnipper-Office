@@ -21,12 +21,12 @@ $DistDir = Join-Path $OutputDir $FullVersion
 if (Test-Path $DistDir) { Remove-Item $DistDir -Recurse -Force }
 $null = New-Item -ItemType Directory -Path $DistDir -Force
 
-# Inject version into manifest.xml before copying
+# Inject version into dist manifest without modifying the source manifest.
 Write-Host "`nInjecting version $Version into manifest.xml..." -ForegroundColor Cyan
 $manifestPath = Join-Path $ScriptDir "manifest.xml"
 $manifest = Get-Content $manifestPath -Raw
 $manifest = $manifest -replace '<Version>.*?</Version>', "<Version>$Version</Version>"
-Set-Content -Path $manifestPath -Value $manifest -NoNewline
+Set-Content -Path (Join-Path $DistDir "manifest.xml") -Value $manifest -NoNewline
 
 # Copy plugin files
 Write-Host "`nCopying plugin files..." -ForegroundColor Cyan
@@ -34,7 +34,6 @@ Write-Host "`nCopying plugin files..." -ForegroundColor Cyan
 $files = @(
     "index.html",
     "main.js",
-    "manifest.xml",
     "manifest.json",
     "ribbon.xml",
     "package.json",
@@ -46,6 +45,7 @@ foreach ($file in $files) {
     Copy-Item (Join-Path $ScriptDir $file) (Join-Path $DistDir $file) -Force
     Write-Host "  $file" -ForegroundColor Gray
 }
+Write-Host "  manifest.xml" -ForegroundColor Gray
 
 # Subdirectories
 $subdirs = @(

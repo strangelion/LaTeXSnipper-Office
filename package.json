@@ -7,6 +7,8 @@
     "dev:vite": "vite",
     "build:vite": "vite build",
     "build:office-addin": "npm --prefix apps/office-addin run build && node scripts/stage-office-addin.mjs",
+    "build:wps": "powershell -NoProfile -ExecutionPolicy Bypass -File apps/wps/build.ps1 -OutputDir apps/wps/dist",
+    "build:native-office": "powershell -NoProfile -ExecutionPolicy Bypass -File apps/native-office/Installer/build.ps1 -OutputDir apps/native-office/Installer/output",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "tauri build",

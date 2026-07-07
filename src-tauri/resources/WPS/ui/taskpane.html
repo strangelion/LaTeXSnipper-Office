@@ -44,13 +44,14 @@
     .options-row { display: grid; grid-template-columns: auto auto 1fr; gap: 7px; align-items: center; }
     .options-row label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 12px; font-weight: 500; }
     .options-row input[type="checkbox"] { width: auto; margin: 0; }
-    .actions { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 12px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
     button { min-height: 38px; padding: 8px 12px; border: 1px solid #c8d3e2; border-radius: 4px; color: #182235; background: #ffffff; cursor: pointer; }
     button:hover:not(:disabled) { border-color: #9bb8de; background: #f7fbff; }
     button.primary { border-color: var(--accent); color: #ffffff; background: var(--accent); font-weight: 700; }
     button.primary:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); }
     button:disabled { cursor: default; opacity: 0.58; }
     .ghost-button { width: auto; min-width: 84px; }
+    .ghost-button.full { grid-column: 1 / -1; }
   </style>
 </head>
 <body>
@@ -84,11 +85,19 @@
 
     <section class="actions">
       <button id="insertButton" type="button" class="primary">插入公式</button>
+      <button id="insertImageButton" type="button">插入图片</button>
+      <button id="loadSelectedButton" type="button">加载选中</button>
+      <button id="deleteSelectedButton" type="button">删除选中</button>
+      <button id="renumberButton" type="button" class="ghost-button full">重新编号</button>
     </section>
   </main>
 
   <script>
-    const BRIDGE_URL = location.origin + "/bridge";
+    const BRIDGE_URL = "http://127.0.0.1:28766";
+
+    function wpsFetch(url, options) {
+      return fetch(url, options);
+    }
 
     const els = {
       connectButton: document.getElementById("connectButton"),
@@ -97,7 +106,12 @@
       previewHost: document.getElementById("previewHost"),
       latexSource: document.getElementById("latexSource"),
       displayMode: document.getElementById("displayMode"),
+      autoNumber: document.getElementById("autoNumber"),
       insertButton: document.getElementById("insertButton"),
+      insertImageButton: document.getElementById("insertImageButton"),
+      loadSelectedButton: document.getElementById("loadSelectedButton"),
+      deleteSelectedButton: document.getElementById("deleteSelectedButton"),
+      renumberButton: document.getElementById("renumberButton"),
     };
 
     let bridgeConnected = false;
@@ -112,12 +126,13 @@
       try {
         window.parent.window.Application.PluginStorage.setItem("current_latex", els.latexSource.value);
         window.parent.window.Application.PluginStorage.setItem("current_display", els.displayMode.checked);
+        window.parent.window.Application.PluginStorage.setItem("current_auto_number", els.autoNumber.checked);
       } catch (e) {}
     }
 
     async function checkBridge() {
       try {
-        const response = await fetch(BRIDGE_URL + "/config");
+        const response = await wpsFetch(BRIDGE_URL + "/config");
         const data = await response.json();
         bridgeToken = data.result?.token || "";
         bridgeConnected = true;
@@ -149,7 +164,7 @@
         return;
       }
       try {
-        const response = await fetch(BRIDGE_URL + "/convert/latex", {
+        const response = await wpsFetch(BRIDGE_URL + "/convert/latex", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bridgeToken },
           body: JSON.stringify({ latex: latex, display: els.displayMode.checked, targets: ["png"] })
@@ -165,38 +180,121 @@
       }
     }
 
+    // ─── All commands route through parent.CommandLayer.dispatch ────
+    var CL = function() {
+      try { return window.parent.window.CommandLayer; } catch(e) { return null; }
+    }();
+
+    function callWPS(cmd) {
+      if (!CL) { setStatus("error", "CommandLayer not available"); return Promise.resolve({ ok: false, error: "No CommandLayer" }); }
+      return CL.dispatch("wps", cmd).then(function(r) { return r; });
+    }
+
     function insertFormula() {
-      const latex = els.latexSource.value.trim();
+      var latex = els.latexSource.value.trim();
       if (!latex) { alert("请先输入 LaTeX 公式"); return; }
 
-      try {
-        const app = window.parent.window.Application;
-        const doc = app.ActiveDocument;
-        if (!doc) { alert("请先打开一个文档"); return; }
-
-        const selection = app.Selection;
-        selection.Range.Collapse(0);
-
-        let startPos = selection.Range.End;
-        selection.TypeText(latex);
-        let endPos = selection.Range.End;
-        let insertedRange = doc.Range(startPos, endPos);
-        insertedRange.Select();
-
-        selection.OMaths.Add(selection.Range);
-
-        if (selection.OMaths.Count > 0) {
-          const oMath = selection.OMaths.Item(1);
-          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) {} }
-          try { oMath.BuildUp(); } catch(e) {}
-          selection.Range.Collapse(0);
-          setStatus("success", "公式插入成功");
+      callWPS({ type: "InsertFormula", payload: { latex: latex, display: els.displayMode.checked ? "block" : "inline" } }).then(function(result) {
+        if (result.ok) {
+          if (els.autoNumber.checked) {
+            // Numbered insert needs a second call after insertion
+            callWPS({ type: "InsertFormula", payload: { latex: "\t(" + Date.now() % 1000 + ")", display: "inline" } });
+          }
+          setStatus("success", "公式插入成功" + (els.autoNumber.checked ? "（含编号）" : ""));
         } else {
-          setStatus("error", "公式创建失败");
+          setStatus("error", "插入失败: " + (result.error || "未知错误"));
         }
+      });
+    }
+
+    async function insertFormulaAsImage() {
+      var latex = els.latexSource.value.trim();
+      if (!latex) { alert("请先输入 LaTeX 公式"); return; }
+      if (!bridgeConnected) { alert("请先连接 Bridge"); return; }
+
+      try {
+        var response = await wpsFetch(BRIDGE_URL + "/convert/latex", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + bridgeToken },
+          body: JSON.stringify({ latex: latex, display: els.displayMode.checked, targets: ["png"] })
+        });
+        var result = await response.json();
+        if (!result.ok || !result.result.png_base64) {
+          alert("公式转换失败");
+          return;
+        }
+
+        var saveRes = await wpsFetch(BRIDGE_URL + "/save-temp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "latex_" + Date.now() + ".png", base64: result.result.png_base64 })
+        });
+        var saveData = await saveRes.json();
+        if (!saveData.ok) {
+          alert("保存临时文件失败: " + saveData.error);
+          return;
+        }
+
+        var filePath = saveData.path;
+        // Use WPS API for image insertion (no standard command for this yet)
+        try {
+          var app = window.parent.window.Application;
+          var isPPT = false;
+          try { isPPT = !!app.ActivePresentation && !app.ActiveDocument; } catch(e) {}
+          if (isPPT) {
+            var slide = app.ActiveWindow.View.Slide;
+            if (!slide) { alert("请先选择一张幻灯片"); return; }
+            slide.Shapes.AddPicture(filePath, false, true, 100, 100);
+          } else {
+            var sel = app.Selection;
+            sel.Range.Collapse(0);
+            sel.InlineShapes.AddPicture(filePath, false, true);
+          }
+        } catch (e) {
+          alert("图片插入失败: " + e.message);
+          return;
+        }
+
+        try { await wpsFetch(BRIDGE_URL + "/delete-temp?path=" + encodeURIComponent(filePath), { method: "DELETE" }); } catch(e) {}
+        setStatus("success", "图片插入成功");
       } catch (e) {
         setStatus("error", "插入失败: " + e.message);
       }
+    }
+
+    function loadSelectedFormula() {
+      callWPS({ type: "GetSelection" }).then(function(result) {
+        if (result.ok && result.data) {
+          els.latexSource.value = result.data;
+          syncToStorage();
+          updatePreview();
+          setStatus("success", "已加载选中公式");
+        } else {
+          setStatus("error", "请先选中一个公式");
+        }
+      });
+    }
+
+    function deleteSelectedFormula() {
+      callWPS({ type: "ReplaceSelection", payload: { content: "" } }).then(function(result) {
+        if (result.ok) {
+          setStatus("success", "已删除选中公式");
+        } else {
+          setStatus("error", "删除失败: " + result.error);
+        }
+      });
+    }
+
+    function renumberFormulas() {
+      callWPS({ type: "DetectTable" }).then(function(result) {
+        // Renumber uses internal doc operation — route via InsertFormula with special flag
+        // For full renumber, taskpane delegates to ribbon's renumberAll via parent
+        try {
+          var fn = window.parent.window.renumberAll;
+          if (typeof fn === "function") { fn(); return; }
+        } catch(e) {}
+        setStatus("error", "重新编号功能在任务窗格中不可用，请在 ribbon 工具栏使用");
+      });
     }
 
     let previewTimer = null;
@@ -207,8 +305,13 @@
 
     els.latexSource.addEventListener("input", debouncedPreview);
     els.displayMode.addEventListener("change", () => { updatePreview(); syncToStorage(); });
+    els.autoNumber.addEventListener("change", syncToStorage);
     els.connectButton.addEventListener("click", checkBridge);
     els.insertButton.addEventListener("click", insertFormula);
+    els.insertImageButton.addEventListener("click", insertFormulaAsImage);
+    els.loadSelectedButton.addEventListener("click", loadSelectedFormula);
+    els.deleteSelectedButton.addEventListener("click", deleteSelectedFormula);
+    els.renumberButton.addEventListener("click", renumberFormulas);
 
     checkBridge();
     updatePreview();

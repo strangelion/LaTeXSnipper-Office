@@ -24,12 +24,14 @@ const targets = [
     siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
     manifestDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest'),
     manifestBase: localOfficeBase,
+    localAssetBase: true,
   },
   {
     name: 'Website deploy',
     siteDir: path.resolve(root, 'office-deploy'),
     manifestDir: path.resolve(root, 'office-deploy', 'manifest'),
     manifestBase: websiteOfficeBase,
+    localAssetBase: false,
   },
 ];
 
@@ -46,6 +48,14 @@ for (const target of targets) {
   fs.cpSync(distDir, target.siteDir, { recursive: true });
   fs.mkdirSync(target.manifestDir, { recursive: true });
 
+  const taskpane = path.resolve(target.siteDir, 'taskpane.html');
+  if (target.localAssetBase && fs.existsSync(taskpane)) {
+    const html = fs.readFileSync(taskpane, 'utf8')
+      .replaceAll('src="/office/assets/', 'src="./assets/')
+      .replaceAll('href="/office/assets/', 'href="./assets/');
+    fs.writeFileSync(taskpane, html);
+  }
+
   for (const host of hosts) {
     const source = path.resolve(manifestDir, `manifest.${host}.desktop.xml`);
     const output = path.resolve(target.manifestDir, `${host}.xml`);
@@ -61,7 +71,6 @@ for (const target of targets) {
     fs.writeFileSync(output, manifest);
   }
 
-  const taskpane = path.resolve(target.siteDir, 'taskpane.html');
   const assetsDir = path.resolve(target.siteDir, 'assets');
   const hasTaskpane = fs.existsSync(taskpane);
   const hasBundle = fs.existsSync(assetsDir)

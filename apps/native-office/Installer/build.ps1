@@ -20,7 +20,7 @@ Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
 
 # ─── Resolve MSBuild ────────────────────────────────────────────────
-Write-Host "`n[1/4] Building solution (Publish)..." -ForegroundColor Cyan
+Write-Host "`n[1/4] Building solution..." -ForegroundColor Cyan
 if (-not $MsBuildPath) {
     $msbuild = Get-Command "MSBuild.exe" -ErrorAction SilentlyContinue
     if ($msbuild) {
@@ -32,11 +32,16 @@ if (-not $MsBuildPath) {
 Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
 
 # Build signing arguments — VSTO targets generate .vsto + .dll.manifest only when signed
+$publishDir = Join-Path $OutputDir "publish"
+New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
+$publishUrl = (Resolve-Path $publishDir).Path.TrimEnd('\') + "\"
 $buildArgs = @(
     "$SolutionDir\LaTeXSnipper.NativeOffice.sln"
     "/t:Build"
     "/p:Configuration=$Configuration"
     "/p:Platform=Any CPU"
+    "/p:PublishUrl=$publishUrl"
+    "/p:InstallUrl=$publishUrl"
     "/v:minimal"
 )
 
@@ -87,6 +92,7 @@ Write-Host "`n[2/4] Collecting binaries from Publish output..." -ForegroundColor
 $staging = Join-Path $OutputDir "staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
+$allGood = $true
 
 # Each host builds to its own bin\$Configuration directory
 $hosts = @("Word", "Excel", "PowerPoint")
@@ -102,20 +108,24 @@ foreach ($hostName in $hosts) {
         continue
     }
     Write-Host "  ${hostName}: bin\$Configuration" -ForegroundColor Green
-    Copy-Item "$hostSrc\*" $hostDst -Recurse -Force
+    New-Item -ItemType Directory -Path $hostDst -Force | Out-Null
+    Get-ChildItem $hostSrc -File | ForEach-Object {
+        Copy-Item $_.FullName $hostDst -Force
+    }
 }
 
 $sharedDst = Join-Path $staging "Shared"
-    $sharedSrcFiles = Get-ChildItem $sharedSrc -File -ErrorAction SilentlyContinue
-    if ($sharedSrcFiles) {
-        Write-Host "  Shared: $($sharedSrcFiles.Count) files" -ForegroundColor Green
-        foreach ($f in $sharedSrcFiles) { Copy-Item $f.FullName $sharedDst -Force }
-    } else {
-        Write-Warning "Shared source directory is empty or missing: $sharedSrc"
-    }
+New-Item -ItemType Directory -Path $sharedDst -Force | Out-Null
+$sharedSrcFiles = Get-ChildItem $sharedSrc -File -ErrorAction SilentlyContinue
+if ($sharedSrcFiles) {
+    Write-Host "  Shared: $($sharedSrcFiles.Count) files" -ForegroundColor Green
+    foreach ($f in $sharedSrcFiles) { Copy-Item $f.FullName $sharedDst -Force }
+} else {
+    Write-Warning "Shared source directory is empty or missing: $sharedSrc"
+    $allGood = $false
+}
 
 # Validate critical files exist
-$allGood = $true
 foreach ($hostName in $hosts) {
     $vsto = Join-Path $staging "$hostName\LaTeXSnipper.$hostName.vsto"
     $manifest = Join-Path $staging "$hostName\LaTeXSnipper.$hostName.dll.manifest"
@@ -139,6 +149,10 @@ foreach ($hostName in $hosts) {
     } else {
         Write-Host "  ${hostName} : .dll OK" -ForegroundColor Green
     }
+}
+
+if (-not $allGood) {
+    throw "Native Office staging is incomplete."
 }
 
 Write-Host "  Staged files:" -ForegroundColor Gray
@@ -168,7 +182,7 @@ if ($LASTEXITCODE -ne 0) { throw "WiX UI extension install failed" }
 
 # Set WiX variables (absolute paths — WiX resolves relative to .wxs file, not CWD)
 $stagingAbs = (Resolve-Path $staging).Path
-$env:SharedBinDir = $sharedSrc
+$env:SharedBinDir = $sharedDst
 $env:WordBinDir = $stagingAbs + "\Word"
 $env:ExcelBinDir = $stagingAbs + "\Excel"
 $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
