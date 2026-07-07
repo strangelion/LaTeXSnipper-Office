@@ -188,13 +188,21 @@ function New-XmlRibbonOfficeToolsOverlay {
     Write-Host "  Office targets: XML-Ribbon-safe overlay created" -ForegroundColor Gray
     Write-Host "    Source:  $sourceOfficeTools" -ForegroundColor DarkGray
     Write-Host "    Overlay: $overlayOfficeTools" -ForegroundColor DarkGray
-    return $overlayVSToolsPath
+    return (Resolve-Path -LiteralPath $overlayVSToolsPath).Path
 }
 
-$officeToolsOverlayDir = Join-Path $OutputDir "obj"
+# VSToolsPath is passed to MSBuild and must be absolute.
+# Otherwise every host .csproj resolves it relative to its own directory.
+$absoluteOutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+$officeToolsOverlayDir = Join-Path $absoluteOutputDir "obj"
+
 $officeToolsOverlayVSToolsPath = New-XmlRibbonOfficeToolsOverlay `
     -MsBuildExecutable $MsBuildPath `
     -DestinationDirectory $officeToolsOverlayDir
+
+$officeToolsOverlayVSToolsPath = (
+    Resolve-Path -LiteralPath $officeToolsOverlayVSToolsPath
+).Path
 
 # Build signing arguments — VSTO targets generate .vsto + .dll.manifest only when signed
 $publishDir = Join-Path $OutputDir "publish"
