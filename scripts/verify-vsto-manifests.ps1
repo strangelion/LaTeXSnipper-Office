@@ -93,14 +93,14 @@ function Assert-ClickOnceManifest {
 }
 
 $hosts = @("Word", "Excel", "PowerPoint")
-foreach ($host in $hosts) {
-    $hostDirectory = Join-Path $PayloadRoot $host
+foreach ($hostName in $hosts) {
+    $hostDirectory = Join-Path $PayloadRoot $hostName
     if (-not (Test-Path -LiteralPath $hostDirectory -PathType Container)) {
         throw "VSTO host directory missing: $hostDirectory"
     }
 
-    $vstoPath = Join-Path $hostDirectory "LaTeXSnipper.$host.vsto"
-    $applicationManifestPath = Join-Path $hostDirectory "LaTeXSnipper.$host.dll.manifest"
+    $vstoPath = Join-Path $hostDirectory "LaTeXSnipper.$hostName.vsto"
+    $applicationManifestPath = Join-Path $hostDirectory "LaTeXSnipper.$hostName.dll.manifest"
 
     if (-not (Test-Path -LiteralPath $vstoPath -PathType Leaf)) {
         throw "VSTO deployment manifest missing: $vstoPath"
@@ -109,10 +109,10 @@ foreach ($host in $hosts) {
         throw "VSTO application manifest missing: $applicationManifestPath"
     }
 
-    Assert-ClickOnceManifest -ManifestPath $vstoPath -BaseDirectory $hostDirectory -Label "$host .vsto"
-    Assert-ClickOnceManifest -ManifestPath $applicationManifestPath -BaseDirectory $hostDirectory -Label "$host .dll.manifest"
+    Assert-ClickOnceManifest -ManifestPath $vstoPath -BaseDirectory $hostDirectory -Label "$hostName .vsto"
+    Assert-ClickOnceManifest -ManifestPath $applicationManifestPath -BaseDirectory $hostDirectory -Label "$hostName .dll.manifest"
 
-    Write-Host "  $host: VSTO manifest hash chain verified" -ForegroundColor Green
+    Write-Host "  ${hostName}: VSTO manifest hash chain verified" -ForegroundColor Green
 }
 
 Write-Host "VSTO payload integrity verified: $PayloadRoot" -ForegroundColor Green
