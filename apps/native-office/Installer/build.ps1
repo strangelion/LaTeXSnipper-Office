@@ -131,6 +131,71 @@ if (-not $vstoHostingAssembly) {
     )
 }
 
+# FindRibbons is an AppDomain-isolated VSTO task. It does not reliably resolve
+# modern PackageReference dependency graphs under hosted MSBuild. All hosts in
+# this solution use Ribbon XML via CreateRibbonExtensibilityObject(), not
+# VSTO Ribbon Designer classes, so the design-time RibbonBase scan is unused.
+#
+# Create a per-build overlay of OfficeTools and remove only that task block.
+# The overlay preserves the OfficeTools directory layout, so relative UsingTask
+# and import paths continue to resolve. The installed Visual Studio targets are
+# never modified.
+function New-XmlRibbonOfficeToolsOverlay {
+    param(
+        [string]$MsBuildExecutable,
+        [string]$DestinationDirectory
+    )
+
+    $msbuildBin = Split-Path -Parent $MsBuildExecutable
+    $msbuildCurrent = Split-Path -Parent $msbuildBin
+    $msbuildRoot = Split-Path -Parent $msbuildCurrent
+    $vsInstallRoot = Split-Path -Parent $msbuildRoot
+
+    $sourceTargets = Get-ChildItem `
+        -Path (Join-Path $vsInstallRoot "MSBuild\Microsoft\VisualStudio") `
+        -Filter "Microsoft.VisualStudio.Tools.Office.targets" `
+        -Recurse -File -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1
+
+    if (-not $sourceTargets) {
+        throw "Microsoft.VisualStudio.Tools.Office.targets was not found under $vsInstallRoot."
+    }
+
+    $sourceOfficeTools = Split-Path -Parent $sourceTargets.FullName
+    $overlayVSToolsPath = Join-Path $DestinationDirectory "VSTools"
+    $overlayOfficeTools = Join-Path $overlayVSToolsPath "OfficeTools"
+
+    if (Test-Path -LiteralPath $overlayOfficeTools) {
+        Remove-Item -LiteralPath $overlayOfficeTools -Recurse -Force
+    }
+
+    New-Item -ItemType Directory -Path $overlayOfficeTools -Force | Out-Null
+    Copy-Item -Path (Join-Path $sourceOfficeTools "*") `
+        -Destination $overlayOfficeTools -Recurse -Force
+
+    $overlayTargets = Join-Path $overlayOfficeTools "Microsoft.VisualStudio.Tools.Office.targets"
+    $sourceText = Get-Content -LiteralPath $overlayTargets -Raw
+    $findRibbonsPattern = '(?s)\s*<FindRibbons\b.*?</FindRibbons>'
+
+    if (-not [regex]::IsMatch($sourceText, $findRibbonsPattern)) {
+        throw "Could not locate the FindRibbons task block in $overlayTargets."
+    }
+
+    $patchedText = [regex]::Replace($sourceText, $findRibbonsPattern, '')
+    Set-Content -LiteralPath $overlayTargets -Value $patchedText -Encoding UTF8
+
+    Write-Host "  Office targets: XML-Ribbon-safe overlay created" -ForegroundColor Gray
+    Write-Host "    Source:  $sourceOfficeTools" -ForegroundColor DarkGray
+    Write-Host "    Overlay: $overlayOfficeTools" -ForegroundColor DarkGray
+    return $overlayVSToolsPath
+}
+
+$officeToolsOverlayDir = Join-Path $OutputDir "obj"
+$officeToolsOverlayVSToolsPath = New-XmlRibbonOfficeToolsOverlay `
+    -MsBuildExecutable $MsBuildPath `
+    -DestinationDirectory $officeToolsOverlayDir
+
 # Build signing arguments — VSTO targets generate .vsto + .dll.manifest only when signed
 $publishDir = Join-Path $OutputDir "publish"
 New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
@@ -140,6 +205,7 @@ $buildArgs = @(
     "/t:Build"
     "/p:Configuration=$Configuration"
     "/p:Platform=Any CPU"
+    "/p:VSToolsPath=$officeToolsOverlayVSToolsPath"
     "/p:PublishUrl=$publishUrl"
     "/p:InstallUrl=$publishUrl"
     "/v:minimal"
