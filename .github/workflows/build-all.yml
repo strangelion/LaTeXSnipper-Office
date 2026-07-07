@@ -133,7 +133,7 @@ jobs:
         shell: pwsh
         run: |
           $src = "_vsto_artifact"
-          $dst = "src-tauri/resources/NativeOffice"
+          $dst = "apps/native-office/Installer/output/staging"
               
           if (-not (Test-Path -LiteralPath $src)) {
             throw "VSTO artifact source missing: $src"
@@ -156,10 +156,15 @@ jobs:
           }
         
           $stagedFiles = Get-ChildItem -LiteralPath $dst -Recurse -Force
-          Write-Host "NativeOffice staged files: $($stagedFiles.Count)"
+          Write-Host "VSTO staging files: $($stagedFiles.Count)"
         
           if ($stagedFiles.Count -eq 0) {
-            throw "VSTO artifact staging produced an empty NativeOffice directory."
+            throw "VSTO artifact staging produced an empty directory."
+          }
+
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $dst
+          if ($LASTEXITCODE -ne 0) {
+            throw "Downloaded VSTO artifact failed ClickOnce hash-chain validation."
           }
 
       - uses: actions/setup-node@v4
@@ -187,6 +192,66 @@ jobs:
           echo "Injected version $VERSION into manifests"
 
       - run: npx tauri build --bundles msi,nsis
+
+      - name: Verify NativeOffice payload inside the final MSI
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" -File |
+            Select-Object -First 1
+          if (-not $msi) { throw "Tauri MSI output was not found." }
+
+          $extractRoot = Join-Path $env:RUNNER_TEMP "latexsnipper-msi-inspect"
+          Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+
+          $process = Start-Process -FilePath "msiexec.exe" `
+            -ArgumentList @("/a", $msi.FullName, "/qn", "TARGETDIR=$extractRoot") `
+            -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Administrative MSI extraction failed with exit code $($process.ExitCode)."
+          }
+
+          $payload = Get-ChildItem -LiteralPath $extractRoot -Directory -Recurse |
+            Where-Object {
+              $_.Name -eq "NativeOffice" -and
+              (Test-Path -LiteralPath (Join-Path $_.FullName "Word\LaTeXSnipper.Word.vsto"))
+            } |
+            Select-Object -First 1
+          if (-not $payload) { throw "NativeOffice payload was not found in the final MSI." }
+
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $payload.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "The final MSI changed the VSTO ClickOnce payload."
+          }
+
+      - name: Verify NativeOffice payload inside the final NSIS installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis/*.exe" -File |
+            Select-Object -First 1
+          if (-not $installer) { throw "Tauri NSIS output was not found." }
+
+          # NSIS requires /D=... to be its final argument. RUNNER_TEMP contains
+          # no spaces on hosted Windows images, so the silent install remains
+          # deterministic and is isolated from the real Program Files directory.
+          $installRoot = Join-Path $env:RUNNER_TEMP "latexsnipper-nsis-inspect"
+          Remove-Item -LiteralPath $installRoot -Recurse -Force -ErrorAction SilentlyContinue
+          $process = Start-Process -FilePath $installer.FullName `
+            -ArgumentList "/S /D=$installRoot" `
+            -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Silent NSIS installation failed with exit code $($process.ExitCode)."
+          }
+
+          $payload = Join-Path $installRoot "resources\NativeOffice"
+          if (-not (Test-Path -LiteralPath $payload -PathType Container)) {
+            throw "NativeOffice payload was not found after silent NSIS installation."
+          }
+
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $payload
+          if ($LASTEXITCODE -ne 0) {
+            throw "The final NSIS installer changed the VSTO ClickOnce payload."
+          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -418,10 +483,17 @@ jobs:
           $null = New-Item -ItemType Directory -Path "$release/windows" -Force
           $tw | Copy-Item -Destination "$release/windows/" -Force
 
-          # VSTO
-          $vsto = Get-ChildItem "artifacts/vsto" -Recurse -File
-          $null = New-Item -ItemType Directory -Path "$release/windows/vsto" -Force
-          $vsto | Copy-Item -Destination "$release/windows/vsto/" -Force
+          # VSTO: preserve the host-directory layout in one archive. Uploading the
+          # individual files flattens Word/Excel/PowerPoint dependencies and makes
+          # the release page unusable as a standalone VSTO package.
+          $vstoRoot = (Resolve-Path -LiteralPath "artifacts/vsto").Path
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $vstoRoot
+          if ($LASTEXITCODE -ne 0) { throw "VSTO release payload failed integrity validation." }
+
+          $vstoZip = Join-Path $release "LaTeXSnipper-Office-VSTO_$ver.zip"
+          Remove-Item -LiteralPath $vstoZip -Force -ErrorAction SilentlyContinue
+          $vstoItems = Get-ChildItem -LiteralPath $vstoRoot -Force
+          Compress-Archive -Path $vstoItems.FullName -DestinationPath $vstoZip -CompressionLevel Optimal
 
           # WPS
           $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
@@ -458,6 +530,20 @@ jobs:
           $manifest | ConvertTo-Json -Depth 10 |
             Set-Content -LiteralPath (Join-Path $releaseRoot "release-manifest.json") -Encoding UTF8
 
+          # User-facing checksums cover installable packages only. The internal
+          # release manifest stays in the workflow artifact but is not attached
+          # as a separate GitHub Release asset.
+          $checksums = Join-Path $releaseRoot "SHA256SUMS.txt"
+          Get-ChildItem -LiteralPath $releaseRoot -Recurse -File |
+            Where-Object { $_.Name -notin @("release-manifest.json", "SHA256SUMS.txt") } |
+            Sort-Object FullName |
+            ForEach-Object {
+              $relativePath = $_.FullName.Substring($releaseRoot.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $relativePath"
+            } |
+            Set-Content -LiteralPath $checksums -Encoding ASCII
+
           Write-Host "Release structure:"
           Get-ChildItem $release -Recurse -File | ForEach-Object {
             Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
@@ -475,14 +561,21 @@ jobs:
           tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }}
           files: |
-            release/LaTeXSnipper-${{ env.VERSION }}/**/*
+            release/LaTeXSnipper-${{ env.VERSION }}/windows/*.msi
+            release/LaTeXSnipper-${{ env.VERSION }}/windows/*.exe
+            release/LaTeXSnipper-${{ env.VERSION }}/LaTeXSnipper-Office-VSTO_*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/macos/*.dmg
+            release/LaTeXSnipper-${{ env.VERSION }}/linux/*.deb
+            release/LaTeXSnipper-${{ env.VERSION }}/linux/*.rpm
+            release/LaTeXSnipper-${{ env.VERSION }}/SHA256SUMS.txt
           generate_release_notes: true
           body: |
             ## LaTeXSnipper Office v${{ env.VERSION }}
 
             ### Windows
-            - **Tauri Desktop**: `windows/*.msi` (MSI) and `windows/*.exe` (NSIS)
-            - **VSTO Add-in**: `windows/vsto/` — DLL + .vsto 清单
+            - **推荐桌面安装包**：下载 `.msi`；`.exe` 是 NSIS 备用安装包。
+            - **Native Office VSTO**：桌面安装包内已包含；仅在需要手动部署时下载 `LaTeXSnipper-Office-VSTO_*.zip`，必须完整解压并保持 `Word/Excel/PowerPoint/Shared` 目录结构。
             - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
             - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
 
@@ -493,7 +586,6 @@ jobs:
             - **Tauri Desktop**: `linux/*.deb` (.rpm)
 
             ### Office 加载项安装
-            下载 `windows/vsto/` 目录下的文件到本地，然后打开 LaTeXSnipper 桌面端 → 设置 → 开启 Office 集成，桌面端会自动注册 COM 加载项，重启 Office 生效。
+            安装桌面端后，打开 LaTeXSnipper → 设置 → 开启 Office 集成，然后重启 Word、Excel 或 PowerPoint。不要从 Release 页面单独下载 DLL、`.vsto` 或 `.manifest` 文件混用。
 
-            ### release-manifest.json
-            Contains version, component list, and sizes for every release artifact.
+            `SHA256SUMS.txt` 包含所有用户可下载安装包的校验值。

@@ -127,6 +127,14 @@ if ($runningOnWindows) {
     Require-Dir (Join-Path $vstoStaging "Shared") "NativeOffice shared directory"
     Require-File (Join-Path $vstoStaging "Shared\LaTeXSnipper.NativeOffice.Shared.dll") "NativeOffice shared DLL"
     Copy-CleanDir $vstoStaging $vstoDest
+
+    # Copy operations must never leave a deployment manifest paired with a
+    # different application manifest. Validate the final Tauri resource tree,
+    # not only the build staging source.
+    & (Join-Path $PSScriptRoot "verify-vsto-manifests.ps1") `
+        -PayloadRoot (Resolve-Path -LiteralPath $vstoDest).Path
+    if ($LASTEXITCODE -ne 0) { throw "NativeOffice resource integrity verification failed" }
+
     $nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
     Write-Host "  NativeOffice: $nativeCount files staged" -ForegroundColor Green
 } else {

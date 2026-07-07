@@ -337,6 +337,15 @@ if (-not $allGood) {
     throw "Native Office staging is incomplete."
 }
 
+# A VSTO deployment manifest hashes its application manifest and the application
+# manifest hashes every payload dependency. Verify the copied staging tree before
+# it becomes an artifact or an installer input; a later byte mismatch is rejected
+# by Word/Excel/PowerPoint as InvalidDeploymentException.
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..\..")).Path
+$verifyVstoManifests = Join-Path $repoRoot "scripts\verify-vsto-manifests.ps1"
+& $verifyVstoManifests -PayloadRoot (Resolve-Path -LiteralPath $staging).Path
+if ($LASTEXITCODE -ne 0) { throw "VSTO manifest integrity verification failed" }
+
 if ($StageOnly) {
     Write-Host "`n=== VSTO staging complete ===" -ForegroundColor Green
     Write-Host "Staging: $staging" -ForegroundColor Yellow
