@@ -31,6 +31,21 @@ namespace LaTeXSnipper.Excel
             return addIn != null && addIn.PipeConnected;
         }
 
+        public string GetLabel(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id);
+        }
+
+        public string GetScreentip(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id + "_screentip");
+        }
+
+        public string GetSupertip(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id + "_supertip");
+        }
+
         public void OnButtonClick(IRibbonControl control)
         {
             var addIn = Globals.ThisAddIn;
@@ -56,16 +71,16 @@ namespace LaTeXSnipper.Excel
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
+                            MessageBox.Show("LaTeX: " + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
                         else
-                            MessageBox.Show("No formula selected", "LaTeXSnipper");
+                            MessageBox.Show(RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     }
-                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, "LaTeXSnipper"); }
+                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, RibbonLocalizer.GetString("ErrorTitle")); }
                     break;
 
                 case "delete":
                     var ok = addIn.Adapter.DeleteCurrent();
-                    MessageBox.Show(ok ? "Deleted" : "No formula found", "LaTeXSnipper");
+                    MessageBox.Show(ok ? RibbonLocalizer.GetString("FormulaDeleted") : RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     break;
 
                 case "showPane":
@@ -86,11 +101,11 @@ namespace LaTeXSnipper.Excel
                     break;
 
                 case "help":
-                    MessageBox.Show("LaTeXSnipper v1.0.0", "LaTeXSnipper");
+                    MessageBox.Show("LaTeXSnipper v1.0.0", RibbonLocalizer.GetString("ErrorTitle"));
                     break;
 
                 default:
-                    MessageBox.Show("Not implemented: " + control.Tag, "LaTeXSnipper");
+                    MessageBox.Show(RibbonLocalizer.GetString("NotImplemented") + ": " + control.Tag, RibbonLocalizer.GetString("ErrorTitle"));
                     break;
             }
         }

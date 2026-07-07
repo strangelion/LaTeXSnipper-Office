@@ -102,6 +102,12 @@ public:
     STDMETHOD(GetFormulaId)(BSTR* formulaId) override;
     STDMETHOD(OpenEditor)() override;
 
+    // IDispatch
+    STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;
+    STDMETHOD(GetTypeInfo)(UINT iTInfo, LCID lcid, ITypeInfo** ppTInfo) override;
+    STDMETHOD(GetIDsOfNames)(REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID lcid, DISPID* rgDispId) override;
+    STDMETHOD(Invoke)(DISPID dispIdMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) override;
+
 private:
     void NotifyPresentationChanged();
     HRESULT StartEditSession();
@@ -118,6 +124,7 @@ private:
     DWORD dataAdviseFlags_ = 0;
     DWORD cacheConnection_ = 1;
     FormulaPresentation presentation_;
+    std::wstring canonicalPayloadJson_;
     bool dirty_ = false;
     std::wstring formulaId_;
 };

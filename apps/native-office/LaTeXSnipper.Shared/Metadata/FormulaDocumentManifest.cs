@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,8 +29,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                var existing = FindOrCreatePart(doc);
-                var existingXml = GetPartXml(existing);
+                dynamic existing = FindOrCreatePart(doc);
+                var existingXml = (string?)GetPartXml(existing);
                 var xdoc = ParseOrCreate(existingXml);
 
                 // Remove old entry for this formulaId, then add new one
@@ -45,8 +44,15 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     new XAttribute("id", payload.FormulaId),
                     new XAttribute("revision", payload.Revision),
                     new XAttribute("storageMode", ChooseStorageMode(payload)),
-                    new XElement("latex", EscapeXml(payload.Latex)),
+                    new XAttribute("schemaVersion", payload.SchemaVersion),
+                    new XElement("latex", payload.Latex ?? ""),
                     new XElement("display", payload.Display ?? "inline"),
+                    new XElement("payload", SerializePayloadJson(payload)),
+                    new XElement("locator",
+                        new XAttribute("host", "word"),
+                        new XAttribute("objectName", $"LSNO_{payload.FormulaId}"),
+                        new XAttribute("kind", ChooseStorageMode(payload))
+                    ),
                     string.IsNullOrEmpty(payload.Omml) ? null :
                         new XElement("omml", new XAttribute("sha256", ComputeSha256(payload.Omml)),
                             Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.Omml)))
@@ -69,10 +75,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                var part = FindPart(doc);
+                dynamic part = FindPart(doc);
                 if (part == null) return null;
 
-                var xml = GetPartXml(part);
+                var xml = (string?)GetPartXml(part);
                 if (string.IsNullOrEmpty(xml)) return null;
 
                 var xdoc = XDocument.Parse(xml);
@@ -87,6 +93,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     Display = entry.Element("display")?.Value ?? "inline",
                     Revision = (int?)entry.Attribute("revision") ?? 0,
                     StorageMode = (string?)entry.Attribute("storageMode"),
+                    SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
                     Omml = DecodeOmml(entry.Element("omml")),
                 };
             }
@@ -124,6 +131,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                         Display = entry.Element("display")?.Value ?? "inline",
                         Revision = (int?)entry.Attribute("revision") ?? 0,
                         StorageMode = (string?)entry.Attribute("storageMode"),
+                        SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
                     };
                 }
             }
@@ -141,10 +149,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                var part = FindPart(doc);
+                dynamic part = FindPart(doc);
                 if (part == null) return;
 
-                var xml = GetPartXml(part);
+                var xml = (string?)GetPartXml(part);
                 if (string.IsNullOrEmpty(xml)) return;
 
                 var xdoc = XDocument.Parse(xml);
@@ -166,7 +174,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// <summary>
         /// Find the manifest CustomXMLPart, or null if it doesn't exist.
         /// </summary>
-        public static object? FindPart(Microsoft.Office.Interop.Word.Document doc)
+        public static dynamic? FindPart(Microsoft.Office.Interop.Word.Document doc)
         {
             try
             {
@@ -187,7 +195,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
         // ── Private helpers ──
 
-        private static object FindOrCreatePart(Microsoft.Office.Interop.Word.Document doc)
+        private static dynamic FindOrCreatePart(Microsoft.Office.Interop.Word.Document doc)
         {
             var existing = FindPart(doc);
             if (existing != null) return existing;
@@ -218,16 +226,6 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             if (!string.IsNullOrEmpty(payload.StorageMode))
                 return payload.StorageMode;
             return "native-omml";
-        }
-
-        private static string EscapeXml(string text)
-        {
-            return text
-                .Replace("&", "&amp;")
-                .Replace("<", "&lt;")
-                .Replace(">", "&gt;")
-                .Replace("\"", "&quot;")
-                .Replace("'", "&apos;");
         }
 
         private static string ComputeSha256(string input)
@@ -298,11 +296,11 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// <summary>
         /// Write a formula entry to the manifest on a Workbook/Presentation.
         /// </summary>
-        public static void WriteEntry(dynamic customXmlParts, FormulaPayload payload)
+        public static void WriteEntry(dynamic customXmlParts, FormulaPayload payload, string host = "excel")
         {
             try
             {
-                object? existing = null;
+                dynamic? existing = null;
                 for (int i = customXmlParts.Count; i >= 1; i--)
                 {
                     dynamic part = customXmlParts[i];
@@ -318,6 +316,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 }
 
                 string xml;
+                var locator = FormulaObjectLocator.FromFormulaId(host, payload.FormulaId, ChooseStorageMode(payload));
                 if (existing != null)
                 {
                     string existingXml;
@@ -331,7 +330,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     if (oldEntry != null)
                         oldEntry.Remove();
 
-                    root.Add(BuildEntryElement(payload));
+                    root.Add(BuildEntryElement(payload, locator));
 
                     // HACK: Office interop requires delete+add for updates
                     try { existing.Delete(); } catch { }
@@ -340,7 +339,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 else
                 {
                     var xdoc = XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
-                    xdoc.Root!.Add(BuildEntryElement(payload));
+                    xdoc.Root!.Add(BuildEntryElement(payload, locator));
                     xml = xdoc.ToString(SaveOptions.DisableFormatting);
                 }
 
@@ -352,15 +351,84 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             }
         }
 
-        private static XElement BuildEntryElement(FormulaPayload payload)
+        /// <summary>
+        /// Remove a formula entry from the manifest on a Workbook/Presentation.
+        /// </summary>
+        public static void RemoveEntry(dynamic customXmlParts, string formulaId)
         {
+            try
+            {
+                for (int i = customXmlParts.Count; i >= 1; i--)
+                {
+                    dynamic part = customXmlParts[i];
+                    try
+                    {
+                        if ((string?)part.NamespaceURI != NamespaceUri)
+                            continue;
+
+                        string existingXml;
+                        try { existingXml = (string)part.GetType().GetProperty("XML")?.GetValue(part); }
+                        catch { existingXml = ""; }
+
+                        if (string.IsNullOrEmpty(existingXml))
+                            continue;
+
+                        var xdoc = XDocument.Parse(existingXml);
+                        var entry = xdoc.Root?.Elements()
+                            .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
+                        if (entry == null)
+                            return;
+
+                        entry.Remove();
+
+                        try { part.Delete(); } catch { }
+                        customXmlParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
+                        return;
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] RemoveEntry failed: {ex.Message}");
+            }
+        }
+
+        private static XElement BuildEntryElement(FormulaPayload payload, FormulaObjectLocator? locator = null)
+        {
+            locator ??= FormulaObjectLocator.FromFormulaId("word", payload.FormulaId, ChooseStorageMode(payload));
             return new XElement("formula",
                 new XAttribute("id", payload.FormulaId),
                 new XAttribute("revision", payload.Revision),
                 new XAttribute("storageMode", ChooseStorageMode(payload)),
-                new XElement("latex", EscapeXml(payload.Latex)),
-                new XElement("display", payload.Display ?? "inline")
+                new XAttribute("schemaVersion", payload.SchemaVersion),
+                new XElement("latex", payload.Latex ?? ""),
+                new XElement("display", payload.Display ?? "inline"),
+                new XElement("locator",
+                    new XAttribute("host", locator.Host),
+                    new XAttribute("objectName", locator.ObjectName),
+                    new XAttribute("kind", locator.Kind),
+                    string.IsNullOrEmpty(locator.Container) ? null :
+                        new XAttribute("container", locator.Container)
+                ),
+                new XElement("payload", SerializePayloadJson(payload))
             );
+        }
+
+        private static string SerializePayloadJson(FormulaPayload payload)
+        {
+            try
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                });
+                return Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+            }
+            catch
+            {
+                return "";
+            }
         }
     }
 }

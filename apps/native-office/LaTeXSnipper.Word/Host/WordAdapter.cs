@@ -2,7 +2,6 @@
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
-using LaTeXSnipper.Word.Metadata;
 
 namespace LaTeXSnipper.Word.Host
 {
@@ -209,6 +208,36 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        /// <summary>
+        /// Delete a formula by exact FormulaId. Finds ContentControl with matching tag.
+        /// </summary>
+        public InsertResult DeleteFormula(string formulaId)
+        {
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                    return new InsertResult { Success = false, Error = "No active document" };
+
+                string targetTag = $"latexsnipper:formula:{formulaId}";
+                foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
+                {
+                    var tag = cc.Tag as string;
+                    if (string.Equals(tag, targetTag, StringComparison.Ordinal))
+                    {
+                        cc.Delete();
+                        return new InsertResult { Success = true };
+                    }
+                }
+
+                return new InsertResult { Success = false, Error = $"Formula {formulaId} not found" };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult { Success = false, Error = ex.Message };
+            }
+        }
+
         private static Microsoft.Office.Interop.Word.ContentControl FindParentLsnContentControl(
             Microsoft.Office.Interop.Word.Range range)
         {
@@ -280,8 +309,22 @@ namespace LaTeXSnipper.Word.Host
                 return new InsertResult { Success = false, Error = "No active document" };
 
             var range = _application.Selection.Range;
+
             try
             {
+                string storageMode = payload.StorageMode ?? "auto";
+
+                if (storageMode == "ole")
+                {
+                    return InsertOleObject(doc, range, payload);
+                }
+
+                if (storageMode == "image")
+                {
+                    return InsertImageObject(doc, range, payload);
+                }
+
+                // Default: native OMML (also "auto" and "native-omml")
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] OMML to insert: [{payload.Omml}]");
 
@@ -296,7 +339,7 @@ namespace LaTeXSnipper.Word.Host
 
                 range.InsertXML(flatOpc);
 
-                FormulaMetadata.Write(doc, payload.FormulaId, payload);
+                FormulaDocumentManifest.Write(doc, payload);
 
                 return new InsertResult
                 {
@@ -318,6 +361,95 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
+        {
+            try
+            {
+                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+                var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
+                    range.InlineShapes.AddOLEObject(
+                        ClassType: "LaTeXSnipper.Formula.1",
+                        FileName: Type.Missing,
+                        LinkToFile: false,
+                        DisplayAsIcon: false);
+
+                oleShape.Width = width;
+                oleShape.Height = height;
+
+                // Initialize with formula payload via OLE automation
+                try
+                {
+                    if (!OleFormulaInterop.Initialize(oleShape.OLEFormat.Object, payload))
+                    {
+                        oleShape.Delete();
+                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                    }
+                    if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload.FormulaId))
+                    {
+                        oleShape.Delete();
+                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                    }
+                }
+                catch (Exception initEx)
+                {
+                    oleShape.Delete();
+                    return new InsertResult { Success = false, Error = $"OLE automation failed: {initEx.Message}" };
+                }
+
+                FormulaDocumentManifest.Write(doc, payload);
+
+                return new InsertResult
+                {
+                    Success = true,
+                    FormulaId = payload.FormulaId,
+                    RangeStart = (uint)range.Start,
+                    RangeEnd = (uint)range.End
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WordAdapter] OLE insert error: {ex.Message}");
+                return new InsertResult { Success = false, Error = $"OLE insert failed: {ex.Message}" };
+            }
+        }
+
+        private InsertResult InsertImageObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
+        {
+            try
+            {
+                if (payload.Render?.Png == null && payload.Render?.Svg == null)
+                    return new InsertResult { Success = false, Error = "No render data for image insertion" };
+
+                // Word prefers PNG for inline images
+                if (payload.Render?.Png != null)
+                {
+                    var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                    System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                    range.InlineShapes.AddPicture(tempPath);
+                }
+                else
+                {
+                    var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                    System.IO.File.WriteAllText(tempPath, payload.Render!.Svg!);
+                    range.InlineShapes.AddPicture(tempPath);
+                }
+
+                return new InsertResult
+                {
+                    Success = true,
+                    FormulaId = payload.FormulaId,
+                    RangeStart = (uint)range.Start,
+                    RangeEnd = (uint)range.End
+                };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult { Success = false, Error = $"Image insert failed: {ex.Message}" };
+            }
+        }
+
         /// <summary>
         /// Convert a formula between storage modes (native-omml ↔ ole ↔ image-manifest).
         /// Creates the new storage object, validates it, then deletes the old one.
@@ -331,7 +463,7 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = "No active document" };
 
                 // 1. Read existing formula from manifest
-                var existing = Metadata.FormulaDocumentManifest.Read(doc, formulaId);
+                var existing = FormulaDocumentManifest.Read(doc, formulaId);
                 if (existing == null)
                     return new InsertResult { Success = false, Error = "Formula not found in manifest" };
 
@@ -394,8 +526,8 @@ namespace LaTeXSnipper.Word.Host
                         StorageMode = "native-omml",
                         Revision = 1
                     };
-                    Metadata.FormulaDocumentManifest.Write(doc, newPayload);
-                    Metadata.FormulaDocumentManifest.Remove(doc, formulaId);
+                    FormulaDocumentManifest.Write(doc, newPayload);
+                    FormulaDocumentManifest.Remove(doc, formulaId);
 
                     return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "native-omml" };
                 }
@@ -427,8 +559,8 @@ namespace LaTeXSnipper.Word.Host
                         StorageMode = "ole",
                         Revision = 1
                     };
-                    Metadata.FormulaDocumentManifest.Write(doc, newPayload);
-                    Metadata.FormulaDocumentManifest.Remove(doc, formulaId);
+                    FormulaDocumentManifest.Write(doc, newPayload);
+                    FormulaDocumentManifest.Remove(doc, formulaId);
 
                     return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "ole" };
                 }
@@ -436,7 +568,7 @@ namespace LaTeXSnipper.Word.Host
                 // image-manifest: keep current OMML content but mark as image-manifest
                 existing.StorageMode = "image-manifest";
                 existing.Revision++;
-                Metadata.FormulaDocumentManifest.Write(doc, existing);
+                FormulaDocumentManifest.Write(doc, existing);
 
                 return new InsertResult { Success = true, FormulaId = formulaId, StorageMode = "image-manifest" };
             }
@@ -647,6 +779,7 @@ namespace LaTeXSnipper.Word.Host
         public bool Success { get; set; }
         public string FormulaId { get; set; } = "";
         public string StorageMode { get; set; } = "";
+        public string? FallbackReason { get; set; }
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }
         public string Error { get; set; } = "";

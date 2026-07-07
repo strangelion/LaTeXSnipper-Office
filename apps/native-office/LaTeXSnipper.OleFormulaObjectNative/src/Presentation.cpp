@@ -78,6 +78,8 @@ void DrawFormulaText(HDC hdc, RECT bounds, const std::wstring& latex)
     }
 }
 
+} // anonymous namespace
+
 std::wstring ExtractJsonString(const std::wstring& json, const std::wstring& propertyName)
 {
     const std::wstring marker = L"\"" + propertyName + L"\"";
@@ -149,6 +151,41 @@ std::wstring ExtractJsonString(const std::wstring& json, const std::wstring& pro
 
 double ExtractJsonNumber(const std::wstring& json, const std::wstring& propertyName)
 {
+    // Find property key directly (handles both flat and nested JSON)
+    const std::wstring marker = L"\"" + propertyName + L"\"";
+    size_t property = json.find(marker);
+    if (property == std::wstring::npos)
+    {
+        return 0;
+    }
+
+    size_t colon = json.find(L':', property + marker.size());
+    if (colon == std::wstring::npos)
+    {
+        return 0;
+    }
+
+    // Skip whitespace after colon
+    size_t start = colon + 1;
+    while (start < json.size() && (json[start] == L' ' || json[start] == L'\t' || json[start] == L'\n' || json[start] == L'\r'))
+    {
+        ++start;
+    }
+
+    if (start >= json.size())
+    {
+        return 0;
+    }
+
+    // Check if the value is a number (digit, minus, or plus)
+    if (json[start] == L'-' || json[start] == L'+' || (json[start] >= L'0' && json[start] <= L'9'))
+    {
+        wchar_t* end = nullptr;
+        double value = wcstod(json.c_str() + start, &end);
+        return end == json.c_str() + start ? 0 : value;
+    }
+
+    // Fallback to quoted string extraction (for backward compatibility)
     std::wstring text = ExtractJsonString(json, propertyName);
     if (text.empty())
     {
@@ -222,8 +259,9 @@ std::vector<BYTE> DecodeBase64(const std::wstring& value)
 
 void ApplyPayloadSize(const std::wstring& payloadJson, FormulaPresentation* presentation)
 {
-    double widthPoints = ExtractJsonNumber(payloadJson, L"render.widthPt");
-    double heightPoints = ExtractJsonNumber(payloadJson, L"render.heightPt");
+    // Search for leaf keys directly — works for nested JSON like {"render":{"widthPt":120}}
+    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
+    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
     // Fallback to old field names for backward compatibility
     if (widthPoints <= 0) widthPoints = ExtractJsonNumber(payloadJson, L"widthPoints");
     if (heightPoints <= 0) heightPoints = ExtractJsonNumber(payloadJson, L"heightPoints");
@@ -231,8 +269,6 @@ void ApplyPayloadSize(const std::wstring& payloadJson, FormulaPresentation* pres
     {
         presentation->himetricSize = {PointsToHimetric(widthPoints), PointsToHimetric(heightPoints)};
     }
-}
-
 }
 
 FormulaPresentation CreatePlaceholderPresentation(const std::wstring& latex)
@@ -280,6 +316,15 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
     presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
     ApplyPayloadSize(payloadJson, &presentation);
 
+    // Try emfBase64 (new v3 field matching C#/Rust FormulaPayload.presentation.emfBase64)
+    std::vector<BYTE> emfFromPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"emfBase64"));
+    if (!emfFromPresentation.empty())
+    {
+        presentation.enhancedMetafile = std::move(emfFromPresentation);
+        return presentation;
+    }
+
+    // Legacy: presentationPayloadBase64
     std::vector<BYTE> payloadPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"presentationPayloadBase64"));
     if (!payloadPresentation.empty())
     {
@@ -301,6 +346,15 @@ FormulaPresentation CreatePresentationFromPayloadWithoutRendering(const std::wst
     presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
     ApplyPayloadSize(payloadJson, &presentation);
 
+    // Try emfBase64 (new v3 field)
+    std::vector<BYTE> emfFromPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"emfBase64"));
+    if (!emfFromPresentation.empty())
+    {
+        presentation.enhancedMetafile = std::move(emfFromPresentation);
+        return presentation;
+    }
+
+    // Legacy: presentationPayloadBase64
     std::vector<BYTE> payloadPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"presentationPayloadBase64"));
     if (!payloadPresentation.empty())
     {

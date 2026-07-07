@@ -168,6 +168,7 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <None Include="LaTeXSnipper.Excel_TemporaryKey.pfx" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -212,6 +213,15 @@
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
     <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
     <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
+  </PropertyGroup>
+  <PropertyGroup>
+    <SignManifests>true</SignManifests>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestKeyFile>LaTeXSnipper.Excel_TemporaryKey.pfx</ManifestKeyFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestCertificateThumbprint>8FABBBC70DF825D55762754D112F67DCB6432F80</ManifestCertificateThumbprint>
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->

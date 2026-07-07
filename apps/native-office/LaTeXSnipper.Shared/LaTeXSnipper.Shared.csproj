@@ -31,11 +31,16 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.IO.Pipes" />
     <Reference Include="System.Security" />
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="Microsoft.Office.Interop.Word, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c" />
+    <Reference Include="Microsoft.Office.Interop.Excel, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c" />
+    <Reference Include="Microsoft.Office.Interop.PowerPoint, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c" />
+    <Reference Include="office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Text.Json" Version="10.0.9" />
@@ -48,6 +53,10 @@
     <Compile Include="CommandMessage.cs" />
     <Compile Include="ICommandHostAdapter.cs" />
     <Compile Include="Metadata\FormulaDocumentManifest.cs" />
+    <Compile Include="OleFormulaInterop.cs" />
+    <Compile Include="FormulaObjectLocator.cs" />
+    <Compile Include="Metadata\ManifestDiagnostics.cs" />
+    <Compile Include="RibbonLocalizer.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

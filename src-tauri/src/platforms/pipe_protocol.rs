@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 3;
 pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v3";
-pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:native-office:v3";
+pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:office:objects:v3";
 
 // ---------------------------------------------------------------------------
 // VSTO -> Desktop messages
@@ -291,6 +291,8 @@ pub struct Capabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormulaPayload {
+    #[serde(rename = "schemaVersion", skip_serializing_if = "Option::is_none")]
+    pub schema_version: Option<i32>,
     #[serde(rename = "formulaId")]
     pub formula_id: String,
     pub latex: String,
@@ -305,6 +307,7 @@ pub struct FormulaPayload {
     pub source: Option<SourceInfo>,
     #[serde(rename = "storageMode", skip_serializing_if = "Option::is_none")]
     pub storage_mode: Option<String>,
+    #[serde(rename = "revision")]
     pub revision: i32,
 }
 
@@ -314,6 +317,8 @@ pub struct Presentation {
     #[serde(rename = "fontScale")]
     pub font_scale: f32,
     pub color: String,
+    #[serde(rename = "emfBase64", skip_serializing_if = "Option::is_none")]
+    pub emf_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

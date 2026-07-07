@@ -9,11 +9,67 @@
 #include <thread>
 #include <vector>
 #include <rpc.h>  // UuidCreate
+#include <aclapi.h>  // SetEntriesInAclW
+#include <shellapi.h>  // ShellExecuteExW
 
 #pragma comment(lib, "rpcrt4.lib")
+#pragma comment(lib, "advapi32.lib")
 
 namespace
 {
+
+// ConnectNamedPipe with timeout (milliseconds).
+// Returns true if connected, false on timeout/error.
+bool ConnectNamedPipeWithTimeout(HANDLE pipe, DWORD timeoutMs)
+{
+    // Use overlapped ConnectNamedPipe with event for timeout support
+    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (event == nullptr)
+        return false;
+
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = event;
+
+    BOOL connected = ConnectNamedPipe(pipe, &overlapped);
+    if (connected)
+    {
+        // Connected synchronously (unlikely but possible with a pending connection)
+        CloseHandle(event);
+        return true;
+    }
+
+    DWORD error = GetLastError();
+    if (error == ERROR_PIPE_CONNECTED)
+    {
+        // Client already connected before we called ConnectNamedPipe
+        CloseHandle(event);
+        return true;
+    }
+
+    if (error != ERROR_IO_PENDING)
+    {
+        // Real error
+        CloseHandle(event);
+        return false;
+    }
+
+    // Wait for connection or timeout
+    DWORD waitResult = WaitForSingleObject(event, timeoutMs);
+    if (waitResult == WAIT_OBJECT_0)
+    {
+        // Connected
+        DWORD bytesTransferred = 0;
+        GetOverlappedResult(pipe, &overlapped, &bytesTransferred, FALSE);
+        CloseHandle(event);
+        return true;
+    }
+
+    // Timeout — cancel the pending operation
+    CancelIo(pipe);
+    CloseHandle(event);
+    SetLastError(ERROR_TIMEOUT);
+    return false;
+}
 
 std::wstring GenerateSessionToken()
 {
@@ -27,15 +83,45 @@ std::wstring GenerateSessionToken()
 }
 
 // Build the JSON envelope string from current presentation state.
+std::wstring JsonEscapeString(const std::wstring& input)
+{
+    std::wstring result;
+    result.reserve(input.size() + 8);
+    for (wchar_t ch : input)
+    {
+        switch (ch)
+        {
+        case L'"':  result += L"\\\""; break;
+        case L'\\': result += L"\\\\"; break;
+        case L'\n': result += L"\\n";  break;
+        case L'\r': result += L"\\r";  break;
+        case L'\t': result += L"\\t";  break;
+        default:
+            if (static_cast<unsigned>(ch) < 0x20)
+            {
+                // Control characters: encode as \u00XX
+                wchar_t buf[8];
+                swprintf_s(buf, L"\\u%04x", static_cast<unsigned>(ch));
+                result += buf;
+            }
+            else
+            {
+                result += ch;
+            }
+            break;
+        }
+    }
+    return result;
+}
+
 std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
                                 const FormulaPresentation& presentation)
 {
-    // Simple JSON builder (no external dependency needed for this limited use)
     std::wstring json;
     json += L"{\"protocolVersion\":1,";
     json += L"\"sessionType\":\"ole_edit_request\",";
-    json += L"\"formulaId\":\"" + formulaId + L"\",";
-    json += L"\"latex\":\"" + presentation.latex + L"\",";
+    json += L"\"formulaId\":\"" + JsonEscapeString(formulaId) + L"\",";
+    json += L"\"latex\":\"" + JsonEscapeString(presentation.latex) + L"\",";
     json += L"\"widthPt\":180,";
     json += L"\"heightPt\":42,";
     json += L"\"schemaVersion\":3,";
@@ -66,6 +152,100 @@ std::wstring FindDesktopPath()
 
 } // anonymous namespace
 
+// Create SECURITY_ATTRIBUTES with DACL allowing only the current user.
+// Caller must free the returned pointer via HeapFree() after use.
+static SECURITY_ATTRIBUTES* CreateCurrentUserOnlySecurityAttributes()
+{
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return nullptr;
+
+    DWORD tokenInfoLength = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &tokenInfoLength);
+    if (tokenInfoLength == 0)
+    {
+        CloseHandle(token);
+        return nullptr;
+    }
+
+    auto* tokenUser = static_cast<TOKEN_USER*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, tokenInfoLength));
+    if (tokenUser == nullptr)
+    {
+        CloseHandle(token);
+        return nullptr;
+    }
+
+    if (!GetTokenInformation(token, TokenUser, tokenUser, tokenInfoLength, &tokenInfoLength))
+    {
+        CloseHandle(token);
+        HeapFree(GetProcessHeap(), 0, tokenUser);
+        return nullptr;
+    }
+    CloseHandle(token);
+
+    // Build EXPLICIT_ACCESS granting full control to the user's SID
+    EXPLICIT_ACCESS_W explicitAccess{};
+    explicitAccess.grfAccessPermissions = GENERIC_ALL;
+    explicitAccess.grfAccessMode = GRANT_ACCESS;
+    explicitAccess.grfInheritance = NO_INHERITANCE;
+    explicitAccess.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    explicitAccess.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    explicitAccess.Trustee.ptstrName = reinterpret_cast<LPWCH>(tokenUser->User.Sid);
+
+    PACL acl = nullptr;
+    DWORD result = SetEntriesInAclW(1, &explicitAccess, nullptr, &acl);
+    if (result != ERROR_SUCCESS)
+    {
+        HeapFree(GetProcessHeap(), 0, tokenUser);
+        return nullptr;
+    }
+
+    auto* sa = static_cast<SECURITY_ATTRIBUTES*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(SECURITY_ATTRIBUTES)));
+    if (sa == nullptr)
+    {
+        LocalFree(acl);
+        HeapFree(GetProcessHeap(), 0, tokenUser);
+        return nullptr;
+    }
+
+    auto* sd = static_cast<SECURITY_DESCRIPTOR*>(HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, SECURITY_DESCRIPTOR_MIN_LENGTH));
+    if (sd == nullptr)
+    {
+        LocalFree(acl);
+        HeapFree(GetProcessHeap(), 0, sa);
+        HeapFree(GetProcessHeap(), 0, tokenUser);
+        return nullptr;
+    }
+
+    InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION);
+    SetSecurityDescriptorDacl(sd, TRUE, acl, FALSE);
+
+    sa->nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa->lpSecurityDescriptor = sd;
+    sa->bInheritHandle = FALSE;
+
+    HeapFree(GetProcessHeap(), 0, tokenUser);
+    return sa;
+}
+
+static void FreeSecurityAttributes(SECURITY_ATTRIBUTES* sa)
+{
+    if (sa == nullptr) return;
+    if (sa->lpSecurityDescriptor)
+    {
+        auto* sd = static_cast<SECURITY_DESCRIPTOR*>(sa->lpSecurityDescriptor);
+        BOOL hasDacl = FALSE;
+        PACL acl = nullptr;
+        BOOL defaulted = FALSE;
+        if (GetSecurityDescriptorDacl(sd, &hasDacl, &acl, &defaulted) && hasDacl && acl)
+        {
+            LocalFree(acl);
+        }
+        HeapFree(GetProcessHeap(), 0, sd);
+    }
+    HeapFree(GetProcessHeap(), 0, sa);
+}
+
 HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                               FormulaPresentation* presentation,
                               HWND parentWindow)
@@ -83,7 +263,8 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
     std::wstring envelope = BuildEnvelopeJson(formulaId, *presentation);
     DWORD envelopeSize = static_cast<DWORD>((envelope.size() + 1) * sizeof(wchar_t));
 
-    // 3. Create Named Pipe Server (inbound, single instance)
+    // 3. Create Named Pipe Server (single instance, current user only)
+    SECURITY_ATTRIBUTES* pipeSa = CreateCurrentUserOnlySecurityAttributes();
     HANDLE pipe = CreateNamedPipeW(
         pipeName.c_str(),
         PIPE_ACCESS_DUPLEX,
@@ -92,8 +273,13 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
         65536,                // out buffer
         65536,                // in buffer
         5000,                 // default timeout ms
-        nullptr               // default security (current user only)
+        pipeSa                // security: current user only
     );
+
+    if (pipeSa != nullptr)
+    {
+        FreeSecurityAttributes(pipeSa);
+    }
 
     if (pipe == INVALID_HANDLE_VALUE)
     {
@@ -122,13 +308,17 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
         return HResultFromWin32LastError();
     }
 
-    // 5. Wait for Desktop to connect (timeout: 60 seconds)
-    BOOL connected = ConnectNamedPipe(pipe, nullptr);
-    if (!connected && GetLastError() != ERROR_PIPE_CONNECTED)
+    // 5. Wait for Desktop to connect with 60-second timeout
+    // Use overlapped I/O for timeout support to avoid blocking Office UI thread
+    BOOL connected = ConnectNamedPipeWithTimeout(pipe, 60000);
+    if (!connected)
     {
-        WriteNativeOleLog(L"OleEditSession: Desktop did not connect.");
+        DWORD err = GetLastError();
+        WriteNativeOleLog(err == ERROR_TIMEOUT
+            ? L"OleEditSession: Desktop did not connect within 60s timeout."
+            : L"OleEditSession: Desktop connection failed.");
         CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        return err == ERROR_TIMEOUT ? HRESULT_FROM_WIN32(ERROR_TIMEOUT) : HResultFromWin32LastError();
     }
 
     WriteNativeOleLog(L"OleEditSession: Desktop connected.");

@@ -36,11 +36,24 @@ namespace LaTeXSnipper.PowerPoint.Host
 
             try
             {
-                // OLE path: try when integration mode is OLE or Auto
-                if (payload.StorageMode == "ole" || string.IsNullOrEmpty(payload.StorageMode))
+                string storageMode = payload.StorageMode ?? "auto";
+
+                if (storageMode == "ole")
                 {
                     var oleResult = TryInsertOle(slide, payload);
                     if (oleResult != null) return oleResult;
+                    return new InsertResult { Success = false, Error = "OLE insertion failed and mode is 'ole' — no fallback permitted" };
+                }
+
+                if (storageMode == "auto")
+                {
+                    var oleResult = TryInsertOle(slide, payload);
+                    if (oleResult != null) return oleResult;
+                }
+
+                if (storageMode == "native" || storageMode == "native-omml")
+                {
+                    return new InsertResult { Success = false, Error = "PowerPoint does not support native OMML insertion" };
                 }
 
                 // Prefer PNG over SVG (Office renders PNG more reliably)
@@ -168,15 +181,28 @@ namespace LaTeXSnipper.PowerPoint.Host
                     Width: width,
                     Height: height,
                     ClassName: "LaTeXSnipper.Formula.1",
-                    FileName: Type.Missing,
+                    FileName: "",
                     DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse
                 );
 
                 shape.Name = $"LSNO_{payload.FormulaId}";
                 shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
-                // In later phases, call ILatexSnipperFormula.InitializeFromJson() via shape.OLEFormat.Object
-                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted: name={shape.Name}");
+                // Initialize with formula payload via OLE automation
+                if (!OleFormulaInterop.Initialize(shape.OLEFormat.Object, payload))
+                {
+                    shape.Delete();
+                    return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                }
+
+                // Verify round-trip
+                if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload.FormulaId))
+                {
+                    shape.Delete();
+                    return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                 return new InsertResult { Success = true, FormulaId = payload.FormulaId };
             }
             catch (Exception ex)
@@ -233,16 +259,60 @@ namespace LaTeXSnipper.PowerPoint.Host
             return false;
         }
 
+        /// <summary>
+        /// Delete a formula by exact FormulaId. Scans all shapes for matching LSNO_ name.
+        /// </summary>
+        public bool DeleteFormula(string formulaId)
+        {
+            try
+            {
+                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
+                if (slide == null) return false;
+                string targetName = $"LSNO_{formulaId}";
+                for (int i = slide.Shapes.Count; i >= 1; i--)
+                {
+                    var shape = slide.Shapes[i];
+                    if (string.Equals(shape.Name, targetName, StringComparison.Ordinal))
+                    {
+                        shape.Delete();
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)
         {
             try
             {
                 var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
                 if (slide == null) return false;
+
                 foreach (Microsoft.Office.Interop.PowerPoint.Shape shape in slide.Shapes)
                 {
                     if (shape.Name == $"LSNO_{formulaId}")
                     {
+                        // OLE path: replace payload in-place via COM automation
+                        try
+                        {
+                            var oleObj = shape.OLEFormat?.Object;
+                            if (oleObj != null)
+                            {
+                                return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                            }
+                        }
+                        catch
+                        {
+                            // Not an OLE object, fall through to image path
+                        }
+
+                        // Guard: without render data, refuse to delete the old shape
+                        bool hasRender = payload.Render?.Svg != null || payload.Render?.Png != null;
+                        if (!hasRender)
+                            return false;
+
                         // Preserve geometry before deleting
                         float oldLeft = shape.Left;
                         float oldTop = shape.Top;
@@ -250,16 +320,22 @@ namespace LaTeXSnipper.PowerPoint.Host
                         float oldHeight = shape.Height;
                         shape.Delete();
 
-                        if (payload.Render?.Svg != null)
+                        var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                        if (payload.Render?.Png != null)
                         {
-                            var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                            File.WriteAllText(tempPath, payload.Render.Svg);
-                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
-                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                            var newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                            newShape.Name = $"LSNO_{formulaId}";
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
                         }
+                        else
+                        {
+                            File.WriteAllText(tempPath, payload.Render!.Svg!);
+                        }
+                        float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
+                        float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
+                        var newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        newShape.Name = $"LSNO_{formulaId}";
+                        newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
                         return true;
                     }
                 }
@@ -339,6 +415,8 @@ namespace LaTeXSnipper.PowerPoint.Host
         public string FormulaId { get; set; } = "";
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }
+        public string? ActualStorageMode { get; set; }
+        public string? FallbackReason { get; set; }
         public string Error { get; set; } = "";
     }
 }

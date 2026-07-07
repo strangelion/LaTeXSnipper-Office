@@ -17,12 +17,12 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName", "SakuraMathcraft"
-            VALUE "FileDescription", "LaTeXSnipper OLE Formula Object Handler"
+            VALUE "CompanyName", "LaTeXSnipper"
+            VALUE "FileDescription", "LaTeXSnipper Formula Object Handler"
             VALUE "FileVersion", "2.4.0.0"
-            VALUE "InternalName", "LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler"
-            VALUE "OriginalFilename", "LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.dll"
-            VALUE "ProductName", "LaTeXSnipper Office Plugin"
+            VALUE "InternalName", "LaTeXSnipper.OleFormulaObject.Handler"
+            VALUE "OriginalFilename", "LaTeXSnipper.OleFormulaObject.Handler.dll"
+            VALUE "ProductName", "LaTeXSnipper"
             VALUE "ProductVersion", "2.4.0.0"
         END
     END

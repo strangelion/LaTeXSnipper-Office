@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
+using LaTeXSnipper.Word.Host;
 using Word = Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word
@@ -202,6 +204,7 @@ namespace LaTeXSnipper.Word
             {
                 case DesktopInsertFormula cmd:
                 {
+                    ResolveStorageMode(cmd);
                     var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
                     _pipeClient.SendOnlyAsync(new VstoInsertResult
                     {
@@ -209,6 +212,9 @@ namespace LaTeXSnipper.Word
                         SessionId = cmd.SessionId,
                         Success = result.Success,
                         FormulaId = result.FormulaId,
+                        RequestedStorageMode = cmd.IntegrationMode ?? "auto",
+                        ActualStorageMode = result.StorageMode,
+                        FallbackReason = result.FallbackReason,
                         RangeStart = result.RangeStart,
                         RangeEnd = result.RangeEnd,
                         Error = result.Error
@@ -231,7 +237,25 @@ namespace LaTeXSnipper.Word
 
                 case DesktopDeleteCurrent delCmd:
                 {
-                    var result = _adapter.DeleteCurrent();
+                    InsertResult result;
+                    var formulaId = delCmd.FormulaId;
+                    if (!string.IsNullOrEmpty(formulaId))
+                        result = _adapter.DeleteFormula(formulaId);
+                    else
+                        result = _adapter.DeleteCurrent();
+                    if (result.Success && !string.IsNullOrEmpty(formulaId))
+                    {
+                        try
+                        {
+                            var doc = Application.ActiveDocument;
+                            if (doc != null)
+                                FormulaDocumentManifest.Remove(doc, formulaId);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Word] Manifest cleanup error: {ex.Message}");
+                        }
+                    }
                     _pipeClient.SendOnlyAsync(new VstoDeleteResult
                     {
                         RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
@@ -326,6 +350,20 @@ namespace LaTeXSnipper.Word
             Application.DocumentChange -= OnDocumentChange;
             _pipeClient?.Disconnect();
             _pipeConnected = false;
+        }
+
+        private static void ResolveStorageMode(DesktopInsertFormula cmd)
+        {
+            var im = cmd.IntegrationMode;
+            if (string.IsNullOrEmpty(im) || im == "auto")
+                return;
+            cmd.Formula.StorageMode = im switch
+            {
+                "ole" => "ole",
+                "image" => "image",
+                "native" => "native-omml",
+                _ => null,
+            };
         }
 
         #region VSTO 生成的代码

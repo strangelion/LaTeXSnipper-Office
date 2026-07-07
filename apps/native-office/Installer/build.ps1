@@ -337,21 +337,31 @@ if (-not $allGood) {
     throw "Native Office staging is incomplete."
 }
 
-# Stage OLE Formula Object DLL (both x86 and x64)
+# Stage OLE Formula Object DLL (build x86 and x64 explicitly)
 $oleProjPath = Join-Path $SolutionDir "LaTeXSnipper.OleFormulaObjectNative"
-$oleDllX86 = Join-Path $oleProjPath "bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll"
-$oleDllX64 = Join-Path $oleProjPath "bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll"
+$oleVcxproj = Join-Path $oleProjPath "LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj"
+
+Write-Host "  Building OLE x86..." -ForegroundColor Gray
+& $MsBuildPath $oleVcxproj "/t:Build" "/p:Configuration=$Configuration" "/p:Platform=Win32" "/v:minimal"
+if ($LASTEXITCODE -ne 0) { throw "OLE x86 build failed" }
+
+Write-Host "  Building OLE x64..." -ForegroundColor Gray
+& $MsBuildPath $oleVcxproj "/t:Build" "/p:Configuration=$Configuration" "/p:Platform=x64" "/v:minimal"
+if ($LASTEXITCODE -ne 0) { throw "OLE x64 build failed" }
+
+$oleDllX86 = Join-Path $oleProjPath "bin\Win32\$Configuration\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll"
+$oleDllX64 = Join-Path $oleProjPath "bin\x64\$Configuration\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll"
 if (Test-Path $oleDllX86) {
     Copy-Item $oleDllX86 (Join-Path $staging "OleFormulaObject.x86.dll") -Force
-    Write-Host "  OLE x86 : OK" -ForegroundColor Green
+    Write-Host "  OLE x86 : OK (SHA256: $((Get-FileHash $oleDllX86 -Algorithm SHA256).Hash))" -ForegroundColor Green
 } else {
-    Write-Warning "OLE x86 DLL not found at $oleDllX86 — OLE will not be available on 32-bit Office"
+    throw "OLE x86 DLL not found after build at $oleDllX86 — OLE will not be available on 32-bit Office"
 }
 if (Test-Path $oleDllX64) {
     Copy-Item $oleDllX64 (Join-Path $staging "OleFormulaObject.x64.dll") -Force
-    Write-Host "  OLE x64 : OK" -ForegroundColor Green
+    Write-Host "  OLE x64 : OK (SHA256: $((Get-FileHash $oleDllX64 -Algorithm SHA256).Hash))" -ForegroundColor Green
 } else {
-    Write-Warning "OLE x64 DLL not found at $oleDllX64 — OLE will not be available on 64-bit Office"
+    throw "OLE x64 DLL not found after build at $oleDllX64 — OLE will not be available on 64-bit Office"
 }
 $env:OleBinDir = $oleProjPath
 

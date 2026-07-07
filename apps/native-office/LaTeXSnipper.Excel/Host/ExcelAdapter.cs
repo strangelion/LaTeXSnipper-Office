@@ -35,80 +35,92 @@ namespace LaTeXSnipper.Excel.Host
 
             try
             {
-                // OLE path: try when integration mode is OLE or Auto
-                if (payload.StorageMode == "ole" || string.IsNullOrEmpty(payload.StorageMode))
+                string storageMode = payload.StorageMode ?? "auto";
+
+                if (storageMode == "ole")
                 {
                     var oleResult = TryInsertOle(sheet, cell, payload);
-                    if (oleResult != null) return oleResult;
+                    if (oleResult != null)
+                        return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "ole" };
+                    return new InsertResult { Success = false, Error = "OLE insertion failed and mode is 'ole' — no fallback permitted" };
                 }
 
+                if (storageMode == "auto")
+                {
+                    var oleResult = TryInsertOle(sheet, cell, payload);
+                    if (oleResult != null)
+                        return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "ole" };
+                }
+
+                if (storageMode == "native" || storageMode == "native-omml")
+                {
+                    return new InsertResult { Success = false, Error = "Excel does not support native OMML insertion" };
+                }
+
+                // Image / text fallback
                 if (payload.Render?.Png != null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Inserting PNG ({payload.Render.Png.Length} chars)");
-                    var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                    var pngBytes = Convert.FromBase64String(payload.Render.Png);
-                    File.WriteAllBytes(tempPath, pngBytes);
-
-                    float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                    float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
-
-                    double cellLeft = 0, cellTop = 0;
-                    try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
-
-                    var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
-                    if (excelSheet == null)
-                        return new InsertResult { Success = false, Error = "Cannot cast sheet to Worksheet" };
-                    var shape = excelSheet.Shapes.AddPicture(
-                        tempPath,
-                        Microsoft.Office.Core.MsoTriState.msoFalse,
-                        Microsoft.Office.Core.MsoTriState.msoTrue,
-                        (float)cellLeft, (float)cellTop,
-                        width, height
-                    );
-                    shape.Name = $"LSNO_{payload.FormulaId}";
-                    // Store LaTeX in shape's AlternativeText for ReadSelection to retrieve
-                    shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
-                    System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Shape added: name={shape.Name}, left={cellLeft}, top={cellTop}, w={width}, h={height}");
+                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Png, ".png");
+                    string? fallbackReason = storageMode == "auto" ? "OLE unavailable, fell back to PNG" : null;
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = fallbackReason };
                 }
-                else if (payload.Render?.Svg != null)
+
+                if (payload.Render?.Svg != null)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Inserting SVG (no PNG available): {payload.Render.Svg.Substring(0, Math.Min(100, payload.Render.Svg.Length))}...");
-                    var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                    File.WriteAllText(tempPath, payload.Render.Svg);
-
-                    float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                    float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
-
-                    double cellLeft = 0, cellTop = 0;
-                    try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
-
-                    var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
-                    if (excelSheet == null)
-                        return new InsertResult { Success = false, Error = "Cannot cast sheet to Worksheet" };
-                    var shape = excelSheet.Shapes.AddPicture(
-                        tempPath,
-                        Microsoft.Office.Core.MsoTriState.msoFalse,
-                        Microsoft.Office.Core.MsoTriState.msoTrue,
-                        (float)cellLeft, (float)cellTop,
-                        width, height
-                    );
-                    shape.Name = $"LSNO_{payload.FormulaId}";
-                    shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
-                    System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Shape added: name={shape.Name}, left={cellLeft}, top={cellTop}, w={width}, h={height}");
+                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
+                    string? fallbackReason = storageMode == "auto" ? "OLE unavailable, fell back to SVG" : null;
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = fallbackReason };
                 }
-                else if (!string.IsNullOrEmpty(payload.Latex))
+
+                if (!string.IsNullOrEmpty(payload.Latex))
                 {
-                    // Fallback: insert LaTeX as cell text
                     cell.Value = payload.Latex;
+                    string? fallbackReason = storageMode == "auto" ? "No render data, fell back to text" : null;
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "text", FallbackReason = fallbackReason };
                 }
 
-                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                return new InsertResult { Success = false, Error = "No render data or LaTeX content" };
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Insert error: {ex.Message}");
                 return new InsertResult { Success = false, Error = ex.Message };
             }
+        }
+
+        private InsertResult InsertImage(
+            Microsoft.Office.Interop.Excel.Worksheet sheet,
+            Microsoft.Office.Interop.Excel.Range cell,
+            FormulaPayload payload,
+            string data,
+            string ext)
+        {
+            var isPng = ext == ".png";
+            var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}{ext}");
+            if (isPng)
+                File.WriteAllBytes(tempPath, Convert.FromBase64String(data));
+            else
+                File.WriteAllText(tempPath, data);
+
+            float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+            float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+            double cellLeft = 0, cellTop = 0;
+            try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
+
+            var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
+            if (excelSheet == null)
+                return new InsertResult { Success = false, Error = "Cannot cast sheet to Worksheet" };
+            var shape = excelSheet.Shapes.AddPicture(
+                tempPath,
+                Microsoft.Office.Core.MsoTriState.msoFalse,
+                Microsoft.Office.Core.MsoTriState.msoTrue,
+                (float)cellLeft, (float)cellTop,
+                width, height
+            );
+            shape.Name = $"LSNO_{payload.FormulaId}";
+            shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+            return new InsertResult { Success = true, FormulaId = payload.FormulaId };
         }
 
         public FormulaPayload? ReadSelection()
@@ -181,7 +193,8 @@ namespace LaTeXSnipper.Excel.Host
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
-                var ole = sheet.OLEObjects().Add(
+                var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
+                var ole = oleObjects.Add(
                     ClassType: "LaTeXSnipper.Formula.1",
                     Filename: Type.Missing,
                     Link: false,
@@ -195,9 +208,21 @@ namespace LaTeXSnipper.Excel.Host
                 ole.Name = $"LSNO_{payload.FormulaId}";
                 ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
 
-                // Initialize with formula payload
-                // In later phases, OLE automation will call ILatexSnipperFormula.InitializeFromJson()
-                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted: name={ole.Name}");
+                // Initialize with formula payload via OLE automation
+                if (!OleFormulaInterop.Initialize(ole.Object, payload))
+                {
+                    ole.Delete();
+                    return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                }
+
+                // Verify round-trip
+                if (!OleFormulaInterop.VerifyRoundTrip(ole.Object, payload.FormulaId))
+                {
+                    ole.Delete();
+                    return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
                 return new InsertResult { Success = true, FormulaId = payload.FormulaId };
             }
             catch (Exception ex)
@@ -268,16 +293,60 @@ namespace LaTeXSnipper.Excel.Host
             return false;
         }
 
+        /// <summary>
+        /// Delete a formula by exact FormulaId. Scans all shapes for matching LSNO_ name.
+        /// </summary>
+        public bool DeleteFormula(string formulaId)
+        {
+            try
+            {
+                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (excelSheet == null) return false;
+                string targetName = $"LSNO_{formulaId}";
+                for (int i = excelSheet.Shapes.Count; i >= 1; i--)
+                {
+                    var shape = excelSheet.Shapes.Item(i);
+                    if (string.Equals(shape.Name, targetName, StringComparison.Ordinal))
+                    {
+                        shape.Delete();
+                        return true;
+                    }
+                }
+            }
+            catch { }
+            return false;
+        }
+
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)
         {
             try
             {
                 var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                 if (excelSheet == null) return false;
+
                 foreach (Microsoft.Office.Interop.Excel.Shape shape in excelSheet.Shapes)
                 {
                     if (shape.Name == $"LSNO_{formulaId}")
                     {
+                        // OLE path: replace payload in-place via COM automation
+                        try
+                        {
+                            var oleObj = shape.OLEFormat?.Object;
+                            if (oleObj != null)
+                            {
+                                return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                            }
+                        }
+                        catch
+                        {
+                            // Not an OLE object, fall through to image path
+                        }
+
+                        // Guard: without render data, refuse to delete the old shape
+                        bool hasRender = payload.Render?.Svg != null || payload.Render?.Png != null;
+                        if (!hasRender)
+                            return false;
+
                         // Preserve geometry before deleting
                         float oldLeft = 0, oldTop = 0, oldWidth = 120f, oldHeight = 30f;
                         try { oldLeft = (float)Convert.ToDouble(shape.Left); } catch { }
@@ -287,16 +356,22 @@ namespace LaTeXSnipper.Excel.Host
 
                         shape.Delete();
 
-                        if (payload.Render?.Svg != null)
+                        var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                        if (payload.Render?.Png != null)
                         {
-                            var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                            File.WriteAllText(tempPath, payload.Render.Svg);
-                            float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
-                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                            var newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                            newShape.Name = $"LSNO_{formulaId}";
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
                         }
+                        else
+                        {
+                            File.WriteAllText(tempPath, payload.Render!.Svg!);
+                        }
+                        float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
+                        float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
+                        var newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        newShape.Name = $"LSNO_{formulaId}";
+                        newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
                         return true;
                     }
                 }
@@ -374,6 +449,8 @@ namespace LaTeXSnipper.Excel.Host
         public string FormulaId { get; set; } = "";
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }
+        public string? ActualStorageMode { get; set; }
+        public string? FallbackReason { get; set; }
         public string Error { get; set; } = "";
     }
 }

@@ -110,3 +110,19 @@ HRESULT LoadPresentationFromStorage(IStorage* storage, FormulaPresentation* pres
     *presentation = std::move(loaded);
     return S_OK;
 }
+
+HRESULT SaveEnvelopeToStorage(IStorage* storage, const std::wstring& json)
+{
+    return WriteStream(storage, kEnvelopeStream, json.c_str(), static_cast<ULONG>((json.size() + 1) * sizeof(wchar_t)));
+}
+
+HRESULT LoadEnvelopeFromStorage(IStorage* storage, std::wstring* json)
+{
+    if (json == nullptr) return E_POINTER;
+    std::vector<BYTE> bytes;
+    HRESULT result = ReadStream(storage, kEnvelopeStream, &bytes);
+    if (FAILED(result)) return result;
+    *json = std::wstring(reinterpret_cast<const wchar_t*>(bytes.data()), bytes.size() / sizeof(wchar_t));
+    while (!json->empty() && json->back() == L'\0') json->pop_back();
+    return S_OK;
+}

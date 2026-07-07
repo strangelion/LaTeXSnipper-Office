@@ -31,6 +31,21 @@ namespace LaTeXSnipper.Word
             return addIn != null && addIn.PipeConnected;
         }
 
+        public string GetLabel(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id);
+        }
+
+        public string GetScreentip(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id + "_screentip");
+        }
+
+        public string GetSupertip(IRibbonControl control)
+        {
+            return RibbonLocalizer.GetString(control.Id + "_supertip");
+        }
+
         public void OnButtonClick(IRibbonControl control)
         {
             var addIn = Globals.ThisAddIn;
@@ -76,7 +91,7 @@ namespace LaTeXSnipper.Word
                     {
                         var f = addIn.Adapter.ReadSelection();
                         if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show("LaTeX: " + f.Latex, "LaTeXSnipper");
+                            MessageBox.Show("LaTeX: " + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
                         else if (f != null && !string.IsNullOrEmpty(f.Omml))
                             addIn.Send(new VstoOpenEditor
                             {
@@ -86,9 +101,9 @@ namespace LaTeXSnipper.Word
                                 Omml = f.Omml
                             });
                         else
-                            MessageBox.Show("No formula selected", "LaTeXSnipper");
+                            MessageBox.Show(RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     }
-                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, "LaTeXSnipper"); }
+                    catch (Exception ex) { MessageBox.Show("Error: " + ex.Message, RibbonLocalizer.GetString("ErrorTitle")); }
                     break;
 
                 case "delete":
@@ -118,11 +133,11 @@ namespace LaTeXSnipper.Word
                     break;
 
                 case "help":
-                    MessageBox.Show("LaTeXSnipper v1.0.0\nNative Office formula plugin", "LaTeXSnipper");
+                    MessageBox.Show("LaTeXSnipper v1.0.0\nNative Office formula plugin", RibbonLocalizer.GetString("ErrorTitle"));
                     break;
 
                 default:
-                    MessageBox.Show("Not implemented: " + control.Tag, "LaTeXSnipper");
+                    MessageBox.Show(RibbonLocalizer.GetString("NotImplemented") + ": " + control.Tag, RibbonLocalizer.GetString("ErrorTitle"));
                     break;
             }
         }

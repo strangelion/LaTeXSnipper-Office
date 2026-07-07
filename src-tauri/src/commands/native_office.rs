@@ -34,6 +34,7 @@ pub async fn native_office_insert_formula(
     integration_mode: Option<String>,
 ) -> Result<String, String> {
     let payload = FormulaPayload {
+        schema_version: Some(3),
         formula_id,
         latex,
         omml,
@@ -138,16 +139,36 @@ pub async fn native_office_replace_formula(
     latex: String,
     omml: String,
     display: String,
+    svg: Option<String>,
+    png: Option<String>,
+    width_pt: Option<f32>,
+    height_pt: Option<f32>,
+    storage_mode: Option<String>,
 ) -> Result<String, String> {
     let payload = FormulaPayload {
+        schema_version: Some(3),
         formula_id: formula_id.clone(),
         latex,
         omml,
         display,
         presentation: None,
-        render: None,
+        render: svg
+            .map(|s| RenderData {
+                svg: Some(s),
+                png: png.clone(),
+                width_pt: width_pt.unwrap_or(120.0),
+                height_pt: height_pt.unwrap_or(30.0),
+            })
+            .or_else(|| {
+                png.map(|p| RenderData {
+                    svg: None,
+                    png: Some(p),
+                    width_pt: width_pt.unwrap_or(120.0),
+                    height_pt: height_pt.unwrap_or(30.0),
+                })
+            }),
         source: None,
-        storage_mode: None,
+        storage_mode,
         revision: 0,
     };
 

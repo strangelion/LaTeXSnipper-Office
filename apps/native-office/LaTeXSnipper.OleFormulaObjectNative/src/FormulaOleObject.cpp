@@ -854,6 +854,7 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
         std::wstring id = ExtractJsonString(envelopeJson, L"formulaId");
         if (!id.empty())
             formulaId_ = id;
+        canonicalPayloadJson_ = envelopeJson; // store canonical JSON
     }
 
     // Load presentation (v3 envelope or legacy streams)
@@ -874,15 +875,22 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
     HRESULT result = SavePresentationToStorage(storage, presentation_);
     if (SUCCEEDED(result))
     {
-        // Also write v3 FormulaEnvelope.json for forward compatibility
-        std::wstringstream ss;
-        ss << L"{\"formulaId\":\"" << formulaId_ << L"\""
-           << L",\"latex\":\"" << presentation_.latex << L"\""
-           << L",\"schemaVersion\":3"
-           << L",\"revision\":0"
-           << L",\"storageMode\":\"ole\""
-           << L"}";
-        if (SUCCEEDED(SaveEnvelopeToStorage(storage, ss.str())))
+        // Use canonical payload JSON for the envelope stream
+        std::wstring envelopeJson;
+        if (!canonicalPayloadJson_.empty())
+        {
+            envelopeJson = canonicalPayloadJson_;
+        }
+        else
+        {
+            // Minimal fallback — should not happen after InitializeFromJson
+            envelopeJson = L"{\"formulaId\":\"";
+            envelopeJson += formulaId_;
+            envelopeJson += L"\",\"latex\":\"";
+            envelopeJson += presentation_.latex;
+            envelopeJson += L"\",\"schemaVersion\":3,\"revision\":0,\"storageMode\":\"ole\"}";
+        }
+        if (SUCCEEDED(SaveEnvelopeToStorage(storage, envelopeJson)))
         {
             dirty_ = false;
         }
@@ -924,6 +932,7 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
         return E_FAIL;
 
     presentation_ = std::move(loaded);
+    canonicalPayloadJson_ = wsJson; // store canonical JSON for round-trip
     dirty_ = true;
 
     std::wstring id = ExtractJsonString(wsJson, L"formulaId");
@@ -940,21 +949,36 @@ STDMETHODIMP FormulaOleObject::GetPayloadJson(BSTR* payloadJson)
     if (payloadJson == nullptr)
         return E_POINTER;
 
-    std::wstringstream ss;
-    ss << L"{\"formulaId\":\"" << formulaId_ << L"\""
-       << L",\"latex\":\"" << presentation_.latex << L"\""
-       << L",\"display\":\"inline\""
-       << L",\"schemaVersion\":3"
-       << L",\"revision\":0"
-       << L"}";
+    // Return the canonical JSON stored during InitializeFromJson/ReplacePayloadJson/Load
+    // Fallback: construct a minimal payload if no canonical JSON is available
+    std::wstring json;
+    if (!canonicalPayloadJson_.empty())
+    {
+        json = canonicalPayloadJson_;
+    }
+    else
+    {
+        json = L"{\"formulaId\":\"";
+        json += formulaId_;
+        json += L"\",\"latex\":\"";
+        json += presentation_.latex;
+        json += L"\",\"schemaVersion\":3,\"revision\":0}";
+    }
 
-    std::wstring json = ss.str();
     *payloadJson = SysAllocString(json.c_str());
     return *payloadJson != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 STDMETHODIMP FormulaOleObject::ReplacePayloadJson(BSTR payloadJson)
 {
+    if (payloadJson == nullptr)
+        return E_POINTER;
+
+    _bstr_t json(payloadJson);
+    std::wstring wsJson((const wchar_t*)json, json.length());
+
+    canonicalPayloadJson_ = wsJson; // store canonical JSON first
+
     return InitializeFromJson(payloadJson);
 }
 
@@ -970,6 +994,110 @@ STDMETHODIMP FormulaOleObject::GetFormulaId(BSTR* formulaId)
 STDMETHODIMP FormulaOleObject::OpenEditor()
 {
     return StartEditSession();
+}
+
+// ===================================================================
+// IDispatch implementation (no type library — manual dispatch table)
+// ===================================================================
+
+STDMETHODIMP FormulaOleObject::GetTypeInfoCount(UINT* pctinfo)
+{
+    if (pctinfo == nullptr) return E_POINTER;
+    *pctinfo = 0; // no type library
+    return S_OK;
+}
+
+STDMETHODIMP FormulaOleObject::GetTypeInfo(UINT, LCID, ITypeInfo** ppTInfo)
+{
+    if (ppTInfo == nullptr) return E_POINTER;
+    *ppTInfo = nullptr;
+    return E_NOTIMPL;
+}
+
+STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT cNames, LCID, DISPID* rgDispId)
+{
+    if (rgszNames == nullptr || rgDispId == nullptr) return E_POINTER;
+    if (cNames == 0) return S_OK;
+
+    *rgDispId = DISPID_UNKNOWN;
+
+    struct NameToDispId { const wchar_t* name; DISPID id; };
+    static constexpr NameToDispId kDispatchTable[] = {
+        { L"InitializeFromJson", 1 },
+        { L"GetPayloadJson",     2 },
+        { L"ReplacePayloadJson", 3 },
+        { L"GetFormulaId",       4 },
+        { L"OpenEditor",         5 },
+    };
+
+    for (const auto& entry : kDispatchTable)
+    {
+        if (_wcsicmp(rgszNames[0], entry.name) == 0)
+        {
+            *rgDispId = entry.id;
+            return S_OK;
+        }
+    }
+
+    return DISP_E_UNKNOWNNAME;
+}
+
+STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
+{
+    if (pDispParams == nullptr) return E_POINTER;
+
+    switch (dispIdMember)
+    {
+    case 1: // InitializeFromJson
+        if (pDispParams->cArgs >= 1 && pDispParams->rgvarg[0].vt == VT_BSTR)
+        {
+            return InitializeFromJson(pDispParams->rgvarg[0].bstrVal);
+        }
+        return DISP_E_TYPEMISMATCH;
+
+    case 2: // GetPayloadJson
+        if (pVarResult != nullptr && (wFlags & DISPATCH_METHOD))
+        {
+            BSTR result = nullptr;
+            HRESULT hr = GetPayloadJson(&result);
+            if (SUCCEEDED(hr))
+            {
+                VariantClear(pVarResult);
+                pVarResult->vt = VT_BSTR;
+                pVarResult->bstrVal = result;
+            }
+            return hr;
+        }
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 3: // ReplacePayloadJson
+        if (pDispParams->cArgs >= 1 && pDispParams->rgvarg[0].vt == VT_BSTR)
+        {
+            return ReplacePayloadJson(pDispParams->rgvarg[0].bstrVal);
+        }
+        return DISP_E_TYPEMISMATCH;
+
+    case 4: // GetFormulaId
+        if (pVarResult != nullptr && (wFlags & DISPATCH_METHOD))
+        {
+            BSTR result = nullptr;
+            HRESULT hr = GetFormulaId(&result);
+            if (SUCCEEDED(hr))
+            {
+                VariantClear(pVarResult);
+                pVarResult->vt = VT_BSTR;
+                pVarResult->bstrVal = result;
+            }
+            return hr;
+        }
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 5: // OpenEditor
+        return OpenEditor();
+
+    default:
+        return DISP_E_MEMBERNOTFOUND;
+    }
 }
 
 HRESULT FormulaOleObject::StartEditSession()

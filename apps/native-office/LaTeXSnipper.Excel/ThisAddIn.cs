@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 
 namespace LaTeXSnipper.Excel
 {
@@ -124,11 +125,29 @@ namespace LaTeXSnipper.Excel
             {
                 case DesktopInsertFormula cmd:
                 {
+                    ResolveStorageMode(cmd);
                     var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
+                    if (result.Success && !string.IsNullOrEmpty(result.FormulaId))
+                    {
+                        try
+                        {
+                            var wb = Application.ActiveWorkbook;
+                            if (wb != null)
+                                FormulaDocumentManifest.WriteEntry(wb.CustomXMLParts, cmd.Formula, "excel");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Excel] Manifest write error: {ex.Message}");
+                        }
+                    }
                     _ = _pipeClient.SendAsync(new VstoInsertResult
                     {
                         RequestId = cmd.RequestId, SessionId = cmd.SessionId,
-                        Success = result.Success, FormulaId = result.FormulaId, Error = result.Error
+                        Success = result.Success, FormulaId = result.FormulaId,
+                        RequestedStorageMode = cmd.IntegrationMode ?? "auto",
+                        ActualStorageMode = result.ActualStorageMode,
+                        FallbackReason = result.FallbackReason,
+                        Error = result.Error
                     });
                     break;
                 }
@@ -144,7 +163,25 @@ namespace LaTeXSnipper.Excel
                 }
                 case DesktopDeleteCurrent delCmd:
                 {
-                    var ok = _adapter.DeleteCurrent();
+                    var ok = false;
+                    var formulaId = delCmd.FormulaId;
+                    if (!string.IsNullOrEmpty(formulaId))
+                        ok = _adapter.DeleteFormula(formulaId);
+                    else
+                        ok = _adapter.DeleteCurrent();
+                    if (ok && !string.IsNullOrEmpty(formulaId))
+                    {
+                        try
+                        {
+                            var wb = Application.ActiveWorkbook;
+                            if (wb != null)
+                                FormulaDocumentManifest.RemoveEntry(wb.CustomXMLParts, formulaId);
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Excel] Manifest cleanup error: {ex.Message}");
+                        }
+                    }
                     _ = _pipeClient.SendAsync(new VstoDeleteResult
                     {
                         RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
@@ -158,7 +195,8 @@ namespace LaTeXSnipper.Excel
                     _ = _pipeClient.SendAsync(new VstoReplaceResult
                     {
                         RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
-                        Success = ok
+                        Success = ok,
+                        ActualStorageMode = repCmd.Formula.StorageMode ?? "auto"
                     });
                     break;
                 }
@@ -170,6 +208,20 @@ namespace LaTeXSnipper.Excel
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
             _pipeClient?.Disconnect();
+        }
+
+        private static void ResolveStorageMode(DesktopInsertFormula cmd)
+        {
+            var im = cmd.IntegrationMode;
+            if (string.IsNullOrEmpty(im) || im == "auto")
+                return; // leave StorageMode as-is for adapter auto-detection
+            cmd.Formula.StorageMode = im switch
+            {
+                "ole" => "ole",
+                "image" => "image",
+                "native" => "native-omml",
+                _ => null,
+            };
         }
 
         private void InternalStartup()

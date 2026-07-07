@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
 
 namespace LaTeXSnipper.Word.Metadata

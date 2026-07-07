@@ -12,7 +12,7 @@ public static class NativeOfficeProtocol
 {
     public const int Version = 3;
     public const string PipePrefix = "LaTeXSnipper.NativeOffice.v3";
-    public const string CustomXmlNamespace = "urn:latexsnipper:native-office:v3";
+    public const string CustomXmlNamespace = "urn:latexsnipper:office:objects:v3";
 }
 
 // ---------------------------------------------------------------------------
@@ -137,12 +137,24 @@ public class VstoInsertResult : VstoMessage
     [JsonPropertyName("formulaId")] public string? FormulaId { get; set; }
     [JsonPropertyName("rangeStart")] public uint? RangeStart { get; set; }
     [JsonPropertyName("rangeEnd")] public uint? RangeEnd { get; set; }
+    [JsonPropertyName("requestedStorageMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RequestedStorageMode { get; set; }
+    [JsonPropertyName("actualStorageMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActualStorageMode { get; set; }
+    [JsonPropertyName("fallbackReason")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FallbackReason { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
 public class VstoReplaceResult : VstoMessage
 {
     [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("actualStorageMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActualStorageMode { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
@@ -208,6 +220,9 @@ public class DesktopInsertFormula : DesktopDocumentCommand
 {
     [JsonPropertyName("formula")] public FormulaPayload Formula { get; set; } = new();
     [JsonPropertyName("mode")] public InsertMode Mode { get; set; }
+    [JsonPropertyName("integrationMode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IntegrationMode { get; set; }
 }
 
 public class DesktopReplaceFormula : DesktopDocumentCommand
@@ -280,6 +295,9 @@ public class PresentationData
     [JsonPropertyName("alignment")] public string Alignment { get; set; } = "center";
     [JsonPropertyName("fontScale")] public float FontScale { get; set; } = 1.0f;
     [JsonPropertyName("color")] public string Color { get; set; } = "#000000";
+    [JsonPropertyName("emfBase64")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EmfBase64 { get; set; }
 }
 
 public class RenderData
