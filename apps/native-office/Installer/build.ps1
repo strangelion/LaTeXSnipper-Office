@@ -26,7 +26,13 @@ if (-not $MsBuildPath) {
     if ($msbuild) {
         $MsBuildPath = $msbuild.Source
     } else {
-        $MsBuildPath = "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe"
+        $MsBuildPath = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
+
+        if(!$msbuild){
+         throw "MSBuild not found"
+        }
+        
+        $MsBuildPath=$msbuild.Source
     }
 }
 Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
@@ -53,7 +59,13 @@ if ($SkipSigning) {
     # Local or CI: use dev PFX or passed cert
     if (-not $env:VstoManifestKeyFile) {
         # Auto-generate a dev PFX and import to certificate store
-        $devPfx = Join-Path $env:TEMP "LaTeXSnipperDev.pfx"
+        $tempPath = $env:TEMP
+
+        if (-not $tempPath) {
+           $tempPath = [System.IO.Path]::GetTempPath()
+        }
+
+        $devPfx = Join-Path $tempPath "LaTeXSnipperDev.pfx"
         $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
         $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipperDev" `
             -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Dev" `
