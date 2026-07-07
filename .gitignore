@@ -1,3 +1,7 @@
+*.pfx
+*.p12
+*.snk
+*.cer
 node_modules/
 dist/
 apps/obsidian-plugin/main.js
@@ -32,3 +36,13 @@ apps/native-office/**/Properties/Resources.Designer.cs
 apps/native-office/**/LaTeXSnipper.NativeOffice.Excel/
 apps/native-office/**/LaTeXSnipper.NativeOffice.PowerPoint/
 apps/native-office/**/LaTeXSnipper.NativeOffice.Word/
+apps/native-office/Installer/output/
+src-tauri/resources/NativeOffice/**/*.pdb
+src-tauri/resources/NativeOffice/**/Microsoft.Vbe.Interop.dll
+src-tauri/resources/NativeOffice/**/Microsoft.Office.Interop.*.dll
+src-tauri/resources/NativeOffice/**/Microsoft.Office.Interop.*.xml
+src-tauri/resources/NativeOffice/**/System.*.dll
+src-tauri/resources/NativeOffice/**/Microsoft.Bcl.*.dll
+src-tauri/resources/NativeOffice/**/office.dll
+src-tauri/resources/NativeOffice/**/office.xml
+src-tauri/resources/NativeOffice/**/stdole.dll

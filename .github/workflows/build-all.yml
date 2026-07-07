@@ -310,16 +310,19 @@ jobs:
       - uses: NuGet/setup-nuget@v2
 
       - name: Import release certificate from Secrets
-        if: ${{ secrets.VSTO_CERT_BASE64 != '' }}
+        if: env.VSTO_CERT_BASE64 != ''
         shell: pwsh
+        env:
+          VSTO_CERT_BASE64: ${{ secrets.VSTO_CERT_BASE64 }}
+          VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
         run: |
-          $certBytes = [Convert]::FromBase64String("${{ secrets.VSTO_CERT_BASE64 }}")
+          $certBytes = [Convert]::FromBase64String($env:VSTO_CERT_BASE64)
           $certPath = Join-Path $env:TEMP "LaTeXSnipper-Office.pfx"
           [System.IO.File]::WriteAllBytes($certPath, $certBytes)
           $env:VstoManifestKeyFile = $certPath
-          $env:VstoManifestKeyPassword = "${{ secrets.VSTO_CERT_PASSWORD }}"
+          $env:VstoManifestKeyPassword = $env:VSTO_CERT_PASSWORD
           # Export .cer for inclusion in the release package
-          $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString "${{ secrets.VSTO_CERT_PASSWORD }}" -AsPlainText -Force)
+          $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString $env:VSTO_CERT_PASSWORD -AsPlainText -Force)
           $certDir = Join-Path $env:GITHUB_WORKSPACE "apps\native-office\Installer\output\certificates"
           New-Item -ItemType Directory -Path $certDir -Force | Out-Null
           $certBytes2 = $cert.Export("Cert")

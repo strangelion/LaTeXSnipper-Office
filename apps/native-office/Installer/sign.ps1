@@ -53,8 +53,8 @@ Write-Host "Using certificate: $($cert.Subject)" -ForegroundColor Yellow
 
 # Files to sign
 $filesToSign = @(
-    "LaTeXSnipper.NativeOffice.msi",
-    "LaTeXSnipper.NativeOffice.exe"
+    (Join-Path $OutputDir "LaTeXSnipper.NativeOffice.msi"),
+    (Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe")
 )
 
 # Also sign DLLs in staging

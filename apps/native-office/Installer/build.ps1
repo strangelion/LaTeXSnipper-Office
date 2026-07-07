@@ -298,6 +298,7 @@ Write-Host "`n[2/4] Collecting binaries from Publish output..." -ForegroundColor
 $staging = Join-Path $OutputDir "staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
+$stagingAbs = (Resolve-Path -LiteralPath $staging).Path
 $allGood = $true
 
 # Each host builds to its own bin\$Configuration directory
@@ -315,7 +316,7 @@ foreach ($hostName in $hosts) {
     }
     Write-Host "  ${hostName}: bin\$Configuration" -ForegroundColor Green
     New-Item -ItemType Directory -Path $hostDst -Force | Out-Null
-    Get-ChildItem $hostSrc -File | ForEach-Object {
+    Get-ChildItem $hostSrc -File | Where-Object { $_.Extension -ne ".pdb" } | ForEach-Object {
         Copy-Item $_.FullName $hostDst -Force
     }
 }
@@ -325,7 +326,7 @@ New-Item -ItemType Directory -Path $sharedDst -Force | Out-Null
 $sharedSrcFiles = Get-ChildItem $sharedSrc -File -ErrorAction SilentlyContinue
 if ($sharedSrcFiles) {
     Write-Host "  Shared: $($sharedSrcFiles.Count) files" -ForegroundColor Green
-    foreach ($f in $sharedSrcFiles) { Copy-Item $f.FullName $sharedDst -Force }
+    foreach ($f in $sharedSrcFiles) { if ($f.Extension -ne ".pdb") { Copy-Item $f.FullName $sharedDst -Force } }
 } else {
     Write-Warning "Shared source directory is empty or missing: $sharedSrc"
     $allGood = $false
@@ -378,6 +379,15 @@ $oleDllX64 = Join-Path $oleProjPath "bin\x64\$Configuration\LaTeXSnipper.OfficeP
 if (Test-Path $oleDllX86) {
     Copy-Item $oleDllX86 (Join-Path $staging "OleFormulaObject.x86.dll") -Force
     Write-Host "  OLE x86 : OK (SHA256: $((Get-FileHash $oleDllX86 -Algorithm SHA256).Hash))" -ForegroundColor Green
+
+    # Also copy .cer to staging for Tauri bundling
+    $certStaging = Join-Path $staging "certificates"
+    $certSrc = Join-Path $absoluteOutputDir "certificates\LaTeXSnipperOffice.cer"
+    if (Test-Path $certSrc) {
+        New-Item -ItemType Directory -Path $certStaging -Force | Out-Null
+        Copy-Item $certSrc (Join-Path $certStaging "LaTeXSnipperOffice.cer") -Force
+        Write-Host "  .cer copied to staging" -ForegroundColor Gray
+    }
 } else {
     throw "OLE x86 DLL not found after build at $oleDllX86 — OLE will not be available on 32-bit Office"
 }
@@ -429,7 +439,6 @@ Write-Host "  Restoring WiX UI extension..." -ForegroundColor Gray
 if ($LASTEXITCODE -ne 0) { throw "WiX UI extension install failed" }
 
 # Set WiX variables (absolute paths — WiX resolves relative to .wxs file, not CWD)
-$stagingAbs = (Resolve-Path $staging).Path
 $env:SharedBinDir = $sharedDst
 $env:WordBinDir = $stagingAbs + "\Word"
 $env:ExcelBinDir = $stagingAbs + "\Excel"

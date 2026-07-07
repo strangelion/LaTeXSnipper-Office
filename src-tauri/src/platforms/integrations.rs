@@ -3178,6 +3178,9 @@ pub fn check_certificate_trusted() -> bool {
 
     // Iterate certificate subkeys to find our thumbprint
     // The thumbprint is the subkey name
+    // Exact thumbprint check: only trust if the specific LaTeXSnipper certificate exists
+    let expected_thumbprint = "6D72A59239CAB7F18D3778177A0B94D6C58E494E";
+    let mut found = false;
     let mut cert_count = 0i32;
     let mut index = 0u32;
     let mut name_buf = [0u16; 256];
@@ -3189,15 +3192,17 @@ pub fn check_certificate_trusted() -> bool {
         if name_len < 0 {
             break;
         }
+        let name = String::from_utf16_lossy(&name_buf[..name_len as usize]);
+        if name.eq_ignore_ascii_case(expected_thumbprint) {
+            found = true;
+        }
         cert_count += 1;
         index += 1;
     }
 
     unsafe { RegCloseKey(hkey); }
 
-    // If there are any trusted publisher certificates, we consider it trusted
-    // In production, we should check for the specific thumbprint
-    cert_count > 0
+    found
 }
 
 /// Improve load verification by checking real LoadBehavior value.
@@ -3355,7 +3360,7 @@ pub fn install_ole_component() -> OleComponentResult {
             entries_modified: entries,
         };
     }
-    if let Err(e) = reg_add_dword(&inproc_key, "ThreadingModel", 1) {
+    if let Err(e) = reg_add_string(&inproc_key, "ThreadingModel", "Apartment") {
         return OleComponentResult {
             success: false,
             message: format!("Failed to write InprocServer32 ThreadingModel: {}", e),
@@ -3410,13 +3415,9 @@ pub fn uninstall_ole_component() -> OleComponentResult {
         entries.push(format!("Deleted {}", key));
     }
 
-    // Also delete the DLL if it exists inside our resource tree
-    for dll_name in &[ole_constants::DLL_NAME_X86, ole_constants::DLL_NAME_X64] {
-        if let Some(dll_path) = find_ole_dll_path(dll_name) {
-            let _ = std::fs::remove_file(dll_path);
-            entries.push(format!("Removed DLL {}", dll_name));
-        }
-    }
+    // NOTE: Do NOT delete resource DLLs here — they belong to the app install,
+    // and removing them would prevent re-enabling OLE without full reinstall.
+    // Only remove COM registry entries and ledger.
 
     // Update ledger: mark OLE as uninstalled
     let mut ledger = IntegrationLedger::load();

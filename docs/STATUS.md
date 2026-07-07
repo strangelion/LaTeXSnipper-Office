@@ -45,14 +45,14 @@
 
 | 项目 | 状态 |
 |------|------|
-| Tauri 桌面端构建 (Win/Mac/Linux) | ✅ `build.yml` |
+| Tauri 桌面端构建 (Win/Mac/Linux) | ✅ `build-all.yml` |
 | VSTO Native Office 构建 | ✅ `build-native-office.yml` |
 | WPS 插件打包 | ✅ `build-wps-plugin.yml` |
 | Obsidian 插件构建 | ✅ `build-obsidian-plugin.yml` |
 | 统一发布 | ✅ `build-all.yml`（6 并行 job → 汇聚 → Release） |
 | Office Web Add-in 构建 | ✅ `build-all.yml` 中 `office-addin` job |
 | NSIS 组合安装器 | ⚠️ 需 CI runner 安装 makensis |
-| VSTO 代码签名 | ⚠️ 有 `sign.ps1`，依赖 `VSTO_CERT_THUMBPRINT` secret |
+| VSTO 代码签名 | ✅ 固定自签名证书 `VSTO_CERT_BASE64`/`VSTO_CERT_PASSWORD` |
 | release-manifest.json | ✅ CI 产出 |
 
 ## 安装方式
