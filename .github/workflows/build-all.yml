@@ -280,7 +280,9 @@ jobs:
   # ─────────── VSTO Native Office ───────────
   vsto:
     needs: prepare
-    runs-on: windows-latest
+    # VSTO/.NET Framework tooling is pinned to the VS 2022 image. windows-latest
+    # may advance to a newer Visual Studio image without the same VSTO component set.
+    runs-on: windows-2022
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
@@ -289,6 +291,10 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
       - uses: NuGet/setup-nuget@v2
+
+      - name: Install VSTO runtime for manifest generation
+        shell: pwsh
+        run: .\scripts\ensure-vsto-runtime.ps1
 
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln

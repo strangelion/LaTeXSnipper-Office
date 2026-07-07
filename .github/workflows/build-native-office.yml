@@ -24,7 +24,8 @@ defaults:
 
 jobs:
   build-vsto:
-    runs-on: windows-latest
+    # Keep VSTO builds on the stable VS 2022 hosted image.
+    runs-on: windows-2022
     env:
       CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
       SOLUTION_DIR: apps/native-office
@@ -41,38 +42,18 @@ jobs:
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
+      - name: Install VSTO runtime for manifest generation
+        run: .\scripts\ensure-vsto-runtime.ps1
+
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      - name: Build VSTO solution
+      - name: Build and validate VSTO staging payload
         run: |
-          & "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\MSBuild.exe" `
-            "$env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln" `
-            /t:Build `
-            /p:Configuration=$env:CONFIGURATION `
-            /p:Platform="Any CPU" `
-            /v:minimal
-
-      - name: Stage build output
-        shell: pwsh
-        run: |
-          $out = "$env:SOLUTION_DIR\Installer\output"
-          $staging = "$out\staging"
-          if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-          New-Item -ItemType Directory -Path $staging -Force | Out-Null
-
-          foreach ($h in @("Word","Excel","PowerPoint")) {
-            $src = "$env:SOLUTION_DIR\LaTeXSnipper.$h\bin\$env:CONFIGURATION"
-            $dst = "$staging\$h"
-            if (Test-Path $src) { Copy-Item "$src\*" $dst -Recurse -Force }
-          }
-          $sharedSrc = "$env:SOLUTION_DIR\LaTeXSnipper.Shared\bin\$env:CONFIGURATION"
-          $sharedDst = "$staging\Shared"
-          if (Test-Path $sharedSrc) { Copy-Item "$sharedSrc\*" $sharedDst -Recurse -Force }
-
-          Get-ChildItem $staging -Recurse -File | ForEach-Object {
-            Write-Host "  $($_.FullName.Replace($staging, ''))" -ForegroundColor Gray
-          }
+          & .\apps\native-office\Installer\build.ps1 `
+            -Configuration $env:CONFIGURATION `
+            -OutputDir .\apps\native-office\Installer\output `
+            -StageOnly
 
       - name: Upload build output
         uses: actions/upload-artifact@v4

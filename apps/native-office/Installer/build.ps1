@@ -1,8 +1,8 @@
 # Build script for LaTeXSnipper Native Office installer
 # Run from: apps/native-office/Installer/
 #
-# IMPORTANT: This uses MSBuild /t:Publish to generate .vsto and .dll.manifest files.
-# Do NOT use /t:Build — it only produces DLLs, not ClickOnce manifests.
+# IMPORTANT: The VSTO Office targets run from MSBuild /t:Build via PrepareForRun
+# and generate the .vsto and .dll.manifest files in each host's bin directory.
 
 param(
     [string]$Configuration = "Release",
@@ -105,6 +105,32 @@ if (-not $MsBuildPath) {
 
 Write-Host "  MSBuild: $MsBuildPath" -ForegroundColor Gray
 
+# The Office targets invoke a task that requires the VSTO runtime hosting assembly.
+# Visual Studio build tools alone do not guarantee that it is installed on hosted CI runners.
+$vstoHostingGacRoots = @(
+    (Join-Path $env:WINDIR "Microsoft.NET\assembly\GAC_MSIL\Microsoft.VisualStudio.Tools.Applications.Hosting"),
+    (Join-Path $env:WINDIR "assembly\GAC_MSIL\Microsoft.VisualStudio.Tools.Applications.Hosting")
+)
+
+$vstoHostingAssembly = $null
+foreach ($vstoHostingGac in $vstoHostingGacRoots) {
+    $vstoHostingAssembly = Get-ChildItem -LiteralPath $vstoHostingGac -Recurse `
+        -Filter "Microsoft.VisualStudio.Tools.Applications.Hosting.dll" `
+        -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+
+    if ($vstoHostingAssembly) {
+        break
+    }
+}
+
+if (-not $vstoHostingAssembly) {
+    throw (
+        "VSTO runtime hosting assembly is missing. " +
+        "Run scripts\ensure-vsto-runtime.ps1 before invoking build.ps1."
+    )
+}
+
 # Build signing arguments — VSTO targets generate .vsto + .dll.manifest only when signed
 $publishDir = Join-Path $OutputDir "publish"
 New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
@@ -120,9 +146,11 @@ $buildArgs = @(
 )
 
 if ($SkipSigning) {
-    # CI-only: skip manifest signing, output unsigned .vsto + .dll.manifest
-    $buildArgs += "/p:SignManifests=false"
-    Write-Host "  Signing: DISABLED (unsigned manifests)" -ForegroundColor Yellow
+    throw (
+        "-SkipSigning is not supported for VSTO staging. " +
+        "Setting SignManifests=false prevents the Office targets from producing the required " +
+        ".vsto and .dll.manifest files."
+    )
 } else {
     # Local or CI: use dev PFX or passed cert
     if (-not $env:VstoManifestKeyFile) {

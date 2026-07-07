@@ -173,7 +173,6 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
-    <None Include="LaTeXSnipper.Word_TemporaryKey.pfx" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -212,24 +211,11 @@
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
   </PropertyGroup>
-  <!-- Include the build rules for a C# project. -->
+  <!-- VSTO manifest signing is opt-in. Installer/build.ps1 supplies the certificate in CI. -->
   <PropertyGroup>
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(VstoManifestKeyFile)' != ''">
-    <ManifestKeyFile>$(VstoManifestKeyFile)</ManifestKeyFile>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(VstoManifestKeyPassword)' != ''">
-    <ManifestKeyPassword>$(VstoManifestKeyPassword)</ManifestKeyPassword>
-  </PropertyGroup>
-  <PropertyGroup>
-    <SignManifests>true</SignManifests>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestKeyFile>LaTeXSnipper.Word_TemporaryKey.pfx</ManifestKeyFile>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestCertificateThumbprint>EF58EA3B140B96FA2DC9842ECFCE249119A3595C</ManifestCertificateThumbprint>
+    <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
+    <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
