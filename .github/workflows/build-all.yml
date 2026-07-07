@@ -63,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: apps/office-addin/package-lock.json
 
@@ -151,7 +151,8 @@ jobs:
           New-Item -ItemType Directory -Path $dst -Force | Out-Null
         
           Get-ChildItem -LiteralPath $src -Force | ForEach-Object {
-            Copy-Item -LiteralPath $_.FullName -Destination $dst -Recurse -Force
+            $target = Join-Path $dst $_.Name
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force
           }
         
           $stagedFiles = Get-ChildItem -LiteralPath $dst -Recurse -Force
@@ -162,7 +163,7 @@ jobs:
           }
 
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
@@ -210,7 +211,7 @@ jobs:
         run: git submodule update --init --recursive
 
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
@@ -256,7 +257,7 @@ jobs:
         run: git submodule update --init --recursive
 
       - uses: actions/setup-node@v4
-        with: { node-version: 20, cache: npm }
+        with: { node-version: 24, cache: npm }
       - run: npm ci
       - name: Install Office add-in dependencies
         working-directory: apps/office-addin
@@ -358,7 +359,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: apps/obsidian-plugin/package-lock.json
 
@@ -406,54 +407,6 @@ jobs:
         with: { path: artifacts }
 
       - name: Organize release artifacts
-        run: |
-          $ver = "$env:VERSION"
-          $release = "release/LaTeXSnipper-$ver"
-          New-Item -ItemType Directory -Path $release -Force | Out-Null
-
-          # Tauri Windows
-          $tw = Get-ChildItem "artifacts/tauri-windows" -Recurse -File
-          $null = New-Item -ItemType Directory -Path "$release/windows" -Force
-          $tw | Copy-Item -Destination "$release/windows/" -Force
-
-          # VSTO
-          $vsto = Get-ChildItem "artifacts/vsto" -Recurse -File
-          $null = New-Item -ItemType Directory -Path "$release/windows/vsto" -Force
-          $vsto | Copy-Item -Destination "$release/windows/vsto/" -Force
-
-          # WPS
-          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
-          Copy-Item "artifacts/wps/*.zip" "$release/plugins/" -Force
-
-          # Obsidian
-          Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
-
-          # macOS
-          $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
-          $null = New-Item -ItemType Directory -Path "$release/macos" -Force
-          $mac | Copy-Item -Destination "$release/macos/" -Force
-
-          # Linux
-          $linux = Get-ChildItem "artifacts/tauri-linux" -Recurse -File
-          $null = New-Item -ItemType Directory -Path "$release/linux" -Force
-          $linux | Copy-Item -Destination "$release/linux/" -Force
-
-          # Build release-manifest.json
-          $manifest = @{ version = $ver; components = @() }
-          Get-ChildItem $release -Recurse -File | ForEach-Object {
-            $manifest.components += @{
-              path = $_.FullName.Replace((Get-Location).Path + "\release\", "")
-              size = $_.Length
-            }
-          }
-          $manifest | ConvertTo-Json -Depth 10 | Out-File (Join-Path $release "release-manifest.json") -Encoding UTF8
-
-          Write-Host "Release structure:"
-          Get-ChildItem $release -Recurse -File | ForEach-Object {
-            Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
-          }
-
-      - name: Prepare release structure
         shell: pwsh
         run: |
           $ver = "$env:VERSION"
@@ -487,15 +440,23 @@ jobs:
           $null = New-Item -ItemType Directory -Path "$release/linux" -Force
           $linux | Copy-Item -Destination "$release/linux/" -Force
 
-          # Build release-manifest.json
-          $manifest = @{ version = $ver; components = @() }
-          Get-ChildItem $release -Recurse -File | ForEach-Object {
-            $manifest.components += @{
-              path = $_.FullName.Replace((Get-Location).Path + "\release\", "")
-              size = $_.Length
+          # Build release-manifest.json. Exclude the manifest itself so it never
+          # contains a stale/self-referential entry after a rerun.
+          $releaseRoot = (Resolve-Path -LiteralPath $release).Path
+          $manifest = [ordered]@{ version = $ver; components = @() }
+
+          Get-ChildItem -LiteralPath $releaseRoot -Recurse -File |
+            Where-Object { $_.Name -ne "release-manifest.json" } |
+            ForEach-Object {
+              $relativePath = $_.FullName.Substring($releaseRoot.Length).TrimStart([char[]]@('\', '/'))
+              $manifest.components += [ordered]@{
+                path = $relativePath.Replace('\', '/')
+                size = $_.Length
+              }
             }
-          }
-          $manifest | ConvertTo-Json -Depth 10 | Out-File (Join-Path $release "release-manifest.json") -Encoding UTF8
+
+          $manifest | ConvertTo-Json -Depth 10 |
+            Set-Content -LiteralPath (Join-Path $releaseRoot "release-manifest.json") -Encoding UTF8
 
           Write-Host "Release structure:"
           Get-ChildItem $release -Recurse -File | ForEach-Object {
@@ -520,7 +481,7 @@ jobs:
             ## LaTeXSnipper Office v${{ env.VERSION }}
 
             ### Windows
-            - **Tauri Desktop**: `windows/LaTeXSnipper*.exe` (.msi)
+            - **Tauri Desktop**: `windows/*.msi` (MSI) and `windows/*.exe` (NSIS)
             - **VSTO Add-in**: `windows/vsto/` — DLL + .vsto 清单
             - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
             - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
