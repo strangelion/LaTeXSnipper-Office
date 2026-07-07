@@ -337,6 +337,24 @@ if (-not $allGood) {
     throw "Native Office staging is incomplete."
 }
 
+# Stage OLE Formula Object DLL (both x86 and x64)
+$oleProjPath = Join-Path $SolutionDir "LaTeXSnipper.OleFormulaObjectNative"
+$oleDllX86 = Join-Path $oleProjPath "bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll"
+$oleDllX64 = Join-Path $oleProjPath "bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll"
+if (Test-Path $oleDllX86) {
+    Copy-Item $oleDllX86 (Join-Path $staging "OleFormulaObject.x86.dll") -Force
+    Write-Host "  OLE x86 : OK" -ForegroundColor Green
+} else {
+    Write-Warning "OLE x86 DLL not found at $oleDllX86 — OLE will not be available on 32-bit Office"
+}
+if (Test-Path $oleDllX64) {
+    Copy-Item $oleDllX64 (Join-Path $staging "OleFormulaObject.x64.dll") -Force
+    Write-Host "  OLE x64 : OK" -ForegroundColor Green
+} else {
+    Write-Warning "OLE x64 DLL not found at $oleDllX64 — OLE will not be available on 64-bit Office"
+}
+$env:OleBinDir = $oleProjPath
+
 # A VSTO deployment manifest hashes its application manifest and the application
 # manifest hashes every payload dependency. Verify the copied staging tree before
 # it becomes an artifact or an installer input; a later byte mismatch is rejected
@@ -390,6 +408,7 @@ $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
     -d PowerPointBinDir=$env:PowerPointBinDir `
+    -d OleBinDir=$env:OleBinDir `
     -ext WixToolset.UI.wixext
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed" }
 

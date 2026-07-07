@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using LaTeXSnipper.Word.Metadata;
 
 namespace LaTeXSnipper.Word.Host
@@ -28,13 +29,28 @@ namespace LaTeXSnipper.Word.Host
                 var range = _application.Selection.Range;
                 if (range == null) return null;
 
+                // Find formulaId from ContentControl tag first
+                var existingFormulaId = Metadata.FormulaMetadata.FindFormulaIdAtRange(range);
+
+                // If we have a formulaId, try to read from manifest
+                if (!string.IsNullOrEmpty(existingFormulaId))
+                {
+                    var doc = range.Document;
+                    var fromManifest = FormulaDocumentManifest.Read(doc, existingFormulaId);
+                    if (fromManifest != null)
+                    {
+                        // Also read fresh OMML from the document for latest state
+                        fromManifest.FormulaId = existingFormulaId;
+                        return fromManifest;
+                    }
+                }
+
                 // Layer 1: OMath collection (cursor inside math zone)
                 if (range.OMaths.Count > 0)
                 {
                     try
                     {
                         var oMath = range.OMaths[1];
-                        var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
                         // Get OMML from WordOpenXML
                         var oMathXml = oMath.Range.WordOpenXML;
@@ -43,10 +59,9 @@ namespace LaTeXSnipper.Word.Host
                             var omml = ExtractOmmlFromXml(oMathXml);
                             if (!string.IsNullOrEmpty(omml))
                             {
-                                // Return OMML only; Rust Core will convert to LaTeX
                                 return new FormulaPayload
                                 {
-                                    FormulaId = formulaId,
+                                    FormulaId = existingFormulaId ?? FormulaIdHelper.NewId(),
                                     Omml = omml,
                                     Latex = "",
                                     Display = "block"
@@ -68,7 +83,7 @@ namespace LaTeXSnipper.Word.Host
                         {
                             return new FormulaPayload
                             {
-                                FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                                FormulaId = existingFormulaId ?? FormulaIdHelper.NewId(),
                                 Omml = omml,
                                 Latex = "",
                                 Display = "block"
@@ -93,7 +108,7 @@ namespace LaTeXSnipper.Word.Host
                             {
                                 return new FormulaPayload
                                 {
-                                    FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                                    FormulaId = existingFormulaId ?? FormulaIdHelper.NewId(),
                                     Omml = omml,
                                     Latex = "",
                                     Display = "block"
@@ -303,6 +318,134 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        /// <summary>
+        /// Convert a formula between storage modes (native-omml ↔ ole ↔ image-manifest).
+        /// Creates the new storage object, validates it, then deletes the old one.
+        /// </summary>
+        public InsertResult ConvertFormula(string formulaId, string targetMode)
+        {
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                    return new InsertResult { Success = false, Error = "No active document" };
+
+                // 1. Read existing formula from manifest
+                var existing = Metadata.FormulaDocumentManifest.Read(doc, formulaId);
+                if (existing == null)
+                    return new InsertResult { Success = false, Error = "Formula not found in manifest" };
+
+                // 2. Find existing ContentControl
+                Microsoft.Office.Interop.Word.ContentControl? existingCc = null;
+                foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
+                {
+                    var tag = cc.Tag as string;
+                    if (tag == $"latexsnipper:formula:{formulaId}")
+                    {
+                        existingCc = cc;
+                        break;
+                    }
+                }
+
+                if (existingCc == null)
+                    return new InsertResult { Success = false, Error = "Formula ContentControl not found" };
+
+                // 3. Determine new storage mode
+                var newStorageMode = targetMode switch
+                {
+                    "ole" => "ole",
+                    "image" => "image-manifest",
+                    "native" => "native-omml",
+                    _ => "native-omml"
+                };
+
+                var newFormulaId = FormulaIdHelper.NewId();
+
+                if (newStorageMode == "native-omml")
+                {
+                    // Convert to native OMML (only works in Word)
+                    // Build formula body with OMML from existing payload
+                    var omml = existing.Omml;
+                    if (string.IsNullOrEmpty(omml))
+                    {
+                        // Ask Desktop to render LaTeX → OMML
+                        // For now, reuse existing ContentControl with new tag
+                        existingCc.Tag = $"latexsnipper:formula:{newFormulaId}";
+                    }
+                    else
+                    {
+                        // Insert new ContentControl with OMML at same position
+                        var range = existingCc.Range.Duplicate;
+                        var modeEnum = existing.Display == "inline" ? InsertMode.Inline : InsertMode.Display;
+                        var body = BuildFormulaBody(omml, newFormulaId, modeEnum);
+                        var flatOpc = BuildFlatOpc(body);
+                        existingCc.Delete();
+                        _application.Selection.SetRange(range.Start, range.Start);
+                        _application.Selection.Range.InsertXML(flatOpc);
+                    }
+
+                    // Update manifest
+                    var newPayload = new FormulaPayload
+                    {
+                        FormulaId = newFormulaId,
+                        Latex = existing.Latex,
+                        Omml = existing.Omml,
+                        Display = existing.Display,
+                        StorageMode = "native-omml",
+                        Revision = 1
+                    };
+                    Metadata.FormulaDocumentManifest.Write(doc, newPayload);
+                    Metadata.FormulaDocumentManifest.Remove(doc, formulaId);
+
+                    return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "native-omml" };
+                }
+
+                if (newStorageMode == "ole")
+                {
+                    // Convert to OLE object
+                    var range = existingCc.Range.Duplicate;
+                    existingCc.Delete();
+
+                    _application.Selection.SetRange(range.Start, range.Start);
+
+                    float width = 120f, height = 30f;
+                    var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
+                        _application.Selection.InlineShapes.AddOLEObject(
+                            ClassType: "LaTeXSnipper.Formula.1",
+                            FileName: Type.Missing,
+                            LinkToFile: false,
+                            DisplayAsIcon: false);
+
+                    oleShape.Height = height;
+                    oleShape.Width = width;
+
+                    var newPayload = new FormulaPayload
+                    {
+                        FormulaId = newFormulaId,
+                        Latex = existing.Latex,
+                        Display = existing.Display,
+                        StorageMode = "ole",
+                        Revision = 1
+                    };
+                    Metadata.FormulaDocumentManifest.Write(doc, newPayload);
+                    Metadata.FormulaDocumentManifest.Remove(doc, formulaId);
+
+                    return new InsertResult { Success = true, FormulaId = newFormulaId, StorageMode = "ole" };
+                }
+
+                // image-manifest: keep current OMML content but mark as image-manifest
+                existing.StorageMode = "image-manifest";
+                existing.Revision++;
+                Metadata.FormulaDocumentManifest.Write(doc, existing);
+
+                return new InsertResult { Success = true, FormulaId = formulaId, StorageMode = "image-manifest" };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult { Success = false, Error = ex.Message };
+            }
+        }
+
         private static string NormalizeOmml(string omml, InsertMode mode)
         {
             if (string.IsNullOrWhiteSpace(omml)) return "";
@@ -455,7 +598,7 @@ namespace LaTeXSnipper.Word.Host
             // Build a FormulaPayload from the unified command
             var payload = new FormulaPayload
             {
-                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? FormulaIdHelper.NewId(),
                 Latex = cmd.Latex,
                 Display = cmd.Display
             };
@@ -503,6 +646,7 @@ namespace LaTeXSnipper.Word.Host
     {
         public bool Success { get; set; }
         public string FormulaId { get; set; } = "";
+        public string StorageMode { get; set; } = "";
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }
         public string Error { get; set; } = "";

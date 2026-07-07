@@ -143,7 +143,9 @@ fn fix_double_encoded_utf8(s: &str) -> String {
                 if c >= 0x80 && c <= 0xFF {
                     raw_bytes.push(c as u8);
                     j += 1;
-                } else { break; }
+                } else {
+                    break;
+                }
             }
             if raw_bytes.len() >= 2 {
                 if let Ok(decoded) = std::str::from_utf8(&raw_bytes) {
@@ -180,7 +182,8 @@ fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
     }
     // 2. Try apps/office-addin/dist (dev mode, after direct Vite build)
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let addin_dist = PathBuf::from(&manifest_dir).parent()
+        let addin_dist = PathBuf::from(&manifest_dir)
+            .parent()
             .map(|p| p.join("apps").join("office-addin").join("dist"));
         if let Some(dir) = addin_dist {
             if has_office_taskpane(&dir) {
@@ -226,7 +229,12 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
     let dist_path = find_office_js_dist(&app_handle);
     println!("[Bridge] Serving Office.js taskpane from: {}", dist_path);
     let app = Router::new()
-        .route("/health", get(|| async { Json(serde_json::json!({"status": "ok", "service": "latexsnipper-bridge"})) }))
+        .route(
+            "/health",
+            get(|| async {
+                Json(serde_json::json!({"status": "ok", "service": "latexsnipper-bridge"}))
+            }),
+        )
         .route("/api/office/convert", post(handle_convert))
         .route("/api/office/render-formula", post(handle_render_formula))
         .route("/api/office/render-result", post(handle_render_result))
@@ -243,14 +251,20 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/office/delete-formula", post(handle_delete_formula))
         .route("/api/office/auto-number", post(handle_auto_number))
         .route("/api/office/renumber", post(handle_renumber))
-        .route("/api/office/format-selection", post(handle_format_selection))
+        .route(
+            "/api/office/format-selection",
+            post(handle_format_selection),
+        )
         .route("/api/office/format-all", post(handle_format_all))
         .route("/api/office/load-table", post(handle_load_table))
         .route("/api/office/insert-table", post(handle_insert_table))
         .route("/api/office/insert-direct", post(handle_insert_direct))
         .route("/api/office/heartbeat", post(handle_heartbeat))
         .route("/api/office/actions/next", get(handle_actions_next))
-        .route("/api/office/actions/complete", post(handle_actions_complete))
+        .route(
+            "/api/office/actions/complete",
+            post(handle_actions_complete),
+        )
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
@@ -432,7 +446,8 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         Ok(tls_config) => {
             let addr = format!("127.0.0.1:{}", BRIDGE_PORT);
             println!("[Bridge] Listening on https://{}", addr);
-            let rustls_config = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
+            let rustls_config =
+                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config));
             let parsed_addr: std::net::SocketAddr = match addr.parse() {
                 Ok(a) => a,
                 Err(e) => {
@@ -719,9 +734,7 @@ pub struct LoadTableResponse {
     pub table: Option<TableData>,
 }
 
-async fn handle_load_table(
-    State(state): State<Arc<BridgeState>>,
-) -> impl IntoResponse {
+async fn handle_load_table(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
     println!("[Bridge] Load table");
     let _ = state.app_handle.emit("office-load-table", ());
     Json(LoadTableResponse {
@@ -776,9 +789,12 @@ async fn handle_insert_table(
     Json(req): Json<TableDataRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Insert table: {}", req.latex);
-    let _ = state.app_handle.emit("office-insert-table", serde_json::json!({
-        "latex": req.latex,
-    }));
+    let _ = state.app_handle.emit(
+        "office-insert-table",
+        serde_json::json!({
+            "latex": req.latex,
+        }),
+    );
     Json(OfficeResponse {
         success: true,
         message: "ok".into(),
@@ -796,14 +812,23 @@ async fn handle_insert_direct(
     State(state): State<Arc<BridgeState>>,
     Json(req): Json<InsertDirectRequest>,
 ) -> impl IntoResponse {
-    println!("[Bridge] Insert direct (pushed to action queue): {}", req.latex);
+    println!(
+        "[Bridge] Insert direct (pushed to action queue): {}",
+        req.latex
+    );
 
     let action = OfficeAction::InsertFormula {
         latex: req.latex,
-        mode: if req.display { "display".into() } else { "inline".into() },
+        mode: if req.display {
+            "display".into()
+        } else {
+            "inline".into()
+        },
     };
 
-    let counter = state.action_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let counter = state
+        .action_counter
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let action_id = format!("act_{}", counter);
     {
         let mut queue = state.action_queue.lock().await;
@@ -816,10 +841,10 @@ async fn handle_insert_direct(
     })
 }
 
-async fn handle_heartbeat(
-    State(state): State<Arc<BridgeState>>,
-) -> impl IntoResponse {
-    state.heartbeat_received.store(true, std::sync::atomic::Ordering::Relaxed);
+async fn handle_heartbeat(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
+    state
+        .heartbeat_received
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     // Also record in the integrations module so check_office_addin() sees it
     super::integrations::record_taskpane_heartbeat();
     println!("[Bridge] Taskpane heartbeat received");
@@ -829,9 +854,7 @@ async fn handle_heartbeat(
     })
 }
 
-async fn handle_actions_next(
-    State(state): State<Arc<BridgeState>>,
-) -> impl IntoResponse {
+async fn handle_actions_next(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
     let action = {
         let mut queue = state.action_queue.lock().await;
         queue.pop_front()

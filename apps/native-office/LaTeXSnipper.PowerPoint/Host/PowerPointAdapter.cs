@@ -36,6 +36,13 @@ namespace LaTeXSnipper.PowerPoint.Host
 
             try
             {
+                // OLE path: try when integration mode is OLE or Auto
+                if (payload.StorageMode == "ole" || string.IsNullOrEmpty(payload.StorageMode))
+                {
+                    var oleResult = TryInsertOle(slide, payload);
+                    if (oleResult != null) return oleResult;
+                }
+
                 // Prefer PNG over SVG (Office renders PNG more reliably)
                 string? imageExt = null;
                 string? imageData = null;
@@ -107,12 +114,16 @@ namespace LaTeXSnipper.PowerPoint.Host
                 if (shapeRange != null && shapeRange.Count > 0)
                 {
                     var shape = shapeRange[1];
+
+                    // Extract formulaId from shape name: LSNO_{formulaId}
+                    var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
+
                     var altText = shape.AlternativeText as string;
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
                             Display = "inline"
                         };
@@ -128,12 +139,59 @@ namespace LaTeXSnipper.PowerPoint.Host
                 {
                     return new FormulaPayload
                     {
-                        FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                        FormulaId = FormulaIdHelper.NewId(),
                         Latex = text,
                         Display = "inline"
                     };
                 }
             }
+            return null;
+        }
+
+        /// <summary>
+        /// Try to insert formula as an OLE object. Returns null if OLE is unavailable.
+        /// </summary>
+        private InsertResult? TryInsertOle(Microsoft.Office.Interop.PowerPoint.Slide slide, FormulaPayload payload)
+        {
+            try
+            {
+                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+                float slideWidth = _application.ActivePresentation.PageSetup.SlideWidth;
+                float left = (slideWidth - width) / 2f;
+                float top = 100f;
+
+                var shape = slide.Shapes.AddOLEObject(
+                    Left: left,
+                    Top: top,
+                    Width: width,
+                    Height: height,
+                    ClassName: "LaTeXSnipper.Formula.1",
+                    FileName: Type.Missing,
+                    DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse
+                );
+
+                shape.Name = $"LSNO_{payload.FormulaId}";
+                shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
+
+                // In later phases, call ILatexSnipperFormula.InitializeFromJson() via shape.OLEFormat.Object
+                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted: name={shape.Name}");
+                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE insert failed (will fall back): {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string? ExtractFormulaIdFromShapeName(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            const string prefix = "LSNO_";
+            if (name.StartsWith(prefix) && name.Length > prefix.Length)
+                return name.Substring(prefix.Length);
             return null;
         }
 
@@ -238,7 +296,7 @@ namespace LaTeXSnipper.PowerPoint.Host
         {
             var payload = new FormulaPayload
             {
-                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? FormulaIdHelper.NewId(),
                 Latex = cmd.Latex,
                 Display = cmd.Display
             };

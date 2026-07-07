@@ -37,8 +37,7 @@ impl std::error::Error for NativeOfficeSecurityError {}
 /// It will NOT fall back to username on failure.
 pub fn current_user_sid() -> Result<String, NativeOfficeSecurityError> {
     static SID: OnceLock<Result<String, NativeOfficeSecurityError>> = OnceLock::new();
-    SID.get_or_init(|| get_windows_user_sid())
-        .clone()
+    SID.get_or_init(|| get_windows_user_sid()).clone()
 }
 
 /// Get the real Windows SID using the current process token.
@@ -52,7 +51,7 @@ fn get_windows_user_sid() -> Result<String, NativeOfficeSecurityError> {
         let mut token_handle: *mut std::ffi::c_void = std::ptr::null_mut();
         let result = OpenProcessToken(
             -1isize as *mut _, // GetCurrentProcess()
-            0x0008, // TOKEN_QUERY
+            0x0008,            // TOKEN_QUERY
             &mut token_handle,
         );
 
@@ -100,10 +99,7 @@ fn get_windows_user_sid() -> Result<String, NativeOfficeSecurityError> {
 
         // Convert SID to string using ConvertSidToStringSidW
         let mut sid_string: *mut u16 = std::ptr::null_mut();
-        let result = ConvertSidToStringSidW(
-            sid_ptr as *const _,
-            &mut sid_string,
-        );
+        let result = ConvertSidToStringSidW(sid_ptr as *const _, &mut sid_string);
 
         if result == 0 || sid_string.is_null() {
             log::error!("[Identity] Failed to convert SID to string");
@@ -155,10 +151,7 @@ extern "system" {
         ReturnLength: *mut u32,
     ) -> i32;
 
-    fn ConvertSidToStringSidW(
-        Sid: *const std::ffi::c_void,
-        StringSid: *mut *mut u16,
-    ) -> i32;
+    fn ConvertSidToStringSidW(Sid: *const std::ffi::c_void, StringSid: *mut *mut u16) -> i32;
 
     fn LocalFree(hMem: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
 

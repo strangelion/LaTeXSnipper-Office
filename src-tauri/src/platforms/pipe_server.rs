@@ -32,7 +32,10 @@ pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Ar
     let pipe_name = match acl::pipe_name() {
         Ok(name) => name,
         Err(e) => {
-            log::error!("[Pipe] Failed to get pipe name (SID error): {}. Cannot start server.", e);
+            log::error!(
+                "[Pipe] Failed to get pipe name (SID error): {}. Cannot start server.",
+                e
+            );
             return;
         }
     };
@@ -70,9 +73,7 @@ pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Ar
 }
 
 /// Create the first pipe instance (creates the named pipe object).
-async fn create_pipe_instance_first(
-    pipe_name: &str,
-) -> Result<NamedPipeServer, std::io::Error> {
+async fn create_pipe_instance_first(pipe_name: &str) -> Result<NamedPipeServer, std::io::Error> {
     let mut security = PipeSecurityDescriptor::current_user_and_system()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
@@ -80,10 +81,7 @@ async fn create_pipe_instance_first(
         ServerOptions::new()
             .first_pipe_instance(true)
             .reject_remote_clients(true)
-            .create_with_security_attributes_raw(
-                pipe_name,
-                security.as_raw_security_attributes(),
-            )?
+            .create_with_security_attributes_raw(pipe_name, security.as_raw_security_attributes())?
     };
 
     // Wait for client connection
@@ -103,10 +101,7 @@ async fn create_pipe_instance_additional(
         ServerOptions::new()
             .first_pipe_instance(false)
             .reject_remote_clients(true)
-            .create_with_security_attributes_raw(
-                pipe_name,
-                security.as_raw_security_attributes(),
-            )?
+            .create_with_security_attributes_raw(pipe_name, security.as_raw_security_attributes())?
     };
 
     // Wait for client connection
@@ -147,8 +142,10 @@ async fn handle_client(
             // Try to read from pipe (with timeout to allow checking channel)
             match tokio::time::timeout(
                 std::time::Duration::from_millis(100),
-                pipe.read(&mut read_buf)
-            ).await {
+                pipe.read(&mut read_buf),
+            )
+            .await
+            {
                 Ok(Ok(0)) => {
                     log::info!("[Pipe] Client disconnected");
                     return Ok(());
@@ -176,16 +173,21 @@ async fn handle_client(
                                 }
 
                                 // Dispatch to session manager
-                                let response = session_mgr.handle_message(msg, Some(tx.clone())).await;
+                                let response =
+                                    session_mgr.handle_message(msg, Some(tx.clone())).await;
 
                                 // Track authenticated session
-                                if let DesktopMessage::HelloAck { ref sessionId, .. } = response.response {
+                                if let DesktopMessage::HelloAck { ref sessionId, .. } =
+                                    response.response
+                                {
                                     authenticated_session_id = Some(sessionId.clone());
                                     log::info!("[Pipe] Session authenticated: {}", sessionId);
                                 }
 
                                 // If HELLO_NACK, disconnect immediately
-                                if let DesktopMessage::HelloNack { ref error, .. } = response.response {
+                                if let DesktopMessage::HelloNack { ref error, .. } =
+                                    response.response
+                                {
                                     log::warn!("[Pipe] HELLO_NACK: {}. Disconnecting.", error);
                                     let frame = encode_frame(&response.response);
                                     let _ = pipe.write_all(&frame).await;
@@ -250,6 +252,7 @@ pub async fn send_insert_formula(
     session_id: &str,
     formula: FormulaPayload,
     mode: InsertMode,
+    integration_mode: Option<FormulaIntegrationMode>,
 ) -> Result<(), super::session::SendError> {
     let msg = DesktopMessage::InsertFormula {
         requestId: format!("cmd-{}", uuid_simple()),
@@ -257,6 +260,7 @@ pub async fn send_insert_formula(
         expectedContextId: None,
         formula,
         mode,
+        integration_mode,
     };
     session_mgr.send_to_session(session_id, msg).await
 }
@@ -355,6 +359,7 @@ pub async fn send_insert_word_reference(
     let msg = DesktopMessage::InsertWordReference {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
+        expectedContextId: None,
         formulaId: formula_id,
         referenceType: reference_type,
     };

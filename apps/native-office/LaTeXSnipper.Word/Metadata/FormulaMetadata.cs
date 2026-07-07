@@ -1,149 +1,104 @@
 using System;
-using System.Xml.Linq;
-using LaTeXSnipper.NativeOffice.Shared;
+using System.Linq;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 
 namespace LaTeXSnipper.Word.Metadata
 {
+    /// <summary>
+    /// Thin wrapper around FormulaDocumentManifest for Word.
+    /// Keeps existing call sites unchanged while switching from
+    /// per-formula CustomXMLParts to a single-document manifest.
+    /// </summary>
     internal static class FormulaMetadata
     {
-        private const string NamespaceUri = "urn:latexsnipper:native-office:v2";
-
         public static void Write(Microsoft.Office.Interop.Word.Document doc, string formulaId, FormulaPayload payload)
         {
-            try
-            {
-                var xml = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
-<lsno:noffice xmlns:lsno=""{NamespaceUri}"">
-  <lsno:formula id=""{formulaId}"" version=""2"" created=""{DateTime.UtcNow:O}"">
-    <lsno:latex>{EscapeXml(payload.Latex)}</lsno:latex>
-    <lsno:omml sha256=""{ComputeSha256(payload.Omml)}"">{Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(payload.Omml))}</lsno:omml>
-    <lsno:presentation display=""{payload.Display}"" alignment=""{payload.Presentation?.Alignment ?? "center"}"" scale=""{payload.Presentation?.FontScale ?? 1.0f}"" />
-  </lsno:formula>
-</lsno:noffice>";
-                doc.CustomXMLParts.Add(xml);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FormulaMetadata] Write failed: {ex.Message}");
-            }
+            payload.FormulaId = formulaId;
+            payload.Revision++;
+            FormulaDocumentManifest.Write(doc, payload);
         }
 
-        public static FormulaPayload Read(Microsoft.Office.Interop.Word.Range range)
+        /// <summary>
+        /// Read formula metadata by ContentControl Tag (precise lookup).
+        /// No longer reads "most recent" CustomXMLPart.
+        /// </summary>
+        public static FormulaPayload? Read(Microsoft.Office.Interop.Word.Range range)
         {
             try
             {
                 var doc = range.Document;
-                // Iterate from end (most recent) to find last inserted formula
-                for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
+                var formulaId = FindFormulaIdAtRange(range);
+                if (string.IsNullOrEmpty(formulaId))
                 {
-                    try
+                    // Fallback: try reading from the manifest by finding
+                    // the nearest content control
+                    var cc = range.ContentControls;
+                    if (cc != null && cc.Count > 0)
                     {
-                        dynamic part = doc.CustomXMLParts[i];
-                        string ns = "";
-                        try { ns = part.NamespaceURI ?? ""; } catch { }
-                        if (ns != NamespaceUri) continue;
-
-                        string partXml = "";
-                        try { partXml = part.XML ?? ""; } catch { }
-                        if (string.IsNullOrEmpty(partXml)) continue;
-
-                        var xdoc = XDocument.Parse(partXml);
-                        XName nsFormula = XName.Get("formula", NamespaceUri);
-                        var formulaNode = xdoc.Root?.Element(nsFormula);
-                        if (formulaNode == null) continue;
-
-                        var formulaId = formulaNode.Attribute("id")?.Value ?? "";
-                        var latex = formulaNode.Element(XName.Get("latex", NamespaceUri))?.Value ?? "";
-                        var ommlEl = formulaNode.Element(XName.Get("omml", NamespaceUri));
-                        var omml = "";
-                        try
-                        {
-                            omml = System.Text.Encoding.UTF8.GetString(
-                                Convert.FromBase64String(ommlEl?.Value ?? ""));
-                        }
-                        catch { }
-                        var display = formulaNode
-                            .Element(XName.Get("presentation", NamespaceUri))
-                            ?.Attribute("display")?.Value ?? "block";
-
-                        if (!string.IsNullOrEmpty(formulaId))
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[FormulaMetadata] Read: found formula {formulaId} (most recent)");
-                            return new FormulaPayload
-                            {
-                                FormulaId = formulaId,
-                                Latex = latex,
-                                Omml = omml,
-                                Display = display
-                            };
-                        }
-                    }
-                    catch (Exception innerEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[FormulaMetadata] Read part error: {innerEx.Message}");
+                        var tag = cc[1].Tag as string;
+                        formulaId = ExtractFormulaIdFromTag(tag);
                     }
                 }
+
+                if (string.IsNullOrEmpty(formulaId))
+                    return null;
+
+                return FormulaDocumentManifest.Read(doc, formulaId);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaMetadata] Read failed: {ex.Message}");
+                return null;
             }
-            return null;
         }
 
         public static void Update(Microsoft.Office.Interop.Word.Document doc, string formulaId, FormulaPayload payload)
         {
-            Remove(doc, formulaId);
-            Write(doc, formulaId, payload);
+            payload.FormulaId = formulaId;
+            payload.Revision++;
+            FormulaDocumentManifest.Write(doc, payload);
         }
 
         public static void Remove(Microsoft.Office.Interop.Word.Document doc, string formulaId)
         {
+            FormulaDocumentManifest.Remove(doc, formulaId);
+        }
+
+        /// <summary>
+        /// Find the formulaId from a ContentControl tag at or near the range.
+        /// </summary>
+        internal static string FindFormulaIdAtRange(Microsoft.Office.Interop.Word.Range range)
+        {
             try
             {
-                for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
+                var cc = range.ContentControls;
+                if (cc != null && cc.Count > 0)
                 {
-                    dynamic part = doc.CustomXMLParts[i];
-                    try
-                    {
-                        if (part.NamespaceURI == NamespaceUri)
-                        {
-                            string partXml = part.XML ?? "";
-                            var xdoc = XDocument.Parse(partXml);
-                            var formulaNode = xdoc.Root?.Element(XName.Get("formula", NamespaceUri));
-                            if (formulaNode?.Attribute("id")?.Value == formulaId)
-                            {
-                                part.Delete();
-                                break;
-                            }
-                        }
-                    }
-                    catch { }
+                    var tag = cc[1].Tag as string;
+                    var id = ExtractFormulaIdFromTag(tag);
+                    if (!string.IsNullOrEmpty(id))
+                        return id;
+                }
+
+                // Check parent content controls (cursor may be deep inside OMath)
+                var parent = range.ParentContentControl;
+                if (parent != null)
+                {
+                    var tag = parent.Tag as string;
+                    return ExtractFormulaIdFromTag(tag) ?? "";
                 }
             }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FormulaMetadata] Remove failed: {ex.Message}");
-            }
+            catch { }
+            return "";
         }
 
-        public static string EscapeXml(string text)
+        internal static string? ExtractFormulaIdFromTag(string? tag)
         {
-            return text
-                .Replace("&", "&amp;")
-                .Replace("<", "&lt;")
-                .Replace(">", "&gt;")
-                .Replace("\"", "&quot;")
-                .Replace("'", "&apos;");
-        }
-
-        public static string ComputeSha256(string input)
-        {
-            using var sha = System.Security.Cryptography.SHA256.Create();
-            var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-            return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
+            if (string.IsNullOrEmpty(tag)) return null;
+            const string prefix = "latexsnipper:formula:";
+            if (tag.StartsWith(prefix))
+                return tag.Substring(prefix.Length);
+            return null;
         }
     }
 }

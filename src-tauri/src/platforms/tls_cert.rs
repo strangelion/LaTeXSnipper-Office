@@ -49,7 +49,11 @@ pub fn get_or_create_tls_config(app_handle: &tauri::AppHandle) -> Result<ServerC
         .with_single_cert(certs, key)
         .map_err(|e| format!("Failed to build TLS config: {e}"))?;
 
-    println!("[TLS] Using cert: {} ({} certs)", cert_path.display(), cert_count);
+    println!(
+        "[TLS] Using cert: {} ({} certs)",
+        cert_path.display(),
+        cert_count
+    );
     Ok(config)
 }
 
@@ -58,9 +62,22 @@ pub fn get_or_create_tls_config(app_handle: &tauri::AppHandle) -> Result<ServerC
 pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
     // Try standard app data paths
     let candidates = [
-        dirs_next::data_dir().map(|d| d.join("com.latexsnipper.office").join("localhost-certs").join("localhost.crt")),
-        dirs_next::data_dir().map(|d| d.join("latexsnipper-office").join("localhost-certs").join("localhost.crt")),
-        Some(std::env::temp_dir().join("LaTeXSnipper").join("localhost-certs").join("localhost.crt")),
+        dirs_next::data_dir().map(|d| {
+            d.join("com.latexsnipper.office")
+                .join("localhost-certs")
+                .join("localhost.crt")
+        }),
+        dirs_next::data_dir().map(|d| {
+            d.join("latexsnipper-office")
+                .join("localhost-certs")
+                .join("localhost.crt")
+        }),
+        Some(
+            std::env::temp_dir()
+                .join("LaTeXSnipper")
+                .join("localhost-certs")
+                .join("localhost.crt"),
+        ),
     ];
     for candidate in candidates.into_iter().flatten() {
         if candidate.exists() {
@@ -136,7 +153,13 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
 
     // First try non-elevated
     let output = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", &script_path.to_string_lossy()])
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_path.to_string_lossy(),
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("Failed to run cert trust: {e}"))?;
@@ -151,7 +174,8 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // If non-elevated failed (likely access denied), try elevated with UAC prompt
-    if stderr.contains("Access denied") || stdout.contains("exit code") || !output.status.success() {
+    if stderr.contains("Access denied") || stdout.contains("exit code") || !output.status.success()
+    {
         println!("[TLS] Non-elevated trust failed, trying UAC elevation...");
         let elevated = std::process::Command::new("powershell")
             .args([
@@ -209,7 +233,9 @@ fn get_cert_dir(app_handle: &tauri::AppHandle) -> PathBuf {
     if let Ok(dir) = app_handle.path().app_data_dir() {
         dir.join("localhost-certs")
     } else {
-        std::env::temp_dir().join("LaTeXSnipper").join("localhost-certs")
+        std::env::temp_dir()
+            .join("LaTeXSnipper")
+            .join("localhost-certs")
     }
 }
 
@@ -220,11 +246,12 @@ fn generate_self_signed_cert(cert_path: &PathBuf, key_path: &PathBuf) -> Result<
     let cert_pem = cert.cert.pem();
     let key_pem = cert.key_pair.serialize_pem();
 
-    fs::write(cert_path, cert_pem.as_bytes())
-        .map_err(|e| format!("Failed to write cert: {e}"))?;
-    fs::write(key_path, key_pem.as_bytes())
-        .map_err(|e| format!("Failed to write key: {e}"))?;
+    fs::write(cert_path, cert_pem.as_bytes()).map_err(|e| format!("Failed to write cert: {e}"))?;
+    fs::write(key_path, key_pem.as_bytes()).map_err(|e| format!("Failed to write key: {e}"))?;
 
-    println!("[TLS] Generated self-signed cert at: {}", cert_path.display());
+    println!(
+        "[TLS] Generated self-signed cert at: {}",
+        cert_path.display()
+    );
     Ok(())
 }

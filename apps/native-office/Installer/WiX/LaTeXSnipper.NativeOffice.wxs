@@ -93,6 +93,68 @@
         </RegistryKey>
       </Component>
 
+      <!-- OLE Formula Object (x86). Only installed when Office is 32-bit. -->
+      <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA" Win64="no">
+        <File Id="OleDllX86" Source="$(var.OleBinDir)\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll" Name="OleFormulaObject.x86.dll" />
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+          <RegistryValue Type="string" Name="Insertable" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+          <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
+          <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
+          <RegistryValue Type="string" Name="Insertable" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\DefaultIcon">
+          <RegistryValue Type="string" Value="[NativeOfficeDir]OleFormulaObject.x86.dll,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\InprocServer32">
+          <RegistryValue Type="string" Value="[NativeOfficeDir]OleFormulaObject.x86.dll" />
+          <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\Verb">
+          <RegistryValue Type="string" Name="0" Value="Edit Formula, 0, 2" />
+          <RegistryValue Type="string" Name="1" Value="Open in LaTeXSnipper, 0, 2" />
+          <RegistryValue Type="string" Name="2" Value="Copy LaTeX, 0, 0" />
+          <RegistryValue Type="string" Name="3" Value="Refresh Preview, 0, 0" />
+        </RegistryKey>
+      </Component>
+
+      <!-- OLE Formula Object (x64). Only installed when Office is 64-bit. -->
+      <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB" Win64="yes">
+        <File Id="OleDllX64" Source="$(var.OleBinDir)\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll" Name="OleFormulaObject.x64.dll" />
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+          <RegistryValue Type="string" Name="Insertable" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}">
+          <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
+          <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
+          <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
+          <RegistryValue Type="string" Name="Insertable" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\DefaultIcon">
+          <RegistryValue Type="string" Value="[NativeOfficeDir]OleFormulaObject.x64.dll,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\InprocServer32">
+          <RegistryValue Type="string" Value="[NativeOfficeDir]OleFormulaObject.x64.dll" />
+          <RegistryValue Type="string" Name="ThreadingModel" Value="Apartment" />
+        </RegistryKey>
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\Verb">
+          <RegistryValue Type="string" Name="0" Value="Edit Formula, 0, 2" />
+          <RegistryValue Type="string" Name="1" Value="Open in LaTeXSnipper, 0, 2" />
+          <RegistryValue Type="string" Name="2" Value="Copy LaTeX, 0, 0" />
+          <RegistryValue Type="string" Name="3" Value="Refresh Preview, 0, 0" />
+        </RegistryKey>
+      </Component>
+
     </ComponentGroup>
 
     <!-- Features -->
@@ -101,6 +163,8 @@
       <ComponentRef Id="WordComponent" />
       <ComponentRef Id="ExcelComponent" />
       <ComponentRef Id="PowerPointComponent" />
+      <ComponentRef Id="OleComponentX86" />
+      <ComponentRef Id="OleComponentX64" />
     </Feature>
 
     <!-- WiX v4 built-in installer UI -->

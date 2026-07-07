@@ -84,7 +84,11 @@ impl SessionManager {
             } => {
                 // Verify protocol version
                 if protocolVersion != PROTOCOL_VERSION {
-                    log::warn!("[Session] HELLO rejected: protocol version mismatch ({} vs {})", protocolVersion, PROTOCOL_VERSION);
+                    log::warn!(
+                        "[Session] HELLO rejected: protocol version mismatch ({} vs {})",
+                        protocolVersion,
+                        PROTOCOL_VERSION
+                    );
                     return ResponseEnvelope {
                         requestId: requestId.clone(),
                         sessionId: sessionId.clone(),
@@ -92,7 +96,10 @@ impl SessionManager {
                             requestId,
                             sessionId,
                             errorCode: "VERSION_MISMATCH".to_string(),
-                            error: format!("Protocol version {} not supported, expected {}", protocolVersion, PROTOCOL_VERSION),
+                            error: format!(
+                                "Protocol version {} not supported, expected {}",
+                                protocolVersion, PROTOCOL_VERSION
+                            ),
                         },
                     };
                 }
@@ -121,13 +128,19 @@ impl SessionManager {
                     document_id: None,
                     document_title: None,
                     connected_at: chrono::Utc::now(),
-                    writer,  // Register the writer channel here
+                    writer, // Register the writer channel here
                 };
-                self.sessions.write().await.insert(sessionId.clone(), session);
+                self.sessions
+                    .write()
+                    .await
+                    .insert(sessionId.clone(), session);
 
-                let _ = self.app_handle.emit("native-office-session-added", serde_json::json!({
-                    "sessionId": sessionId,
-                }));
+                let _ = self.app_handle.emit(
+                    "native-office-session-added",
+                    serde_json::json!({
+                        "sessionId": sessionId,
+                    }),
+                );
 
                 log::info!(
                     "[Session] HELLO from {} v{} (session={})",
@@ -169,9 +182,12 @@ impl SessionManager {
                         session.document_id,
                         documentTitle
                     );
-                    let _ = self.app_handle.emit("native-office-session-updated", serde_json::json!({
-                        "sessionId": sessionId,
-                    }));
+                    let _ = self.app_handle.emit(
+                        "native-office-session-updated",
+                        serde_json::json!({
+                            "sessionId": sessionId,
+                        }),
+                    );
                 }
                 ResponseEnvelope {
                     requestId: requestId.clone(),
@@ -237,8 +253,10 @@ impl SessionManager {
                 // Priority: formula.latex > rangeXml OMML conversion
                 if let Some(ref f) = formula {
                     if !f.latex.is_empty() {
-                        log::info!("[Session] Using FormulaPayload.latex: {}",
-                            f.latex.chars().take(50).collect::<String>());
+                        log::info!(
+                            "[Session] Using FormulaPayload.latex: {}",
+                            f.latex.chars().take(50).collect::<String>()
+                        );
                         let _ = self.app_handle.emit(
                             "native-office-latex-loaded",
                             serde_json::json!({ "latex": f.latex, "sessionId": sid }),
@@ -300,7 +318,9 @@ impl SessionManager {
                     );
                 } else if let Some(xml) = tableXml {
                     // Try to parse as TablePayload JSON
-                    if let Ok(payload) = serde_json::from_str::<super::pipe_protocol::TablePayload>(&xml) {
+                    if let Ok(payload) =
+                        serde_json::from_str::<super::pipe_protocol::TablePayload>(&xml)
+                    {
                         let _ = self.app_handle.emit(
                             "native-office-table-loaded",
                             serde_json::json!({ "table": payload, "sessionId": sid }),
@@ -428,11 +448,7 @@ impl SessionManager {
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
-                log::error!(
-                    "[Session] HOST_ERROR code={:?} error={}",
-                    errorCode,
-                    error
-                );
+                log::error!("[Session] HOST_ERROR code={:?} error={}", errorCode, error);
                 let _ = self.app_handle.emit(
                     "native-office-error",
                     serde_json::json!({
@@ -481,9 +497,7 @@ impl SessionManager {
         msg: DesktopMessage,
     ) -> Result<(), SendError> {
         let sessions = self.sessions.read().await;
-        let session = sessions
-            .get(session_id)
-            .ok_or(SendError::SessionNotFound)?;
+        let session = sessions.get(session_id).ok_or(SendError::SessionNotFound)?;
 
         log::info!("[Session] send_to_session: found session {}", session_id);
 
@@ -521,9 +535,12 @@ impl SessionManager {
     /// Remove a disconnected session.
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
-        let _ = self.app_handle.emit("native-office-session-removed", serde_json::json!({
-            "sessionId": session_id,
-        }));
+        let _ = self.app_handle.emit(
+            "native-office-session-removed",
+            serde_json::json!({
+                "sessionId": session_id,
+            }),
+        );
         log::info!("[Session] Removed session {}", session_id);
     }
 

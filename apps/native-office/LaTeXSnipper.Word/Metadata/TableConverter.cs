@@ -125,7 +125,7 @@ namespace LaTeXSnipper.Word.Metadata
                         var text = oMath.Range.Text?.Trim();
                         if (!string.IsNullOrEmpty(text))
                         {
-                            var formulaId = Guid.NewGuid().ToString("N").Substring(0, 12);
+                            var formulaId = FormulaIdHelper.NewId();
                             formulas[formulaId] = new FormulaPayload
                             {
                                 FormulaId = formulaId,

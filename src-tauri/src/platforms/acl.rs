@@ -50,7 +50,11 @@ mod tests {
         let name = pipe_name().unwrap();
         assert!(name.starts_with("\\\\.\\pipe\\LaTeXSnipper.NativeOffice.v3."));
         // SID should start with S-1-
-        assert!(name.contains("S-1-"), "Pipe name should contain SID, got: {}", name);
+        assert!(
+            name.contains("S-1-"),
+            "Pipe name should contain SID, got: {}",
+            name
+        );
     }
 
     #[test]

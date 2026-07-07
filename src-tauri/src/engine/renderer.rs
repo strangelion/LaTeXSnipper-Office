@@ -43,6 +43,7 @@ impl FormulaRenderer {
     ) -> Result<RenderResult, String> {
         let mut mathml = None;
         let mut omml = None;
+        #[allow(unused_mut)]
         let mut svg = None;
 
         for fmt in &options.formats {

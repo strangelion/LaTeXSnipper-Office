@@ -197,7 +197,10 @@ pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIn
             let vaults = obsidian_vaults();
             let mut installed_count = 0;
             for vault in &vaults {
-                let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+                let plugin_dir = vault
+                    .join(".obsidian")
+                    .join("plugins")
+                    .join("latexsnipper-obsidian");
                 if plugin_dir.exists() && plugin_dir.join("main.js").exists() {
                     installed_count += 1;
                 }
@@ -485,7 +488,9 @@ fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
 }
 
 fn reg_delete_tree(key: &str) {
-    let _ = super::process::background_command("reg.exe").args(["delete", key, "/f"]).output();
+    let _ = super::process::background_command("reg.exe")
+        .args(["delete", key, "/f"])
+        .output();
 }
 
 fn office_addin_clsid() -> &'static str {
@@ -560,16 +565,17 @@ fn unregister_hkcu_office_com_addin() {
         office_addin_clsid()
     )));
     // Also clean HKCR (in case regsvr32 registered there)
-    reg_delete_tree(&format!(
-        r"HKCR\CLSID\{}",
-        office_addin_clsid()
-    ));
+    reg_delete_tree(&format!(r"HKCR\CLSID\{}", office_addin_clsid()));
     reg_delete_tree(r"HKCR\LaTeXSnipper.Office");
 }
 
 fn cleanup_legacy_office_com_addins() {
     for app in ["Word", "Excel", "PowerPoint"] {
-        for addin in ["LaTeXSnipperOffice", "LaTeXSnipperOffice-Independent", "LaTeXSnipper.Office"] {
+        for addin in [
+            "LaTeXSnipperOffice",
+            "LaTeXSnipperOffice-Independent",
+            "LaTeXSnipper.Office",
+        ] {
             reg_delete_tree(&format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
                 app, addin
@@ -600,7 +606,10 @@ fn office_com_addin_registered() -> bool {
         super::process::background_command("reg.exe")
             .args([
                 "query",
-                &format!(r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.Office", app),
+                &format!(
+                    r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.Office",
+                    app
+                ),
                 "/v",
                 "LoadBehavior",
             ])
@@ -1077,7 +1086,17 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
     let manifest_path = normalize_office_manifest_path(&manifest_path);
 
     let output = super::process::background_command("reg.exe")
-        .args(["add", OFFICE_DEVELOPER_KEY, "/v", host.id, "/t", "REG_SZ", "/d", &manifest_path, "/f"])
+        .args([
+            "add",
+            OFFICE_DEVELOPER_KEY,
+            "/v",
+            host.id,
+            "/t",
+            "REG_SZ",
+            "/d",
+            &manifest_path,
+            "/f",
+        ])
         .output()
         .map_err(|e| format!("无法写入 Office 加载项注册表: {e}"))?;
 
@@ -1089,10 +1108,23 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
     }
 
     let _ = super::process::background_command("reg.exe")
-        .args(["add", r"HKCU\Software\Microsoft\Office\16.0\WEF", "/v", host.refresh_key, "/t", "REG_SZ", "/d", host.id, "/f"])
+        .args([
+            "add",
+            r"HKCU\Software\Microsoft\Office\16.0\WEF",
+            "/v",
+            host.refresh_key,
+            "/t",
+            "REG_SZ",
+            "/d",
+            host.id,
+            "/f",
+        ])
         .output();
 
-    println!("[Office] Registered {} in {} \\ {} = {}", host.name, OFFICE_DEVELOPER_KEY, host.id, manifest_path);
+    println!(
+        "[Office] Registered {} in {} \\ {} = {}",
+        host.name, OFFICE_DEVELOPER_KEY, host.id, manifest_path
+    );
     Ok(())
 }
 
@@ -1127,7 +1159,10 @@ fn unregister_office_js_manifest(host: OfficeJsHost) -> Result<(), String> {
         .map_err(|e| format!("无法移除 Office 加载项注册表: {e}"))?;
 
     if output.status.success() {
-        println!("[Office] Unregistered {} from registry: {} \\ {}", host.name, OFFICE_DEVELOPER_KEY, host.id);
+        println!(
+            "[Office] Unregistered {} from registry: {} \\ {}",
+            host.name, OFFICE_DEVELOPER_KEY, host.id
+        );
         clear_office_refresh_marker(host);
         Ok(())
     } else {
@@ -1156,7 +1191,6 @@ fn is_office_js_registered(host: OfficeJsHost) -> bool {
 /// Sideload the Office.js manifest so Word can find the add-in.
 /// Windows: registers manifest path in HKCU\...\WEF\Developer registry key.
 /// macOS: copies to ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
-
 fn install_office_js_addin() -> PlatformIntegrationResult {
     cleanup_legacy_office_com_addins();
 
@@ -1204,7 +1238,13 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
         for (host, manifest) in manifests {
             let content = match std::fs::read_to_string(&manifest) {
                 Ok(c) => c,
-                Err(e) => return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to read {} manifest: {e}", host.name)),
+                Err(e) => {
+                    return PlatformIntegrationResult::fail(
+                        "office",
+                        "office-js",
+                        format!("Failed to read {} manifest: {e}", host.name),
+                    )
+                }
             };
             let wef_dir = PathBuf::from(&home)
                 .join("Library")
@@ -1214,11 +1254,19 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
                 .join("Documents")
                 .join("wef");
             if let Err(e) = std::fs::create_dir_all(&wef_dir) {
-                return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to create {} wef directory: {e}", host.name));
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "office-js",
+                    format!("Failed to create {} wef directory: {e}", host.name),
+                );
             }
             let target_path = wef_dir.join("LaTeXSnipper.xml");
             if let Err(e) = std::fs::write(&target_path, &content) {
-                return PlatformIntegrationResult::fail("office", "office-js", format!("Failed to write {} manifest: {e}", host.name));
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "office-js",
+                    format!("Failed to write {} manifest: {e}", host.name),
+                );
             }
             installed.push(host.name);
         }
@@ -1238,7 +1286,6 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
         PlatformIntegrationResult::fail("office", "office-js", "Unsupported operating system")
     }
 }
-
 
 fn uninstall_office_addin() -> PlatformIntegrationResult {
     cleanup_legacy_office_com_addins();
@@ -1282,9 +1329,19 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
             }
         }
         if removed {
-            PlatformIntegrationResult::ok("office", "office-js", "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.", true)
+            PlatformIntegrationResult::ok(
+                "office",
+                "office-js",
+                "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.",
+                true,
+            )
         } else {
-            PlatformIntegrationResult::ok("office", "office-js", "No installed Office.js add-ins were found.", false)
+            PlatformIntegrationResult::ok(
+                "office",
+                "office-js",
+                "No installed Office.js add-ins were found.",
+                false,
+            )
         }
     }
 
@@ -1294,15 +1351,23 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
     }
 }
 
-
 fn check_office_addin() -> PlatformIntegrationResult {
     let status = super::office::detect_office_cached();
     if !status.installed {
-        return PlatformIntegrationResult::fail("office", "not_found", "Microsoft Office was not detected.");
+        return PlatformIntegrationResult::fail(
+            "office",
+            "not_found",
+            "Microsoft Office was not detected.",
+        );
     }
 
     if is_taskpane_connected() {
-        return PlatformIntegrationResult::ok("office", "connected", "Office task pane is connected and ready.", false);
+        return PlatformIntegrationResult::ok(
+            "office",
+            "connected",
+            "Office task pane is connected and ready.",
+            false,
+        );
     }
 
     #[cfg(target_os = "windows")]
@@ -1343,7 +1408,12 @@ fn check_office_addin() -> PlatformIntegrationResult {
             .map(|host| host.name)
             .collect();
         if installed.len() == OFFICE_JS_HOSTS.len() {
-            return PlatformIntegrationResult::ok("office", "installed", "Office.js add-ins are installed. Restart Office apps.", true);
+            return PlatformIntegrationResult::ok(
+                "office",
+                "installed",
+                "Office.js add-ins are installed. Restart Office apps.",
+                true,
+            );
         }
         if !installed.is_empty() {
             return PlatformIntegrationResult::fail(
@@ -1354,7 +1424,11 @@ fn check_office_addin() -> PlatformIntegrationResult {
         }
     }
 
-    PlatformIntegrationResult::fail("office", "not_installed", "Office.js add-ins are not installed. Enable Office integration in settings.")
+    PlatformIntegrationResult::fail(
+        "office",
+        "not_installed",
+        "Office.js add-ins are not installed. Enable Office integration in settings.",
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1366,9 +1440,24 @@ fn check_office_addin() -> PlatformIntegrationResult {
 
 /// Native Office VSTO Add-in identifiers
 const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
-    ("Word", "LaTeXSnipper.NativeOffice.Word", "LaTeXSnipper Native Office — Word", "LaTeXSnipper.Word.vsto"),
-    ("Excel", "LaTeXSnipper.NativeOffice.Excel", "LaTeXSnipper Native Office — Excel", "LaTeXSnipper.Excel.vsto"),
-    ("PowerPoint", "LaTeXSnipper.NativeOffice.PowerPoint", "LaTeXSnipper Native Office — PowerPoint", "LaTeXSnipper.PowerPoint.vsto"),
+    (
+        "Word",
+        "LaTeXSnipper.NativeOffice.Word",
+        "LaTeXSnipper Native Office — Word",
+        "LaTeXSnipper.Word.vsto",
+    ),
+    (
+        "Excel",
+        "LaTeXSnipper.NativeOffice.Excel",
+        "LaTeXSnipper Native Office — Excel",
+        "LaTeXSnipper.Excel.vsto",
+    ),
+    (
+        "PowerPoint",
+        "LaTeXSnipper.NativeOffice.PowerPoint",
+        "LaTeXSnipper Native Office — PowerPoint",
+        "LaTeXSnipper.PowerPoint.vsto",
+    ),
 ];
 
 fn native_office_install_root() -> PathBuf {
@@ -1386,20 +1475,42 @@ fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathB
     // Bundled resources (production Tauri install)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("resources").join("NativeOffice").join(host_name).join(vsto_file));
+            candidates.push(
+                dir.join("resources")
+                    .join("NativeOffice")
+                    .join(host_name)
+                    .join(vsto_file),
+            );
         }
     }
 
     if let Some(root) = repo_root_from_manifest() {
-        candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Release").join(vsto_file));
-        candidates.push(root.join("apps").join("native-office").join(format!("LaTeXSnipper.{}", host_name)).join("bin").join("Debug").join(vsto_file));
+        candidates.push(
+            root.join("apps")
+                .join("native-office")
+                .join(format!("LaTeXSnipper.{}", host_name))
+                .join("bin")
+                .join("Release")
+                .join(vsto_file),
+        );
+        candidates.push(
+            root.join("apps")
+                .join("native-office")
+                .join(format!("LaTeXSnipper.{}", host_name))
+                .join("bin")
+                .join("Debug")
+                .join(vsto_file),
+        );
     }
 
     candidates.into_iter().find(|path| path.exists())
 }
 
 fn office_manifest_value(path: &Path) -> String {
-    format!("file:///{}|vstolocal", path.to_string_lossy().replace('\\', "/"))
+    format!(
+        "file:///{}|vstolocal",
+        path.to_string_lossy().replace('\\', "/")
+    )
 }
 
 /// Install Native Office VSTO add-ins by registering in Windows registry.
@@ -1449,7 +1560,11 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             }
 
             // Write Description
-            if let Err(e) = reg_add_string(&reg_key, "Description", "LaTeX formula and table integration") {
+            if let Err(e) = reg_add_string(
+                &reg_key,
+                "Description",
+                "LaTeX formula and table integration",
+            ) {
                 return PlatformIntegrationResult::fail(
                     "office",
                     "native-vsto",
@@ -1475,7 +1590,8 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
                 );
             }
 
-            if let Err(e) = reg_add_string(&reg_key, "Manifest", &office_manifest_value(&manifest)) {
+            if let Err(e) = reg_add_string(&reg_key, "Manifest", &office_manifest_value(&manifest))
+            {
                 return PlatformIntegrationResult::fail(
                     "office",
                     "native-vsto",
@@ -1531,7 +1647,10 @@ fn check_native_office_vsto() -> bool {
                 .map(|out| out.status.success())
                 .unwrap_or(false);
 
-            if !load_behavior_ok || !manifest_ok || native_office_vsto_manifest(host_name, vsto_file).is_none() {
+            if !load_behavior_ok
+                || !manifest_ok
+                || native_office_vsto_manifest(host_name, vsto_file).is_none()
+            {
                 return false;
             }
         }
@@ -1585,7 +1704,6 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
         );
     }
 }
-
 
 fn office_js_manifests() -> Vec<(OfficeJsHost, PathBuf)> {
     OFFICE_JS_HOSTS
@@ -1922,7 +2040,10 @@ fn install_obsidian() -> PlatformIntegrationResult {
 
     let mut installed_to = Vec::new();
     for vault in &vaults {
-        let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+        let plugin_dir = vault
+            .join(".obsidian")
+            .join("plugins")
+            .join("latexsnipper-obsidian");
         if let Err(err) = fs::create_dir_all(&plugin_dir) {
             continue;
         }
@@ -1983,10 +2104,17 @@ fn uninstall_obsidian() -> PlatformIntegrationResult {
     let mut removed_from = Vec::new();
 
     for vault in &vaults {
-        let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+        let plugin_dir = vault
+            .join(".obsidian")
+            .join("plugins")
+            .join("latexsnipper-obsidian");
         if plugin_dir.exists() {
             match fs::remove_dir_all(&plugin_dir) {
-                Ok(_) => { if let Some(name) = vault.file_name() { removed_from.push(name.to_string_lossy().to_string()); } }
+                Ok(_) => {
+                    if let Some(name) = vault.file_name() {
+                        removed_from.push(name.to_string_lossy().to_string());
+                    }
+                }
                 Err(_) => {}
             }
         }
@@ -2004,7 +2132,11 @@ fn uninstall_obsidian() -> PlatformIntegrationResult {
         format!(
             "Removed Obsidian plugin from {} vault(s): {}. Restart Obsidian to complete.",
             removed_from.len(),
-            if removed_from.is_empty() { "none".to_string() } else { removed_from.join(", ") }
+            if removed_from.is_empty() {
+                "none".to_string()
+            } else {
+                removed_from.join(", ")
+            }
         ),
         true,
     )
@@ -2160,7 +2292,8 @@ fn write_wps_publish(enabled: bool) -> std::io::Result<()> {
 <jsplugins>
     <jspluginonline name="latexsnipper-wps" addonType="wps" online="false" enable="enable_dev"/>
 </jsplugins>
-"#.to_string();
+"#
+                .to_string();
             } else {
                 // Insert before closing </jsplugins>
                 if let Some(pos) = xml.rfind("</jsplugins>") {
@@ -2474,7 +2607,6 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     let reg_key = format!(
         r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.NativeOffice.{}",
         office_app, host_name
-
     );
 
     // Check registry key
@@ -2486,7 +2618,10 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
 
     // Check if Office is running
     let office_detected = super::process::background_command("tasklist.exe")
-        .args(["/FI", &format!("IMAGENAME eq {}.exe", office_app.to_lowercase())])
+        .args([
+            "/FI",
+            &format!("IMAGENAME eq {}.exe", office_app.to_lowercase()),
+        ])
         .output()
         .map(|out| {
             let output = String::from_utf8_lossy(&out.stdout);
@@ -2580,7 +2715,10 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let candidates = [
-                exe_dir.join("resources").join("NativeOffice").join("LaTeXSnipper.NativeOffice.Bootstrapper.exe"),
+                exe_dir
+                    .join("resources")
+                    .join("NativeOffice")
+                    .join("LaTeXSnipper.NativeOffice.Bootstrapper.exe"),
                 exe_dir.join("LaTeXSnipper.NativeOffice.Bootstrapper.exe"),
             ];
             for p in &candidates {
@@ -2621,4 +2759,70 @@ fn uuid_simple() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("{:x}", t)
+}
+
+/// Check OLE component availability by COM registry lookup.
+/// On non-Windows, OLE is always unavailable.
+pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        let path = OsStr::new(r"Software\Classes\LaTeXSnipper.Formula\CLSID");
+        let wide: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
+
+        // Try HKCU first, then HKLM
+        let available = unsafe {
+            let mut hkey: isize = 0;
+            let result = RegOpenKeyExW(
+                0x80000001isize as *mut _, // HKEY_CURRENT_USER
+                wide.as_ptr(),
+                0,
+                0x20019, // KEY_READ
+                &mut hkey,
+            );
+            if result == 0 {
+                RegCloseKey(hkey);
+                true
+            } else {
+                let result = RegOpenKeyExW(
+                    0x80000002isize as *mut _, // HKEY_LOCAL_MACHINE
+                    wide.as_ptr(),
+                    0,
+                    0x20019,
+                    &mut hkey,
+                );
+                if result == 0 {
+                    RegCloseKey(hkey);
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+
+        crate::commands::native_office::OleStatus {
+            available,
+            bitness_mismatch: false,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        crate::commands::native_office::OleStatus {
+            available: false,
+            bitness_mismatch: false,
+        }
+    }
+}
+
+extern "system" {
+    fn RegOpenKeyExW(
+        hKey: *mut std::ffi::c_void,
+        lpSubKey: *const u16,
+        ulOptions: u32,
+        samDesired: u32,
+        phkResult: *mut isize,
+    ) -> i32;
+    fn RegCloseKey(hKey: isize) -> i32;
 }

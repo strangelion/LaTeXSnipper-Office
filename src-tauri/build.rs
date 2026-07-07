@@ -43,7 +43,9 @@ fn copy_directml_dll() {
 
     // 1. Try the ORT download cache ($LOCALAPPDATA/ort.pyke.io/dfbin/...)
     if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
-        let ort_cache = PathBuf::from(local_appdata).join("ort.pyke.io").join("dfbin");
+        let ort_cache = PathBuf::from(local_appdata)
+            .join("ort.pyke.io")
+            .join("dfbin");
         if let Ok(entries) = std::fs::read_dir(&ort_cache) {
             for entry in entries.flatten() {
                 let hash_dir = entry.path();
@@ -51,11 +53,9 @@ fn copy_directml_dll() {
                     continue;
                 }
                 let dll = hash_dir.join("DirectML.dll");
-                if dll.exists() {
-                    if std::fs::copy(&dll, &dest).is_ok() {
-                        println!("cargo:warning=Copied DirectML.dll from ORT cache");
-                        return;
-                    }
+                if dll.exists() && std::fs::copy(&dll, &dest).is_ok() {
+                    println!("cargo:warning=Copied DirectML.dll from ORT cache");
+                    return;
                 }
             }
         }
@@ -64,12 +64,12 @@ fn copy_directml_dll() {
     // 2. Try the resources/ directory (bundled with repo)
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let resources_dll = manifest_dir.join("resources").join("DirectML.dll");
-    if resources_dll.exists() {
-        if std::fs::copy(&resources_dll, &dest).is_ok() {
-            println!("cargo:warning=Copied DirectML.dll from resources/");
-            return;
-        }
+    if resources_dll.exists() && std::fs::copy(&resources_dll, &dest).is_ok() {
+        println!("cargo:warning=Copied DirectML.dll from resources/");
+        return;
     }
 
-    println!("cargo:warning=DirectML.dll not found — ONNX Runtime DirectML backend will fail at runtime");
+    println!(
+        "cargo:warning=DirectML.dll not found — ONNX Runtime DirectML backend will fail at runtime"
+    );
 }

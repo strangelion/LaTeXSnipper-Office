@@ -1,0 +1,41 @@
+// LaTeXSnipper Formula OLE Object Type Library
+import "oaidl.idl";
+import "ocidl.idl";
+
+[
+    object,
+    dual,
+    nonextensible,
+    uuid(3A8E5C4B-D1F2-4E6F-8A7B-9C0D1E2F3A4B),
+    pointer_default(unique)
+]
+interface ILatexSnipperFormula : IDispatch {
+    [id(1)] HRESULT InitializeFromJson([in] BSTR payloadJson);
+    [id(2)] HRESULT GetPayloadJson([out, retval] BSTR* payloadJson);
+    [id(3)] HRESULT ReplacePayloadJson([in] BSTR payloadJson);
+    [id(4)] HRESULT GetFormulaId([out, retval] BSTR* formulaId);
+    [id(5)] HRESULT OpenEditor();
+};
+
+[
+    uuid(B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F),
+    version(1.0),
+    helpstring("LaTeXSnipper Formula Object 1.0")
+]
+library LaTeXSnipperFormulaLib
+{
+    importlib("stdole2.tlb");
+
+    [
+        uuid(B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F),
+        helpstring("LaTeXSnipper Formula Object Class")
+    ]
+    coclass LaTeXSnipperFormula
+    {
+        [default] interface ILatexSnipperFormula;
+        interface IOleObject;
+        interface IDataObject;
+        interface IViewObject2;
+        interface IPersistStorage;
+    };
+};

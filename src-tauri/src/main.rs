@@ -17,10 +17,25 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use platforms::session::SessionManager;
 
 fn main() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .init();
+    // Handle OLE edit session requests (started by OLE DLL via Named Pipe)
+    #[cfg(target_os = "windows")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        for i in 1..args.len() {
+            if args[i - 1] == "--ole-edit" {
+                let pipe_name = &args[i];
+                match platforms::ole_edit::handle_ole_edit_session(pipe_name) {
+                    Ok(()) => std::process::exit(0),
+                    Err(e) => {
+                        eprintln!("OLE edit session failed: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+    }
+
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

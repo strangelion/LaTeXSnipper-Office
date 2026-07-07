@@ -35,6 +35,13 @@ namespace LaTeXSnipper.Excel.Host
 
             try
             {
+                // OLE path: try when integration mode is OLE or Auto
+                if (payload.StorageMode == "ole" || string.IsNullOrEmpty(payload.StorageMode))
+                {
+                    var oleResult = TryInsertOle(sheet, cell, payload);
+                    if (oleResult != null) return oleResult;
+                }
+
                 if (payload.Render?.Png != null)
                 {
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Inserting PNG ({payload.Render.Png.Length} chars)");
@@ -113,12 +120,16 @@ namespace LaTeXSnipper.Excel.Host
                 if (sel is Microsoft.Office.Interop.Excel.ShapeRange shapeRange && shapeRange.Count > 0)
                 {
                     var shape = shapeRange.Item(1);
+
+                    // Extract formulaId from shape name: LSNO_{formulaId}
+                    var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
+
                     var altText = shape.AlternativeText as string;
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
                             Display = "inline"
                         };
@@ -134,7 +145,7 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                            FormulaId = FormulaIdHelper.NewId(),
                             Latex = text,
                             Display = "inline"
                         };
@@ -143,6 +154,57 @@ namespace LaTeXSnipper.Excel.Host
             }
             catch { }
             return null;
+        }
+
+        private static string? ExtractFormulaIdFromShapeName(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            const string prefix = "LSNO_";
+            if (name.StartsWith(prefix) && name.Length > prefix.Length)
+                return name.Substring(prefix.Length);
+            return null;
+        }
+
+        /// <summary>
+        /// Try to insert formula as an OLE object. Returns null if OLE is unavailable.
+        /// </summary>
+        private InsertResult? TryInsertOle(
+            Microsoft.Office.Interop.Excel.Worksheet sheet,
+            Microsoft.Office.Interop.Excel.Range cell,
+            FormulaPayload payload)
+        {
+            try
+            {
+                double cellLeft = 0, cellTop = 0;
+                try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
+
+                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+                var ole = sheet.OLEObjects().Add(
+                    ClassType: "LaTeXSnipper.Formula.1",
+                    Filename: Type.Missing,
+                    Link: false,
+                    DisplayAsIcon: false,
+                    Left: (float)cellLeft,
+                    Top: (float)cellTop,
+                    Width: width,
+                    Height: height
+                );
+
+                ole.Name = $"LSNO_{payload.FormulaId}";
+                ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
+
+                // Initialize with formula payload
+                // In later phases, OLE automation will call ILatexSnipperFormula.InitializeFromJson()
+                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted: name={ole.Name}");
+                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE insert failed (will fall back): {ex.Message}");
+                return null;
+            }
         }
 
         public bool DeleteCurrent()
@@ -271,7 +333,7 @@ namespace LaTeXSnipper.Excel.Host
         {
             var payload = new FormulaPayload
             {
-                FormulaId = cmd.FormulaId ?? Guid.NewGuid().ToString("N").Substring(0, 12),
+                FormulaId = cmd.FormulaId ?? FormulaIdHelper.NewId(),
                 Latex = cmd.Latex,
                 Display = cmd.Display
             };

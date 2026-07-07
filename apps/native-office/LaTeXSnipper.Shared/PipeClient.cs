@@ -293,7 +293,14 @@ public class PipeClient : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    /// Generate a short request ID (12 chars, sufficient for tracing).
     private static string GenerateId() => Guid.NewGuid().ToString("N").Substring(0, 12);
+}
+
+/// Helper for generating formula identifiers (full GUID, no truncation).
+public static class FormulaIdHelper
+{
+    public static string NewId() => Guid.NewGuid().ToString("N");
 }
 
 /// <summary>

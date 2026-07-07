@@ -1,0 +1,57 @@
+{
+  "common": {
+    "back": "Back",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "retry": "Retry",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "unknown": "Unknown"
+  },
+  "settings": {
+    "officeIntegration": "Office Integration",
+    "language": "Language"
+  },
+  "officeIntegration": {
+    "title": "Office Formula Integration",
+    "mode": {
+      "label": "Default mode for new formulas",
+      "auto": "Automatic (Recommended)",
+      "native": "Prefer Host Native",
+      "image": "Compatible Image",
+      "ole": "Editable OLE Object"
+    },
+    "hint": {
+      "auto": "Word uses native OMML. Excel and PowerPoint prefer editable OLE and fall back to compatible images when OLE is unavailable.",
+      "native": "Word uses native OMML. Excel and PowerPoint use compatible images with metadata.",
+      "image": "All hosts use compatible images. They remain visible and copyable; double-click editing depends on the Office add-in.",
+      "ole": "All hosts embed editable OLE formula objects. Double-click opens LaTeXSnipper."
+    },
+    "oleStatus": "OLE component status",
+    "oleAvailable": "OLE component is available",
+    "oleMissing": "OLE component was not detected",
+    "oleBitnessMismatch": "Office bitness does not match the OLE component",
+    "repairOle": "Repair OLE Component",
+    "convertCurrent": "Convert Current Formula",
+    "convertWarning": "Conversion changes the host object type. The original object is removed only after the new object has been validated.",
+    "fallbackImage": "OLE is unavailable. Inserted as a compatible image instead."
+  },
+  "office": {
+    "insert": "Insert Formula",
+    "read": "Read Selection",
+    "edit": "Edit Formula",
+    "delete": "Delete Formula",
+    "format": "Format Formula",
+    "openEditor": "Edit in LaTeXSnipper",
+    "insertAsOle": "Insert as Editable OLE Formula",
+    "insertAsImage": "Insert as Compatible Image",
+    "insertAsNative": "Insert as Native Formula"
+  },
+  "errors": {
+    "officeHostNotSelected": "Select a target Office host first.",
+    "oleRegistrationMissing": "The LaTeXSnipper OLE component is not registered. Run Repair OLE Component from Settings.",
+    "oleEditFailed": "The OLE formula editing session could not be opened. The original object was not changed.",
+    "integrationModeUnsupported": "The selected integration mode is not supported by the current Office host."
+  }
+}

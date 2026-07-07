@@ -1,0 +1,366 @@
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Xml.Linq;
+
+namespace LaTeXSnipper.NativeOffice.Shared.Metadata
+{
+    /// <summary>
+    /// Single-document manifest for all LaTeXSnipper formula objects.
+    /// Replaces the per-formula CustomXMLPart approach in Word and the
+    /// AlternativeText-only approach in Excel/PowerPoint.
+    ///
+    /// One CustomXMLPart per document, keyed by namespace
+    /// "urn:latexsnipper:office:objects:v3".
+    /// </summary>
+    public static class FormulaDocumentManifest
+    {
+        private const string NamespaceUri = "urn:latexsnipper:office:objects:v3";
+        private const string PartId = "LatexSnipperFormulaManifest";
+
+        /// <summary>
+        /// Write (or replace) a single entry in the document manifest.
+        /// Creates the CustomXMLPart if it does not already exist.
+        /// </summary>
+        public static void Write(Microsoft.Office.Interop.Word.Document doc, FormulaPayload payload)
+        {
+            try
+            {
+                var existing = FindOrCreatePart(doc);
+                var existingXml = GetPartXml(existing);
+                var xdoc = ParseOrCreate(existingXml);
+
+                // Remove old entry for this formulaId, then add new one
+                var root = xdoc.Root!;
+                var oldEntry = root.Elements()
+                    .FirstOrDefault(e => (string?)e.Attribute("id") == payload.FormulaId);
+                if (oldEntry != null)
+                    oldEntry.Remove();
+
+                root.Add(new XElement("formula",
+                    new XAttribute("id", payload.FormulaId),
+                    new XAttribute("revision", payload.Revision),
+                    new XAttribute("storageMode", ChooseStorageMode(payload)),
+                    new XElement("latex", EscapeXml(payload.Latex)),
+                    new XElement("display", payload.Display ?? "inline"),
+                    string.IsNullOrEmpty(payload.Omml) ? null :
+                        new XElement("omml", new XAttribute("sha256", ComputeSha256(payload.Omml)),
+                            Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.Omml)))
+                ));
+
+                existing.Delete();
+                doc.CustomXMLParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Write failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Read a formula entry from the manifest by formulaId.
+        /// Returns null if not found.
+        /// </summary>
+        public static FormulaPayload? Read(Microsoft.Office.Interop.Word.Document doc, string formulaId)
+        {
+            try
+            {
+                var part = FindPart(doc);
+                if (part == null) return null;
+
+                var xml = GetPartXml(part);
+                if (string.IsNullOrEmpty(xml)) return null;
+
+                var xdoc = XDocument.Parse(xml);
+                var entry = xdoc.Root?.Elements()
+                    .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
+                if (entry == null) return null;
+
+                return new FormulaPayload
+                {
+                    FormulaId = formulaId,
+                    Latex = entry.Element("latex")?.Value ?? "",
+                    Display = entry.Element("display")?.Value ?? "inline",
+                    Revision = (int?)entry.Attribute("revision") ?? 0,
+                    StorageMode = (string?)entry.Attribute("storageMode"),
+                    Omml = DecodeOmml(entry.Element("omml")),
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Read({formulaId}) failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Read the entire manifest as a dictionary.
+        /// </summary>
+        public static Dictionary<string, FormulaPayload> ReadAll(Microsoft.Office.Interop.Word.Document doc)
+        {
+            var result = new Dictionary<string, FormulaPayload>();
+            try
+            {
+                var part = FindPart(doc);
+                if (part == null) return result;
+
+                var xml = GetPartXml(part);
+                if (string.IsNullOrEmpty(xml)) return result;
+
+                var xdoc = XDocument.Parse(xml);
+                foreach (var entry in xdoc.Root?.Elements() ?? Enumerable.Empty<XElement>())
+                {
+                    var id = (string?)entry.Attribute("id");
+                    if (string.IsNullOrEmpty(id)) continue;
+
+                    result[id] = new FormulaPayload
+                    {
+                        FormulaId = id,
+                        Latex = entry.Element("latex")?.Value ?? "",
+                        Display = entry.Element("display")?.Value ?? "inline",
+                        Revision = (int?)entry.Attribute("revision") ?? 0,
+                        StorageMode = (string?)entry.Attribute("storageMode"),
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] ReadAll failed: {ex.Message}");
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Remove a formula from the manifest by formulaId.
+        /// </summary>
+        public static void Remove(Microsoft.Office.Interop.Word.Document doc, string formulaId)
+        {
+            try
+            {
+                var part = FindPart(doc);
+                if (part == null) return;
+
+                var xml = GetPartXml(part);
+                if (string.IsNullOrEmpty(xml)) return;
+
+                var xdoc = XDocument.Parse(xml);
+                var entry = xdoc.Root?.Elements()
+                    .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
+                if (entry == null) return;
+
+                entry.Remove();
+
+                part.Delete();
+                doc.CustomXMLParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Remove failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Find the manifest CustomXMLPart, or null if it doesn't exist.
+        /// </summary>
+        public static object? FindPart(Microsoft.Office.Interop.Word.Document doc)
+        {
+            try
+            {
+                for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
+                {
+                    dynamic part = doc.CustomXMLParts[i];
+                    try
+                    {
+                        if ((string?)part.NamespaceURI == NamespaceUri)
+                            return part;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        // ── Private helpers ──
+
+        private static object FindOrCreatePart(Microsoft.Office.Interop.Word.Document doc)
+        {
+            var existing = FindPart(doc);
+            if (existing != null) return existing;
+
+            var emptyXml = $"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />";
+            doc.CustomXMLParts.Add(emptyXml);
+            return FindPart(doc)!;
+        }
+
+        private static string? GetPartXml(object part)
+        {
+            try { return (string?)part.GetType().GetProperty("XML")?.GetValue(part); }
+            catch { return null; }
+        }
+
+        private static XDocument ParseOrCreate(string? xml)
+        {
+            if (!string.IsNullOrEmpty(xml))
+            {
+                try { return XDocument.Parse(xml); }
+                catch { }
+            }
+            return XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
+        }
+
+        private static string ChooseStorageMode(FormulaPayload payload)
+        {
+            if (!string.IsNullOrEmpty(payload.StorageMode))
+                return payload.StorageMode;
+            return "native-omml";
+        }
+
+        private static string EscapeXml(string text)
+        {
+            return text
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;")
+                .Replace("\"", "&quot;")
+                .Replace("'", "&apos;");
+        }
+
+        private static string ComputeSha256(string input)
+        {
+            using var sha = SHA256.Create();
+            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(input));
+            return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
+        }
+
+        private static string DecodeOmml(XElement? ommlEl)
+        {
+            if (ommlEl == null) return "";
+            try
+            {
+                return Encoding.UTF8.GetString(Convert.FromBase64String(ommlEl.Value));
+            }
+            catch { return ""; }
+        }
+
+        // ── Excel/PowerPoint manifest helpers (via document-level CustomXML) ──
+
+        /// <summary>
+        /// Excel-specific: find manifest part on a Workbook.
+        /// </summary>
+        public static object? FindPartWorksheet(dynamic workbook)
+        {
+            try
+            {
+                var parts = workbook.CustomXMLParts;
+                for (int i = parts.Count; i >= 1; i--)
+                {
+                    dynamic part = parts[i];
+                    try
+                    {
+                        if ((string?)part.NamespaceURI == NamespaceUri)
+                            return part;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// PowerPoint-specific: find manifest part on a Presentation.
+        /// </summary>
+        public static object? FindPartPresentation(dynamic presentation)
+        {
+            try
+            {
+                var parts = presentation.CustomXMLParts;
+                for (int i = parts.Count; i >= 1; i--)
+                {
+                    dynamic part = parts[i];
+                    try
+                    {
+                        if ((string?)part.NamespaceURI == NamespaceUri)
+                            return part;
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>
+        /// Write a formula entry to the manifest on a Workbook/Presentation.
+        /// </summary>
+        public static void WriteEntry(dynamic customXmlParts, FormulaPayload payload)
+        {
+            try
+            {
+                object? existing = null;
+                for (int i = customXmlParts.Count; i >= 1; i--)
+                {
+                    dynamic part = customXmlParts[i];
+                    try
+                    {
+                        if ((string?)part.NamespaceURI == NamespaceUri)
+                        {
+                            existing = part;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                string xml;
+                if (existing != null)
+                {
+                    string existingXml;
+                    try { existingXml = (string)existing.GetType().GetProperty("XML")?.GetValue(existing); }
+                    catch { existingXml = ""; }
+
+                    var xdoc = ParseOrCreate(existingXml);
+                    var root = xdoc.Root!;
+                    var oldEntry = root.Elements()
+                        .FirstOrDefault(e => (string?)e.Attribute("id") == payload.FormulaId);
+                    if (oldEntry != null)
+                        oldEntry.Remove();
+
+                    root.Add(BuildEntryElement(payload));
+
+                    // HACK: Office interop requires delete+add for updates
+                    try { existing.Delete(); } catch { }
+                    xml = xdoc.ToString(SaveOptions.DisableFormatting);
+                }
+                else
+                {
+                    var xdoc = XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
+                    xdoc.Root!.Add(BuildEntryElement(payload));
+                    xml = xdoc.ToString(SaveOptions.DisableFormatting);
+                }
+
+                customXmlParts.Add(xml);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] WriteEntry failed: {ex.Message}");
+            }
+        }
+
+        private static XElement BuildEntryElement(FormulaPayload payload)
+        {
+            return new XElement("formula",
+                new XAttribute("id", payload.FormulaId),
+                new XAttribute("revision", payload.Revision),
+                new XAttribute("storageMode", ChooseStorageMode(payload)),
+                new XElement("latex", EscapeXml(payload.Latex)),
+                new XElement("display", payload.Display ?? "inline")
+            );
+        }
+    }
+}

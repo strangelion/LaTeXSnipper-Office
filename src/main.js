@@ -1,5 +1,7 @@
 // LaTeXSnipper Office - Main JavaScript
 
+import { t, applyTranslations, setLocale, getResolvedLocale } from './i18n.js';
+
 // ═══════════════════════════════════════════
 // Logging System
 // ═══════════════════════════════════════════
@@ -635,6 +637,7 @@ class SettingsManager {
       bridgeUrl: 'http://127.0.0.1:19876',
       theme: 'light',
       officeEnabled: true,
+      officeIntegrationMode: 'auto',
       ocrEnabled: true,
     };
     this.settings = this.load();
@@ -1656,6 +1659,112 @@ class UIController {
       Logger.info(`[Office] After toggle: platform=${this.platforms.find(p => p.id === 'office')?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
     });
 
+    // Office Integration mode selector (CustomSelect)
+    document.getElementById('officeIntegrationMode')?.addEventListener('change', (e) => {
+      const mode = e.detail?.value || e.target?.value;
+      if (mode) {
+        this.settingsManager.set('officeIntegrationMode', mode);
+        this.updateOfficeIntegrationHint(mode);
+        Logger.info(`[Office] Integration mode set to ${mode}`);
+      }
+    });
+
+    // Restore saved integration mode
+    const savedMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+    const modeSelect = document.getElementById('officeIntegrationMode');
+    if (modeSelect) {
+      const trigger = modeSelect.querySelector('.custom-select-trigger');
+      if (trigger) {
+        trigger.dataset.value = savedMode;
+        const span = trigger.querySelector('span');
+        if (span) {
+          const opt = modeSelect.querySelector(`.custom-select-option[data-value="${savedMode}"]`);
+          span.textContent = opt?.textContent || savedMode;
+        }
+      }
+      modeSelect.querySelectorAll('.custom-select-option').forEach(o => {
+        o.classList.toggle('selected', o.dataset.value === savedMode);
+      });
+      this.updateOfficeIntegrationHint(savedMode);
+    }
+
+    // OLE status check + repair
+    document.getElementById('officeOleRepairBtn')?.addEventListener('click', async () => {
+      this.showToast(t('officeIntegration.repairOle'));
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('native_office_repair');
+        this.showToast('修复命令已发送');
+      } catch (e) {
+        this.showToast('修复失败: ' + (e.message || e));
+      }
+    });
+    this.checkOleStatus();
+
+    // Simple Markdown → HTML renderer (covers GitHub release notes)
+    function renderMarkdown(md) {
+      return md
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        // headers
+        .replace(/^### (.+)$/gm, '<h4 style="margin:0.5rem 0 0.25rem;font-size:0.85rem;color:var(--text);">$1</h4>')
+        .replace(/^## (.+)$/gm, '<h3 style="margin:0.6rem 0 0.3rem;font-size:0.9rem;color:var(--text);">$1</h3>')
+        .replace(/^# (.+)$/gm, '<h2 style="margin:0.7rem 0 0.35rem;font-size:1rem;color:var(--text);">$1</h2>')
+        // code fence
+        .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:4px;padding:0.5rem;overflow-x:auto;font-size:0.7rem;margin:0.35rem 0;"><code>$2</code></pre>')
+        // inline code
+        .replace(/`([^`]+)`/g, '<code style="background:var(--card-bg);border:1px solid var(--border-color);border-radius:3px;padding:1px 4px;font-size:0.7rem;">$1</code>')
+        // bold
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // italic
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        // links
+        .replace(/\[([^\]]+)]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+        // unordered list
+        .replace(/^[\s]*[-*] (.+)$/gm, '<li style="margin-left:1rem;">$1</li>')
+        // ordered list
+        .replace(/^[\s]*\d+\. (.+)$/gm, '<li style="margin-left:1rem;">$1</li>')
+        // paragraph breaks - wrap consecutive text lines
+        .replace(/\n\n/g, '</p><p style="margin:0.35rem 0;">')
+        .replace(/\n/g, '<br>');
+    }
+
+    // Update check with Markdown release notes
+    document.getElementById('checkUpdateBtn')?.addEventListener('click', async () => {
+      const statusEl = document.getElementById('updateStatus');
+      const notesEl = document.getElementById('releaseNotes');
+      const btn = document.getElementById('checkUpdateBtn');
+      if (!statusEl || !btn) return;
+      btn.disabled = true;
+      statusEl.textContent = '检查中...';
+      statusEl.className = 'settings-hint';
+      if (notesEl) { notesEl.style.display = 'none'; notesEl.innerHTML = ''; }
+      try {
+        const resp = await fetch('https://api.github.com/repos/strangelion/LaTeXSnipper-Office/releases/latest', {
+          signal: AbortSignal.timeout(10000)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const current = '1.0.0';
+        const latest = (data.tag_name || '').replace(/^v/, '');
+        if (latest && latest !== current) {
+          statusEl.innerHTML = `发现新版本 <a href="${data.html_url}" target="_blank">v${latest}</a>`;
+          statusEl.className = 'settings-hint';
+          if (notesEl && data.body) {
+            notesEl.innerHTML = '<p style="margin:0 0 0.35rem;font-weight:600;">更新内容</p><p style="margin:0.35rem 0;">' + renderMarkdown(data.body) + '</p>';
+            notesEl.style.display = 'block';
+          }
+        } else {
+          statusEl.textContent = '已是最新版本';
+          statusEl.className = 'settings-hint success';
+        }
+      } catch (e) {
+        statusEl.textContent = '检查失败: ' + (e.message || e);
+        statusEl.className = 'settings-hint error';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
     document.getElementById('ocrEnabledToggle')?.addEventListener('change', (e) => {
       this.settingsManager.set('ocrEnabled', e.target.checked);
       this.updateTabVisibility();
@@ -1812,6 +1921,7 @@ class UIController {
         }
 
         console.log(`[Insert] Sending to session ${sessionId} (${session.host_type})`);
+        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
         await invoke('native_office_insert_formula', {
           sessionId: sessionId,
           formulaId: crypto.randomUUID(),
@@ -1821,7 +1931,8 @@ class UIController {
           mode: 'display',
           svg: svg,
           widthPt: widthPt,
-          heightPt: heightPt
+          heightPt: heightPt,
+          integrationMode: integrationMode
         });
         this.showToast(`已发送到 ${session.host_type}`);
         this.addHistoryItem(latex);
@@ -3227,6 +3338,8 @@ class UIController {
         }
       }
 
+      const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+
       await invoke('native_office_insert_formula', {
         sessionId: sessionId,
         formulaId: crypto.randomUUID(),
@@ -3237,7 +3350,8 @@ class UIController {
         svg: session.host_type === 'word' ? null : svg,
         png: pngBase64,
         widthPt: widthPt,
-        heightPt: heightPt
+        heightPt: heightPt,
+        integrationMode: integrationMode
       });
       console.log('[Insert] Success');
       this.showToast(`已插入到 ${session.host_type}`);
@@ -3418,6 +3532,35 @@ class UIController {
     if (tableInsert) tableInsert.style.display = enabled ? '' : 'none';
     const tableRead = document.getElementById('readTableBtn');
     if (tableRead) tableRead.style.display = enabled ? '' : 'none';
+  }
+
+  updateOfficeIntegrationHint(mode) {
+    const hint = document.getElementById('officeIntegrationModeHint');
+    if (!hint) return;
+    const key = `officeIntegration.hint.${mode}`;
+    hint.textContent = t(key);
+  }
+
+  async checkOleStatus() {
+    const statusEl = document.getElementById('officeOleStatus');
+    if (!statusEl) return;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const status = await invoke('native_office_ole_status');
+      if (status?.available) {
+        statusEl.textContent = t('officeIntegration.oleAvailable');
+        statusEl.className = 'settings-hint success';
+      } else if (status?.bitnessMismatch) {
+        statusEl.textContent = t('officeIntegration.oleBitnessMismatch');
+        statusEl.className = 'settings-hint error';
+      } else {
+        statusEl.textContent = t('officeIntegration.oleMissing');
+        statusEl.className = 'settings-hint error';
+      }
+    } catch {
+      statusEl.textContent = t('common.unknown');
+      statusEl.className = 'settings-hint';
+    }
   }
 
   updateMdCopyButton() {

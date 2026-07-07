@@ -171,6 +171,8 @@ pub enum DesktopMessage {
         expectedContextId: Option<String>,
         formula: FormulaPayload,
         mode: InsertMode,
+        #[serde(rename = "integrationMode", skip_serializing_if = "Option::is_none")]
+        integration_mode: Option<FormulaIntegrationMode>,
     },
 
     #[serde(rename = "REPLACE_FORMULA")]
@@ -245,10 +247,24 @@ pub enum DesktopMessage {
     InsertWordReference {
         requestId: String,
         sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
         #[serde(rename = "formulaId")]
         formulaId: String,
         #[serde(rename = "referenceType")]
         referenceType: String,
+    },
+
+    #[serde(rename = "CONVERT_FORMULA")]
+    ConvertFormula {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
+        #[serde(rename = "formulaId")]
+        formulaId: String,
+        #[serde(rename = "targetMode")]
+        targetMode: String,
     },
 }
 
@@ -287,6 +303,9 @@ pub struct FormulaPayload {
     pub render: Option<RenderData>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceInfo>,
+    #[serde(rename = "storageMode", skip_serializing_if = "Option::is_none")]
+    pub storage_mode: Option<String>,
+    pub revision: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,6 +464,19 @@ pub fn decode_desktop_frame(bytes: &[u8]) -> Result<(DesktopMessage, usize), Pro
     let msg: DesktopMessage =
         serde_json::from_slice(payload).map_err(|e| ProtocolError::JsonParse(e.to_string()))?;
     Ok((msg, 4 + len))
+}
+
+// ---------------------------------------------------------------------------
+// Integration mode
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FormulaIntegrationMode {
+    Auto,
+    Native,
+    Image,
+    Ole,
 }
 
 // ---------------------------------------------------------------------------

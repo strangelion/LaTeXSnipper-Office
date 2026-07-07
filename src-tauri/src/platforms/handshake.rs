@@ -18,12 +18,9 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::{
-    Foundation::{HLOCAL, LocalFree},
+    Foundation::{LocalFree, HLOCAL},
     Security::Cryptography::{
-        CryptProtectData,
-        CryptUnprotectData,
-        CRYPT_INTEGER_BLOB,
-        CRYPTPROTECT_UI_FORBIDDEN,
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
     },
 };
 

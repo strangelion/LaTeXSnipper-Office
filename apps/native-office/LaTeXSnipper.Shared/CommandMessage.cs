@@ -20,6 +20,7 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 [JsonDerivedType(typeof(CommandMessage.FormatContent), "FormatContent")]
 [JsonDerivedType(typeof(CommandMessage.OpenEditor), "OpenEditor")]
 [JsonDerivedType(typeof(CommandMessage.OpenSettings), "OpenSettings")]
+[JsonDerivedType(typeof(CommandMessage.ConvertFormula), "ConvertFormula")]
 public abstract class CommandMessage
 {
     [JsonPropertyName("requestId")] public string RequestId { get; set; } = "";
@@ -65,6 +66,12 @@ public abstract class CommandMessage
 
     public class OpenEditor : CommandMessage { }
     public class OpenSettings : CommandMessage { }
+
+    public class ConvertFormula : CommandMessage
+    {
+        [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
+        [JsonPropertyName("targetMode")] public string TargetMode { get; set; } = "ole";
+    }
 }
 
 /// <summary>

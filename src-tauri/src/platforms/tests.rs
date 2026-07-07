@@ -11,8 +11,8 @@ mod tests {
     use crate::platforms::acl;
     use crate::platforms::pipe_protocol;
     use crate::platforms::pipe_security;
-    use crate::platforms::windows_identity;
     use crate::platforms::session;
+    use crate::platforms::windows_identity;
 
     // ---------------------------------------------------------------------------
     // SID / Pipe Name Tests
@@ -64,10 +64,7 @@ mod tests {
 
     #[test]
     fn test_pipe_prefix_is_v3() {
-        assert_eq!(
-            pipe_protocol::PIPE_PREFIX,
-            "LaTeXSnipper.NativeOffice.v3"
-        );
+        assert_eq!(pipe_protocol::PIPE_PREFIX, "LaTeXSnipper.NativeOffice.v3");
     }
 
     // ---------------------------------------------------------------------------

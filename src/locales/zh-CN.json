@@ -1,0 +1,57 @@
+{
+  "common": {
+    "back": "返回",
+    "save": "保存",
+    "cancel": "取消",
+    "close": "关闭",
+    "retry": "重试",
+    "available": "可用",
+    "unavailable": "不可用",
+    "unknown": "未知"
+  },
+  "settings": {
+    "officeIntegration": "Office 集成",
+    "language": "语言"
+  },
+  "officeIntegration": {
+    "title": "Office 公式接入",
+    "mode": {
+      "label": "新公式默认接入方式",
+      "auto": "自动（推荐）",
+      "native": "宿主原生优先",
+      "image": "兼容图像",
+      "ole": "可编辑 OLE 对象"
+    },
+    "hint": {
+      "auto": "Word 使用原生 OMML；Excel 和 PowerPoint 优先使用可编辑 OLE。OLE 不可用时自动改用兼容图像。",
+      "native": "Word 使用原生 OMML；Excel 和 PowerPoint 使用带元数据的兼容图像。",
+      "image": "三端使用兼容图像。可显示和复制，但双击编辑依赖 Office 加载项。",
+      "ole": "三端嵌入可编辑 OLE 公式对象。双击对象会打开 LaTeXSnipper。"
+    },
+    "oleStatus": "OLE 组件状态",
+    "oleAvailable": "OLE 组件可用",
+    "oleMissing": "未检测到 OLE 组件",
+    "oleBitnessMismatch": "Office 位数与 OLE 组件不匹配",
+    "repairOle": "修复 OLE 组件",
+    "convertCurrent": "转换当前公式",
+    "convertWarning": "转换会改变当前公式的宿主对象类型；原对象会在验证新对象成功后才删除。",
+    "fallbackImage": "OLE 不可用，已使用兼容图像模式。"
+  },
+  "office": {
+    "insert": "插入公式",
+    "read": "读取选区",
+    "edit": "编辑公式",
+    "delete": "删除公式",
+    "format": "格式化公式",
+    "openEditor": "在 LaTeXSnipper 中编辑",
+    "insertAsOle": "插入为可编辑 OLE 公式",
+    "insertAsImage": "插入为兼容图像",
+    "insertAsNative": "插入为原生公式"
+  },
+  "errors": {
+    "officeHostNotSelected": "请先选择目标 Office 宿主。",
+    "oleRegistrationMissing": "LaTeXSnipper OLE 组件未注册。请在设置中执行“修复 OLE 组件”。",
+    "oleEditFailed": "无法打开 OLE 公式编辑会话。原对象未被修改。",
+    "integrationModeUnsupported": "当前 Office 宿主不支持所选接入方式。"
+  }
+}

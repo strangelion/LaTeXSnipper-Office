@@ -272,6 +272,21 @@ namespace LaTeXSnipper.Word
                     });
                     break;
                 }
+
+                case DesktopConvertFormula convertCmd:
+                {
+                    var result = _adapter.ConvertFormula(convertCmd.FormulaId, convertCmd.TargetMode);
+                    _pipeClient.SendOnlyAsync(new VstoConvertResult
+                    {
+                        RequestId = convertCmd.RequestId,
+                        SessionId = convertCmd.SessionId,
+                        Success = result.Success,
+                        NewFormulaId = result.FormulaId,
+                        NewStorageMode = result.StorageMode,
+                        Error = result.Error
+                    });
+                    break;
+                }
             }
         }
 

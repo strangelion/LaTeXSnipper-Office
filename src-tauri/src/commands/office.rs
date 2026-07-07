@@ -172,8 +172,13 @@ pub async fn load_table() -> Result<OfficeCommandResponse, String> {
 #[allow(dead_code)]
 /// DEPRECATED: Previously used PowerShell + COMAddIn to call Word VBA methods.
 /// Now all document operations go through Office.js taskpane via the Bridge API.
-fn run_com_addin_method(method_call: &str, success_msg: &str) -> Result<OfficeCommandResponse, String> {
-    eprintln!("[Office] WARNING: run_com_addin_method is deprecated. Use Office.js taskpane instead.");
+fn run_com_addin_method(
+    method_call: &str,
+    success_msg: &str,
+) -> Result<OfficeCommandResponse, String> {
+    eprintln!(
+        "[Office] WARNING: run_com_addin_method is deprecated. Use Office.js taskpane instead."
+    );
     eprintln!("[Office] Method was: {}", method_call);
     Ok(OfficeCommandResponse {
         success: true,

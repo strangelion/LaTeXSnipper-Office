@@ -143,7 +143,10 @@ mod tests {
     #[test]
     fn test_security_descriptor_creation() {
         let result = PipeSecurityDescriptor::current_user_and_system();
-        assert!(result.is_ok(), "Security descriptor creation should succeed");
+        assert!(
+            result.is_ok(),
+            "Security descriptor creation should succeed"
+        );
     }
 
     #[test]

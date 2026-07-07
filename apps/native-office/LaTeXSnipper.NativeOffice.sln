@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.PowerPoint", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Excel", "LaTeXSnipper.Excel\LaTeXSnipper.Excel.csproj", "{29F1E47A-7210-40ED-83B5-9603A86846B4}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LaTeXSnipper.OleFormulaObjectNative", "LaTeXSnipper.OleFormulaObjectNative\LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj", "{42A9F2F4-18F3-4A8B-A6F4-81217487956B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

@@ -186,6 +186,11 @@
             <span class="settings-item-label">功能标签</span>
             <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
+          <div class="settings-item" data-page="settingsOfficeIntegration">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span class="settings-item-label" data-i18n="settings.officeIntegration"></span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
           <div class="settings-item" data-page="settingsExport">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span class="settings-item-label">导出</span>
@@ -258,7 +263,7 @@
             <span>平台插件</span>
           </div>
           <div class="settings-card" id="platformList"></div>
-          <p style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem;">启用后可通过快捷键快速插入公式到对应平台</p>
+          <p style="font-size:0.7rem;color:var(--muted);margin:0.5rem 1rem 0;">启用后可通过快捷键快速插入公式到对应平台</p>
         </div>
 
         <div id="settingsTabs" class="settings-subpage">
@@ -269,7 +274,7 @@
             <span>功能标签</span>
           </div>
           <div class="settings-card">
-            <p style="font-size:0.8rem;color:var(--muted);margin-bottom:1rem;">启用后在顶部导航栏显示对应功能标签</p>
+            <p style="font-size:0.8rem;color:var(--muted);padding:0.7rem 1rem 0;margin:0;">启用后在顶部导航栏显示对应功能标签</p>
             <div class="settings-row">
               <span class="settings-label">Office 集成</span>
               <label class="custom-toggle">
@@ -283,6 +288,41 @@
                 <input type="checkbox" id="ocrEnabledToggle" checked>
                 <span class="toggle-track"></span>
               </label>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsOfficeIntegration" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsOfficeIntegrationBack" data-i18n-aria-label="common.back">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span data-i18n="officeIntegration.title"></span>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row settings-row-column">
+              <span class="settings-label" data-i18n="officeIntegration.mode.label"></span>
+              <div class="custom-select" id="officeIntegrationMode">
+                <div class="custom-select-trigger" data-value="auto"><span data-i18n="officeIntegration.mode.auto"></span></div>
+                <div class="custom-select-dropdown">
+                  <div class="custom-select-option selected" data-value="auto" data-i18n="officeIntegration.mode.auto"></div>
+                  <div class="custom-select-option" data-value="native" data-i18n="officeIntegration.mode.native"></div>
+                  <div class="custom-select-option" data-value="image" data-i18n="officeIntegration.mode.image"></div>
+                  <div class="custom-select-option" data-value="ole" data-i18n="officeIntegration.mode.ole"></div>
+                </div>
+              </div>
+              <p id="officeIntegrationModeHint" class="settings-hint"></p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="officeIntegration.oleStatus"></span>
+              <span id="officeOleStatus" class="settings-hint"></span>
+            </div>
+            <div class="settings-row">
+              <button id="officeOleRepairBtn" class="btn secondary" data-i18n="officeIntegration.repairOle"></button>
             </div>
           </div>
         </div>
@@ -311,12 +351,24 @@
             </button>
             <span>关于</span>
           </div>
-          <div class="settings-card">
-            <p style="font-size: 0.8rem; color: var(--muted); line-height: 2;">
+          <div class="settings-card" style="padding:0.7rem 1rem;">
+            <p style="margin:0;font-size: 0.8rem; color: var(--muted); line-height: 2;">
               LaTeXSnipper Office v1.0.0<br>
               Rust + Tauri 2.0 + MathLive + MathJax<br>
               许可证：AGPL-3.0
             </p>
+          </div>
+          <div class="settings-card" style="margin-top: 0.75rem;">
+            <div class="card-title" style="padding: 0.75rem 1rem 0;">更新</div>
+            <div class="settings-row">
+              <span class="settings-label">版本</span>
+              <span id="appVersion" style="font-size:0.8rem;color:var(--muted);">v1.0.0</span>
+            </div>
+            <div class="settings-row">
+              <button id="checkUpdateBtn" class="btn" style="flex:1;">检查更新</button>
+              <span id="updateStatus" class="settings-hint"></span>
+            </div>
+            <div id="releaseNotes" class="settings-card" style="display:none;margin-top:0.5rem;padding:0.7rem 1rem;font-size:0.75rem;color:var(--muted);line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;"></div>
           </div>
           <div class="settings-card" style="margin-top: 0.75rem;">
             <div class="card-title" style="padding: 0.75rem 1rem 0;">快捷键</div>

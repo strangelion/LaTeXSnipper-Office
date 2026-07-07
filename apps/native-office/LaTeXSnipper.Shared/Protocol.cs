@@ -36,6 +36,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoInsertResult), "INSERT_RESULT")]
 [JsonDerivedType(typeof(VstoReplaceResult), "REPLACE_RESULT")]
 [JsonDerivedType(typeof(VstoDeleteResult), "DELETE_RESULT")]
+[JsonDerivedType(typeof(VstoConvertResult), "CONVERT_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -151,6 +152,14 @@ public class VstoDeleteResult : VstoMessage
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
+public class VstoConvertResult : VstoMessage
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("newFormulaId")] public string? NewFormulaId { get; set; }
+    [JsonPropertyName("newStorageMode")] public string? NewStorageMode { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
 public class VstoHostError : VstoMessage
 {
     [JsonPropertyName("error")] public string Error { get; set; } = "";
@@ -175,6 +184,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopFormatAll), "FORMAT_ALL")]
 [JsonDerivedType(typeof(DesktopRenumberWord), "RENUMBER_WORD")]
 [JsonDerivedType(typeof(DesktopInsertWordReference), "INSERT_WORD_REFERENCE")]
+[JsonDerivedType(typeof(DesktopConvertFormula), "CONVERT_FORMULA")]
 public abstract class DesktopMessage
 {
     [JsonPropertyName("requestId")] public string RequestId { get; set; } = "";
@@ -241,12 +251,19 @@ public class DesktopRequestReadSelection : DesktopMessage { }
 
 public class DesktopRequestReadTable : DesktopMessage { }
 
+public class DesktopConvertFormula : DesktopDocumentCommand
+{
+    [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
+    [JsonPropertyName("targetMode")] public string TargetMode { get; set; } = "";
+}
+
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
 
 public class FormulaPayload
 {
+    [JsonPropertyName("schemaVersion")] public int SchemaVersion { get; set; } = 3;
     [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
     [JsonPropertyName("latex")] public string Latex { get; set; } = "";
     [JsonPropertyName("omml")] public string Omml { get; set; } = "";
@@ -254,6 +271,8 @@ public class FormulaPayload
     [JsonPropertyName("presentation")] public PresentationData? Presentation { get; set; }
     [JsonPropertyName("render")] public RenderData? Render { get; set; }
     [JsonPropertyName("source")] public SourceInfo? Source { get; set; }
+    [JsonPropertyName("storageMode")] public string? StorageMode { get; set; }
+    [JsonPropertyName("revision")] public int Revision { get; set; }
 }
 
 public class PresentationData

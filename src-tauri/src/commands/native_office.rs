@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::platforms::pipe_protocol::*;
-use crate::platforms::session::{SessionManager, SessionInfo};
+use crate::platforms::session::{SessionInfo, SessionManager};
 
 /// Get list of connected VSTO sessions.
 #[tauri::command]
@@ -31,6 +31,7 @@ pub async fn native_office_insert_formula(
     png: Option<String>,
     width_pt: Option<f32>,
     height_pt: Option<f32>,
+    integration_mode: Option<String>,
 ) -> Result<String, String> {
     let payload = FormulaPayload {
         formula_id,
@@ -38,18 +39,24 @@ pub async fn native_office_insert_formula(
         omml,
         display,
         presentation: None,
-        render: svg.map(|s| RenderData {
-            svg: Some(s),
-            png: png.clone(),
-            width_pt: width_pt.unwrap_or(120.0),
-            height_pt: height_pt.unwrap_or(30.0),
-        }).or_else(|| png.map(|p| RenderData {
-            svg: None,
-            png: Some(p),
-            width_pt: width_pt.unwrap_or(120.0),
-            height_pt: height_pt.unwrap_or(30.0),
-        })),
+        render: svg
+            .map(|s| RenderData {
+                svg: Some(s),
+                png: png.clone(),
+                width_pt: width_pt.unwrap_or(120.0),
+                height_pt: height_pt.unwrap_or(30.0),
+            })
+            .or_else(|| {
+                png.map(|p| RenderData {
+                    svg: None,
+                    png: Some(p),
+                    width_pt: width_pt.unwrap_or(120.0),
+                    height_pt: height_pt.unwrap_or(30.0),
+                })
+            }),
         source: None,
+        storage_mode: None,
+        revision: 0,
     };
 
     let insert_mode = match mode.as_str() {
@@ -59,9 +66,22 @@ pub async fn native_office_insert_formula(
         _ => InsertMode::Display,
     };
 
-    crate::platforms::pipe_server::send_insert_formula(&session_mgr, &session_id, payload, insert_mode)
-        .await
-        .map_err(|e| e.to_string())?;
+    let im = integration_mode.as_deref().map(|s| match s {
+        "native" => FormulaIntegrationMode::Native,
+        "image" => FormulaIntegrationMode::Image,
+        "ole" => FormulaIntegrationMode::Ole,
+        _ => FormulaIntegrationMode::Auto,
+    });
+
+    crate::platforms::pipe_server::send_insert_formula(
+        &session_mgr,
+        &session_id,
+        payload,
+        insert_mode,
+        im,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok("Formula insertion sent".to_string())
 }
@@ -80,28 +100,30 @@ pub async fn native_office_render_svg(
     let request_id = format!("svg-{}", uuid_simple());
 
     // Create a oneshot channel to wait for the response
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    let (_tx, _rx) = tokio::sync::oneshot::channel::<String>();
 
     // Store the sender in a temporary map (we'll use a simpler approach)
     // For now, just emit the event and wait for the frontend to call back
 
     // Emit event to frontend to render SVG
-    let _ = app.emit("native-office-render-svg", serde_json::json!({
-        "requestId": request_id,
-        "latex": latex,
-        "display": display
-    }));
+    let _ = app.emit(
+        "native-office-render-svg",
+        serde_json::json!({
+            "requestId": request_id,
+            "latex": latex,
+            "display": display
+        }),
+    );
 
     // Wait for response from frontend (with timeout)
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        async {
-            // In a real implementation, we'd use a shared state to wait for the response
-            // For now, return a placeholder
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            Ok::<String, String>(String::new())
-        }
-    ).await {
+    match tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        // In a real implementation, we'd use a shared state to wait for the response
+        // For now, return a placeholder
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        Ok::<String, String>(String::new())
+    })
+    .await
+    {
         Ok(Ok(svg)) => Ok(svg),
         _ => Err("SVG render timeout".to_string()),
     }
@@ -125,11 +147,18 @@ pub async fn native_office_replace_formula(
         presentation: None,
         render: None,
         source: None,
+        storage_mode: None,
+        revision: 0,
     };
 
-    crate::platforms::pipe_server::send_replace_formula(&session_mgr, &session_id, formula_id, payload)
-        .await
-        .map_err(|e| e.to_string())?;
+    crate::platforms::pipe_server::send_replace_formula(
+        &session_mgr,
+        &session_id,
+        formula_id,
+        payload,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok("Formula replacement sent".to_string())
 }
@@ -141,8 +170,8 @@ pub async fn native_office_insert_table(
     session_id: String,
     table_json: String,
 ) -> Result<String, String> {
-    let table: TablePayload = serde_json::from_str(&table_json)
-        .map_err(|e| format!("Invalid table JSON: {}", e))?;
+    let table: TablePayload =
+        serde_json::from_str(&table_json).map_err(|e| format!("Invalid table JSON: {}", e))?;
 
     crate::platforms::pipe_server::send_insert_table(&session_mgr, &session_id, table)
         .await
@@ -231,11 +260,46 @@ pub async fn native_office_insert_reference(
     formula_id: String,
     reference_type: String,
 ) -> Result<String, String> {
-    crate::platforms::pipe_server::send_insert_word_reference(&session_mgr, &session_id, formula_id, reference_type)
+    crate::platforms::pipe_server::send_insert_word_reference(
+        &session_mgr,
+        &session_id,
+        formula_id,
+        reference_type,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok("Reference insertion sent".to_string())
+}
+
+/// Convert a formula between storage modes (image ↔ ole, native ↔ ole).
+#[tauri::command]
+pub async fn native_office_convert_formula(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+    formula_id: String,
+    target_mode: String,
+) -> Result<String, String> {
+    let msg = crate::platforms::pipe_protocol::DesktopMessage::ConvertFormula {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.clone(),
+        expectedContextId: None,
+        formulaId: formula_id,
+        targetMode: target_mode,
+    };
+
+    session_mgr
+        .send_to_session(&session_id, msg)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok("Reference insertion sent".to_string())
+    Ok("Conversion request sent".to_string())
+}
+
+/// Check OLE component availability.
+#[tauri::command]
+pub async fn native_office_ole_status() -> Result<OleStatus, String> {
+    Ok(crate::platforms::integrations::check_ole_status())
 }
 
 /// Request VSTO to read current selection.
@@ -249,7 +313,8 @@ pub async fn native_office_request_read_selection(
         sessionId: session_id.clone(),
     };
 
-    session_mgr.send_to_session(&session_id, msg)
+    session_mgr
+        .send_to_session(&session_id, msg)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -281,8 +346,7 @@ pub async fn native_office_status() -> Result<NativeOfficeStatus, String> {
 pub async fn native_office_install() -> Result<NativeOfficeOperationStarted, String> {
     #[cfg(target_os = "windows")]
     {
-        crate::platforms::integrations::start_native_office_install()
-            .map_err(|e| e.to_string())
+        crate::platforms::integrations::start_native_office_install().map_err(|e| e.to_string())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -295,8 +359,7 @@ pub async fn native_office_install() -> Result<NativeOfficeOperationStarted, Str
 pub async fn native_office_repair() -> Result<NativeOfficeOperationStarted, String> {
     #[cfg(target_os = "windows")]
     {
-        crate::platforms::integrations::start_native_office_repair()
-            .map_err(|e| e.to_string())
+        crate::platforms::integrations::start_native_office_repair().map_err(|e| e.to_string())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -309,8 +372,7 @@ pub async fn native_office_repair() -> Result<NativeOfficeOperationStarted, Stri
 pub async fn native_office_uninstall() -> Result<NativeOfficeOperationStarted, String> {
     #[cfg(target_os = "windows")]
     {
-        crate::platforms::integrations::start_native_office_uninstall()
-            .map_err(|e| e.to_string())
+        crate::platforms::integrations::start_native_office_uninstall().map_err(|e| e.to_string())
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -330,6 +392,12 @@ pub struct NativeOfficeStatus {
     pub hosts: Vec<HostInstallStatus>,
     pub pipe_security: PipeSecurityStatus,
     pub action: RecommendedAction,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OleStatus {
+    pub available: bool,
+    pub bitness_mismatch: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -399,7 +467,8 @@ pub async fn native_office_request_read_table(
         sessionId: session_id.clone(),
     };
 
-    session_mgr.send_to_session(&session_id, msg)
+    session_mgr
+        .send_to_session(&session_id, msg)
         .await
         .map_err(|e| e.to_string())?;
 
