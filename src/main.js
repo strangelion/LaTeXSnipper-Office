@@ -1891,24 +1891,27 @@ class UIController {
           const rows = tableData.rows || [];
           const formulas = table.formulas || {};
 
-          let markdown = '| ';
+          // Build LaTeX tabular
+          const cols = rows[0]?.cells?.length || 2;
+          const colSpec = 'c'.repeat(cols);
+          let latex = `\\begin{tabular}{|${colSpec}|}\n\\hline\n`;
           for (const row of rows) {
             const cells = row.cells || [];
             const cellTexts = cells.map(cell => {
               const inlines = cell.inlines || [];
               return inlines.map(inline => {
                 if (inline.type === 'formula') {
-                  // Check inline formula first, then formulas dict
                   const formula = inline.formula || formulas[inline.formulaRef];
-                  return formula?.latex || `[${inline.formulaRef}]`;
+                  return formula?.latex || '';
                 }
                 return inline.text || '';
               }).join(' ');
             });
-            markdown += cellTexts.join(' | ') + ' |\n';
+            latex += cellTexts.join(' & ') + ' \\\\\n\\hline\n';
           }
+          latex += '\\end{tabular}';
           this.switchSection('editor');
-          this.editor.setLatex(markdown);
+          this.editor.setLatex(latex);
           this.showToast('已加载表格');
         } else if (xml) {
           // Fallback: raw XML
@@ -3278,18 +3281,17 @@ class UIController {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const latex = this.editor?.getLatex();
-      const content = latex ? `${latex}` : "x";
+      if (!latex) {
+        this.showToast('编辑器内容为空');
+        return;
+      }
 
-      // Build a minimal 2x2 test table with formula in cell
-      const table = {
-        tableId: crypto.randomUUID(),
-        table: {
-          rows: [
-            { cells: [{ inlines: [{ type: "text", text: "Cell 1" }] }, { inlines: [{ type: "text", text: "Cell 2" }] }] },
-            { cells: [{ inlines: [{ type: "text", text: "Cell 3" }] }, { inlines: [{ type: "text", text: content }] }] }
-          ]
-        }
-      };
+      // Parse LaTeX tabular into TablePayload
+      const table = this._parseLatexTableToPayload(latex);
+      if (!table) {
+        this.showToast('未能解析 LaTeX 表格，请使用 \\begin{tabular} 格式');
+        return;
+      }
 
       await invoke('native_office_insert_table', {
         sessionId,
@@ -3299,6 +3301,94 @@ class UIController {
     } catch (e) {
       this.showToast('插入表格失败: ' + (e.message || e));
     }
+  }
+
+  /**
+   * Parse a LaTeX tabular environment into a TablePayload JSON structure.
+   * Supports: \\begin{tabular}{...} ... \\end{tabular}
+   * Handles: \\hline, \\cline, \\multicolumn{n}{...}{content}, \\multirow{n}{*}{content}
+   */
+  _parseLatexTableToPayload(latex) {
+    // Find \begin{tabular} ... \end{tabular}
+    const beginMatch = latex.match(/\\begin\{tabular\}/);
+    if (!beginMatch) return null;
+    const endMatch = latex.match(/\\end\{tabular\}/);
+    if (!endMatch) return null;
+
+    const startIdx = beginMatch.index + beginMatch[0].length;
+    const endIdx = endMatch.index;
+    let body = latex.substring(startIdx, endIdx).trim();
+
+    // Skip column spec {|c|c|...}
+    const braceEnd = body.indexOf('}');
+    if (braceEnd !== -1) {
+      body = body.substring(braceEnd + 1).trim();
+    }
+
+    const rows = [];
+    const lines = body.split('\n');
+
+    for (let line of lines) {
+      line = line.trim();
+      // Skip \hline, \cline, \toprule, \midrule, \bottomrule, empty
+      if (!line || line.startsWith('\\hline') || line.startsWith('\\cline')
+        || line.startsWith('\\toprule') || line.startsWith('\\midrule')
+        || line.startsWith('\\bottomrule')) {
+        continue;
+      }
+
+      // Remove trailing \\
+      line = line.replace(/\\\\\s*$/, '').trim();
+
+      // Split by & for cells
+      const cellTexts = line.split('&').map(t => t.trim());
+
+      const cells = cellTexts.map(text => {
+        let colspan = 1;
+        let rowspan = 1;
+        let content = text;
+
+        // Parse \multicolumn{n}{...}{content}
+        const mcMatch = content.match(/\\multicolumn\{(\d+)\}\{[^}]*\}\{(.+)\}/);
+        if (mcMatch) {
+          colspan = parseInt(mcMatch[1]) || 1;
+          content = mcMatch[2];
+        }
+
+        // Parse \multirow{n}{*}{content}
+        const mrMatch = content.match(/\\multirow\{(\d+)\}\{\*?\}\{(.+)\}/);
+        if (mrMatch) {
+          rowspan = parseInt(mrMatch[1]) || 1;
+          content = mrMatch[2];
+        }
+
+        // Check if content is a formula ($...$)
+        const formulaMatch = content.match(/^\$(.+)\$$/);
+        if (formulaMatch) {
+          const formulaId = crypto.randomUUID();
+          return {
+            rowspan, colspan,
+            inlines: [{ type: 'formula', formulaRef: formulaId, formula: { latex: formulaMatch[1] } }]
+          };
+        }
+
+        return {
+          rowspan, colspan,
+          inlines: [{ type: 'text', text: content }]
+        };
+      });
+
+      if (cells.length > 0) {
+        rows.push({ cells });
+      }
+    }
+
+    if (rows.length === 0) return null;
+
+    return {
+      tableId: crypto.randomUUID(),
+      table: { rows }
+    };
   }
 
   async readTableFromWord() {
