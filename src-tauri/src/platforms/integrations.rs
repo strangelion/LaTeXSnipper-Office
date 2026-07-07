@@ -1953,7 +1953,9 @@ fn install_obsidian() -> PlatformIntegrationResult {
             let _ = fs::copy(&styles, plugin_dir.join("styles.css"));
         }
 
-        installed_to.push(vault.file_name().to_string_lossy().to_string());
+        if let Some(name) = vault.file_name() {
+            installed_to.push(name.to_string_lossy().to_string());
+        }
     }
 
     if installed_to.is_empty() {
@@ -1984,7 +1986,7 @@ fn uninstall_obsidian() -> PlatformIntegrationResult {
         let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
         if plugin_dir.exists() {
             match fs::remove_dir_all(&plugin_dir) {
-                Ok(_) => removed_from.push(vault.file_name().to_string_lossy().to_string()),
+                Ok(_) => { if let Some(name) = vault.file_name() { removed_from.push(name.to_string_lossy().to_string()); } }
                 Err(_) => {}
             }
         }
