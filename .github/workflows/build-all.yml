@@ -129,23 +129,37 @@ jobs:
         with:
           name: vsto
           path: _vsto_artifact
-      - name: Stage VSTO files
+      - name: Stage downloaded VSTO artifact
         shell: pwsh
         run: |
           $src = "_vsto_artifact"
-          $dst = "apps/native-office/Installer/output/staging"
-          Write-Host "VSTO artifact source: $src (exists: $(Test-Path $src))"
-          if (Test-Path $src) {
-            $count = (Get-ChildItem $src -Recurse -File).Count
-            Write-Host "VSTO artifact files: $count"
+          $dst = "src-tauri/resources/NativeOffice"
+              
+          if (-not (Test-Path -LiteralPath $src)) {
+            throw "VSTO artifact source missing: $src"
           }
-          if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
-          if (Test-Path $src) {
-            Copy-Item $src/* $dst -Recurse -Force
+        
+          $artifactFiles = Get-ChildItem -LiteralPath $src -Recurse -Force
+          Write-Host "VSTO artifact source: $src (exists: $((Test-Path -LiteralPath $src)))"
+          Write-Host "VSTO artifact files: $($artifactFiles.Count)"
+        
+          # NativeOffice is generated staging content. Never merge it with old output.
+          if (Test-Path -LiteralPath $dst) {
+            Remove-Item -LiteralPath $dst -Recurse -Force
           }
-          Remove-Item $src -Recurse -Force -ErrorAction SilentlyContinue
-          $staged = (Get-ChildItem $dst -Recurse -File -ErrorAction SilentlyContinue).Count
-          Write-Host "VSTO files staged: $staged files to $dst"
+        
+          New-Item -ItemType Directory -Path $dst -Force | Out-Null
+        
+          Get-ChildItem -LiteralPath $src -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination $dst -Recurse -Force
+          }
+        
+          $stagedFiles = Get-ChildItem -LiteralPath $dst -Recurse -Force
+          Write-Host "NativeOffice staged files: $($stagedFiles.Count)"
+        
+          if ($stagedFiles.Count -eq 0) {
+            throw "VSTO artifact staging produced an empty NativeOffice directory."
+          }
 
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
