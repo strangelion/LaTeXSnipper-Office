@@ -173,6 +173,10 @@ if ($runningOnWindows) {
     Assert-OleDllBitness -DllPath $oleX86 -ExpectedLabel "x86" -ExpectedMachine $PE_MACHINE_X86
     Assert-OleDllBitness -DllPath $oleX64 -ExpectedLabel "x64" -ExpectedMachine $PE_MACHINE_X64
 
+    # Certificate and signing metadata required for VSTO trust verification
+    Require-File (Join-Path $vstoStaging "certificates\LaTeXSnipperOffice.cer") "NativeOffice signing certificate"
+    Require-File (Join-Path $vstoStaging "certificates\native-office-signing.json") "NativeOffice signing metadata"
+
     Copy-CleanDir $vstoStaging $vstoDest
 
     # Copy operations must never leave a deployment manifest paired with a

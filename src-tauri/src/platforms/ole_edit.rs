@@ -27,6 +27,10 @@ pub struct OleEnvelope {
     #[serde(rename = "schemaVersion")]
     pub schema_version: u32,
     pub revision: u32,
+    /// Full canonical FormulaPayload JSON, if sent by the OLE DLL.
+    /// Carries omml, render, presentation, source, storageMode etc.
+    #[serde(rename = "payloadJson", default)]
+    pub payload_json: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +52,8 @@ pub struct OleEditRequest {
     pub formula_id: String,
     pub latex: String,
     pub session_token: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_json: Option<serde_json::Value>,
 }
 
 /// Event payload returned by frontend when user saves or cancels.
@@ -99,11 +105,12 @@ pub async fn handle_ole_edit_session_with_app(
         }
     });
 
-    // Send edit request to frontend
+    // Send edit request to frontend with full payload if available
     let request = OleEditRequest {
         formula_id: envelope.formula_id.clone(),
         latex: envelope.latex.clone(),
         session_token: session_token.clone(),
+        payload_json: envelope.payload_json.clone(),
     };
 
     app_handle.emit("ole-edit-open", &request).map_err(|e| format!("Failed to emit: {}", e))?;
@@ -114,16 +121,37 @@ pub async fn handle_ole_edit_session_with_app(
         Ok(result) => {
             let response = match result.action.as_str() {
                 "save" => {
+                    // Extract full FormulaPayload fields from payload_json if available
+                    let payload = envelope.payload_json.as_ref();
+                    let omml = payload
+                        .and_then(|v| v.get("omml"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let display_val = payload
+                        .and_then(|v| v.get("display"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("inline")
+                        .to_string();
+                    let present = payload.and_then(|v| v.get("presentation")).cloned();
+                    let render = payload.and_then(|v| v.get("render")).cloned();
+                    let src = payload.and_then(|v| v.get("source")).cloned();
+                    let storage = payload
+                        .and_then(|v| v.get("storageMode"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("ole")
+                        .to_string();
+
                     let formula = result.formula.unwrap_or_else(|| FormulaPayload {
                         schema_version: Some(envelope.schema_version as i32),
                         formula_id: envelope.formula_id.clone(),
                         latex: envelope.latex.clone(),
-                        omml: String::new(),
-                        display: "inline".to_string(),
-                        presentation: None,
-                        render: None,
-                        source: None,
-                        storage_mode: Some("ole".to_string()),
+                        omml,
+                        display: display_val,
+                        presentation: present.and_then(|v| serde_json::from_value(v).ok()),
+                        render: render.and_then(|v| serde_json::from_value(v).ok()),
+                        source: src.and_then(|v| serde_json::from_value(v).ok()),
+                        storage_mode: Some(storage),
                         revision: envelope.revision as i32,
                     });
                     OleResponse {
@@ -183,16 +211,37 @@ pub async fn handle_ole_edit_session_with_app(
 /// from the main path.
 fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse, String> {
     // This path should only be used if app_handle is not available.
+    // Extract fields from payload_json when possible
+    let payload = envelope.payload_json.as_ref();
+    let omml = payload
+        .and_then(|v| v.get("omml"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let display_val = payload
+        .and_then(|v| v.get("display"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("inline")
+        .to_string();
+    let present = payload.and_then(|v| v.get("presentation")).cloned();
+    let render = payload.and_then(|v| v.get("render")).cloned();
+    let src = payload.and_then(|v| v.get("source")).cloned();
+    let storage = payload
+        .and_then(|v| v.get("storageMode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("ole")
+        .to_string();
+
     let formula = FormulaPayload {
         schema_version: Some(envelope.schema_version as i32),
         formula_id: envelope.formula_id.clone(),
         latex: envelope.latex.clone(),
-        omml: String::new(),
-        display: "inline".to_string(),
-        presentation: None,
-        render: None,
-        source: None,
-        storage_mode: Some("ole".to_string()),
+        omml,
+        display: display_val,
+        presentation: present.and_then(|v| serde_json::from_value(v).ok()),
+        render: render.and_then(|v| serde_json::from_value(v).ok()),
+        source: src.and_then(|v| serde_json::from_value(v).ok()),
+        storage_mode: Some(storage),
         revision: envelope.revision as i32,
     };
     Ok(OleResponse {

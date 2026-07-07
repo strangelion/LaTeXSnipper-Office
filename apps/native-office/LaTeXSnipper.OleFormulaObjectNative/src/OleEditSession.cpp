@@ -1,4 +1,5 @@
 #include "OleEditSession.h"
+#include "JsonHelper.h"
 #include "NativeLog.h"
 #include "Win32Check.h"
 #include "OleFormulaIds.h"
@@ -15,8 +16,16 @@
 #pragma comment(lib, "rpcrt4.lib")
 #pragma comment(lib, "advapi32.lib")
 
+// g_dllModule is set by DllMain in OleFormulaHandlerModule.cpp
+// Must be at file scope (not inside anonymous namespace) to have external linkage.
+extern HMODULE g_dllModule;
+
 namespace
 {
+
+// Forward declarations
+std::wstring FindDesktopPathRegistry();
+std::wstring FindDesktopPath();
 
 // ConnectNamedPipe with timeout (milliseconds).
 // Returns true if connected, false on timeout/error.
@@ -119,7 +128,6 @@ std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
                                 int revision)
 {
     // Convert HIMETRIC to points (1 pt = 1/72 inch, 1 HIMETRIC = 0.01 mm)
-    // himetricSize stores 1/100 mm units; convert to points via (himetric * 72) / 2540
     int widthPt = static_cast<int>((static_cast<long long>(presentation.himetricSize.cx) * 72 + 1270) / 2540);
     int heightPt = static_cast<int>((static_cast<long long>(presentation.himetricSize.cy) * 72 + 1270) / 2540);
     if (widthPt <= 0) widthPt = 180;
@@ -129,33 +137,107 @@ std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
     json += L"{\"protocolVersion\":2,";
     json += L"\"sessionType\":\"ole_edit_request\",";
     json += L"\"formulaId\":\"" + JsonEscapeString(formulaId) + L"\",";
-    json += L"\"latex\":\"" + JsonEscapeString(presentation.latex) + L"\",";
-    json += L"\"widthPt\":" + std::to_wstring(widthPt) + L",";
-    json += L"\"heightPt\":" + std::to_wstring(heightPt) + L",";
-    json += L"\"schemaVersion\":3,";
-    json += L"\"revision\":" + std::to_wstring(revision);
+
+    // Include full payloadJson if available (preserves omml, render, presentation, source etc.)
+    if (!presentation.payloadJson.empty())
+    {
+        // Use the canonical payload JSON directly instead of individual fields.
+        // The Rust side parses this and passes the full FormulaPayload to the frontend.
+        // To avoid double-escaping, embed it as a raw JSON object value.
+        json += L"\"payloadJson\":";
+        json += presentation.payloadJson;
+        json += L",";
+        json += L"\"latex\":\"" + JsonEscapeString(presentation.latex) + L"\",";
+        json += L"\"widthPt\":" + std::to_wstring(widthPt) + L",";
+        json += L"\"heightPt\":" + std::to_wstring(heightPt) + L",";
+        json += L"\"schemaVersion\":3,";
+        json += L"\"revision\":" + std::to_wstring(revision);
+    }
+    else
+    {
+        json += L"\"latex\":\"" + JsonEscapeString(presentation.latex) + L"\",";
+        json += L"\"widthPt\":" + std::to_wstring(widthPt) + L",";
+        json += L"\"heightPt\":" + std::to_wstring(heightPt) + L",";
+        json += L"\"schemaVersion\":3,";
+        json += L"\"revision\":" + std::to_wstring(revision);
+    }
+
     json += L"}";
     return json;
 }
 
 // Find LaTeXSnipper Desktop executable path.
+// Derives the exe path from the OLE DLL's own module location,
+// avoiding hardcoded registry keys (which may not exist for Tauri packages).
+//   DLL: <root>\resources\NativeOffice\OleFormulaObject.x64.dll
+//   EXE: <root>\LaTeXSnipper.exe
 std::wstring FindDesktopPath()
 {
-    wchar_t path[MAX_PATH];
-    // Try HKCU first, then HKLM
+    wchar_t dllPath[MAX_PATH];
+    DWORD len = GetModuleFileNameW(g_dllModule, dllPath, MAX_PATH);
+    if (len == 0 || len >= MAX_PATH)
+    {
+        // Fallback: try registry (legacy installers)
+        return FindDesktopPathRegistry();
+    }
+
+    std::wstring path(dllPath, len);
+
+    // Walk up from DLL to find the application root.
+    // The DLL lives in: <root>\resources\NativeOffice\OleFormulaObject.x64.dll
+    // We need to go up 3 levels from the DLL to get root.
+    for (int i = 0; i < 3; ++i)
+    {
+        size_t pos = path.find_last_of(L"\\/");
+        if (pos == std::wstring::npos)
+            break;
+        path = path.substr(0, pos);
+    }
+
+    // Try multiple exe naming patterns (dev vs production)
+    static const wchar_t* exeNames[] = {
+        L"LaTeXSnipper.exe",
+        L"LaTeXSnipper-Office.exe",
+        L"latexsnipper-office.exe",
+    };
+    for (auto name : exeNames)
+    {
+        std::wstring exe = path + L"\\" + name;
+        if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
+            return exe;
+    }
+
+    // Absolute fallback: rely on PATH
+    return L"LaTeXSnipper.exe";
+}
+
+// Legacy registry-based lookup, kept as fallback only.
+// Also acts as primary path when the InstallPath is written by Rust install_ole_component().
+std::wstring FindDesktopPathRegistry()
+{
+    wchar_t basePath[MAX_PATH];
     HKEY keys[] = {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
     for (auto root : keys)
     {
-        DWORD size = sizeof(path);
+        DWORD size = sizeof(basePath);
         if (RegGetValueW(root, L"Software\\LaTeXSnipper", L"InstallPath",
-                         RRF_RT_REG_SZ, nullptr, path, &size) == ERROR_SUCCESS)
+                         RRF_RT_REG_SZ, nullptr, basePath, &size) == ERROR_SUCCESS)
         {
-            std::wstring exe = std::wstring(path) + L"\\LaTeXSnipper.exe";
-            if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
-                return exe;
+            // Try multiple exe naming patterns (dev vs production)
+            static const wchar_t* exeNames[] = {
+                L"LaTeXSnipper.exe",
+                L"LaTeXSnipper-Office.exe",
+                L"latexsnipper-office.exe",
+            };
+            for (auto name : exeNames)
+            {
+                std::wstring exe = std::wstring(basePath) + L"\\" + name;
+                if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
+                    return exe;
+            }
         }
     }
-    return L"LaTeXSnipper.exe";  // fallback: rely on PATH
+    return L"LaTeXSnipper.exe";
 }
 
 } // anonymous namespace
@@ -432,19 +514,29 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 
     std::wstring response(responseBuffer.data());
 
-    // 8. Parse response — check for "action": "save"
-    std::wstring action = ExtractJsonString(response, L"action");
+    // 8. Parse response using JsonHelper (nlohmann/json if available, else fallback)
+    std::wstring action = JsonReadString(response, L"action");
     bool isSave = (action == L"save");
 
     if (isSave)
     {
-        // Try the new v2 protocol: read full payload from "formula" sub-object
-        // as {"formula":{"formulaId":"...","latex":"...","revision":5,...}}
+        // Read full payload from "formula" sub-object using proper JSON parsing
         std::wstring newPayloadJson;
+#if HAS_NLOHMANN_JSON
+        try
+        {
+            nlohmann::json doc = nlohmann::json::parse(response);
+            if (doc.contains("formula") && doc["formula"].is_object())
+            {
+                newPayloadJson = doc["formula"].dump();
+            }
+        }
+        catch (...) {}
+#else
+        // Fallback: manual brace matching (fragile with nested objects)
         size_t formulaStart = response.find(L"\"formula\":{");
         if (formulaStart != std::wstring::npos)
         {
-            // Extract the formula sub-object by brace matching
             size_t braceStart = response.find(L'{', formulaStart + 10);
             if (braceStart != std::wstring::npos)
             {
@@ -462,17 +554,17 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                 }
             }
         }
+#endif
 
         // Extract latex (from formula.latex or top-level latex)
         std::wstring newLatex;
         if (!newPayloadJson.empty())
         {
-            newLatex = ExtractJsonString(newPayloadJson, L"latex");
+            newLatex = JsonReadString(newPayloadJson, L"latex");
         }
         if (newLatex.empty())
         {
-            // Fallback: try top-level latex
-            newLatex = ExtractJsonString(response, L"latex");
+            newLatex = JsonReadString(response, L"latex");
         }
 
         if (!newLatex.empty())

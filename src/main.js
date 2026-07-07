@@ -1656,6 +1656,8 @@ class UIController {
       }
       e.target.disabled = false;
       this.updateTabVisibility();
+      // Refresh OLE status display after Office toggle completes
+      this.checkOleStatus();
       Logger.info(`[Office] After toggle: platform=${this.platforms.find(p => p.id === 'office')?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
     });
 
@@ -1688,15 +1690,27 @@ class UIController {
       this.updateOfficeIntegrationHint(savedMode);
     }
 
-    // OLE status check + repair
-    document.getElementById('officeOleRepairBtn')?.addEventListener('click', async () => {
-      this.showToast(t('officeIntegration.repairOle'));
+    // OLE status check — displayed as read-only info, with conditional install/remove buttons
+    this.checkOleStatus();
+
+    document.getElementById('officeOleInstallBtn')?.addEventListener('click', async () => {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('native_office_repair');
-        this.showToast('修复命令已发送');
+        await invoke('native_office_install_ole');
+        this.showToast('OLE 安装成功');
+        this.checkOleStatus();
       } catch (e) {
-        this.showToast('修复失败: ' + (e.message || e));
+        this.showToast('OLE 安装失败: ' + (e.message || e));
+      }
+    });
+    document.getElementById('officeOleUninstallBtn')?.addEventListener('click', async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('native_office_uninstall_ole');
+        this.showToast('OLE 已移除');
+        this.checkOleStatus();
+      } catch (e) {
+        this.showToast('OLE 移除失败: ' + (e.message || e));
       }
     });
     this.checkOleStatus();
@@ -2050,12 +2064,86 @@ class UIController {
 
       // Open editor requested from Office
       listen('native-office-open-editor', async (event) => {
-        const { sessionId } = event.payload;
-        Logger.info(`Native Office: open editor requested from ${sessionId}`);
+        const { sessionId, action, display, omml, sourceHost } = event.payload;
+        Logger.info(`Native Office: open editor requested from ${sessionId} action=${action}`);
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const win = getCurrentWindow();
+
+        if (action === 'delete') {
+          // Delete requested directly from Ribbon — call delete
+          try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            await invoke('native_office_delete_current', {
+              sessionId: sessionId,
+              formulaId: null
+            });
+            Logger.info('Native Office: deleted formula via Ribbon action');
+          } catch (e) {
+            Logger.error('Native Office: delete failed:', e);
+          }
+          return;
+        }
+
+        // For insert / edit actions, show window and load formula
+        await win.show();
+        await win.setFocus();
+
+        // If action=edit and omml is provided, load formula into editor
+        if (action === 'edit' && omml) {
+          try {
+            const latex = this.editor.renderer.toMathML ?
+              window.ommlToLatex(omml) : omml;
+            this.editor.setLatex(latex);
+          } catch (e) {
+            Logger.error('Failed to load OMML into editor:', e);
+          }
+        }
+
+        // Track display mode for insert
+        if (action === 'insert' && display) {
+          const modeSelect = document.getElementById('displayMode');
+          if (modeSelect) {
+            modeSelect.checked = display === 'display' || display === 'displayNumbered';
+          }
+        }
+      });
+
+      // OLE edit session — frontend must respond with ole-edit-result-{token}
+      listen('ole-edit-open', async (event) => {
+        const { formula_id, latex, session_token, payload_json } = event.payload;
+        Logger.info(`OLE edit open: formulaId=${formula_id}`);
+        // Load the formula into the editor
+        this.switchSection('editor');
+
+        // If full payload is available, use omml for richer editing
+        if (payload_json?.omml) {
+          this.editor.setLatex(latex || '');
+          // Store full payload for save
+          this._olePayloadJson = payload_json;
+        } else {
+          this.editor.setLatex(latex || '');
+        }
+
+        // Mark current OLE session for save-with-response
+        this._oleSessionToken = session_token;
+        this._oleFormulaId = formula_id;
+
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const win = getCurrentWindow();
         await win.show();
         await win.setFocus();
+      });
+
+      // Focus on OCR tab (from VSTO Ribbon)
+      listen('native-office-focus-ocr', async () => {
+        Logger.info('Native Office: focus OCR requested');
+        this.switchSection('ocr');
+      });
+
+      // Focus on Settings tab (from VSTO Ribbon)
+      listen('native-office-focus-settings', async () => {
+        Logger.info('Native Office: focus settings requested');
+        this.switchSection('settings');
       });
 
       // Session added/updated/removed - refresh selector
@@ -3119,6 +3207,11 @@ class UIController {
 
     this.currentSection = section;
 
+    // If leaving editor while OLE edit session is active, emit cancel
+    if (section !== 'editor' && this._oleSessionToken) {
+      this.cancelOleEdit();
+    }
+
     const sidebarTrigger = document.getElementById('sidebarTrigger');
     const sidebarPanel = document.getElementById('sidebarPanel');
     const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -3356,8 +3449,55 @@ class UIController {
       console.log('[Insert] Success');
       this.showToast(`已插入到 ${session.host_type}`);
       this.addHistoryItem(latex);
+
+      // If there is an active OLE edit session, emit result back to the pipe
+      if (this._oleSessionToken) {
+        try {
+          const { emit } = await import('@tauri-apps/api/event');
+          // Merge saved payload_json (if available) with current edits
+          let formulaPayload = {
+            formulaId: this._oleFormulaId || crypto.randomUUID(),
+            latex: latex,
+            omml: omml,
+            display: isDisplay ? 'block' : 'inline',
+            revision: 1,
+            storageMode: 'ole',
+          };
+          // Preserve original payload fields (render, presentation, source) from OLE
+          if (this._olePayloadJson) {
+            formulaPayload = { ...this._olePayloadJson, ...formulaPayload };
+          }
+          await emit(`ole-edit-result-${this._oleSessionToken}`, {
+            action: 'save',
+            formula: formulaPayload,
+          });
+          // Clear OLE session state
+          this._oleSessionToken = null;
+          this._oleFormulaId = null;
+          this._olePayloadJson = null;
+        } catch (e) {
+          Logger.error('Failed to emit OLE edit result:', e);
+        }
+      }
     } catch (error) {
       this.showToast(`插入失败: ${error.message || error}`);
+    }
+  }
+
+  async cancelOleEdit() {
+    // Emit cancel to any active OLE session
+    if (this._oleSessionToken) {
+      try {
+        const { emit } = await import('@tauri-apps/api/event');
+        await emit(`ole-edit-result-${this._oleSessionToken}`, {
+          action: 'cancel',
+        });
+      } catch (e) {
+        Logger.error('Failed to cancel OLE edit:', e);
+      }
+      this._oleSessionToken = null;
+      this._oleFormulaId = null;
+      this._olePayloadJson = null;
     }
   }
 
@@ -3543,23 +3683,46 @@ class UIController {
 
   async checkOleStatus() {
     const statusEl = document.getElementById('officeOleStatus');
+    const installBtn = document.getElementById('officeOleInstallBtn');
+    const uninstallBtn = document.getElementById('officeOleUninstallBtn');
+    const actionRow = document.getElementById('officeOleActionRow');
     if (!statusEl) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const status = await invoke('native_office_ole_status');
-      if (status?.available) {
-        statusEl.textContent = t('officeIntegration.oleAvailable');
+      const health = status?.health || 'Unknown';
+      const detail = status?.detail || '';
+      if (health === 'Registered') {
+        statusEl.textContent = 'OLE 公式对象: 已注册';
         statusEl.className = 'settings-hint success';
-      } else if (status?.bitnessMismatch) {
-        statusEl.textContent = t('officeIntegration.oleBitnessMismatch');
+        if (actionRow) actionRow.style.display = '';
+        if (uninstallBtn) uninstallBtn.style.display = '';
+        if (installBtn) installBtn.style.display = 'none';
+      } else if (health === 'NotInstalled') {
+        statusEl.textContent = 'OLE 公式对象: 未安装。如需双击编辑功能，请点击下方安装。';
+        statusEl.className = 'settings-hint';
+        if (actionRow) actionRow.style.display = '';
+        if (installBtn) installBtn.style.display = '';
+        if (uninstallBtn) uninstallBtn.style.display = 'none';
+      } else if (health === 'RegisteredButBroken') {
+        statusEl.textContent = 'OLE 注册已损坏，可尝试重新安装。' + detail;
         statusEl.className = 'settings-hint error';
+        if (actionRow) actionRow.style.display = '';
+        if (installBtn) installBtn.style.display = '';
+        if (uninstallBtn) uninstallBtn.style.display = 'none';
+      } else if (health === 'NotSupported') {
+        statusEl.textContent = 'OLE 公式对象: 仅在 Windows 可用';
+        statusEl.className = 'settings-hint';
+        if (actionRow) actionRow.style.display = 'none';
       } else {
-        statusEl.textContent = t('officeIntegration.oleMissing');
-        statusEl.className = 'settings-hint error';
+        statusEl.textContent = 'OLE 状态: ' + health + (detail ? ' - ' + detail : '');
+        statusEl.className = 'settings-hint';
+        if (actionRow) actionRow.style.display = 'none';
       }
     } catch {
       statusEl.textContent = t('common.unknown');
       statusEl.className = 'settings-hint';
+      if (actionRow) actionRow.style.display = 'none';
     }
   }
 

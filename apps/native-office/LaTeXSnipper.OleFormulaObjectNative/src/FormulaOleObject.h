@@ -112,6 +112,7 @@ private:
     void NotifyPresentationChanged();
     HRESULT StartEditSession();
     HRESULT CopyLatexToClipboard();
+    void ApplyPendingEditResult();
 
     volatile LONG refCount_ = 1;
     ATL::CComPtr<IOleClientSite> clientSite_;
@@ -128,6 +129,11 @@ private:
     std::wstring canonicalPayloadJson_;
     bool dirty_ = false;
     std::wstring formulaId_;
+
+    // Async edit session: DoVerb spawns a thread so Office UI is not blocked.
+    volatile bool editThreadRunning_ = false;
+    volatile bool editCompleted_ = false;
+    FormulaPresentation pendingEditResult_;
 };
 
 class FormulaClassFactory final : public IClassFactory

@@ -59,7 +59,7 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;UNICODE;_UNICODE;_ATL_NO_AUTOMATIC_NAMESPACE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)src;$(MSBuildThisFileDirectory)vendor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -99,6 +99,7 @@
     <ClInclude Include="src\OleFormulaIds.h" />
     <ClInclude Include="src\Presentation.h" />
     <ClInclude Include="src\StorageUtil.h" />
+    <ClInclude Include="src\JsonHelper.h" />
     <ClInclude Include="src\Win32Check.h" />
     <ClInclude Include="src\LaTeXSnipperFormula.h" />
   </ItemGroup>

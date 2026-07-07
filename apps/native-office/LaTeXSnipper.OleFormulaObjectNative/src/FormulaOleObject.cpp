@@ -9,6 +9,7 @@
 #include <atlconv.h>
 #include <comdef.h>
 #include <new>
+#include <thread>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -147,6 +148,86 @@ void FormulaOleObject::NotifyPresentationChanged()
         clientSite_->SaveObject();
     }
 }
+
+// -------------------------------------------------------------------
+// IEnumFORMATETC implementation for EnumFormatEtc — returns EMF + MFPICT
+// -------------------------------------------------------------------
+class FormulaFormatEnum final : public IEnumFORMATETC
+{
+public:
+    FormulaFormatEnum(const FORMATETC* formats, UINT count)
+        : formats_(formats), count_(count), index_(0)
+    {
+    }
+
+    // IUnknown
+    STDMETHOD(QueryInterface)(REFIID iid, void** object) override
+    {
+        if (object == nullptr) return E_POINTER;
+        *object = nullptr;
+        if (iid == IID_IUnknown || iid == IID_IEnumFORMATETC)
+        {
+            *object = this;
+            AddRef();
+            return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+
+    STDMETHOD_(ULONG, AddRef)() override { return InterlockedIncrement(&refCount_); }
+    STDMETHOD_(ULONG, Release)() override
+    {
+        ULONG count = InterlockedDecrement(&refCount_);
+        if (count == 0) delete this;
+        return count;
+    }
+
+    // IEnumFORMATETC
+    STDMETHOD(Next)(ULONG requested, FORMATETC* output, ULONG* fetched) override
+    {
+        if (output == nullptr) return E_POINTER;
+        ULONG copied = 0;
+        while (index_ < count_ && copied < requested)
+        {
+            output[copied] = formats_[index_];
+            if (formats_[index_].ptd != nullptr)
+            {
+                output[copied].ptd = static_cast<DVTARGETDEVICE*>(CoTaskMemAlloc(sizeof(DVTARGETDEVICE)));
+                if (output[copied].ptd)
+                    *output[copied].ptd = *formats_[index_].ptd;
+            }
+            ++index_;
+            ++copied;
+        }
+        if (fetched) *fetched = copied;
+        return copied == requested ? S_OK : S_FALSE;
+    }
+
+    STDMETHOD(Skip)(ULONG skip) override
+    {
+        if (index_ + skip > count_) return S_FALSE;
+        index_ += skip;
+        return S_OK;
+    }
+
+    STDMETHOD(Reset)() override { index_ = 0; return S_OK; }
+
+    STDMETHOD(Clone)(IEnumFORMATETC** out) override
+    {
+        if (out == nullptr) return E_POINTER;
+        FormulaFormatEnum* clone = new (std::nothrow) FormulaFormatEnum(formats_, count_);
+        if (clone == nullptr) return E_OUTOFMEMORY;
+        clone->index_ = index_;
+        *out = clone;
+        return S_OK;
+    }
+
+private:
+    const FORMATETC* formats_;
+    UINT count_;
+    UINT index_;
+    volatile LONG refCount_ = 1;
+};
 
 STDMETHODIMP FormulaOleObject::QueryInterface(REFIID iid, void** object)
 {
@@ -457,6 +538,8 @@ STDMETHODIMP FormulaOleObject::SetColorScheme(LOGPALETTE*)
 STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
 {
     WriteNativeOleLog(L"FormulaOleObject GetData.");
+    // Apply any pending async edit result before serving data
+    ApplyPendingEditResult();
     if (format == nullptr || medium == nullptr)
     {
         return E_POINTER;
@@ -556,7 +639,7 @@ STDMETHODIMP FormulaOleObject::SetData(FORMATETC* format, STGMEDIUM* medium, BOO
     return S_OK;
 }
 
-STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD, IEnumFORMATETC** enumFormatEtc)
+STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD direction, IEnumFORMATETC** enumFormatEtc)
 {
     if (enumFormatEtc == nullptr)
     {
@@ -564,7 +647,23 @@ STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD, IEnumFORMATETC** enumFormatE
     }
 
     *enumFormatEtc = nullptr;
-    return E_NOTIMPL;
+
+    // Only support GET direction (what data we provide)
+    if (direction != DATADIR_GET)
+    {
+        return E_NOTIMPL;
+    }
+
+    // Return the formats our IDataObject::GetData() supports:
+    //   CF_ENHMETAFILE  — EMF picture rendering
+    //   CF_METAFILEPICT — legacy metafile fallback
+    static const FORMATETC formats[] = {
+        {CF_ENHMETAFILE,  nullptr, DVASPECT_CONTENT, -1, TYMED_ENHMF},
+        {CF_METAFILEPICT, nullptr, DVASPECT_CONTENT, -1, TYMED_MFPICT},
+    };
+
+    *enumFormatEtc = new (std::nothrow) FormulaFormatEnum(formats, ARRAYSIZE(formats));
+    return *enumFormatEtc != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 STDMETHODIMP FormulaOleObject::DAdvise(FORMATETC* format, DWORD adviseFlags, IAdviseSink* adviseSink, DWORD* connection)
@@ -619,6 +718,8 @@ STDMETHODIMP FormulaOleObject::EnumDAdvise(IEnumSTATDATA** enumAdvise)
 STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVICE*, HDC, HDC drawContext, LPCRECTL bounds, LPCRECTL, BOOL(__stdcall*)(ULONG_PTR), ULONG_PTR)
 {
     WriteNativeOleLog(L"FormulaOleObject Draw.");
+    // Apply any pending async edit result before rendering
+    ApplyPendingEditResult();
     HRESULT aspectResult = ValidateContentAspect(drawAspect);
     if (FAILED(aspectResult))
     {
@@ -887,6 +988,20 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
 
 STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
 {
+    // Apply any pending async edit result before persisting
+    ApplyPendingEditResult();
+
+    // Transactional save: backup existing data first, then restore if envelope fails.
+    // This prevents payload/preview inconsistency when envelope write fails.
+    std::vector<BYTE> backupPayload, backupEmf;
+    {
+        HRESULT hr = StorageUtilBackup(storage, &backupPayload, &backupEmf);
+        if (FAILED(hr))
+        {
+            WriteNativeOleLog(L"Save: Backup failed; continuing without rollback capability.");
+        }
+    }
+
     HRESULT result = SavePresentationToStorage(storage, presentation_);
     if (SUCCEEDED(result))
     {
@@ -905,9 +1020,26 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
             envelopeJson += presentation_.latex;
             envelopeJson += L"\",\"schemaVersion\":3,\"revision\":0,\"storageMode\":\"ole\"}";
         }
-        if (SUCCEEDED(SaveEnvelopeToStorage(storage, envelopeJson)))
+
+        // Validate envelope JSON is well-formed before writing
+        if (envelopeJson.find(L"\"formulaId\"") == std::wstring::npos ||
+            envelopeJson.find(L"\"latex\"") == std::wstring::npos)
+        {
+            WriteNativeOleLog(L"Save: Envelope JSON validation failed — missing required fields.");
+            StorageUtilRestore(storage, backupPayload, backupEmf);
+            return STG_E_INVALIDPARAMETER;
+        }
+
+        result = SaveEnvelopeToStorage(storage, envelopeJson);
+        if (SUCCEEDED(result))
         {
             dirty_ = false;
+        }
+        else
+        {
+            // Envelope save failed — restore backed-up payload and EMF
+            WriteNativeOleLog(L"Save: Envelope save failed — restoring payload from backup.");
+            StorageUtilRestore(storage, backupPayload, backupEmf);
         }
     }
 
@@ -1183,7 +1315,13 @@ HRESULT FormulaOleObject::CopyLatexToClipboard()
 
 HRESULT FormulaOleObject::StartEditSession()
 {
-    WriteNativeOleLog(L"FormulaOleObject: Starting edit session via Named Pipe.");
+    WriteNativeOleLog(L"FormulaOleObject: Starting edit session (async, background thread).");
+
+    if (editThreadRunning_)
+    {
+        WriteNativeOleLog(L"FormulaOleObject: Edit session already in progress.");
+        return S_OK;
+    }
 
     HWND parentHwnd = nullptr;
     if (clientSite_ != nullptr)
@@ -1196,40 +1334,72 @@ HRESULT FormulaOleObject::StartEditSession()
         }
     }
 
-    HRESULT hr = StartEditSessionPipe(formulaId_, &presentation_, parentHwnd);
+    // Capture state before spawning the thread
+    std::wstring capturedFormulaId = formulaId_;
+    FormulaPresentation capturedPresentation = presentation_;
+    editThreadRunning_ = true;
+    editCompleted_ = false;
 
-    if (hr == S_OK)
-    {
-        dirty_ = true;
+    // Explicit AddRef for the background thread; Release when done
+    AddRef();
 
-        // Update canonical payload JSON from the edited presentation
-        if (!presentation_.payloadJson.empty())
+    std::thread([this, capturedFormulaId, capturedPresentation, parentHwnd]() {
+        FormulaPresentation result = capturedPresentation;
+        HRESULT hr = StartEditSessionPipe(capturedFormulaId, &result, parentHwnd);
+
+        if (hr == S_OK)
         {
-            canonicalPayloadJson_ = presentation_.payloadJson;
+            // Store result for lazy pickup by ApplyPendingEditResult()
+            pendingEditResult_ = result;
+            editCompleted_ = true;
 
-            // Re-extract formulaId in case it changed
-            std::wstring id = ExtractJsonString(canonicalPayloadJson_, L"formulaId");
-            if (!id.empty())
-                formulaId_ = id;
+            WriteNativeOleLog(L"FormulaOleObject: Edit session completed successfully (async).");
+        }
+        else
+        {
+            WriteNativeOleLog(L"FormulaOleObject: Edit session cancelled or failed (async).");
         }
 
-        if (storage_ != nullptr)
+        editThreadRunning_ = false;
+
+        // Notify Office about the change via client site (best-effort, may fail cross-apartment)
+        if (hr == S_OK && clientSite_ != nullptr)
         {
-            Save(storage_, FALSE);
+            // Call SaveObject to trigger Office to call our Save()
+            clientSite_->SaveObject();
+            NotifyPresentationChanged();
         }
-        NotifyPresentationChanged();
-        WriteNativeOleLog(L"FormulaOleObject: Edit session completed with updates.");
-    }
-    else if (hr == S_FALSE)
+
+        Release();  // Balance the AddRef above
+    }).detach();
+
+    // Return immediately — Office UI is not blocked
+    return S_OK;
+}
+
+void FormulaOleObject::ApplyPendingEditResult()
+{
+    if (!editCompleted_)
+        return;
+
+    WriteNativeOleLog(L"FormulaOleObject: Applying pending async edit result.");
+    presentation_ = pendingEditResult_;
+    dirty_ = true;
+
+    if (!presentation_.payloadJson.empty())
     {
-        WriteNativeOleLog(L"FormulaOleObject: Edit session cancelled by user.");
-    }
-    else
-    {
-        WriteNativeOleLog(L"FormulaOleObject: Edit session failed.");
+        canonicalPayloadJson_ = presentation_.payloadJson;
+        std::wstring id;
+#if HAS_NLOHMANN_JSON
+        id = JsonReadString(canonicalPayloadJson_, L"formulaId");
+#else
+        id = ExtractJsonString(canonicalPayloadJson_, L"formulaId");
+#endif
+        if (!id.empty())
+            formulaId_ = id;
     }
 
-    return hr;
+    editCompleted_ = false;
 }
 
 // ===================================================================

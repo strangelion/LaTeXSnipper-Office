@@ -90,6 +90,9 @@ fn main() {
                 tauri::async_runtime::spawn(async move {
                     platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
                 });
+
+                // Write InstallPath so OLE DLL can find the Desktop exe
+                platforms::integrations::register_install_path();
             }
 
             // Start Office Bridge (HTTPS, port 19876)
@@ -192,6 +195,14 @@ fn main() {
             commands::native_office::native_office_vsto_trust_status,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_ole_status,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_install_ole,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_uninstall_ole,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_validate_ole,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_repair_vsto,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

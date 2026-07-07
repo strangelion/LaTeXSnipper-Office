@@ -470,12 +470,64 @@ impl SessionManager {
             VstoMessage::OpenEditor {
                 requestId,
                 sessionId,
+                action,
+                display,
+                omml,
+                sourceHost,
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
-                log::info!("[Session] OPEN_EDITOR (session={})", sid);
+                log::info!("[Session] OPEN_EDITOR (session={}) action={}", sid, action);
                 let _ = self.app_handle.emit(
                     "native-office-open-editor",
+                    serde_json::json!({
+                        "sessionId": sid,
+                        "action": action,
+                        "display": display,
+                        "omml": omml,
+                        "sourceHost": sourceHost,
+                    }),
+                );
+                ResponseEnvelope {
+                    requestId: rid.clone(),
+                    sessionId: sid.clone(),
+                    response: DesktopMessage::Ping {
+                        requestId: rid,
+                        sessionId: sid,
+                    },
+                }
+            }
+
+            VstoMessage::FocusOcr {
+                requestId,
+                sessionId,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!("[Session] FOCUS_OCR (session={})", sid);
+                let _ = self.app_handle.emit(
+                    "native-office-focus-ocr",
+                    serde_json::json!({ "sessionId": sid }),
+                );
+                ResponseEnvelope {
+                    requestId: rid.clone(),
+                    sessionId: sid.clone(),
+                    response: DesktopMessage::Ping {
+                        requestId: rid,
+                        sessionId: sid,
+                    },
+                }
+            }
+
+            VstoMessage::FocusSettings {
+                requestId,
+                sessionId,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!("[Session] FOCUS_SETTINGS (session={})", sid);
+                let _ = self.app_handle.emit(
+                    "native-office-focus-settings",
                     serde_json::json!({ "sessionId": sid }),
                 );
                 ResponseEnvelope {

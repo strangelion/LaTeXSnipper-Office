@@ -11,3 +11,7 @@ HRESULT LoadPresentationFromStorage(IStorage* storage, FormulaPresentation* pres
 // v3 FormulaEnvelope.json stream
 HRESULT SaveEnvelopeToStorage(IStorage* storage, const std::wstring& json);
 HRESULT LoadEnvelopeFromStorage(IStorage* storage, std::wstring* json);
+
+// Transactional helpers: backup payload/EMF before modifying, restore on failure
+HRESULT StorageUtilBackup(IStorage* storage, std::vector<BYTE>* outPayload, std::vector<BYTE>* outEmf);
+HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, const std::vector<BYTE>& emf);

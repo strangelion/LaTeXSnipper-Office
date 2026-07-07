@@ -43,6 +43,14 @@ pub struct PlatformIntegrationResult {
 pub struct OleStatus {
     pub available: bool,
     pub bitness_mismatch: bool,
+    /// Granular OLE health level:
+    ///   "NotInstalled" → CLSID/ProgID missing
+    ///   "RegisteredButBroken" → registry exists but DLL path wrong or missing
+    ///   "Registered" → CLSID + correct DLL path confirmed
+    ///   "Activatable" → CoCreateInstance succeeds (Windows/C++ only)
+    pub health: String,
+    /// Human-readable detail message
+    pub detail: String,
 }
 
 impl PlatformIntegrationResult {
@@ -1657,7 +1665,7 @@ fn office_manifest_value(path: &Path) -> String {
 }
 
 /// Install Native Office VSTO add-ins by registering in Windows registry.
-fn install_native_office_vsto() -> PlatformIntegrationResult {
+pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
         return PlatformIntegrationResult::fail(
@@ -1776,7 +1784,8 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
             ledger.install_id = generate_install_id();
             ledger.desktop_version = get_desktop_version();
         }
-        ledger.native_office.signer_thumbprint = Some("6D72A59239CAB7F18D3778177A0B94D6C58E494E".to_string());
+        // Read thumbprint from bundled .cer / signing.json instead of hardcoding
+        ledger.native_office.signer_thumbprint = get_expected_thumbprint();
         ledger.native_office.vsto = installed.iter().filter_map(|host| {
             let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == *host)?;
             let reg_key = format!(
@@ -1803,6 +1812,22 @@ fn install_native_office_vsto() -> PlatformIntegrationResult {
         if let Err(e) = ledger.save() {
             log::warn!("[Office] Failed to save integration ledger: {}", e);
         }
+
+        // Auto-install OLE COM component — merge into the single Office toggle.
+        // Wrapped in catch_unwind to prevent panic=abort from crashing the app
+        // when spawn_blocking is used.
+        let ole_installed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = install_ole_component();
+            if result.success {
+                log::info!("[Office] OLE auto-install: {}", result.message);
+            } else {
+                log::warn!("[Office] OLE auto-install skipped: {}", result.message);
+            }
+            result.success
+        })).unwrap_or_else(|_| {
+            log::error!("[Office] OLE auto-install panicked — this is a bug.");
+            false
+        });
 
         return PlatformIntegrationResult::ok(
             "office",
@@ -2768,26 +2793,38 @@ use crate::commands::native_office::*;
 pub fn get_native_office_status() -> NativeOfficeStatus {
     let platform_supported = cfg!(target_os = "windows");
 
-    // Check for MSI marker
-    let marker_path = dirs_next::data_local_dir()
-        .unwrap_or_default()
-        .join("LaTeXSnipper")
-        .join("NativeOffice")
-        .join("marker.json");
+    // Derive installation state from real checks, NOT from a bootstrapper marker.json.
+    // The marker is unreliable because install_native_office_vsto() writes registry
+    // directly and never creates a marker file.
+    let vsto_runtime_ok = detect_vsto_runtime();
+    let cert_trusted = check_certificate_trusted();
+    let any_host_registered = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, addin_id, _, vsto_file)| {
+        let reg_key = format!(
+            r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+            match *host_name {
+                "Word" => "Word",
+                "Excel" => "Excel",
+                "PowerPoint" => "PowerPoint",
+                _ => return false,
+            },
+            addin_id
+        );
+        get_load_behavior(&reg_key).is_some()
+    });
+    let any_vsto_file_found = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, _, _, vsto_file)| {
+        native_office_vsto_manifest(host_name, vsto_file).is_some()
+    });
 
-    let package_state = if marker_path.exists() {
-        // Check if key files exist
-        let install_root = dirs_next::data_local_dir()
-            .unwrap_or_default()
-            .join("Programs")
-            .join("LaTeXSnipper")
-            .join("NativeOffice");
-
-        if install_root.exists() {
+    let package_state = if any_host_registered && any_vsto_file_found {
+        if vsto_runtime_ok && cert_trusted {
             PackageState::Installed
+        } else if vsto_runtime_ok {
+            PackageState::NeedsPrerequisite
         } else {
-            PackageState::Broken
+            PackageState::NeedsPrerequisite
         }
+    } else if any_host_registered || any_vsto_file_found {
+        PackageState::Broken
     } else {
         PackageState::NotInstalled
     };
@@ -2805,7 +2842,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
         Err(_) => PipeSecurityStatus::SidFailed,
     };
 
-    // Determine recommended action
+    // Determine recommended action from real state, not marker
     let action = match package_state {
         PackageState::NotInstalled => RecommendedAction::Install,
         PackageState::Broken => RecommendedAction::Repair,
@@ -2814,6 +2851,13 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
                 RecommendedAction::Repair
             } else {
                 RecommendedAction::None
+            }
+        }
+        PackageState::NeedsPrerequisite => {
+            if !vsto_runtime_ok {
+                RecommendedAction::Install
+            } else {
+                RecommendedAction::Install
             }
         }
         _ => RecommendedAction::None,
@@ -2994,39 +3038,22 @@ fn uuid_simple() -> String {
 }
 
 /// Check OLE component availability: registry + DLL existence + bitness check.
+///
+/// Returns a detailed health level rather than a boolean-only answer.
 #[cfg(target_os = "windows")]
 pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
 
-    let clsid_key = format!(
-        r"Software\Classes\CLSID\{}",
-        ole_constants::CLSID
-    );
-    let path = OsStr::new(&clsid_key);
-    let wide: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
+    let clsid = ole_constants::CLSID;
+    let clsid_key = format!(r"Software\Classes\CLSID\{}", clsid);
 
-    // Check CLSID registry existence
-    let registry_exists = unsafe {
-        let mut hkey: isize = 0;
-        let result = RegOpenKeyExW(
-            0x80000001isize as *mut _,
-            wide.as_ptr(),
-            0,
-            0x20019,
-            &mut hkey,
-        );
-        if result == 0 {
-            RegCloseKey(hkey);
-            true
-        } else {
-            let result = RegOpenKeyExW(
-                0x80000002isize as *mut _,
-                wide.as_ptr(),
-                0,
-                0x20019,
-                &mut hkey,
-            );
+    // Helper: check if a registry key exists under a specific root
+    let key_exists = |root: usize, sub_key: &str| -> bool {
+        let wide: Vec<u16> = OsStr::new(sub_key).encode_wide().chain(std::iter::once(0)).collect();
+        unsafe {
+            let mut hkey: isize = 0;
+            let result = RegOpenKeyExW(root as *mut _, wide.as_ptr(), 0, 0x20019, &mut hkey);
             if result == 0 {
                 RegCloseKey(hkey);
                 true
@@ -3036,35 +3063,130 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         }
     };
 
-    if !registry_exists {
-        return crate::commands::native_office::OleStatus {
-            available: false,
-            bitness_mismatch: false,
-        };
+    let key64 = &clsid_key; // 64-bit: HKCU\Software\Classes\CLSID\{guid}
+    let key32 = format!(r"Software\Classes\Wow6432Node\CLSID\{}", clsid); // 32-bit view
+
+    let registry_64 = key_exists(0x80000001, key64); // HKCU
+    let registry_32 = key_exists(0x80000001, &key32);
+
+    if !registry_64 && !registry_32 {
+        // Fallback: check HKLM
+        let hklm_64 = key_exists(0x80000002, key64);
+        let hklm_32 = key_exists(0x80000002, &key32);
+        if !hklm_64 && !hklm_32 {
+            return crate::commands::native_office::OleStatus {
+                available: false,
+                bitness_mismatch: false,
+                health: "NotInstalled".to_string(),
+                detail: "OLE CLSID not found in any registry view. Run OLE installation.".to_string(),
+            };
+        }
     }
 
-    // Check if the DLL actually exists
-    let is_64bit = detect_office_64bit();
-    let dll_name = if is_64bit {
-        ole_constants::DLL_NAME_X64
-    } else {
-        ole_constants::DLL_NAME_X86
+    // Check DLLs exist in resources
+    let x64_dll_found = find_ole_dll_path(ole_constants::DLL_NAME_X64).is_some();
+    let x86_dll_found = find_ole_dll_path(ole_constants::DLL_NAME_X86).is_some();
+
+    // Check InprocServer32 path matches actual DLL (primary 64-bit view)
+    let inproc_key = format!(r"{}\InprocServer32", clsid_key);
+    let inproc_wide: Vec<u16> = OsStr::new(&inproc_key)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut inproc_hkey: isize = 0;
+    let inproc_result = unsafe {
+        RegOpenKeyExW(
+            0x80000001isize as *mut _,
+            inproc_wide.as_ptr(),
+            0,
+            0x20019,
+            &mut inproc_hkey,
+        )
     };
 
-    let dll_found = find_ole_dll_path(dll_name).is_some();
-
-    // Check bitness: if Office is 64-bit but only 86 DLL found (or vice versa)
-    let bitness_mismatch = if is_64bit {
-        find_ole_dll_path(ole_constants::DLL_NAME_X86).is_some()
-            && find_ole_dll_path(ole_constants::DLL_NAME_X64).is_none()
+    let registered_dll = if inproc_result == 0 {
+        let mut value_buf = [0u16; 1024];
+        let mut value_len = 1024u32;
+        let query_result = unsafe {
+            RegQueryValueExW(
+                inproc_hkey,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                value_buf.as_mut_ptr() as *mut u8,
+                &mut value_len,
+            )
+        };
+        unsafe { RegCloseKey(inproc_hkey); }
+        if query_result == 0 && value_len > 0 {
+            Some(String::from_utf16_lossy(&value_buf[..(value_len as usize / 2 - 1)]))
+        } else {
+            None
+        }
     } else {
-        find_ole_dll_path(ole_constants::DLL_NAME_X64).is_some()
-            && find_ole_dll_path(ole_constants::DLL_NAME_X86).is_none()
+        None
     };
 
-    OleStatus {
-        available: registry_exists && dll_found && !bitness_mismatch,
-        bitness_mismatch,
+    // Determine health level
+    let (health, detail, available) = match registered_dll {
+        Some(dll_path) => {
+            let path_obj = std::path::Path::new(&dll_path);
+            if path_obj.exists() {
+                if x64_dll_found && x86_dll_found {
+                    (
+                        "Registered".to_string(),
+                        format!("OLE registered (dual view). x64 DLL: {}", dll_path),
+                        true,
+                    )
+                } else if x64_dll_found {
+                    (
+                        "Registered".to_string(),
+                        "OLE registered (64-bit view only; no x86 DLL for 32-bit Office).".to_string(),
+                        true,
+                    )
+                } else {
+                    (
+                        "RegisteredButDllMissing".to_string(),
+                        "x64 OLE DLL not found in resources.".to_string(),
+                        false,
+                    )
+                }
+            } else {
+                (
+                    "RegisteredButBroken".to_string(),
+                    format!("InprocServer32 path does not exist: {}", dll_path),
+                    false,
+                )
+            }
+        }
+        None => {
+            if x64_dll_found && x86_dll_found && (registry_64 || registry_32) {
+                (
+                    "RegisteredButNoPath".to_string(),
+                    "CLSID found but InprocServer32 default value is missing or unreadable.".to_string(),
+                    false,
+                )
+            } else if x64_dll_found || x86_dll_found {
+                (
+                    "RegisteredButNoPath".to_string(),
+                    "CLSID found but InprocServer32 unreadable. Try re-installing OLE.".to_string(),
+                    false,
+                )
+            } else {
+                (
+                    "NotInstalled".to_string(),
+                    "OLE DLLs not found in application resources.".to_string(),
+                    false,
+                )
+            }
+        }
+    };
+
+    crate::commands::native_office::OleStatus {
+        available,
+        bitness_mismatch: !(x64_dll_found && x86_dll_found),
+        health,
+        detail,
     }
 }
 
@@ -3073,6 +3195,8 @@ pub fn check_ole_status() -> OleStatus {
     OleStatus {
         available: false,
         bitness_mismatch: false,
+        health: "NotSupported".to_string(),
+        detail: "OLE is only available on Windows.".to_string(),
     }
 }
 
@@ -3157,58 +3281,156 @@ pub fn detect_vsto_runtime() -> bool {
 }
 
 /// Check if the LaTeXSnipper VSTO manifest signing certificate is trusted.
+///
+/// Uses Windows Certificate Store API (`CertOpenStore` + `CertFindCertificateInStore`)
+/// to search the CurrentUser\TrustedPublisher store by SHA-1 thumbprint.
 #[cfg(target_os = "windows")]
 pub fn check_certificate_trusted() -> bool {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    // Check CurrentUser TrustedPublisher store for our cert thumbprint
-    let path = OsStr::new(r"Software\Microsoft\SystemCertificates\TrustedPublisher\Certificates");
-    let wide: Vec<u16> = path
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let mut hkey: isize = 0;
-    let result = unsafe {
-        RegOpenKeyExW(
-            0x80000001isize as *mut _,
-            wide.as_ptr(),
-            0,
-            0x20019,
-            &mut hkey,
-        )
+    let Some(expected) = get_expected_thumbprint() else {
+        log::warn!("[Office] Cannot check certificate trust: no bundled .cer found");
+        return false;
     };
-    if result != 0 {
+
+    // Convert hex thumbprint (40 hex chars) to 20-byte array
+    if expected.len() != 40 {
+        log::warn!("[Office] Invalid thumbprint length: {}", expected.len());
         return false;
     }
-
-    // Iterate certificate subkeys to find our thumbprint
-    // The thumbprint is the subkey name
-    // Exact thumbprint check: only trust if the specific LaTeXSnipper certificate exists
-    let expected_thumbprint = "6D72A59239CAB7F18D3778177A0B94D6C58E494E";
-    let mut found = false;
-    let mut cert_count = 0i32;
-    let mut index = 0u32;
-    let mut name_buf = [0u16; 256];
-
-    loop {
-        let name_len = unsafe {
-            RegEnumKeyW(hkey, index, name_buf.as_mut_ptr(), 256)
-        };
-        if name_len < 0 {
-            break;
-        }
-        let name = String::from_utf16_lossy(&name_buf[..name_len as usize]);
-        if name.eq_ignore_ascii_case(expected_thumbprint) {
-            found = true;
-        }
-        cert_count += 1;
-        index += 1;
+    let mut hash_bytes = [0u8; 20];
+    for i in 0..20 {
+        let hi = expected.as_bytes()[i * 2];
+        let lo = expected.as_bytes()[i * 2 + 1];
+        hash_bytes[i] = (hex_nibble(hi) << 4) | hex_nibble(lo);
     }
 
-    unsafe { RegCloseKey(hkey); }
+    unsafe {
+        use windows::Win32::Security::Cryptography::*;
+        use windows::core::w;
 
-    found
+        let result = CertOpenStore(
+            CERT_STORE_PROV_SYSTEM_W,
+            CERT_QUERY_ENCODING_TYPE(0),
+            None,
+            CERT_OPEN_STORE_FLAGS(CERT_SYSTEM_STORE_CURRENT_USER),
+            Some(w!("TrustedPublisher").as_ptr() as *const core::ffi::c_void),
+        );
+        let store = match result {
+            Ok(s) => s,
+            Err(e) => {
+                log::warn!("[Office] CertOpenStore(TrustedPublisher) failed: error={}", e);
+                return false;
+            }
+        };
+
+        let mut hash_blob = CRYPT_INTEGER_BLOB {
+            cbData: 20,
+            pbData: hash_bytes.as_mut_ptr(),
+        };
+
+        let cert = CertFindCertificateInStore(
+            store,
+            CERT_QUERY_ENCODING_TYPE(X509_ASN_ENCODING.0 | PKCS_7_ASN_ENCODING.0),
+            0,
+            CERT_FIND_SHA1_HASH,
+            Some(&hash_blob as *const _ as *const core::ffi::c_void),
+            None,
+        );
+
+        let found = !cert.is_null();
+        if found {
+            log::info!("[Office] Certificate trusted: {}", expected);
+            let _ = CertFreeCertificateContext(Some(cert as *const _));
+        } else {
+            log::info!("[Office] Certificate NOT in TrustedPublisher: {}", expected);
+        }
+
+        let _ = CertCloseStore(store, CERT_CLOSE_STORE_FORCE_FLAG);
+        found
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn hex_nibble(b: u8) -> u8 {
+    match b {
+        b'0'..=b'9' => b - b'0',
+        b'A'..=b'F' => b - b'A' + 10,
+        b'a'..=b'f' => b - b'a' + 10,
+        _ => 0,
+    }
+}
+
+/// Compute the SHA-1 thumbprint of the bundled `LaTeXSnipperOffice.cer`
+/// file, or read it from `native-office-signing.json` if present.
+#[cfg(target_os = "windows")]
+fn get_expected_thumbprint() -> Option<String> {
+    // 1. Try signing.json first
+    if let Some(signing_json) = find_signing_metadata() {
+        if let Ok(content) = std::fs::read_to_string(&signing_json) {
+            if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(tp) = meta.get("sha1Thumbprint").and_then(|v| v.as_str()) {
+                    let clean = tp.trim().to_uppercase();
+                    if clean.len() == 40 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+                        return Some(clean);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: load .cer via CryptoAPI and read CERT_SHA1_HASH_PROP_ID
+    let cert_path = find_staging_certificate()?;
+    let cer_bytes = std::fs::read(&cert_path).ok()?;
+
+    unsafe {
+        use windows::Win32::Security::Cryptography::*;
+
+        let cert_ctx = CertCreateCertificateContext(
+            X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+            &cer_bytes,
+        );
+        if cert_ctx.is_null() {
+            log::warn!("[Office] CertCreateCertificateContext failed for .cer at {}", cert_path.display());
+            return None;
+        }
+
+        let mut hash_data = [0u8; 20];
+        let mut size: u32 = 20;
+        let ok = CertGetCertificateContextProperty(
+            cert_ctx,
+            CERT_SHA1_HASH_PROP_ID,
+            Some(hash_data.as_mut_ptr() as *mut core::ffi::c_void),
+            &mut size,
+        );
+
+        let _ = CertFreeCertificateContext(Some(cert_ctx as *const _));
+
+        if ok.is_ok() && size == 20 {
+            let hex: String = hash_data.iter().map(|b| format!("{:02X}", b)).collect();
+            log::info!("[Office] Computed thumbprint from .cer: {}", hex);
+            Some(hex)
+        } else {
+            log::warn!("[Office] Failed to read CERT_SHA1_HASH_PROP_ID from .cer");
+            None
+        }
+    }
+}
+
+/// Find the native-office-signing.json metadata file bundled with resources.
+#[cfg(target_os = "windows")]
+fn find_signing_metadata() -> Option<std::path::PathBuf> {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate = exe_dir
+                .join("resources")
+                .join("NativeOffice")
+                .join("certificates")
+                .join("native-office-signing.json");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
 }
 
 /// Improve load verification by checking real LoadBehavior value.
@@ -3251,34 +3473,47 @@ fn find_ole_dll_path(dll_name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
-/// Install the OLE COM component for the current Office bitness.
-/// - Detects Office architecture (HKCU\Software\Microsoft\Office\<ver>\Common\...)
-/// - Selects the matching DLL (x86 or x64)
-/// - Writes COM registry: ProgID, CLSID, InprocServer32, ProgID\CLSID mapping
+/// Write the Desktop exe path to the registry so the OLE DLL's FindDesktopPathRegistry()
+/// can locate the exe. Called during app startup (not just during OLE install).
+#[cfg(target_os = "windows")]
+pub fn register_install_path() {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let install_path = exe_dir.to_string_lossy().replace('/', "\\");
+            let _ = reg_add_string(
+                r"HKCU\Software\LaTeXSnipper",
+                "InstallPath",
+                &install_path,
+            );
+        }
+    }
+}
+
+/// Install the OLE COM component for both x86 and x64 registry views.
+/// - Registers CLSID, ProgID, InprocServer32 under both 64-bit and 32-bit (Wow6432Node) views
+/// - x64 DLL is assigned to the 64-bit view, x86 DLL to the 32-bit view
 /// - Does NOT register with regsvr32 (DLL has no DllRegisterServer)
 #[cfg(target_os = "windows")]
 pub fn install_ole_component() -> OleComponentResult {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
     let mut entries = Vec::new();
 
-    // Determine Office bitness by probing Office key.
-    // If we can't tell, default to the native architecture.
-    let is_office_64bit = detect_office_64bit();
-
-    let (dll_name, registry_view) = if is_office_64bit {
-        (ole_constants::DLL_NAME_X64, "64")
-    } else {
-        (ole_constants::DLL_NAME_X86, "32")
-    };
-
-    let dll_path = match find_ole_dll_path(dll_name) {
-        Some(p) => p,
+    let x64_dll = match find_ole_dll_path(ole_constants::DLL_NAME_X64) {
+        Some(p) => p.to_string_lossy().replace('/', "\\"),
         None => {
             return OleComponentResult {
                 success: false,
-                message: format!("OLE DLL not found in resources: {}", dll_name),
+                message: format!("x64 OLE DLL not found in resources: {}", ole_constants::DLL_NAME_X64),
+                entries_modified: entries,
+            };
+        }
+    };
+
+    let x86_dll = match find_ole_dll_path(ole_constants::DLL_NAME_X86) {
+        Some(p) => p.to_string_lossy().replace('/', "\\"),
+        None => {
+            return OleComponentResult {
+                success: false,
+                message: format!("x86 OLE DLL not found in resources: {}", ole_constants::DLL_NAME_X86),
                 entries_modified: entries,
             };
         }
@@ -3288,102 +3523,40 @@ pub fn install_ole_component() -> OleComponentResult {
     let prog_id = ole_constants::PROG_ID;
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
     let friendly = ole_constants::FRIENDLY_NAME;
-    let dll_path_str = dll_path.to_string_lossy().replace('/', "\\");
-    let clsid_key = format!(r"Software\Classes\CLSID\{}", clsid);
 
-    // --- ProgID registration ---
-    if let Err(e) = reg_add_string(
-        &format!(r"Software\Classes\{}", prog_id),
-        "",
-        friendly,
-    ) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write ProgID default: {}", e),
-            entries_modified: entries,
-        };
-    }
-    entries.push(format!("ProgID {}", prog_id));
+    // Register for 64-bit view (HKCU\Software\Classes\CLSID\{guid})
+    entries.extend(register_ole_view(
+        &x64_dll, clsid, prog_id, prog_id_vi, friendly, "64",
+    ));
 
-    if let Err(e) = reg_add_string(&format!(r"Software\Classes\{}\CLSID", prog_id), "", clsid) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write ProgID CLSID: {}", e),
-            entries_modified: entries,
-        };
-    }
-    entries.push(format!("ProgID {}\\CLSID", prog_id));
-
-    if let Err(e) = reg_add_string(&format!(r"Software\Classes\{}\CurVer", prog_id), "", prog_id) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write ProgID CurVer: {}", e),
-            entries_modified: entries,
-        };
-    }
-    entries.push(format!("ProgID {}\\CurVer", prog_id));
-
-    // --- CLSID registration ---
-    if let Err(e) = reg_add_string(&clsid_key, "", friendly) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write CLSID default: {}", e),
-            entries_modified: entries,
-        };
-    }
-    entries.push(format!("CLSID {}", clsid));
-
-    if let Err(e) = reg_add_string(&clsid_key, "ProgID", prog_id) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write CLSID ProgID: {}", e),
-            entries_modified: entries,
-        };
-    }
-
-    if let Err(e) = reg_add_string(&clsid_key, "VersionIndependentProgID", prog_id_vi) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write CLSID VersionIndependentProgID: {}", e),
-            entries_modified: entries,
-        };
-    }
-
-    if let Err(e) = reg_add_string(&clsid_key, "Insertable", "") {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write CLSID Insertable: {}", e),
-            entries_modified: entries,
-        };
-    }
-
-    // InprocServer32
-    let inproc_key = format!(r"{}\InprocServer32", clsid_key);
-    if let Err(e) = reg_add_string(&inproc_key, "", &dll_path_str) {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write InprocServer32 path: {}", e),
-            entries_modified: entries,
-        };
-    }
-    if let Err(e) = reg_add_string(&inproc_key, "ThreadingModel", "Apartment") {
-        return OleComponentResult {
-            success: false,
-            message: format!("Failed to write InprocServer32 ThreadingModel: {}", e),
-            entries_modified: entries,
-        };
-    }
-    entries.push(format!("InprocServer32 → {}", dll_name));
+    // Register for 32-bit view (HKCU\Software\Classes\Wow6432Node\CLSID\{guid})
+    entries.extend(register_ole_view(
+        &x86_dll, clsid, prog_id, prog_id_vi, friendly, "32",
+    ));
 
     // Update ledger with OLE installation
     let mut ledger = IntegrationLedger::load();
+
+    // Write Desktop exe path to registry so the OLE DLL's FindDesktopPathRegistry()
+    // can find the exe without relying on DllMain g_dllModule.
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let install_path = exe_dir.to_string_lossy().replace('/', "\\");
+            let _ = reg_add_string(
+                r"HKCU\Software\LaTeXSnipper",
+                "InstallPath",
+                &install_path,
+            );
+            entries.push(format!("InstallPath → {}", install_path));
+        }
+    }
     ledger.native_office.ole = Some(OleLedgerEntry {
         enabled: true,
-        bitness: registry_view.to_string(),
-        dll_path: dll_path_str.clone(),
+        bitness: "dual".to_string(),
+        dll_path: format!("{} | {}", x64_dll, x86_dll),
         prog_id: prog_id.to_string(),
         clsid: clsid.to_string(),
-        registry_view: registry_view.to_string(),
+        registry_view: "64+32".to_string(),
     });
     if let Err(e) = ledger.save() {
         log::warn!("[OLE] Failed to save ledger: {}", e);
@@ -3392,38 +3565,102 @@ pub fn install_ole_component() -> OleComponentResult {
     OleComponentResult {
         success: true,
         message: format!(
-            "OLE component installed ({}, {}-bit DLL). ProgID: {}",
-            registry_view, registry_view, prog_id
+            "OLE component installed (dual view: 64-bit → {}, 32-bit → {}). ProgID: {}",
+            ole_constants::DLL_NAME_X64, ole_constants::DLL_NAME_X86, prog_id
         ),
         entries_modified: entries,
     }
 }
 
-/// Uninstall the OLE COM component.
+/// Register OLE COM entries for a specific registry view.
+/// `view` is "64" (default) or "32" (Wow6432Node via /reg:32 flag).
+#[cfg(target_os = "windows")]
+fn register_ole_view(
+    dll_path: &str,
+    clsid: &str,
+    prog_id: &str,
+    prog_id_vi: &str,
+    friendly: &str,
+    view: &str,
+) -> Vec<String> {
+    let mut entries = Vec::new();
+    let view_flag = match view {
+        "32" => "/reg:32",
+        _ => "/reg:64",
+    };
+
+    macro_rules! reg_add_view {
+        ($key:expr, $name:expr, $value:expr) => {{
+            let mut cmd = super::process::background_command("reg.exe");
+            cmd.args(["add", $key]);
+            if ($name).is_empty() {
+                cmd.arg("/ve");
+            } else {
+                cmd.args(["/v", $name]);
+            }
+            cmd.args(["/t", "REG_SZ", "/d", $value, "/f", view_flag]);
+            cmd.output().map(|out| out.status.success()).unwrap_or(false)
+        }};
+    }
+
+    // IMPORTANT: reg.exe requires full hive prefix (HKCU\...)
+    // Using /reg:32 redirects to Wow6432Node automatically, so the
+    // key path is the same for both views.
+    let clsid_key = format!(r"HKCU\Software\Classes\CLSID\{}", clsid);
+
+    // ProgID
+    if reg_add_view!(&format!(r"HKCU\Software\Classes\{}", prog_id), "", friendly) {
+        entries.push(format!("[{}] ProgID {}", view, prog_id));
+    }
+    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id), "", clsid);
+    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id), "", prog_id);
+
+    // CLSID
+    reg_add_view!(&clsid_key, "", friendly);
+    reg_add_view!(&clsid_key, "ProgID", prog_id);
+    reg_add_view!(&clsid_key, "VersionIndependentProgID", prog_id_vi);
+    reg_add_view!(&clsid_key, "Insertable", "");
+
+    // InprocServer32
+    let inproc_key = format!(r"{}\InprocServer32", clsid_key);
+    reg_add_view!(&inproc_key, "", dll_path);
+    reg_add_view!(&inproc_key, "ThreadingModel", "Apartment");
+    entries.push(format!("[{}] InprocServer32 → {}", view, dll_path));
+
+    entries
+}
+
+/// Uninstall the OLE COM component from both registry views.
 #[cfg(target_os = "windows")]
 pub fn uninstall_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
     let clsid = ole_constants::CLSID;
     let prog_id = ole_constants::PROG_ID;
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
-    let clsid_key = format!(r"Software\Classes\CLSID\{}", clsid);
 
-    // Delete in order: CLSID tree, then ProgIDs
-    for key in &[
-        format!(r"{}\InprocServer32", clsid_key),
-        clsid_key.clone(),
-        format!(r"Software\Classes\{}", prog_id),
-        format!(r"Software\Classes\{}", prog_id_vi),
-    ] {
-        super::process::background_command("reg.exe")
-            .args(["delete", key, "/f"])
-            .output();
-        entries.push(format!("Deleted {}", key));
+    for view_flag in &["/reg:64", "/reg:32"] {
+        for key in &[
+            format!(r"HKCU\Software\Classes\CLSID\{}", clsid),
+            format!(r"HKCU\Software\Classes\{}", prog_id),
+            format!(r"HKCU\Software\Classes\{}", prog_id_vi),
+        ] {
+            let result = super::process::background_command("reg.exe")
+                .args(["delete", key, "/f", view_flag])
+                .output();
+            match result {
+                Ok(out) if out.status.success() => {
+                    entries.push(format!("Deleted {} ({})", key, view_flag));
+                }
+                Ok(out) => {
+                    let stderr = String::from_utf8_lossy(&out.stderr);
+                    log::warn!("[OLE] Failed to delete {}: {}", key, stderr);
+                }
+                Err(e) => {
+                    log::warn!("[OLE] Failed to delete {}: {}", key, e);
+                }
+            }
+        }
     }
-
-    // NOTE: Do NOT delete resource DLLs here — they belong to the app install,
-    // and removing them would prevent re-enabling OLE without full reinstall.
-    // Only remove COM registry entries and ledger.
 
     // Update ledger: mark OLE as uninstalled
     let mut ledger = IntegrationLedger::load();
@@ -3434,7 +3671,7 @@ pub fn uninstall_ole_component() -> OleComponentResult {
 
     OleComponentResult {
         success: true,
-        message: "OLE component unregistered.".into(),
+        message: "OLE component unregistered from both 32-bit and 64-bit views.".into(),
         entries_modified: entries,
     }
 }
@@ -3564,6 +3801,14 @@ extern "system" {
         dwIndex: u32,
         lpName: *mut u16,
         cchName: u32,
+    ) -> i32;
+    fn RegQueryValueExW(
+        hKey: isize,
+        lpValueName: *const u16,
+        lpReserved: *mut std::ffi::c_void,
+        lpType: *mut u32,
+        lpData: *mut u8,
+        lpcbData: *mut u32,
     ) -> i32;
 }
 

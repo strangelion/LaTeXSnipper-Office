@@ -68,6 +68,26 @@ pub enum VstoMessage {
     OpenEditor {
         requestId: String,
         sessionId: String,
+        #[serde(default)]
+        action: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        omml: Option<String>,
+        #[serde(rename = "sourceHost", skip_serializing_if = "Option::is_none")]
+        sourceHost: Option<String>,
+    },
+
+    #[serde(rename = "FOCUS_OCR")]
+    FocusOcr {
+        requestId: String,
+        sessionId: String,
+    },
+
+    #[serde(rename = "FOCUS_SETTINGS")]
+    FocusSettings {
+        requestId: String,
+        sessionId: String,
     },
 
     #[serde(rename = "READ_SELECTION")]

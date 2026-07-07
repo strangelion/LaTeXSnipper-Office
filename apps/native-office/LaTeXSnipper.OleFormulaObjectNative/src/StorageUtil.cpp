@@ -126,3 +126,50 @@ HRESULT LoadEnvelopeFromStorage(IStorage* storage, std::wstring* json)
     while (!json->empty() && json->back() == L'\0') json->pop_back();
     return S_OK;
 }
+
+HRESULT StorageUtilBackup(IStorage* storage, std::vector<BYTE>* outPayload, std::vector<BYTE>* outEmf)
+{
+    if (storage == nullptr || outPayload == nullptr || outEmf == nullptr)
+        return E_POINTER;
+
+    HRESULT hr = ReadStream(storage, kPayloadStream, outPayload);
+    if (FAILED(hr))
+    {
+        // Payload stream may not exist yet (first save) — that's OK
+        outPayload->clear();
+    }
+
+    hr = ReadStream(storage, kEmfStream, outEmf);
+    if (FAILED(hr))
+    {
+        outEmf->clear();
+    }
+
+    return S_OK;
+}
+
+HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, const std::vector<BYTE>& emf)
+{
+    if (storage == nullptr)
+        return E_POINTER;
+
+    // Delete existing streams
+    storage->DestroyElement(kPayloadStream);
+    storage->DestroyElement(kEmfStream);
+
+    // Restore payload
+    if (!payload.empty())
+    {
+        HRESULT hr = WriteStream(storage, kPayloadStream, payload.data(), static_cast<ULONG>(payload.size()));
+        if (FAILED(hr)) return hr;
+    }
+
+    // Restore EMF
+    if (!emf.empty())
+    {
+        HRESULT hr = WriteStream(storage, kEmfStream, emf.data(), static_cast<ULONG>(emf.size()));
+        if (FAILED(hr)) return hr;
+    }
+
+    return S_OK;
+}

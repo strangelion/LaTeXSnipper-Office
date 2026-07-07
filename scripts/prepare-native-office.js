@@ -29,6 +29,13 @@ function hasRequiredStaging() {
     }) &&
     fs.existsSync(
       path.join(staging, "Shared", "LaTeXSnipper.NativeOffice.Shared.dll"),
+    ) &&
+    // Certificate files required for release signing verification
+    fs.existsSync(
+      path.join(staging, "certificates", "LaTeXSnipperOffice.cer"),
+    ) &&
+    fs.existsSync(
+      path.join(staging, "certificates", "native-office-signing.json"),
     )
   );
 }

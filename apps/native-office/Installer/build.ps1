@@ -279,6 +279,21 @@ if ($SkipSigning) {
         $certBytes = $storeCert.Export("Cert")
         [System.IO.File]::WriteAllBytes($cerPath, $certBytes)
         Write-Host "  Certificate .cer exported: $cerPath" -ForegroundColor Gray
+
+        # Generate signing metadata JSON consumed by check_certificate_trusted()
+        $sha256Algo = [System.Security.Cryptography.SHA256]::Create()
+        $sha256Bytes = $sha256Algo.ComputeHash($storeCert.RawData)
+        $sha256Hex = ($sha256Bytes | ForEach-Object { $_.ToString("X2") }) -join ""
+        $signingJson = @{
+            schemaVersion     = 1
+            subject           = $storeCert.Subject
+            sha1Thumbprint    = $thumbprint.ToUpper()
+            sha256Thumbprint  = $sha256Hex
+            certificateFile   = "LaTeXSnipperOffice.cer"
+        } | ConvertTo-Json -Compress
+        $signingPath = Join-Path $certDir "native-office-signing.json"
+        Set-Content -Path $signingPath -Value $signingJson -Encoding UTF8
+        Write-Host "  Signing metadata: $signingPath" -ForegroundColor Gray
     }
 
     $buildArgs += "/p:SignManifests=true"
@@ -299,6 +314,14 @@ $staging = Join-Path $OutputDir "staging"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 $stagingAbs = (Resolve-Path -LiteralPath $staging).Path
+
+# Copy certificates into staging so stage-resources.ps1 can find them
+$certSrc = Join-Path $OutputDir "certificates"
+$certDst = Join-Path $staging "certificates"
+if (Test-Path $certSrc) {
+    Copy-Item -LiteralPath $certSrc -Destination $certDst -Recurse -Force
+    Write-Host "  Certificates copied to staging\certificates" -ForegroundColor Gray
+}
 $allGood = $true
 
 # Each host builds to its own bin\$Configuration directory

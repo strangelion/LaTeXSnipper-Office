@@ -1,4 +1,5 @@
 #include "Presentation.h"
+#include "JsonHelper.h"
 
 #include "OleFormulaIds.h"
 #include "Win32Check.h"
@@ -6,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <objidl.h>
 #include <shlwapi.h>
 
 namespace
@@ -309,16 +311,22 @@ FormulaPresentation CreatePlaceholderPresentation(const std::wstring& latex)
 
 FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJson)
 {
-    std::wstring latex = ExtractJsonString(payloadJson, L"latex");
+    std::wstring latex = JsonReadString(payloadJson, L"latex");
     FormulaPresentation presentation{};
     presentation.latex = latex.empty() ? kFormulaDefaultLatex : latex;
     presentation.payloadJson = payloadJson;
     presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
     ApplyPayloadSize(payloadJson, &presentation);
 
-    // Try emfBase64 (new v3 field matching C#/Rust FormulaPayload.presentation.emfBase64)
-    std::vector<BYTE> emfFromPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"emfBase64"));
-    if (!emfFromPresentation.empty())
+    // Try emfBase64 from presentation.emfBase64 (v3 canonical path)
+    std::wstring emfBase64 = JsonReadNestedString(payloadJson, L"presentation", L"emfBase64");
+    if (emfBase64.empty())
+    {
+        // Fallback: flat search for emfBase64
+        emfBase64 = ExtractJsonString(payloadJson, L"emfBase64");
+    }
+    std::vector<BYTE> emfFromPresentation = DecodeBase64(emfBase64);
+    if (!emfFromPresentation.empty() && HasValidEmf(emfFromPresentation))
     {
         presentation.enhancedMetafile = std::move(emfFromPresentation);
         return presentation;
@@ -328,13 +336,23 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
     std::vector<BYTE> payloadPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"presentationPayloadBase64"));
     if (!payloadPresentation.empty())
     {
-        presentation.enhancedMetafile = std::move(payloadPresentation);
-        return presentation;
+        if (HasValidEmf(payloadPresentation))
+        {
+            presentation.enhancedMetafile = std::move(payloadPresentation);
+            return presentation;
+        }
     }
 
-    FormulaPresentation placeholder = CreatePlaceholderPresentation(presentation.latex);
-    placeholder.payloadJson = payloadJson;
-    return placeholder;
+    // No valid EMF found — try to generate EMF from render.png
+    FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);
+    if (!pngPres.enhancedMetafile.empty())
+    {
+        return pngPres;
+    }
+
+    // No EMF and no PNG — return empty presentation (no raw LaTeX fallback).
+    // The caller should check enhancedMetafile.empty() and reject OLE insertion.
+    return presentation;
 }
 
 FormulaPresentation CreatePresentationFromPayloadWithoutRendering(const std::wstring& payloadJson)
@@ -362,9 +380,14 @@ FormulaPresentation CreatePresentationFromPayloadWithoutRendering(const std::wst
         return presentation;
     }
 
-    FormulaPresentation placeholder = CreatePlaceholderPresentation(presentation.latex);
-    placeholder.payloadJson = payloadJson;
-    return placeholder;
+    // Try PNG fallback
+    FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);
+    if (!pngPres.enhancedMetafile.empty())
+    {
+        return pngPres;
+    }
+
+    return presentation;
 }
 
 HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes)
@@ -375,4 +398,105 @@ HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes)
     }
 
     return SetEnhMetaFileBits(static_cast<UINT>(bytes.size()), bytes.data());
+}
+
+bool HasValidEmf(const std::vector<BYTE>& bytes)
+{
+    if (bytes.empty())
+    {
+        return false;
+    }
+
+    HENHMETAFILE emf = SetEnhMetaFileBits(static_cast<UINT>(bytes.size()), bytes.data());
+    if (emf == nullptr)
+    {
+        return false;
+    }
+
+    // Validate EMF header
+    ENHMETAHEADER header{};
+    bool valid = GetEnhMetaFileHeader(emf, sizeof(header), &header) != 0;
+    DeleteEnhMetaFile(emf);
+    return valid;
+}
+
+FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payloadJson)
+{
+    FormulaPresentation presentation{};
+    presentation.payloadJson = payloadJson;
+
+    // Get size from payload
+    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
+    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
+    if (widthPoints <= 0) widthPoints = 180;
+    if (heightPoints <= 0) heightPoints = 42;
+
+    // Try render.png first, then render.svg → we need PNG for GDI bitmap
+    std::wstring pngBase64 = ExtractJsonString(payloadJson, L"png");
+    if (pngBase64.empty())
+    {
+        // Fallback: nested render.png
+        pngBase64 = JsonReadNestedString(payloadJson, L"render", L"png");
+    }
+    if (pngBase64.empty()) return presentation;
+
+    std::vector<BYTE> pngBytes = DecodeBase64(pngBase64);
+    if (pngBytes.empty()) return presentation;
+
+    // Wrap PNG bytes in an IStream for GDI+ to read
+    HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, pngBytes.size());
+    if (hGlobal == nullptr) return presentation;
+    void* locked = GlobalLock(hGlobal);
+    if (locked == nullptr) { GlobalFree(hGlobal); return presentation; }
+    CopyMemory(locked, pngBytes.data(), pngBytes.size());
+    GlobalUnlock(hGlobal);
+
+    IStream* stream = nullptr;
+    HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &stream);
+    if (FAILED(hr)) { GlobalFree(hGlobal); return presentation; }
+
+    // Decode PNG via GDI+
+    Gdiplus::Bitmap bitmap(stream);
+    stream->Release();  // HGLOBAL now owned by GDI+ bitmap
+    if (bitmap.GetLastStatus() != Gdiplus::Ok) return presentation;
+
+    // Create a metafile DC to render the bitmap into
+    HDC screenDc = GetDC(nullptr);
+    int dpiX = GetDeviceCaps(screenDc, LOGPIXELSX);
+    int dpiY = GetDeviceCaps(screenDc, LOGPIXELSY);
+    int widthPx = static_cast<int>(widthPoints * dpiX / 72.0);
+    int heightPx = static_cast<int>(heightPoints * dpiY / 72.0);
+    if (widthPx < 1) widthPx = 1;
+    if (heightPx < 1) heightPx = 1;
+
+    RECT metafileBounds = {0, 0, widthPx, heightPx};
+    HDC metaDc = CreateEnhMetaFileW(screenDc, nullptr, &metafileBounds,
+                                     L"LaTeXSnipper\0Formula\0");
+    ReleaseDC(nullptr, screenDc);
+
+    if (metaDc == nullptr) return presentation;
+
+    // Draw the PNG bitmap onto the metafile
+    Gdiplus::Graphics graphics(metaDc);
+    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    graphics.DrawImage(&bitmap,
+                       Gdiplus::Rect(0, 0, widthPx, heightPx),
+                       0, 0,
+                       bitmap.GetWidth(), bitmap.GetHeight(),
+                       Gdiplus::UnitPixel);
+
+    HENHMETAFILE emf = CloseEnhMetaFile(metaDc);
+    if (emf == nullptr) return presentation;
+
+    UINT byteCount = GetEnhMetaFileBits(emf, 0, nullptr);
+    if (byteCount > 0)
+    {
+        presentation.enhancedMetafile.resize(byteCount);
+        GetEnhMetaFileBits(emf, byteCount, presentation.enhancedMetafile.data());
+    }
+    DeleteEnhMetaFile(emf);
+
+    presentation.himetricSize = {PointsToHimetric(widthPoints), PointsToHimetric(heightPoints)};
+    return presentation;
 }

@@ -310,29 +310,53 @@ jobs:
       - uses: NuGet/setup-nuget@v2
 
       - name: Import release certificate from Secrets
-        if: env.VSTO_CERT_BASE64 != ''
         shell: pwsh
         env:
           VSTO_CERT_BASE64: ${{ secrets.VSTO_CERT_BASE64 }}
           VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
         run: |
-          $certBytes = [Convert]::FromBase64String($env:VSTO_CERT_BASE64)
-          $certPath = Join-Path $env:TEMP "LaTeXSnipper-Office.pfx"
-          [System.IO.File]::WriteAllBytes($certPath, $certBytes)
-          $env:VstoManifestKeyFile = $certPath
-          $env:VstoManifestKeyPassword = $env:VSTO_CERT_PASSWORD
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_BASE64)) {
+            Write-Host "  No VSTO_CERT_BASE64 secret — release will use dev cert" -ForegroundColor Yellow
+            exit 0
+          }
+
+          $certPath = Join-Path $env:RUNNER_TEMP "LaTeXSnipper-Office-Release.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:VSTO_CERT_BASE64))
+
+          # Write to GITHUB_ENV so subsequent steps (build.ps1) see the values
+          "VstoManifestKeyFile=$certPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VstoManifestKeyPassword=$env:VSTO_CERT_PASSWORD" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
           # Export .cer for inclusion in the release package
           $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString $env:VSTO_CERT_PASSWORD -AsPlainText -Force)
           $certDir = Join-Path $env:GITHUB_WORKSPACE "apps\native-office\Installer\output\certificates"
           New-Item -ItemType Directory -Path $certDir -Force | Out-Null
           $certBytes2 = $cert.Export("Cert")
           [System.IO.File]::WriteAllBytes((Join-Path $certDir "LaTeXSnipperOffice.cer"), $certBytes2)
-          Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+
+          # Generate signing metadata JSON consumed by check_certificate_trusted()
+          $signingJson = @{
+            schemaVersion     = 1
+            subject           = $cert.Subject
+            sha1Thumbprint    = $cert.Thumbprint
+            sha256Thumbprint  = $(
+              $hashAlgo = [System.Security.Cryptography.SHA256]::Create()
+              $hashBytes = $hashAlgo.ComputeHash($cert.RawData)
+              ($hashBytes | ForEach-Object { $_.ToString("X2") }) -join ""
+            )
+            certificateFile   = "LaTeXSnipperOffice.cer"
+          } | ConvertTo-Json -Compress
+          Set-Content -Path (Join-Path $certDir "native-office-signing.json") -Value $signingJson -Encoding UTF8
+          Write-Host "  Signing metadata written to native-office-signing.json"
           Write-Host "  Signing with release certificate (thumbprint: $($cert.Thumbprint))" -ForegroundColor Green
 
       - name: Install VSTO runtime for manifest generation
         shell: pwsh
         run: .\scripts\ensure-vsto-runtime.ps1
+
+      - name: Fetch nlohmann/json for OLE DLL
+        shell: pwsh
+        run: .\apps\native-office\LaTeXSnipper.OleFormulaObjectNative\vendor\nlohmann\fetch_json.ps1
 
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
@@ -346,10 +370,21 @@ jobs:
             -Version $env:VERSION `
             -StageOnly
 
+      - name: Remove ephemeral PFX
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:VstoManifestKeyFile -and (Test-Path -LiteralPath $env:VstoManifestKeyFile)) {
+            Remove-Item $env:VstoManifestKeyFile -Force -ErrorAction SilentlyContinue
+            Write-Host "Cleaned up ephemeral PFX"
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: vsto
-          path: apps/native-office/Installer/output/staging/
+          path: |
+            apps/native-office/Installer/output/staging/
+            apps/native-office/Installer/output/certificates/
               
   # ─────────── WPS Plugin ───────────
   wps:
