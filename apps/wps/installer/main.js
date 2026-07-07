@@ -4,7 +4,7 @@
 // Global variables
 var taskpane = null;
 var bridgeConnected = false;
-var bridgeUrl = "http://127.0.0.1:28765";
+var bridgeUrl = "https://127.0.0.1:19876";
 var bridgeToken = "";
 
 /**

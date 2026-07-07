@@ -323,6 +323,44 @@ pub async fn native_office_ole_status() -> Result<OleStatus, String> {
     Ok(crate::platforms::integrations::check_ole_status())
 }
 
+/// Check VSTO trust status: runtime, certificate, manifest loading.
+#[tauri::command]
+pub async fn native_office_vsto_trust_status() -> Result<crate::platforms::integrations::VstoTrustStatus, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let runtime = crate::platforms::integrations::detect_vsto_runtime();
+        let cert_trusted = crate::platforms::integrations::check_certificate_trusted();
+
+        let overall_status = if runtime && cert_trusted {
+            "ready".to_string()
+        } else if runtime && !cert_trusted {
+            "needs_certificate_trust".to_string()
+        } else if !runtime && cert_trusted {
+            "needs_vsto_runtime".to_string()
+        } else {
+            "needs_setup".to_string()
+        };
+
+        Ok(crate::platforms::integrations::VstoTrustStatus {
+            runtime_installed: runtime,
+            certificate_trusted: cert_trusted,
+            manifest_loaded: false,
+            pipe_session_connected: false,
+            overall_status,
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(crate::platforms::integrations::VstoTrustStatus {
+            runtime_installed: false,
+            certificate_trusted: false,
+            manifest_loaded: false,
+            pipe_session_connected: false,
+            overall_status: "not_supported".to_string(),
+        })
+    }
+}
+
 /// Request VSTO to read current selection.
 #[tauri::command]
 pub async fn native_office_request_read_selection(

@@ -55,6 +55,43 @@ function Require-Dir {
     }
 }
 
+# PE Machine type constants
+$PE_MACHINE_X86  = 0x14c
+$PE_MACHINE_X64  = 0x8664
+
+function Get-PeMachineType {
+    param([string]$DllPath)
+    $stream = [System.IO.File]::OpenRead($DllPath)
+    try {
+        $binaryReader = [System.IO.BinaryReader]::new($stream)
+        # Read DOS header -> e_lfanew at offset 0x3C
+        $stream.Seek(0x3C, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $peOffset = $binaryReader.ReadInt32()
+        # PE Signature at peOffset, Machine at peOffset + 4
+        $stream.Seek($peOffset + 4, [System.IO.SeekOrigin]::Begin) | Out-Null
+        return $binaryReader.ReadUInt16()
+    } finally {
+        $stream.Dispose()
+    }
+}
+
+function Assert-OleDllBitness {
+    param(
+        [string]$DllPath,
+        [string]$ExpectedLabel,
+        [uint16]$ExpectedMachine
+    )
+    if (-not (Test-Path -LiteralPath $DllPath -PathType Leaf)) {
+        throw "OLE DLL missing: $DllPath"
+    }
+    $actual = Get-PeMachineType -DllPath $DllPath
+    $expectedHex = "0x{0:X4}" -f $ExpectedMachine
+    $actualHex   = "0x{0:X4}" -f $actual
+    if ($actual -ne $ExpectedMachine) {
+        throw "$ExpectedLabel PE Machine mismatch: expected $expectedHex ($ExpectedLabel), found $actualHex"
+    }
+}
+
 function Copy-CleanDir {
     param([string]$Source, [string]$Destination)
     if (Test-Path -LiteralPath $Destination) {
@@ -126,6 +163,16 @@ if ($runningOnWindows) {
     }
     Require-Dir (Join-Path $vstoStaging "Shared") "NativeOffice shared directory"
     Require-File (Join-Path $vstoStaging "Shared\LaTeXSnipper.NativeOffice.Shared.dll") "NativeOffice shared DLL"
+
+    # OLE component: require both x86 and x64 DLLs for dual-arch Office support
+    $oleX86 = Join-Path $vstoStaging "OleFormulaObject.x86.dll"
+    $oleX64 = Join-Path $vstoStaging "OleFormulaObject.x64.dll"
+    Require-File $oleX86 "NativeOffice OLE x86 DLL"
+    Require-File $oleX64 "NativeOffice OLE x64 DLL"
+    # Verify PE Machine type matches the expected architecture
+    Assert-OleDllBitness -DllPath $oleX86 -ExpectedLabel "x86" -ExpectedMachine $PE_MACHINE_X86
+    Assert-OleDllBitness -DllPath $oleX64 -ExpectedLabel "x64" -ExpectedMachine $PE_MACHINE_X64
+
     Copy-CleanDir $vstoStaging $vstoDest
 
     # Copy operations must never leave a deployment manifest paired with a

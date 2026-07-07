@@ -226,37 +226,61 @@ if ($SkipSigning) {
         ".vsto and .dll.manifest files."
     )
 } else {
-    # Local or CI: use dev PFX or passed cert
-    if (-not $env:VstoManifestKeyFile) {
-        # Auto-generate a dev PFX and import to certificate store
-        $tempPath = $env:TEMP
+    # Signing priority:
+    # 1. VstoManifestKeyFile + VstoManifestKeyPassword env vars (CI/production)
+    # 2. VstoManifestThumbprint env var (existing cert in store)
+    # 3. Auto-generate dev cert (local dev only, with warning)
 
-        if (-not $tempPath) {
-           $tempPath = [System.IO.Path]::GetTempPath()
+    $is_dev_cert = $false
+
+    if ($env:VstoManifestKeyFile) {
+        # Explicit PFX provided
+        if (-not (Test-Path $env:VstoManifestKeyFile)) {
+            throw "VstoManifestKeyFile not found: $($env:VstoManifestKeyFile)"
         }
-
-        $devPfx = Join-Path $tempPath "LaTeXSnipperDev.pfx"
-        $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
-        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipperDev" `
-            -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Dev" `
-            -CertStoreLocation "Cert:\CurrentUser\My" `
-            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
-        $cert | Export-PfxCertificate -FilePath $devPfx -Password $pwd
-        $thumbprint = $cert.Thumbprint
-        Write-Host "  Generated dev PFX: $devPfx" -ForegroundColor Gray
-        Write-Host "  Certificate thumbprint: $thumbprint" -ForegroundColor Gray
-
-        $env:VstoManifestKeyFile = $devPfx
-        $env:VstoManifestKeyPassword = "test"
-    } else {
-        # Thumbprint passed via env or retrieve from store
         if ($env:VstoManifestThumbprint) {
             $thumbprint = $env:VstoManifestThumbprint
         } else {
             $thumbprint = (Get-PfxCertificate -FilePath $env:VstoManifestKeyFile).Thumbprint
         }
-        Write-Host "  Certificate thumbprint: $thumbprint" -ForegroundColor Gray
+        Write-Host "  Signing: using provided certificate ($thumbprint)" -ForegroundColor Green
+    } elseif ($env:VstoManifestThumbprint) {
+        # Thumbprint only — cert already in store
+        $thumbprint = $env:VstoManifestThumbprint
+        Write-Host "  Signing: using store certificate ($thumbprint)" -ForegroundColor Green
+    } else {
+        # Dev fallback — generate temp cert
+        $is_dev_cert = $true
+        $tempPath = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
+        $devPfx = Join-Path $tempPath "LaTeXSnipper-Office.pfx"
+        $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
+        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipper-Office, O=strangelion" `
+            -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Office Dev" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -NotAfter (Get-Date).AddYears(30) `
+            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
+        $cert | Export-PfxCertificate -FilePath $devPfx -Password $pwd
+        $thumbprint = $cert.Thumbprint
+        Write-Host "  [DEV] Auto-generated self-signed certificate (not for release!)" -ForegroundColor Yellow
+        Write-Host "  [DEV] Subject: CN=LaTeXSnipper-Office, O=strangelion" -ForegroundColor Yellow
+        Write-Host "  [DEV] Thumbprint: $thumbprint" -ForegroundColor Yellow
+        Write-Host "  [DEV] Set VstoManifestKeyFile=$devPfx for CI builds" -ForegroundColor Yellow
+
+        $env:VstoManifestKeyFile = $devPfx
+        $env:VstoManifestKeyPassword = "test"
     }
+
+    # Export .cer (public key only) for user distribution
+    $certDir = Join-Path $absoluteOutputDir "certificates"
+    New-Item -ItemType Directory -Path $certDir -Force | Out-Null
+    $cerPath = Join-Path $certDir "LaTeXSnipperOffice.cer"
+    $storeCert = Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+    if ($storeCert) {
+        $certBytes = $storeCert.Export("Cert")
+        [System.IO.File]::WriteAllBytes($cerPath, $certBytes)
+        Write-Host "  Certificate .cer exported: $cerPath" -ForegroundColor Gray
+    }
+
     $buildArgs += "/p:SignManifests=true"
     $buildArgs += "/p:ManifestCertificateThumbprint=$thumbprint"
     $buildArgs += "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile"

@@ -309,6 +309,24 @@ jobs:
       - uses: microsoft/setup-msbuild@v2
       - uses: NuGet/setup-nuget@v2
 
+      - name: Import release certificate from Secrets
+        if: ${{ secrets.VSTO_CERT_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $certBytes = [Convert]::FromBase64String("${{ secrets.VSTO_CERT_BASE64 }}")
+          $certPath = Join-Path $env:TEMP "LaTeXSnipper-Office.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+          $env:VstoManifestKeyFile = $certPath
+          $env:VstoManifestKeyPassword = "${{ secrets.VSTO_CERT_PASSWORD }}"
+          # Export .cer for inclusion in the release package
+          $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString "${{ secrets.VSTO_CERT_PASSWORD }}" -AsPlainText -Force)
+          $certDir = Join-Path $env:GITHUB_WORKSPACE "apps\native-office\Installer\output\certificates"
+          New-Item -ItemType Directory -Path $certDir -Force | Out-Null
+          $certBytes2 = $cert.Export("Cert")
+          [System.IO.File]::WriteAllBytes((Join-Path $certDir "LaTeXSnipperOffice.cer"), $certBytes2)
+          Remove-Item $certPath -Force -ErrorAction SilentlyContinue
+          Write-Host "  Signing with release certificate (thumbprint: $($cert.Thumbprint))" -ForegroundColor Green
+
       - name: Install VSTO runtime for manifest generation
         shell: pwsh
         run: .\scripts\ensure-vsto-runtime.ps1

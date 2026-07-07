@@ -17,23 +17,14 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use platforms::session::SessionManager;
 
 fn main() {
-    // Handle OLE edit session requests (started by OLE DLL via Named Pipe)
+    // Collect args before Tauri consumes them
+    let args: Vec<String> = std::env::args().collect();
+
+    // Extract OLE edit pipe name early so closure can own it
     #[cfg(target_os = "windows")]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        for i in 1..args.len() {
-            if args[i - 1] == "--ole-edit" {
-                let pipe_name = &args[i];
-                match platforms::ole_edit::handle_ole_edit_session(pipe_name) {
-                    Ok(()) => std::process::exit(0),
-                    Err(e) => {
-                        eprintln!("OLE edit session failed: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-    }
+    let ole_pipe_name: Option<String> = args.iter()
+        .position(|a| a == "--ole-edit")
+        .and_then(|i| args.get(i + 1).cloned());
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     tauri::Builder::default()
@@ -107,6 +98,26 @@ fn main() {
                 platforms::office_bridge::start_bridge_server(bridge_handle).await;
             });
 
+            // Handle OLE edit session (--ole-edit flag) within Tauri runtime
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(pipe_name) = ole_pipe_name {
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match platforms::ole_edit::handle_ole_edit_session_with_app(
+                            app_handle,
+                            &pipe_name,
+                        ).await {
+                            Ok(()) => std::process::exit(0),
+                            Err(e) => {
+                                log::error!("OLE edit session failed: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    });
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -177,6 +188,10 @@ fn main() {
             commands::native_office::native_office_repair,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_uninstall,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_vsto_trust_status,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_ole_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

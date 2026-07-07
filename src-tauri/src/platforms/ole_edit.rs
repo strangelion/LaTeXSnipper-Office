@@ -42,24 +42,196 @@ pub struct OleResponse {
     pub latex: Option<String>,
 }
 
+/// Event payload sent to frontend when OLE double-click triggers editing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OleEditRequest {
+    pub formula_id: String,
+    pub latex: String,
+    pub session_token: String,
+}
+
+/// Event payload returned by frontend when user saves or cancels.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OleEditResult {
+    pub action: String, // "save" or "cancel"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula: Option<FormulaPayload>,
+}
+
 type Handle = isize;
 
-/// Handle an OLE edit session over a single duplex pipe:
-///   1. Connect
-///   2. Read envelope (formulaId + latex)
-///   3. Open editor and build response
-///   4. Write response back on the SAME handle
-///   5. Close
-pub fn handle_ole_edit_session(pipe_name: &str) -> Result<(), String> {
+/// Handle an OLE edit session WITHIN the Tauri runtime.
+/// Shows/focuses the editor, waits for user to save/cancel, writes result back to pipe.
+pub async fn handle_ole_edit_session_with_app(
+    app_handle: tauri::AppHandle,
+    pipe_name: &str,
+) -> Result<(), String> {
+    use std::sync::mpsc;
+    use tauri::{Emitter, Listener, Manager};
+
     let handle = connect_to_pipe(pipe_name)?;
     let envelope = read_envelope(handle)?;
     log::info!("[OleEdit] Received formula: formulaId={}", envelope.formula_id);
 
-    let response = open_editor_and_build_response(&envelope)?;
+    // Use formula_id as session token for matching results
+    let session_token = envelope.formula_id.clone();
 
-    write_response_on_handle(handle, &response)?;
-    close_handle(handle);
-    log::info!("[OleEdit] Response sent back to OLE DLL.");
+    // Show/focus the main window
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    } else {
+        log::warn!("[OleEdit] Main window not found");
+    }
+
+    // Create a oneshot channel to receive the editor result
+    let (tx, rx) = mpsc::sync_channel::<OleEditResult>(1);
+    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+
+    // Listen for the editor result from frontend
+    let tx_clone = tx.clone();
+    let token_clone = session_token.clone();
+    let _listener = app_handle.listen(format!("ole-edit-result-{}", token_clone), move |event| {
+        if let Ok(result) = serde_json::from_str::<OleEditResult>(&event.payload()) {
+            if let Some(sender) = tx_clone.lock().unwrap().take() {
+                let _ = sender.send(result);
+            }
+        }
+    });
+
+    // Send edit request to frontend
+    let request = OleEditRequest {
+        formula_id: envelope.formula_id.clone(),
+        latex: envelope.latex.clone(),
+        session_token: session_token.clone(),
+    };
+
+    app_handle.emit("ole-edit-open", &request).map_err(|e| format!("Failed to emit: {}", e))?;
+
+    // Wait for result with timeout (10 minutes)
+    let timeout = std::time::Duration::from_secs(600);
+    match rx.recv_timeout(timeout) {
+        Ok(result) => {
+            let response = match result.action.as_str() {
+                "save" => {
+                    let formula = result.formula.unwrap_or_else(|| FormulaPayload {
+                        schema_version: Some(envelope.schema_version as i32),
+                        formula_id: envelope.formula_id.clone(),
+                        latex: envelope.latex.clone(),
+                        omml: String::new(),
+                        display: "inline".to_string(),
+                        presentation: None,
+                        render: None,
+                        source: None,
+                        storage_mode: Some("ole".to_string()),
+                        revision: envelope.revision as i32,
+                    });
+                    OleResponse {
+                        protocol_version: 2,
+                        action: "save".to_string(),
+                        formula: Some(formula),
+                        formula_id: Some(envelope.formula_id.clone()),
+                        latex: Some(envelope.latex.clone()),
+                    }
+                }
+                _ => {
+                    // Cancel
+                    OleResponse {
+                        protocol_version: 2,
+                        action: "cancel".to_string(),
+                        formula: None,
+                        formula_id: None,
+                        latex: None,
+                    }
+                }
+            };
+
+            write_response_on_handle(handle, &response)?;
+            close_handle(handle);
+            log::info!("[OleEdit] Response sent: {}", response.action);
+            Ok(())
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            log::warn!("[OleEdit] Edit session timed out");
+            let response = OleResponse {
+                protocol_version: 2,
+                action: "timeout".to_string(),
+                formula: None,
+                formula_id: None,
+                latex: None,
+            };
+            write_response_on_handle(handle, &response)?;
+            close_handle(handle);
+            Ok(())
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            log::error!("[OleEdit] Channel disconnected");
+            let _ = write_response_on_handle(handle, &OleResponse {
+                protocol_version: 2,
+                action: "cancel".to_string(),
+                formula: None,
+                formula_id: None,
+                latex: None,
+            });
+            close_handle(handle);
+            Ok(())
+        }
+    }
+}
+
+/// Open editor and produce a response. Legacy fallback — should not be called
+/// from the main path.
+fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse, String> {
+    // This path should only be used if app_handle is not available.
+    let formula = FormulaPayload {
+        schema_version: Some(envelope.schema_version as i32),
+        formula_id: envelope.formula_id.clone(),
+        latex: envelope.latex.clone(),
+        omml: String::new(),
+        display: "inline".to_string(),
+        presentation: None,
+        render: None,
+        source: None,
+        storage_mode: Some("ole".to_string()),
+        revision: envelope.revision as i32,
+    };
+    Ok(OleResponse {
+        protocol_version: 2,
+        action: "save".to_string(),
+        formula: Some(formula),
+        formula_id: Some(envelope.formula_id.clone()),
+        latex: Some(envelope.latex.clone()),
+    })
+}
+
+/// Write response back on the SAME handle used for reading.
+fn write_response_on_handle(handle: Handle, response: &OleResponse) -> Result<(), String> {
+    let json = serde_json::to_string(response).map_err(|e| format!("Serialize: {}", e))?;
+    let json_u16: Vec<u16> = json.encode_utf16().collect();
+    let payload_size = (json_u16.len() * 2 + 2) as u32; // include null terminator
+
+    // Write size
+    let mut written: u32 = 0;
+    if unsafe { WriteFile(handle, &payload_size as *const u32 as *const u8, 4, &mut written, std::ptr::null_mut()) } == 0 || written != 4 {
+        return Err(format!("Failed to write response size: written={} err={}", written, unsafe { GetLastError() }));
+    }
+
+    // Write UTF-16 payload
+    if !json_u16.is_empty() {
+        let to_write = (json_u16.len() * 2) as u32;
+        written = 0;
+        if unsafe { WriteFile(handle, json_u16.as_ptr() as *const u8, to_write, &mut written, std::ptr::null_mut()) } == 0 || written != to_write {
+            return Err(format!("Failed to write response payload: written={} err={}", written, unsafe { GetLastError() }));
+        }
+    }
+
+    // Write null terminator
+    let null: u16 = 0;
+    written = 0;
+    if unsafe { WriteFile(handle, &null as *const u16 as *const u8, 2, &mut written, std::ptr::null_mut()) } == 0 || written != 2 {
+        return Err(format!("Failed to write null terminator: written={} err={}", written, unsafe { GetLastError() }));
+    }
+
     Ok(())
 }
 
@@ -114,64 +286,6 @@ fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
     let json_wide: Vec<u16> = u16_slice.iter().copied().take_while(|&c| c != 0).collect();
     let json = String::from_utf16(&json_wide).map_err(|e| format!("Invalid UTF-16: {}", e))?;
     serde_json::from_str(&json).map_err(|e| format!("JSON parse: {}", e))
-}
-
-/// Open editor and produce a response. Real implementation would open the
-/// editor window and wait for user action, then return a full FormulaPayload.
-fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse, String> {
-    // TODO: Open actual editor, wait for user to save/cancel.
-    // The response must carry a full FormulaPayload on save.
-    // For now, echo back the original data as a save placeholder.
-    let formula = FormulaPayload {
-        schema_version: Some(envelope.schema_version as i32),
-        formula_id: envelope.formula_id.clone(),
-        latex: envelope.latex.clone(),
-        omml: String::new(),
-        display: "inline".to_string(),
-        presentation: None,
-        render: None,
-        source: None,
-        storage_mode: Some("ole".to_string()),
-        revision: envelope.revision as i32,
-    };
-    Ok(OleResponse {
-        protocol_version: 2,
-        action: "save".to_string(),
-        formula: Some(formula),
-        formula_id: Some(envelope.formula_id.clone()),
-        latex: Some(envelope.latex.clone()),
-    })
-}
-
-/// Write response back on the SAME handle used for reading.
-fn write_response_on_handle(handle: Handle, response: &OleResponse) -> Result<(), String> {
-    let json = serde_json::to_string(response).map_err(|e| format!("Serialize: {}", e))?;
-    let json_u16: Vec<u16> = json.encode_utf16().collect();
-    let payload_size = (json_u16.len() * 2 + 2) as u32; // include null terminator
-
-    // Write size
-    let mut written: u32 = 0;
-    if unsafe { WriteFile(handle, &payload_size as *const u32 as *const u8, 4, &mut written, std::ptr::null_mut()) } == 0 || written != 4 {
-        return Err(format!("Failed to write response size: written={} err={}", written, unsafe { GetLastError() }));
-    }
-
-    // Write UTF-16 payload
-    if !json_u16.is_empty() {
-        let to_write = (json_u16.len() * 2) as u32;
-        written = 0;
-        if unsafe { WriteFile(handle, json_u16.as_ptr() as *const u8, to_write, &mut written, std::ptr::null_mut()) } == 0 || written != to_write {
-            return Err(format!("Failed to write response payload: written={} err={}", written, unsafe { GetLastError() }));
-        }
-    }
-
-    // Write null terminator
-    let null: u16 = 0;
-    written = 0;
-    if unsafe { WriteFile(handle, &null as *const u16 as *const u8, 2, &mut written, std::ptr::null_mut()) } == 0 || written != 2 {
-        return Err(format!("Failed to write null terminator: written={} err={}", written, unsafe { GetLastError() }));
-    }
-
-    Ok(())
 }
 
 fn close_handle(handle: Handle) {
