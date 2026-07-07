@@ -36,6 +36,7 @@ fn main() {
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("LaTeXSnipper Office")
+                .icon_as_template(true)
                 .on_tray_icon_event(|tray_icon, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -56,9 +57,14 @@ fn main() {
             let handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
                 let h = handle.clone();
+                // On CloseRequested (user clicks X), exit immediately.
+                // This prevents the app from lingering in the background, which
+                // would block NSIS uninstaller from removing the files.
                 window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Destroyed = event {
-                        h.exit(0);
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        // Force exit — kills background tasks (pipe server, bridge)
+                        // so the process doesn't linger and block uninstall.
+                        std::process::exit(0);
                     }
                 });
             }
