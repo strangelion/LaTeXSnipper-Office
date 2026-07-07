@@ -53,7 +53,7 @@ function Assert-ManifestDependency {
     if (-not [string]::IsNullOrWhiteSpace($sizeText)) {
         [Int64]$expectedSize = 0
         if (-not [Int64]::TryParse($sizeText, [ref]$expectedSize)) {
-            throw "$ManifestLabel has an invalid size for $codebase: $sizeText"
+            throw "$ManifestLabel has an invalid size for $($codebase): $sizeText"
         }
 
         $actualSize = (Get-Item -LiteralPath $targetPath).Length
