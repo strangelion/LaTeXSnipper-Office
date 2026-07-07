@@ -139,6 +139,7 @@
     <ProjectReference Include="..\LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj">
       <Project>{A1B2C3D4-1111-2222-3333-444455556666}</Project>
       <Name>LaTeXSnipper.Shared</Name>
+      <Private>True</Private>
     </ProjectReference>
   </ItemGroup>
   <!-- Office interop via NuGet (works both locally and in CI) -->
