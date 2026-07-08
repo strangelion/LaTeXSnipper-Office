@@ -309,34 +309,54 @@ if ($SkipSigning) {
 if ($LASTEXITCODE -ne 0) { throw "MSBuild Build failed" }
 
 # ─── Publish each VSTO host to generate .vsto + .dll.manifest ─────
-Write-Host "`n  Publishing VSTO hosts for manifest generation..." -ForegroundColor Cyan
 $hosts = @("Word", "Excel", "PowerPoint")
+Write-Host "`n  Publishing VSTO hosts for manifest generation..." -ForegroundColor Cyan
+
 foreach ($hostName in $hosts) {
     $proj = Join-Path $SolutionDir "LaTeXSnipper.$hostName\LaTeXSnipper.$hostName.csproj"
     $hostPublishDir = Join-Path $publishDir $hostName
     New-Item -ItemType Directory -Path $hostPublishDir -Force | Out-Null
     $hostPublishUrl = (Resolve-Path -LiteralPath $hostPublishDir).Path.TrimEnd('\') + "\"
 
+    Write-Host "  Publishing VSTO $hostName -> $hostPublishUrl" -ForegroundColor Gray
+
     $publishArgs = @(
         $proj,
-        "/t:Publish",
+        "/t:Clean;Build;Publish",
         "/p:Configuration=$Configuration",
-        "/p:Platform=Any CPU",
+        "/p:Platform=AnyCPU",
         "/p:VSToolsPath=$officeToolsOverlayVSToolsPath",
-        "/p:PublishUrl=$hostPublishUrl",
-        "/p:InstallUrl=$hostPublishUrl",
         "/p:GenerateManifests=true",
-        "/p:ManifestCertificateThumbprint=$thumbprint",
+        "/p:SignManifests=true",
         "/p:ManifestKeyFile=$env:VstoManifestKeyFile",
-        "/v:minimal"
+        "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword",
+        "/p:ManifestCertificateThumbprint=$thumbprint",
+        "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile",
+        "/p:VstoManifestKeyPassword=$env:VstoManifestKeyPassword",
+        "/p:VstoManifestThumbprint=$thumbprint",
+        "/p:PublishUrl=$hostPublishUrl",
+        "/p:PublishDir=$hostPublishUrl",
+        "/p:InstallUrl=$hostPublishUrl",
+        "/p:ApplicationVersion=$Version.0",
+        "/p:ApplicationRevision=1",
+        "/v:normal"
     )
-    if ($env:VstoManifestKeyPassword) {
-        $publishArgs += "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword"
+
+    & $MsBuildPath @publishArgs
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "VSTO Publish failed for $hostName (non-fatal, will try bin\Release fallback)"
     }
 
-    Write-Host "  Publishing VSTO $hostName..." -ForegroundColor Gray
-    & $MsBuildPath @publishArgs
-    if ($LASTEXITCODE -ne 0) { Write-Warning "VSTO Publish failed for $hostName (non-fatal, will try bin\Release fallback)" }
+    # Diagnostic: list what was actually produced
+    $produced = Get-ChildItem -LiteralPath $hostPublishDir -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in '.vsto', '.manifest', '.dll' } |
+        Select-Object -ExpandProperty FullName
+    if ($produced) {
+        Write-Host "  $hostName published files:" -ForegroundColor DarkGreen
+        $produced | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGreen }
+    } else {
+        Write-Warning "  $hostName: Publish produced no .vsto/.manifest/.dll in $hostPublishDir"
+    }
 }
 
 # ─── Collect publish output ─────────────────────────────────────────
@@ -359,11 +379,13 @@ $allGood = $true
 $sharedSrc = Join-Path $SolutionDir "LaTeXSnipper.Shared\bin\$Configuration"
 
 foreach ($hostName in $hosts) {
+    $projectDir = Join-Path $SolutionDir "LaTeXSnipper.$hostName"
+
     # Search order: publish dir > bin\Release\app.publish > bin\Release
     $candidates = @(
         (Join-Path $publishDir $hostName),
-        (Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration\app.publish"),
-        (Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration")
+        (Join-Path $projectDir "bin\$Configuration\app.publish"),
+        (Join-Path $projectDir "bin\$Configuration")
     )
 
     $hostSrc = $null
@@ -379,8 +401,20 @@ foreach ($hostName in $hosts) {
     }
 
     if (-not $hostSrc) {
-        # Fallback: use bin\Release even if .vsto missing (will be caught in validation)
-        $hostSrc = Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration"
+        # Diagnostic: list what's in each candidate
+        Write-Host "  $hostName: .vsto/.dll.manifest not found, listing candidate dirs:" -ForegroundColor Yellow
+        foreach ($dir in $candidates) {
+            if (Test-Path -LiteralPath $dir) {
+                Write-Host "    $dir :" -ForegroundColor DarkYellow
+                Get-ChildItem -LiteralPath $dir -File | Select-Object -First 15 |
+                    ForEach-Object { Write-Host "      $($_.Name)" -ForegroundColor DarkGray }
+            } else {
+                Write-Host "    $dir (does not exist)" -ForegroundColor DarkGray
+            }
+        }
+        # Fallback: use bin\Release even if .vsto missing
+        $hostSrc = Join-Path $projectDir "bin\$Configuration"
+        $allGood = $false
     }
 
     $hostDst = Join-Path $staging $hostName

@@ -208,14 +208,18 @@
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
   </PropertyGroup>
-  <!-- VSTO manifest signing is opt-in. Installer/build.ps1 supplies the certificate in CI.
-       Remove hardcoded ManifestKeyFile/ManifestCertificateThumbprint to prevent
-       unconditional values from overriding CI-provided certificates. -->
+  <!-- VSTO manifest generation and signing.
+       CI provides VstoManifestKeyFile/VstoManifestThumbprint via env or /p: args.
+       Local dev builds without a PFX fall back to SignManifests=false. -->
   <PropertyGroup>
-    <!-- VSTO manifest generation: enabled when signing is active -->
-    <GenerateManifests Condition="'$(SignManifests)' != 'false'">true</GenerateManifests>
-    <SignManifests Condition="'$(SignManifests)' == '' and ('$(VstoManifestKeyFile)' != '' or '$(ManifestKeyFile)' != '')">true</SignManifests>
-    <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
+    <GenerateManifests>true</GenerateManifests>
+    <SignManifests>true</SignManifests>
+    <Install>true</Install>
+    <UpdateEnabled>false</UpdateEnabled>
+    <MapFileExtensions>true</MapFileExtensions>
+    <TargetCulture>en</TargetCulture>
+    <ApplicationVersion>1.0.0.0</ApplicationVersion>
+    <ApplicationRevision>1</ApplicationRevision>
     <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
     <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
     <ManifestCertificateThumbprint Condition="'$(VstoManifestThumbprint)' != ''">$(VstoManifestThumbprint)</ManifestCertificateThumbprint>
@@ -223,6 +227,7 @@
   <!-- Release builds without CI env vars: disable signing rather than fail on missing PFX. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(VstoManifestKeyFile)' == '' and '$(VstoManifestThumbprint)' == ''">
     <SignManifests>false</SignManifests>
+    <GenerateManifests>false</GenerateManifests>
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
