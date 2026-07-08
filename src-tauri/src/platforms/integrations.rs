@@ -825,6 +825,7 @@ fn office_addin_codebase(dll: &Path) -> String {
     format!("file:///{}", dll.to_string_lossy().replace('\\', "/"))
 }
 
+#[cfg(target_os = "windows")]
 fn register_hkcu_office_com_addin(dll: &Path) -> Result<(), String> {
     let clsid = office_addin_clsid();
     let clsid_key = hkcu_classes_key(&format!(r"CLSID\{}", clsid));
@@ -869,6 +870,7 @@ fn register_hkcu_office_com_addin(dll: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn unregister_hkcu_office_com_addin() {
     // Clean HKCU
     reg_delete_tree(&hkcu_classes_key("LaTeXSnipper.Office"));
@@ -881,6 +883,7 @@ fn unregister_hkcu_office_com_addin() {
     reg_delete_tree(r"HKCR\LaTeXSnipper.Office");
 }
 
+#[cfg(target_os = "windows")]
 fn cleanup_legacy_office_com_addins() {
     for app in ["Word", "Excel", "PowerPoint"] {
         for addin in [
@@ -912,6 +915,7 @@ fn cleanup_legacy_office_com_addins() {
     ));
 }
 
+#[cfg(target_os = "windows")]
 fn office_com_addin_registered() -> bool {
     // Check if registered for any Office app (Word, Excel, or PowerPoint)
     let addin_ok = ["Word", "Excel", "PowerPoint"].iter().any(|app| {
@@ -951,32 +955,30 @@ pub async fn auto_register_office_addin(_app_handle: &tauri::AppHandle) {
         return;
     }
 
-    if office_com_addin_registered() {
-        println!("[Office] COM add-in already registered, skipping.");
-        return;
-    }
+    #[cfg(target_os = "windows")]
+    {
+        if office_com_addin_registered() {
+            println!("[Office] COM add-in already registered, skipping.");
+            return;
+        }
 
-    println!("[Office] COM add-in not registered, attempting auto-registration...");
+        println!("[Office] COM add-in not registered, attempting auto-registration...");
 
-    // Find the DLL in bundled resources
-    let dll_path = bundled_com_dll();
-    let Some(path) = dll_path else {
-        println!("[Office] COM DLL not found in resources, skipping auto-registration.");
-        return;
-    };
+        let dll_path = bundled_com_dll();
+        let Some(path) = dll_path else {
+            println!("[Office] COM DLL not found in resources, skipping auto-registration.");
+            return;
+        };
 
-    // Find regasm
-    let regasm = find_regasm();
-    let Some(regasm_path) = regasm else {
-        println!("[Office] regasm.exe not found, skipping auto-registration.");
-        return;
-    };
+        let regasm = find_regasm();
+        let Some(regasm_path) = regasm else {
+            println!("[Office] regasm.exe not found, skipping auto-registration.");
+            return;
+        };
 
-    // Write PS1 script for registration (requires admin via UAC)
-    let script_path = std::env::temp_dir().join("latexsnipper_auto_register.ps1");
-    let script_content = format!(
-        r#"
-# Write add-in registry entries for Word, Excel, and PowerPoint
+        let script_path = std::env::temp_dir().join("latexsnipper_auto_register.ps1");
+        let script_content = format!(
+            r#"
 foreach ($app in @('Word', 'Excel', 'PowerPoint')) {{
     $addinKey = "HKCU:\Software\Microsoft\Office\$app\Addins\LaTeXSnipper.Office"
     New-Item -Path $addinKey -Force | Out-Null
@@ -985,23 +987,18 @@ foreach ($app in @('Word', 'Excel', 'PowerPoint')) {{
     Set-ItemProperty -Path $addinKey -Name 'LoadBehavior' -Value 3 -Type DWord
     Set-ItemProperty -Path $addinKey -Name 'CommandLineSafe' -Value 0 -Type DWord
 }}
-
-# Register COM DLL via regasm
 & '{regasm}' '{dll}' /codebase /tlb
 Write-Output 'Registration complete.'
 "#,
-        regasm = regasm_path.to_string_lossy(),
-        dll = path.to_string_lossy()
-    );
+            regasm = regasm_path.to_string_lossy(),
+            dll = path.to_string_lossy()
+        );
 
-    if let Err(e) = std::fs::write(&script_path, &script_content) {
-        println!("[Office] Failed to write registration script: {}", e);
-        return;
-    }
+        if let Err(e) = std::fs::write(&script_path, &script_content) {
+            println!("[Office] Failed to write registration script: {}", e);
+            return;
+        }
 
-    // Run with UAC elevation, hide console window
-    #[cfg(target_os = "windows")]
-    {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         let _ = Command::new("powershell")
@@ -1016,11 +1013,12 @@ Write-Output 'Registration complete.'
             ])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
-    }
 
-    println!("[Office] Registration script launched (UAC prompt may appear).");
+        println!("[Office] Registration script launched (UAC prompt may appear).");
+    }
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn office_vsto_registered() -> bool {
     let roots = [
@@ -1099,6 +1097,7 @@ fn bundled_dotm() -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn register_com_dll() -> String {
     // Check if already registered
@@ -1171,6 +1170,7 @@ fn register_com_dll() -> String {
     "COM registration started (UAC will appear).".to_string()
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn unregister_com_dll() -> String {
     let guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
@@ -1291,6 +1291,7 @@ fn find_regasm() -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "windows")]
 fn install_office_vsto() -> PlatformIntegrationResult {
     let status = super::office::detect_office_cached();
     if !status.installed {
@@ -2386,6 +2387,7 @@ fn install_office() -> PlatformIntegrationResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn uninstall_office() -> PlatformIntegrationResult {
     let startup = office_startup_dotm();
@@ -2457,6 +2459,7 @@ fn uninstall_office() -> PlatformIntegrationResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn check_office() -> PlatformIntegrationResult {
     let startup = office_startup_dotm();
