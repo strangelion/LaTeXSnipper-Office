@@ -4,6 +4,10 @@
 #include <vector>
 #include <unordered_map>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 // -------------------------------------------------------------------
 // JSON Helper — wraps nlohmann/json when available, falls back to
 // manual string extraction when the library is not installed.
@@ -24,18 +28,45 @@
 #define HAS_NLOHMANN_JSON 0
 #endif
 
+// --- UTF-8 / UTF-16 conversion helpers ---
+#ifdef _WIN32
+inline std::string WideToUtf8(const std::wstring& s) {
+    if (s.empty()) return {};
+    int len = WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0, nullptr, nullptr);
+    std::string out(len, 0);
+    WideCharToMultiByte(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), len, nullptr, nullptr);
+    return out;
+}
+
+inline std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+    std::wstring out(len, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), out.data(), len);
+    return out;
+}
+#else
+// Non-Windows: simple ASCII fallback (OLE is Windows-only anyway)
+inline std::string WideToUtf8(const std::wstring& s) {
+    return std::string(s.begin(), s.end());
+}
+inline std::wstring Utf8ToWide(const std::string& s) {
+    return std::wstring(s.begin(), s.end());
+}
+#endif
+
 // --- Read a string field from a JSON payload ---
 inline std::wstring JsonReadString(const std::wstring& payloadJson, const std::wstring& propertyName)
 {
 #if HAS_NLOHMANN_JSON
     try
     {
-        nlohmann::json doc = nlohmann::json::parse(payloadJson);
-        std::string key(propertyName.begin(), propertyName.end());
+        nlohmann::json doc = nlohmann::json::parse(WideToUtf8(payloadJson));
+        std::string key = WideToUtf8(propertyName);
         if (doc.contains(key) && doc[key].is_string())
         {
             std::string val = doc[key].get<std::string>();
-            return std::wstring(val.begin(), val.end());
+            return Utf8ToWide(val);
         }
     }
     catch (...) {}
@@ -52,8 +83,8 @@ inline double JsonReadNumber(const std::wstring& payloadJson, const std::wstring
 #if HAS_NLOHMANN_JSON
     try
     {
-        nlohmann::json doc = nlohmann::json::parse(payloadJson);
-        std::string key(propertyName.begin(), propertyName.end());
+        nlohmann::json doc = nlohmann::json::parse(WideToUtf8(payloadJson));
+        std::string key = WideToUtf8(propertyName);
         if (doc.contains(key) && doc[key].is_number())
         {
             return doc[key].get<double>();
@@ -72,13 +103,13 @@ inline std::wstring JsonReadNestedString(const std::wstring& payloadJson, const 
 #if HAS_NLOHMANN_JSON
     try
     {
-        nlohmann::json doc = nlohmann::json::parse(payloadJson);
-        std::string parent(parentKey.begin(), parentKey.end());
-        std::string child(childKey.begin(), childKey.end());
+        nlohmann::json doc = nlohmann::json::parse(WideToUtf8(payloadJson));
+        std::string parent = WideToUtf8(parentKey);
+        std::string child = WideToUtf8(childKey);
         if (doc.contains(parent) && doc[parent].is_object() && doc[parent].contains(child) && doc[parent][child].is_string())
         {
             std::string val = doc[parent][child].get<std::string>();
-            return std::wstring(val.begin(), val.end());
+            return Utf8ToWide(val);
         }
     }
     catch (...) {}

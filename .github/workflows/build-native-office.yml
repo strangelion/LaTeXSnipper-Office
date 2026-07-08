@@ -59,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
-          path: apps/native-office/Installer/output/staging/
+          path: apps/native-office/Installer/output/staging/**
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/native-office-v')

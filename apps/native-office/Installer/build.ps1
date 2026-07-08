@@ -216,6 +216,7 @@ $buildArgs = @(
     "/p:VSToolsPath=$officeToolsOverlayVSToolsPath"
     "/p:PublishUrl=$publishUrl"
     "/p:InstallUrl=$publishUrl"
+    "/p:GenerateManifests=true"
     "/v:minimal"
 )
 
@@ -307,6 +308,37 @@ if ($SkipSigning) {
 & $MsBuildPath @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "MSBuild Build failed" }
 
+# ─── Publish each VSTO host to generate .vsto + .dll.manifest ─────
+Write-Host "`n  Publishing VSTO hosts for manifest generation..." -ForegroundColor Cyan
+$hosts = @("Word", "Excel", "PowerPoint")
+foreach ($hostName in $hosts) {
+    $proj = Join-Path $SolutionDir "LaTeXSnipper.$hostName\LaTeXSnipper.$hostName.csproj"
+    $hostPublishDir = Join-Path $publishDir $hostName
+    New-Item -ItemType Directory -Path $hostPublishDir -Force | Out-Null
+    $hostPublishUrl = (Resolve-Path -LiteralPath $hostPublishDir).Path.TrimEnd('\') + "\"
+
+    $publishArgs = @(
+        $proj,
+        "/t:Publish",
+        "/p:Configuration=$Configuration",
+        "/p:Platform=Any CPU",
+        "/p:VSToolsPath=$officeToolsOverlayVSToolsPath",
+        "/p:PublishUrl=$hostPublishUrl",
+        "/p:InstallUrl=$hostPublishUrl",
+        "/p:GenerateManifests=true",
+        "/p:ManifestCertificateThumbprint=$thumbprint",
+        "/p:ManifestKeyFile=$env:VstoManifestKeyFile",
+        "/v:minimal"
+    )
+    if ($env:VstoManifestKeyPassword) {
+        $publishArgs += "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword"
+    }
+
+    Write-Host "  Publishing VSTO $hostName..." -ForegroundColor Gray
+    & $MsBuildPath @publishArgs
+    if ($LASTEXITCODE -ne 0) { Write-Warning "VSTO Publish failed for $hostName (non-fatal, will try bin\Release fallback)" }
+}
+
 # ─── Collect publish output ─────────────────────────────────────────
 Write-Host "`n[2/4] Collecting binaries from Publish output..." -ForegroundColor Cyan
 $staging = Join-Path $OutputDir "staging"
@@ -323,20 +355,42 @@ if (Test-Path $certSrc) {
 }
 $allGood = $true
 
-# Each host builds to its own bin\$Configuration directory
-$hosts = @("Word", "Excel", "PowerPoint")
+# Each host: search multiple candidate directories for .vsto files
 $sharedSrc = Join-Path $SolutionDir "LaTeXSnipper.Shared\bin\$Configuration"
 
 foreach ($hostName in $hosts) {
-    $hostSrc = Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration"
+    # Search order: publish dir > bin\Release\app.publish > bin\Release
+    $candidates = @(
+        (Join-Path $publishDir $hostName),
+        (Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration\app.publish"),
+        (Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration")
+    )
+
+    $hostSrc = $null
+    foreach ($dir in $candidates) {
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        $vsto = Join-Path $dir "LaTeXSnipper.$hostName.vsto"
+        $manifest = Join-Path $dir "LaTeXSnipper.$hostName.dll.manifest"
+        $dll = Join-Path $dir "LaTeXSnipper.$hostName.dll"
+        if ((Test-Path $vsto) -and (Test-Path $manifest) -and (Test-Path $dll)) {
+            $hostSrc = (Resolve-Path -LiteralPath $dir).Path
+            break
+        }
+    }
+
+    if (-not $hostSrc) {
+        # Fallback: use bin\Release even if .vsto missing (will be caught in validation)
+        $hostSrc = Join-Path $SolutionDir "LaTeXSnipper.$hostName\bin\$Configuration"
+    }
+
     $hostDst = Join-Path $staging $hostName
 
     if (-not (Test-Path $hostSrc)) {
-        Write-Warning "${hostName} : bin\$Configuration not found"
+        Write-Warning "${hostName} : no output directory found"
         $allGood = $false
         continue
     }
-    Write-Host "  ${hostName}: bin\$Configuration" -ForegroundColor Green
+    Write-Host "  ${hostName}: $hostSrc" -ForegroundColor Green
     New-Item -ItemType Directory -Path $hostDst -Force | Out-Null
     Get-ChildItem $hostSrc -File | Where-Object { $_.Extension -ne ".pdb" } | ForEach-Object {
         Copy-Item $_.FullName $hostDst -Force
