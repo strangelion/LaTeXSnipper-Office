@@ -355,7 +355,7 @@ foreach ($hostName in $hosts) {
         Write-Host "  $hostName published files:" -ForegroundColor DarkGreen
         $produced | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGreen }
     } else {
-        Write-Warning "  $hostName: Publish produced no .vsto/.manifest/.dll in $hostPublishDir"
+        Write-Warning "  ${hostName}: Publish produced no .vsto/.manifest/.dll in $hostPublishDir"
     }
 }
 
@@ -402,7 +402,7 @@ foreach ($hostName in $hosts) {
 
     if (-not $hostSrc) {
         # Diagnostic: list what's in each candidate
-        Write-Host "  $hostName: .vsto/.dll.manifest not found, listing candidate dirs:" -ForegroundColor Yellow
+        Write-Host "  ${hostName}: .vsto/.dll.manifest not found, listing candidate dirs:" -ForegroundColor Yellow
         foreach ($dir in $candidates) {
             if (Test-Path -LiteralPath $dir) {
                 Write-Host "    $dir :" -ForegroundColor DarkYellow
