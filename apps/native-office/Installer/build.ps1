@@ -407,6 +407,9 @@ foreach ($hostName in $hosts) {
         "/p:InstallUrl=$hostPublishUrl",
         "/p:ApplicationVersion=$Version.0",
         "/p:ApplicationRevision=1",
+        "/p:BootstrapperEnabled=false",
+        "/p:GenerateBootstrapper=false",
+        "/p:CreateWebPageOnPublish=false",
         "/v:normal"
     )
 

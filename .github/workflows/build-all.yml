@@ -206,6 +206,33 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
 
+      - name: Setup ONNX Runtime
+        shell: pwsh
+        run: |
+          $ortVersion = "1.24.4"
+          $ortName = "onnxruntime-win-x64-$ortVersion"
+          $zipPath = Join-Path $env:RUNNER_TEMP "$ortName.zip"
+          $ortDir = Join-Path $env:RUNNER_TEMP "onnxruntime"
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v$ortVersion/$ortName.zip"
+
+          Invoke-WebRequest -Uri $url -OutFile $zipPath
+          Remove-Item -LiteralPath $ortDir -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -Path $zipPath -DestinationPath $ortDir -Force
+
+          $ortRoot = Join-Path $ortDir $ortName
+          $ortLib = Join-Path $ortRoot "lib"
+          if (-not (Test-Path (Join-Path $ortLib "onnxruntime.lib"))) {
+            throw "onnxruntime.lib not found in $ortLib"
+          }
+          if (-not (Test-Path (Join-Path $ortLib "onnxruntime.dll"))) {
+            throw "onnxruntime.dll not found in $ortLib"
+          }
+
+          "ORT_STRATEGY=system" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "ORT_LIB_LOCATION=$ortLib" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PATH=$ortLib;$env:PATH" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "ONNX Runtime prepared at $ortLib" -ForegroundColor Green
+
       # Inject version into Cargo.toml and tauri.conf.json
       - name: Inject version
         shell: bash
@@ -253,6 +280,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      - name: Setup ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORT_VERSION="1.24.4"
+          case "$(uname -m)" in
+            arm64|aarch64) ORT_NAME="onnxruntime-osx-arm64-${ORT_VERSION}" ;;
+            x86_64) ORT_NAME="onnxruntime-osx-x86_64-${ORT_VERSION}" ;;
+            *) echo "Unsupported macOS arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          ORT_DIR="$RUNNER_TEMP/onnxruntime"
+          mkdir -p "$ORT_DIR"
+          curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_NAME}.tgz" -o "$RUNNER_TEMP/${ORT_NAME}.tgz"
+          tar -xzf "$RUNNER_TEMP/${ORT_NAME}.tgz" -C "$ORT_DIR"
+          ORT_LIB="$ORT_DIR/$ORT_NAME/lib"
+          test -f "$ORT_LIB/libonnxruntime.dylib"
+          echo "ORT_STRATEGY=system" >> "$GITHUB_ENV"
+          echo "ORT_LIB_LOCATION=$ORT_LIB" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$ORT_LIB:${DYLD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "ONNX Runtime prepared at $ORT_LIB"
 
       - name: Inject version
         shell: bash
@@ -303,6 +351,23 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      - name: Setup ONNX Runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORT_VERSION="1.24.4"
+          ORT_NAME="onnxruntime-linux-x64-${ORT_VERSION}"
+          ORT_DIR="$RUNNER_TEMP/onnxruntime"
+          mkdir -p "$ORT_DIR"
+          curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_NAME}.tgz" -o "$RUNNER_TEMP/${ORT_NAME}.tgz"
+          tar -xzf "$RUNNER_TEMP/${ORT_NAME}.tgz" -C "$ORT_DIR"
+          ORT_LIB="$ORT_DIR/$ORT_NAME/lib"
+          test -f "$ORT_LIB/libonnxruntime.so"
+          echo "ORT_STRATEGY=system" >> "$GITHUB_ENV"
+          echo "ORT_LIB_LOCATION=$ORT_LIB" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$ORT_LIB:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "ONNX Runtime prepared at $ORT_LIB"
 
       - name: Inject version
         shell: bash

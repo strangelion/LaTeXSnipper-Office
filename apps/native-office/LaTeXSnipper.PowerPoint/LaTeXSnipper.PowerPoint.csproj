@@ -217,6 +217,9 @@
     <TargetCulture>en</TargetCulture>
     <ApplicationVersion>1.0.0.0</ApplicationVersion>
     <ApplicationRevision>1</ApplicationRevision>
+    <BootstrapperEnabled>false</BootstrapperEnabled>
+    <GenerateBootstrapper>false</GenerateBootstrapper>
+    <CreateWebPageOnPublish>false</CreateWebPageOnPublish>
     <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
     <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
     <ManifestCertificateThumbprint Condition="'$(VstoManifestThumbprint)' != ''">$(VstoManifestThumbprint)</ManifestCertificateThumbprint>
