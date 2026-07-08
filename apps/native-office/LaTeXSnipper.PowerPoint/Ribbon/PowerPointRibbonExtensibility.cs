@@ -79,8 +79,8 @@ namespace LaTeXSnipper.PowerPoint
                     break;
 
                 case "delete":
-                    addIn.Adapter.DeleteCurrent();
-                    MessageBox.Show(RibbonLocalizer.GetString("FormulaDeleted"), RibbonLocalizer.GetString("ErrorTitle"));
+                    var ok = addIn.Adapter.DeleteCurrent();
+                    MessageBox.Show(ok ? RibbonLocalizer.GetString("FormulaDeleted") : RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     break;
 
                 case "showPane":

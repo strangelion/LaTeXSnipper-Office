@@ -3571,10 +3571,20 @@ class UIController {
     }
   }
 
+  /** Check if the selected Office session supports a given capability. */
+  supportsOfficeCapability(cap) {
+    const session = this._sessions?.find(s => s.session_id === this._selectedSessionId);
+    return !!session?.capabilities?.includes(cap);
+  }
+
   async insertTableToWord() {
     const sessionId = this._selectedSessionId;
     if (!sessionId) {
       this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    if (!this.supportsOfficeCapability('insert_table')) {
+      this.showToast('当前 Office 宿主暂不支持表格插入');
       return;
     }
     try {
@@ -4079,6 +4089,21 @@ class UIController {
     });
   }
 
+  /** Run a promise with a timeout. If it doesn't resolve within ms, reject. */
+  async withTimeout(promise, ms, label) {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async setPlatformEnabled(platformId, requestedEnabled) {
     const platform = this.platforms.find(p => p.id === platformId);
     if (!platform) return false;
@@ -4093,9 +4118,17 @@ class UIController {
       await this.renderPlatformList();
 
       if (requestedEnabled) {
-        ok = await this.registerPlatform(platform);
+        ok = await this.withTimeout(
+          this.registerPlatform(platform),
+          30000,
+          `${platformId} install`
+        );
       } else {
-        ok = await this.unregisterPlatform(platform);
+        ok = await this.withTimeout(
+          this.unregisterPlatform(platform),
+          30000,
+          `${platformId} uninstall`
+        );
       }
 
       if (!ok) {
@@ -4103,18 +4136,28 @@ class UIController {
       }
     } catch (error) {
       Logger.error('Platform operation failed:', error);
-      this.showToast('Platform operation failed: ' + (error?.message || error));
+      this.showToast('操作超时或失败: ' + (error?.message || error));
       platform.enabled = previousEnabled;
       ok = false;
     } finally {
       this.savePlatforms();
       this.platformOperations.delete(platformId);
 
+      // 先立即刷新一次 UI，确保"处理中..."消失。
+      await this.renderPlatformList({ refreshStatus: false });
+
+      // 再做带超时的真实状态刷新，失败只显示警告，不影响 busy 释放。
       try {
-        await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
+        if (platformId === 'office' || platformId === 'wps') {
+          await this.withTimeout(
+            this.renderPlatformList({ refreshStatus: true }),
+            12000,
+            `${platformId} status refresh`
+          );
+        }
       } catch (error) {
         Logger.error('Platform status refresh failed:', error);
-        await this.renderPlatformList();
+        this.showToast('状态刷新超时，请重启应用后再查看真实状态');
       }
 
       if (platformId === 'office') {

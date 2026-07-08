@@ -18,7 +18,10 @@
     "lint": "eslint src --ext .js,.ts",
     "format": "prettier --write src/**/*.{js,ts,css}",
     "stage:resources": "node scripts/stage-resources.js",
-    "prepare:native-office": "node scripts/prepare-native-office.js"
+    "prepare:native-office": "node scripts/prepare-native-office.js",
+    "check:office-package": "node scripts/check-native-office-package.mjs",
+    "check:frontend": "node --check src/main.js",
+    "check:office-payload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-native-office-payload.ps1 -PayloadRoot apps/native-office/Installer/output/staging"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

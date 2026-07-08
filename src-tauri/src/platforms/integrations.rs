@@ -21,6 +21,74 @@ pub fn is_taskpane_connected() -> bool {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Unified helpers for /reg:32 / /reg:64 registry view handling
+//
+// These replace all ad-hoc "/reg:" string concatenation. reg.exe requires the
+// view flag as a single argument ("/reg:32", not ["/reg:", "32"]).
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RegistryView {
+    X64,
+    X86,
+}
+
+#[cfg(target_os = "windows")]
+impl RegistryView {
+    fn as_reg_arg(self) -> &'static str {
+        match self {
+            RegistryView::X64 => "/reg:64",
+            RegistryView::X86 => "/reg:32",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            RegistryView::X64 => "64",
+            RegistryView::X86 => "32",
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+const REGISTRY_VIEWS: [RegistryView; 2] = [RegistryView::X64, RegistryView::X86];
+
+/// Safely parse a REG_DWORD hex value from a `reg query` output line.
+///
+/// `reg query` outputs lines like:
+///   LoadBehavior    REG_DWORD    0x3
+/// Older code used a fixed slice `line[pos+2..pos+10]` which panics when the
+/// hex value is shorter than 8 characters (e.g. "0x3").
+#[cfg(target_os = "windows")]
+fn parse_reg_dword_from_line(line: &str) -> Option<u32> {
+    let pos = line.rfind("0x")?;
+    let hex = line[pos + 2..]
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .trim();
+
+    if hex.is_empty() || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    u32::from_str_radix(hex, 16).ok()
+}
+
+/// Run a Windows system tool (reg.exe, certutil.exe, tasklist.exe) with
+/// a timeout. Panics from the underlying process are caught. This prevents
+/// the Office toggle from hanging forever if the tool is unresponsive.
+#[cfg(target_os = "windows")]
+fn run_windows_tool(
+    cmd: &mut std::process::Command,
+    timeout_secs: u64,
+) -> Result<std::process::Output, String> {
+    super::process::run_with_timeout(cmd, std::time::Duration::from_secs(timeout_secs))
+        .map_err(|e| format!("process timeout or spawn failure: {e}"))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // DEPRECATION NOTICE — COM/VSTO/RegAsm/PowerShell routes
 //
 // These functions are retained for reference but are NOT used in the current
@@ -44,6 +112,10 @@ pub struct PlatformIntegrationResult {
 pub struct OleStatus {
     pub available: bool,
     pub bitness_mismatch: bool,
+    pub x64_registered: bool,
+    pub x86_registered: bool,
+    pub x64_dll_exists: bool,
+    pub x86_dll_exists: bool,
     /// Granular OLE health level:
     ///   "NotInstalled" → CLSID/ProgID missing
     ///   "RegisteredButBroken" → registry exists but DLL path wrong or missing
@@ -509,20 +581,20 @@ fn build_new_office_addin() -> Result<PathBuf, String> {
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
-            Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
                 .arg(&script)
                 .args(["-Platform", "x64"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
+                .creation_flags(CREATE_NO_WINDOW);
+            super::process::run_with_timeout(&mut cmd, Duration::from_secs(120))
         }
         #[cfg(not(target_os = "windows"))]
         {
-            Command::new("powershell")
-                .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
                 .arg(&script)
-                .args(["-Platform", "x64"])
-                .output()
+                .args(["-Platform", "x64"]);
+            super::process::run_with_timeout(&mut cmd, Duration::from_secs(120))
         }
     }
     .map_err(|err| format!("启动 Office 加载项编译失败: {err}"))?;
@@ -620,12 +692,16 @@ fn spawn_regasm(dll: &Path, unregister: bool) -> Result<(), String> {
 }
 
 fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
-    reg_add_string_view(key, name, value, "")
+    reg_add_string_view(key, name, value, RegistryView::X64)
 }
 
-/// reg.exe add with optional /reg:32 or /reg:64 flag.
-/// Pass "" for default registry view, "32" for 32-bit, "64" for 64-bit.
-fn reg_add_string_view(key: &str, name: &str, value: &str, reg_view: &str) -> std::io::Result<()> {
+/// reg.exe add with explicit RegistryView (/reg:32 or /reg:64).
+fn reg_add_string_view(
+    key: &str,
+    name: &str,
+    value: &str,
+    view: RegistryView,
+) -> std::io::Result<()> {
     let mut command = super::process::background_command("reg.exe");
     command.args(["add", key]);
     if name.is_empty() {
@@ -638,53 +714,91 @@ fn reg_add_string_view(key: &str, name: &str, value: &str, reg_view: &str) -> st
     } else {
         command.args(["/t", "REG_SZ", "/d", value, "/f"]);
     }
-    if !reg_view.is_empty() {
-        command.args(["/reg:", reg_view]);
-    }
+    command.arg(view.as_reg_arg());
     let output = super::process::run_with_timeout(&mut command, Duration::from_secs(15))?;
     if output.status.success() {
         Ok(())
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stderr).to_string(),
+            format!(
+                "reg add failed [{}]: {}{}",
+                view.label(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
         ))
     }
 }
 
 fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
-    reg_add_dword_view(key, name, value, "")
+    reg_add_dword_view(key, name, value, RegistryView::X64)
 }
 
-fn reg_add_dword_view(key: &str, name: &str, value: u32, reg_view: &str) -> std::io::Result<()> {
+fn reg_add_dword_view(
+    key: &str,
+    name: &str,
+    value: u32,
+    view: RegistryView,
+) -> std::io::Result<()> {
     let value = value.to_string();
     let mut cmd = super::process::background_command("reg.exe");
     cmd.args(["add", key, "/v", name, "/t", "REG_DWORD", "/d", &value, "/f"]);
-    if !reg_view.is_empty() {
-        cmd.args(["/reg:", reg_view]);
-    }
+    cmd.arg(view.as_reg_arg());
     let output = super::process::run_with_timeout(&mut cmd, Duration::from_secs(15))?;
     if output.status.success() {
         Ok(())
     } else {
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,
-            String::from_utf8_lossy(&output.stderr).to_string(),
+            format!(
+                "reg add dword failed [{}]: {}{}",
+                view.label(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
         ))
     }
 }
 
 fn reg_delete_tree(key: &str) {
-    reg_delete_tree_view(key, "");
+    // Delete from both views for thorough cleanup
+    let _ = reg_delete_tree_view(key, RegistryView::X64);
+    let _ = reg_delete_tree_view(key, RegistryView::X86);
 }
 
-fn reg_delete_tree_view(key: &str, reg_view: &str) {
+fn reg_delete_tree_view(key: &str, view: RegistryView) -> std::io::Result<()> {
     let mut cmd = super::process::background_command("reg.exe");
     cmd.args(["delete", key, "/f"]);
-    if !reg_view.is_empty() {
-        cmd.args(["/reg:", reg_view]);
+    cmd.arg(view.as_reg_arg());
+    let output = super::process::run_with_timeout(&mut cmd, Duration::from_secs(15))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Deleting a non-existent key should not fail the entire uninstall.
+        if stdout.contains("ERROR") || stderr.contains("ERROR") {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!(
+                    "reg delete failed [{}]: {}{}",
+                    view.label(),
+                    stdout,
+                    stderr
+                ),
+            ))
+        } else {
+            Ok(())
+        }
     }
-    let _ = cmd.output();
+}
+
+/// Delete a registry tree from both 64-bit and 32-bit views silently.
+/// Returns () to match old call sites that ignored the result.
+fn reg_delete_tree_both(key: &str) {
+    let _ = reg_delete_tree_view(key, RegistryView::X64);
+    let _ = reg_delete_tree_view(key, RegistryView::X86);
 }
 
 fn office_addin_clsid() -> &'static str {
@@ -797,8 +911,8 @@ fn cleanup_legacy_office_com_addins() {
 fn office_com_addin_registered() -> bool {
     // Check if registered for any Office app (Word, Excel, or PowerPoint)
     let addin_ok = ["Word", "Excel", "PowerPoint"].iter().any(|app| {
-        super::process::background_command("reg.exe")
-            .args([
+        run_windows_tool(
+            super::process::background_command("reg.exe").args([
                 "query",
                 &format!(
                     r"HKCU\Software\Microsoft\Office\{}\Addins\LaTeXSnipper.Office",
@@ -806,18 +920,21 @@ fn office_com_addin_registered() -> bool {
                 ),
                 "/v",
                 "LoadBehavior",
-            ])
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false)
+            ]),
+            10,
+        )
+        .map(|out| out.status.success())
+        .unwrap_or(false)
     });
 
     let com_key = hkcu_classes_key(&format!(r"CLSID\{}\InprocServer32", office_addin_clsid()));
-    let com_ok = super::process::background_command("reg.exe")
-        .args(["query", &com_key, "/v", "CodeBase"])
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false);
+    let com_ok = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", &com_key, "/v", "CodeBase"]),
+        10,
+    )
+    .map(|out| out.status.success())
+    .unwrap_or(false);
 
     addin_ok && com_ok
 }
@@ -917,16 +1034,17 @@ fn office_vsto_registered() -> bool {
         r"HKLM\Software\Microsoft\Office\16.0\PowerPoint\Addins",
     ];
     roots.iter().any(|root| {
-        super::process::background_command("reg.exe")
-            .args(["query", root, "/s"])
-            .output()
-            .map(|out| {
-                out.status.success()
-                    && String::from_utf8_lossy(&out.stdout)
-                        .to_ascii_lowercase()
-                        .contains("latexsnipper")
-            })
-            .unwrap_or(false)
+        run_windows_tool(
+            super::process::background_command("reg.exe").args(["query", root, "/s"]),
+            15,
+        )
+        .map(|out| {
+            out.status.success()
+                && String::from_utf8_lossy(&out.stdout)
+                    .to_ascii_lowercase()
+                    .contains("latexsnipper")
+        })
+        .unwrap_or(false)
     })
 }
 
@@ -981,9 +1099,11 @@ fn bundled_dotm() -> Option<PathBuf> {
 fn register_com_dll() -> String {
     // Check if already registered
     let guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
-    let check = super::process::background_command("reg.exe")
-        .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)])
-        .output();
+    let check = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)]),
+        10,
+    );
 
     if let Ok(out) = check {
         if out.status.success() {
@@ -1050,9 +1170,11 @@ fn register_com_dll() -> String {
 #[allow(dead_code)]
 fn unregister_com_dll() -> String {
     let guid = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890";
-    let check = super::process::background_command("reg.exe")
-        .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)])
-        .output();
+    let check = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", &format!("HKCR\\CLSID\\{{{}}}", guid)]),
+        10,
+    );
 
     if let Ok(out) = check {
         if !out.status.success() {
@@ -1279,8 +1401,8 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
         .into_owned();
     let manifest_path = normalize_office_manifest_path(&manifest_path);
 
-    let output = super::process::background_command("reg.exe")
-        .args([
+    let output = run_windows_tool(
+        super::process::background_command("reg.exe").args([
             "add",
             OFFICE_DEVELOPER_KEY,
             "/v",
@@ -1290,9 +1412,9 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
             "/d",
             &manifest_path,
             "/f",
-        ])
-        .output()
-        .map_err(|e| format!("无法写入 Office 加载项注册表: {e}"))?;
+        ]),
+        15,
+    )?;
 
     if !output.status.success() {
         return Err(format!(
@@ -1301,8 +1423,8 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
         ));
     }
 
-    let _ = super::process::background_command("reg.exe")
-        .args([
+    let _ = run_windows_tool(
+        super::process::background_command("reg.exe").args([
             "add",
             r"HKCU\Software\Microsoft\Office\16.0\WEF",
             "/v",
@@ -1312,8 +1434,9 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
             "/d",
             host.id,
             "/f",
-        ])
-        .output();
+        ]),
+        15,
+    );
 
     println!(
         "[Office] Registered {} in {} \\ {} = {}",
@@ -1329,8 +1452,8 @@ fn normalize_office_manifest_path(path: &str) -> String {
 
 #[cfg(target_os = "windows")]
 fn clear_office_refresh_marker(host: OfficeJsHost) {
-    let _ = super::process::background_command("reg.exe")
-        .args([
+    let _ = run_windows_tool(
+        super::process::background_command("reg.exe").args([
             "add",
             r"HKCU\Software\Microsoft\Office\16.0\WEF",
             "/v",
@@ -1340,17 +1463,19 @@ fn clear_office_refresh_marker(host: OfficeJsHost) {
             "/d",
             "{00000000-0000-0000-0000-000000000000}",
             "/f",
-        ])
-        .output();
+        ]),
+        15,
+    );
 }
 
 /// Remove the add-in manifest registration from the Windows registry.
 #[cfg(target_os = "windows")]
 fn unregister_office_js_manifest(host: OfficeJsHost) -> Result<(), String> {
-    let output = super::process::background_command("reg.exe")
-        .args(["delete", OFFICE_DEVELOPER_KEY, "/v", host.id, "/f"])
-        .output()
-        .map_err(|e| format!("无法移除 Office 加载项注册表: {e}"))?;
+    let output = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["delete", OFFICE_DEVELOPER_KEY, "/v", host.id, "/f"]),
+        15,
+    )?;
 
     if output.status.success() {
         println!(
@@ -1375,11 +1500,13 @@ fn unregister_office_js_manifest(host: OfficeJsHost) -> Result<(), String> {
 /// Check if the add-in is registered in the Windows registry.
 #[cfg(target_os = "windows")]
 fn is_office_js_registered(host: OfficeJsHost) -> bool {
-    super::process::background_command("reg.exe")
-        .args(["query", OFFICE_DEVELOPER_KEY, "/v", host.id])
-        .output()
-        .map(|out| out.status.success())
-        .unwrap_or(false)
+    run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", OFFICE_DEVELOPER_KEY, "/v", host.id]),
+        10,
+    )
+    .map(|out| out.status.success())
+    .unwrap_or(false)
 }
 
 /// Sideload the Office.js manifest so Word can find the add-in.
@@ -1708,6 +1835,7 @@ fn office_manifest_value(path: &Path) -> String {
 }
 
 /// Install Native Office VSTO add-ins by registering in Windows registry.
+/// After writing, performs real verification before returning success.
 pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
@@ -1763,7 +1891,14 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             );
         }
 
-        let mut installed = Vec::new();
+        struct HostRegistrationResult {
+            host: String,
+            x64_ok: bool,
+            x86_ok: bool,
+            errors: Vec<String>,
+        }
+
+        let mut host_results: Vec<HostRegistrationResult> = Vec::new();
 
         for (host_name, addin_id, friendly_name, vsto_file) in NATIVE_OFFICE_ADDINS {
             let Some(manifest) = native_office_vsto_manifest(host_name, vsto_file) else {
@@ -1786,41 +1921,72 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
                 },
                 addin_id
             );
+            let manifest_value = office_manifest_value(&manifest);
 
-            // Register for both 64-bit and 32-bit registry views to support
-            // both Office x64 and Office x86 on the same Windows installation.
-            let host_ok = |view: &str| -> Result<(), PlatformIntegrationResult> {
-                let vk = |reg_view: &str| -> String {
-                    if !reg_view.is_empty() && reg_view != "64" {
-                        format!("{} /reg:{}", reg_key, reg_view)
-                    } else {
-                        reg_key.clone()
-                    }
-                };
-
-                if let Err(e) = reg_add_string_view(&reg_key, "FriendlyName", friendly_name, view) {
-                    return Err(PlatformIntegrationResult::fail("office", "native-vsto",
-                        format!("Failed to write {} FriendlyName ({}): {}", host_name, view, e)));
-                }
-                let _ = reg_add_string_view(&reg_key, "Description", "LaTeX formula and table integration", view);
-                let _ = reg_add_dword_view(&reg_key, "LoadBehavior", 3, view);
-                let _ = reg_add_dword_view(&reg_key, "CommandLineSafe", 0, view);
-                if let Err(e) = reg_add_string_view(&reg_key, "Manifest", &office_manifest_value(&manifest), view) {
-                    return Err(PlatformIntegrationResult::fail("office", "native-vsto",
-                        format!("Failed to write {} Manifest ({}): {}", host_name, view, e)));
-                }
-                Ok(())
+            // Register for both 64-bit and 32-bit registry views with post-write verification
+            let mut host_result = HostRegistrationResult {
+                host: host_name.to_string(),
+                x64_ok: false,
+                x86_ok: false,
+                errors: vec![],
             };
 
-            // Register for both 64-bit and 32-bit registry views
-            let _ = host_ok("64").map_err(|e| {
-                log::warn!("[Office] 64-bit registration failed (non-fatal): {}", e.message);
-            });
-            let _ = host_ok("32").map_err(|e| {
-                log::warn!("[Office] 32-bit registration failed (non-fatal): {}", e.message);
-            });
+            for view in REGISTRY_VIEWS {
+                let write_result: Result<(), String> = (|| {
+                    reg_add_string_view(&reg_key, "FriendlyName", friendly_name, view)
+                        .map_err(|e| e.to_string())?;
+                    reg_add_string_view(&reg_key, "Description", "LaTeX formula and table integration", view)
+                        .map_err(|e| e.to_string())?;
+                    reg_add_dword_view(&reg_key, "LoadBehavior", 3, view)
+                        .map_err(|e| e.to_string())?;
+                    reg_add_dword_view(&reg_key, "CommandLineSafe", 0, view)
+                        .map_err(|e| e.to_string())?;
+                    reg_add_string_view(&reg_key, "Manifest", &manifest_value, view)
+                        .map_err(|e| e.to_string())?;
+                    // Verify: re-query LoadBehavior and Manifest after write
+                    verify_vsto_host_view(&reg_key, &manifest_value, view)
+                        .map_err(|e| format!("post-write verification failed: {e}"))?;
+                    Ok(())
+                })();
 
-            installed.push(*host_name);
+                match (view, write_result) {
+                    (RegistryView::X64, Ok(())) => host_result.x64_ok = true,
+                    (RegistryView::X86, Ok(())) => host_result.x86_ok = true,
+                    (_, Err(e)) => host_result.errors.push(format!("{} view: {}", view.label(), e)),
+                }
+            }
+
+            // At least one view must succeed. If both fail, the install fails.
+            if !host_result.x64_ok && !host_result.x86_ok {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    format!(
+                        "{} VSTO 注册失败：{}",
+                        host_name,
+                        host_result.errors.join("; ")
+                    ),
+                );
+            }
+
+            host_results.push(host_result);
+        }
+
+        // Verify: re-check overall status before returning success
+        let status = get_native_office_status();
+        let hosts_ok = status.hosts.iter().all(|h| matches!(h.state, HostInstallState::Installed));
+        let cert_ok = status.certificate_trusted || cfg!(debug_assertions);
+
+        if !hosts_ok {
+            let failed_hosts: Vec<String> = status.hosts.iter()
+                .filter(|h| !matches!(h.state, HostInstallState::Installed))
+                .map(|h| format!("{}={:?}", h.host, h.state))
+                .collect();
+            // Still return success for install, but warn — the user may not have a particular Office host.
+            log::warn!("[Office] Post-install: some hosts not Installed: {}", failed_hosts.join(", "));
+        }
+        if !cert_ok {
+            log::warn!("[Office] Post-install: certificate not trusted (may affect VSTO loading in release mode)");
         }
 
         // Write ledger for reliable uninstall
@@ -1829,29 +1995,28 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             ledger.install_id = generate_install_id();
             ledger.desktop_version = get_desktop_version();
         }
-        // Read thumbprint from bundled .cer / signing.json instead of hardcoding
         ledger.native_office.signer_thumbprint = get_expected_thumbprint();
-        ledger.native_office.vsto = installed.iter().filter_map(|host| {
-            let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == *host)?;
+        ledger.native_office.vsto = host_results.iter().map(|hr| {
+            let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == hr.host).unwrap_or(&NATIVE_OFFICE_ADDINS[0]);
             let reg_key = format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
-                match *host {
+                match hr.host.as_str() {
                     "Word" => "Word",
                     "Excel" => "Excel",
                     "PowerPoint" => "PowerPoint",
-                    _ => return None,
+                    _ => "Word",
                 },
                 addin_id
             );
             let manifest = native_office_vsto_manifest(
-                host,
-                NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == *host).map(|(_, _, _, v)| *v).unwrap_or(""),
+                &hr.host,
+                NATIVE_OFFICE_ADDINS.iter().find(|(h, _, _, _)| *h == hr.host).map(|(_, _, _, v)| *v).unwrap_or(""),
             ).map(|p| office_manifest_value(&p)).unwrap_or_default();
-            Some(VstoLedgerEntry {
-                host: host.to_string(),
+            VstoLedgerEntry {
+                host: hr.host.clone(),
                 registry_key: reg_key,
                 manifest,
-            })
+            }
         }).collect();
 
         if let Err(e) = ledger.save() {
@@ -1859,8 +2024,6 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
         }
 
         // Auto-install OLE COM component — merge into the single Office toggle.
-        // Wrapped in catch_unwind to prevent panic=abort from crashing the app
-        // when spawn_blocking is used.
         let ole_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = install_ole_component();
             if result.success {
@@ -1870,7 +2033,7 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             }
             result
         })).unwrap_or_else(|_| {
-            log::error!("[Office] OLE auto-install panicked; this is a bug.");
+            log::error!("[Office] OLE auto-install panicked.");
             OleComponentResult {
                 success: false,
                 message: "OLE auto-install panicked.".to_string(),
@@ -1888,24 +2051,56 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             );
         }
 
+        let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
         return PlatformIntegrationResult::ok(
             "office",
             "native-vsto",
             format!(
-                "已启用 Native Office VSTO ({} 个宿主)。请重启 Office 以加载插件。",
-                installed.join(", ")
+                "已启用 Native Office VSTO ({})。请重启 Office 以加载插件。",
+                host_names.join(", ")
             ),
             true,
         );
     }
 }
 
+/// Verify that a VSTO host's registry entry is correct after writing.
+/// Re-queries LoadBehavior and Manifest to confirm the write took effect.
+#[cfg(target_os = "windows")]
+fn verify_vsto_host_view(
+    reg_key: &str,
+    expected_manifest: &str,
+    view: RegistryView,
+) -> Result<(), String> {
+    let lb = get_load_behavior_for_view(reg_key, view)
+        .ok_or_else(|| format!("LoadBehavior not readable after write"))?;
+    if lb != 3 {
+        return Err(format!("LoadBehavior is {} instead of 3", lb));
+    }
+
+    let manifest_check = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", reg_key, "/v", "Manifest", view.as_reg_arg()]),
+        10,
+    )
+    .map_err(|e| format!("Manifest re-query failed: {e}"))?;
+
+    if !manifest_check.status.success() {
+        return Err("Manifest key missing after write".to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&manifest_check.stdout);
+    if !stdout.contains(expected_manifest) {
+        return Err("Manifest value mismatch after write".to_string());
+    }
+
+    Ok(())
+}
+
 /// Check if Native Office VSTO add-ins are installed with real verification.
 /// Checks both 64-bit and 32-bit registry views for Office x86/x64 support.
 #[cfg(target_os = "windows")]
 fn check_native_office_vsto() -> bool {
-    use std::time::Duration;
-
     for (host_name, addin_id, _, vsto_file) in NATIVE_OFFICE_ADDINS {
         let reg_key = format!(
             r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
@@ -1921,19 +2116,20 @@ fn check_native_office_vsto() -> bool {
         let vsto_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
 
         // Check either 64-bit or 32-bit view (whichever matches the installed Office)
-        let views_ok = ["64", "32"].iter().any(|view| {
-            let key_with_view = format!("{} /reg:{}", reg_key, view);
-            let load_behavior = get_load_behavior_for_view(&reg_key, view);
+        let views_ok = REGISTRY_VIEWS.iter().any(|view| {
+            let load_behavior = get_load_behavior_for_view(&reg_key, *view);
             if load_behavior != Some(3) {
                 return false;
             }
 
             // Check manifest path exists
-            let manifest_ok = super::process::background_command("reg.exe")
-                .args(["query", &reg_key, "/v", "Manifest", "/reg:", view])
-                .output()
-                .map(|out| out.status.success())
-                .unwrap_or(false);
+            let manifest_ok = run_windows_tool(
+                super::process::background_command("reg.exe")
+                    .args(["query", &reg_key, "/v", "Manifest", view.as_reg_arg()]),
+                10,
+            )
+            .map(|out| out.status.success())
+            .unwrap_or(false);
 
             manifest_ok && vsto_exists
         });
@@ -1947,13 +2143,13 @@ fn check_native_office_vsto() -> bool {
 
 /// Get LoadBehavior for a specific registry view.
 #[cfg(target_os = "windows")]
-fn get_load_behavior_for_view(reg_key: &str, view: &str) -> Option<u32> {
-    use std::time::Duration;
-    let output = super::process::run_with_timeout(
+fn get_load_behavior_for_view(reg_key: &str, view: RegistryView) -> Option<u32> {
+    let output = run_windows_tool(
         super::process::background_command("reg.exe")
-            .args(["query", reg_key, "/v", "LoadBehavior", "/reg:", view]),
-        Duration::from_secs(10),
-    ).ok()?;
+            .args(["query", reg_key, "/v", "LoadBehavior", view.as_reg_arg()]),
+        10,
+    )
+    .ok()?;
 
     if !output.status.success() {
         return None;
@@ -1962,10 +2158,8 @@ fn get_load_behavior_for_view(reg_key: &str, view: &str) -> Option<u32> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for line in stdout.lines() {
         if line.contains("LoadBehavior") {
-            if let Some(pos) = line.rfind("0x") {
-                if let Ok(val) = u32::from_str_radix(&line[pos+2..pos+10].trim(), 16) {
-                    return Some(val);
-                }
+            if let Some(val) = parse_reg_dword_from_line(line) {
+                return Some(val);
             }
         }
     }
@@ -1977,7 +2171,7 @@ fn check_native_office_vsto() -> bool {
     false
 }
 
-/// Uninstall Native Office VSTO add-ins.
+/// Uninstall Native Office VSTO add-ins with verification.
 fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
@@ -1990,7 +2184,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
 
     #[cfg(target_os = "windows")]
     {
-        let mut uninstalled = Vec::new();
+        let mut host_reg_keys: Vec<(String, String)> = Vec::new();
 
         for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
             let reg_key = format!(
@@ -2004,20 +2198,47 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
                 addin_id
             );
 
-            // Delete from both 64-bit and 32-bit registry views to support
-            // both Office x64 and Office x86 on the same Windows installation.
-            reg_delete_tree_view(&reg_key, "64");
-            reg_delete_tree_view(&reg_key, "32");
+            // Delete from both 64-bit and 32-bit registry views
+            reg_delete_tree_both(&reg_key);
 
-            uninstalled.push(*host_name);
+            host_reg_keys.push((host_name.to_string(), reg_key));
+        }
+
+        // Verify removal: check that both views are empty for each host
+        let mut remaining_keys: Vec<String> = Vec::new();
+        for (host_name, reg_key) in &host_reg_keys {
+            for view in &REGISTRY_VIEWS {
+                let still_present = run_windows_tool(
+                    super::process::background_command("reg.exe")
+                        .args(["query", reg_key, "/v", "LoadBehavior", view.as_reg_arg()]),
+                    10,
+                )
+                .map(|out| out.status.success())
+                .unwrap_or(false);
+
+                if still_present {
+                    remaining_keys.push(format!("{} [{}]", host_name, view.label()));
+                }
+            }
+        }
+
+        if !remaining_keys.is_empty() {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                format!(
+                    "停用失败：以下注册表项仍存在：{}",
+                    remaining_keys.join(", ")
+                ),
+            );
         }
 
         return PlatformIntegrationResult::ok(
             "office",
             "native-vsto",
             format!(
-                "Uninstalled Native Office VSTO add-ins for {}. Restart Word, Excel, and PowerPoint to complete removal.",
-                uninstalled.join(", ")
+                "已停用 Native Office VSTO（{}），已确认注册表已清理。重启 Office 完成卸载。",
+                host_reg_keys.iter().map(|(h, _)| h.as_str()).collect::<Vec<_>>().join(", ")
             ),
             true,
         );
@@ -2154,11 +2375,13 @@ fn uninstall_office() -> PlatformIntegrationResult {
 
     if !startup.exists() {
         // Also clean up old VSTO registration if present
-        let vsto_check = super::process::background_command("reg.exe")
-            .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"])
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
-            .unwrap_or(false);
+        let vsto_check = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"]),
+            15,
+        )
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
+        .unwrap_or(false);
 
         if vsto_check {
             if let Some(clean) = find_office_force_clean() {
@@ -2244,11 +2467,13 @@ fn check_office() -> PlatformIntegrationResult {
         )
     } else {
         // Check for old VSTO registration
-        let vsto = super::process::background_command("reg.exe")
-            .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"])
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
-            .unwrap_or(false);
+        let vsto = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", r"HKCU\Software\Microsoft\Office\Word\Addins", "/s"]),
+            15,
+        )
+        .map(|out| String::from_utf8_lossy(&out.stdout).contains("LaTeXSnipper"))
+        .unwrap_or(false);
 
         if vsto {
             PlatformIntegrationResult::ok(
@@ -2891,7 +3116,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
     // directly and never creates a marker file.
     let vsto_runtime_ok = detect_vsto_runtime();
     let cert_trusted = check_certificate_trusted();
-    let any_host_registered = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, addin_id, _, vsto_file)| {
+    let any_host_valid = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, addin_id, _, vsto_file)| {
         let reg_key = format!(
             r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
             match *host_name {
@@ -2902,21 +3127,38 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
             },
             addin_id
         );
-        get_load_behavior(&reg_key).is_some()
+        // At least one registry view must have LoadBehavior=3 and manifest must exist
+        let has_x64 = get_load_behavior_for_view(&reg_key, RegistryView::X64) == Some(3);
+        let has_x86 = get_load_behavior_for_view(&reg_key, RegistryView::X86) == Some(3);
+        let manifest_found = native_office_vsto_manifest(host_name, vsto_file).is_some();
+        (has_x64 || has_x86) && manifest_found
+    });
+    let any_host_partial = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, addin_id, _, _vsto_file)| {
+        let reg_key = format!(
+            r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+            match *host_name {
+                "Word" => "Word",
+                "Excel" => "Excel",
+                "PowerPoint" => "PowerPoint",
+                _ => return false,
+            },
+            addin_id
+        );
+        let has_x64 = get_load_behavior_for_view(&reg_key, RegistryView::X64).is_some();
+        let has_x86 = get_load_behavior_for_view(&reg_key, RegistryView::X86).is_some();
+        has_x64 || has_x86
     });
     let any_vsto_file_found = NATIVE_OFFICE_ADDINS.iter().any(|(host_name, _, _, vsto_file)| {
         native_office_vsto_manifest(host_name, vsto_file).is_some()
     });
 
-    let package_state = if any_host_registered && any_vsto_file_found {
+    let package_state = if any_host_valid {
         if vsto_runtime_ok && cert_trusted {
             PackageState::Installed
-        } else if vsto_runtime_ok {
-            PackageState::NeedsPrerequisite
         } else {
             PackageState::NeedsPrerequisite
         }
-    } else if any_host_registered || any_vsto_file_found {
+    } else if any_host_partial || any_vsto_file_found {
         PackageState::Broken
     } else {
         PackageState::NotInstalled
@@ -2969,6 +3211,35 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
     }
 }
 
+/// Check registry entry status for a single view (x64 or x86).
+#[cfg(windows)]
+fn check_registry_view(reg_key: &str, view: RegistryView) -> RegistryEntryStatus {
+    let lb = get_load_behavior_for_view(reg_key, view);
+    let present = lb.is_some();
+
+    let manifest = if present {
+        run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", reg_key, "/v", "Manifest", view.as_reg_arg()]),
+            10,
+        )
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        None
+    };
+
+    let valid = present && lb == Some(3);
+
+    RegistryEntryStatus {
+        present,
+        load_behavior: lb,
+        manifest,
+        valid,
+        error: None,
+    }
+}
+
 #[cfg(windows)]
 fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     let vsto_file = match host_name {
@@ -2982,48 +3253,55 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
         office_app, host_name
     );
 
-    // Check real LoadBehavior value
-    let load_behavior = get_load_behavior(&reg_key);
-
-    // Check registry key
-    let registry_key_present = load_behavior.is_some();
+    // Check per-view registry status
+    let reg_x64 = check_registry_view(&reg_key, RegistryView::X64);
+    let reg_x86 = check_registry_view(&reg_key, RegistryView::X86);
+    let any_reg_valid = reg_x64.valid || reg_x86.valid;
 
     // Check if Office is running
-    let office_detected = super::process::background_command("tasklist.exe")
-        .args([
-            "/FI",
-            &format!("IMAGENAME eq {}.exe", office_app.to_lowercase()),
-        ])
-        .output()
-        .map(|out| {
-            let output = String::from_utf8_lossy(&out.stdout);
-            output.contains(&format!("{}.exe", office_app.to_lowercase()))
-        })
-        .unwrap_or(false);
+    let office_detected = run_windows_tool(
+        super::process::background_command("tasklist.exe")
+            .args([
+                "/FI",
+                &format!("IMAGENAME eq {}.exe", office_app.to_lowercase()),
+            ]),
+        5,
+    )
+    .map(|out| {
+        let output = String::from_utf8_lossy(&out.stdout);
+        output.contains(&format!("{}.exe", office_app.to_lowercase()))
+    })
+    .unwrap_or(false);
 
     // Check VSTO file exists
-    let vsto_file_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
+    let manifest_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
 
     // Determine state
-    let state = if !office_detected {
-        HostInstallState::OfficeNotDetected
-    } else if registry_key_present && vsto_file_exists {
-        HostInstallState::Installed
-    } else if registry_key_present || vsto_file_exists {
-        HostInstallState::Broken
+    let (state, message) = if !office_detected && !any_reg_valid {
+        (HostInstallState::NotInstalled, "Office not detected, no registration found".to_string())
+    } else if any_reg_valid && manifest_exists && office_detected {
+        (HostInstallState::Installed, "VSTO add-in is installed and Office is running".to_string())
+    } else if any_reg_valid && manifest_exists {
+        (HostInstallState::Installed, "VSTO add-in is installed. Restart Office to load.".to_string())
+    } else if reg_x64.present || reg_x86.present {
+        (HostInstallState::Broken, format!(
+            "Registry present but invalid. x64: valid={}, lb={:?}; x86: valid={}, lb={:?}",
+            reg_x64.valid, reg_x64.load_behavior, reg_x86.valid, reg_x86.load_behavior
+        ))
     } else {
-        HostInstallState::NotInstalled
+        (HostInstallState::NotInstalled, "Not installed".to_string())
     };
 
     HostInstallStatus {
         host: host_name.to_string(),
         office_detected,
-        registry_key_present,
-        manifest_value: None,
-        vsto_file_exists,
-        load_behavior,
+        registry_x64: reg_x64,
+        registry_x86: reg_x86,
+        manifest_exists,
         connected_sessions: 0,
+        capabilities: vec![],
         state,
+        message,
     }
 }
 
@@ -3181,6 +3459,10 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
             return crate::commands::native_office::OleStatus {
                 available: false,
                 bitness_mismatch: false,
+                x64_registered: registry_64,
+                x86_registered: registry_32,
+                x64_dll_exists: false,
+                x86_dll_exists: false,
                 health: "NotInstalled".to_string(),
                 detail: "OLE CLSID not found in any registry view. Run OLE installation.".to_string(),
             };
@@ -3298,6 +3580,10 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     crate::commands::native_office::OleStatus {
         available,
         bitness_mismatch: !(x64_dll_found && x86_dll_found),
+        x64_registered: registry_64,
+        x86_registered: registry_32,
+        x64_dll_exists: x64_dll_found,
+        x86_dll_exists: x86_dll_found,
         health,
         detail,
     }
@@ -3308,6 +3594,10 @@ pub fn check_ole_status() -> OleStatus {
     OleStatus {
         available: false,
         bitness_mismatch: false,
+        x64_registered: false,
+        x86_registered: false,
+        x64_dll_exists: false,
+        x86_dll_exists: false,
         health: "NotSupported".to_string(),
         detail: "OLE is only available on Windows.".to_string(),
     }
@@ -3549,23 +3839,22 @@ fn find_signing_metadata() -> Option<std::path::PathBuf> {
 /// Improve load verification by checking real LoadBehavior value.
 #[cfg(target_os = "windows")]
 pub fn get_load_behavior(reg_key: &str) -> Option<u32> {
-    let output = super::process::background_command("reg.exe")
-        .args(["query", reg_key, "/v", "LoadBehavior"])
-        .output()
-        .ok()?;
+    let output = run_windows_tool(
+        super::process::background_command("reg.exe")
+            .args(["query", reg_key, "/v", "LoadBehavior"]),
+        10,
+    )
+    .ok()?;
 
     if !output.status.success() {
         return None;
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Parse "LoadBehavior    REG_DWORD    0x3"
     for line in stdout.lines() {
         if line.contains("LoadBehavior") {
-            if let Some(pos) = line.rfind("0x") {
-                if let Ok(val) = u32::from_str_radix(&line[pos+2..pos+10].trim(), 16) {
-                    return Some(val);
-                }
+            if let Some(val) = parse_reg_dword_from_line(line) {
+                return Some(val);
             }
         }
     }
@@ -3637,14 +3926,14 @@ pub fn install_ole_component() -> OleComponentResult {
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
     let friendly = ole_constants::FRIENDLY_NAME;
 
-    // Register for 64-bit view (HKCU\Software\Classes\CLSID\{guid})
+    // Register for 64-bit view
     entries.extend(register_ole_view(
-        &x64_dll, clsid, prog_id, prog_id_vi, friendly, "64",
+        &x64_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X64,
     ));
 
-    // Register for 32-bit view (HKCU\Software\Classes\Wow6432Node\CLSID\{guid})
+    // Register for 32-bit view
     entries.extend(register_ole_view(
-        &x86_dll, clsid, prog_id, prog_id_vi, friendly, "32",
+        &x86_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X86,
     ));
 
     // Update ledger with OLE installation
@@ -3686,7 +3975,7 @@ pub fn install_ole_component() -> OleComponentResult {
 }
 
 /// Register OLE COM entries for a specific registry view.
-/// `view` is "64" (default) or "32" (Wow6432Node via /reg:32 flag).
+/// Uses RegistryView enum to produce correct /reg:32 or /reg:64 flag.
 #[cfg(target_os = "windows")]
 fn register_ole_view(
     dll_path: &str,
@@ -3694,13 +3983,10 @@ fn register_ole_view(
     prog_id: &str,
     prog_id_vi: &str,
     friendly: &str,
-    view: &str,
+    view: RegistryView,
 ) -> Vec<String> {
     let mut entries = Vec::new();
-    let view_flag = match view {
-        "32" => "/reg:32",
-        _ => "/reg:64",
-    };
+    let reg_flag = view.as_reg_arg();
 
     macro_rules! reg_add_view {
         ($key:expr, $name:expr, $value:expr) => {{
@@ -3711,7 +3997,7 @@ fn register_ole_view(
             } else {
                 cmd.args(["/v", $name]);
             }
-            cmd.args(["/t", "REG_SZ", "/d", $value, "/f", view_flag]);
+            cmd.args(["/t", "REG_SZ", "/d", $value, "/f", reg_flag]);
             // 15-second timeout to prevent hanging
             super::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))
                 .map(|out| out.status.success())
@@ -3724,12 +4010,19 @@ fn register_ole_view(
     // key path is the same for both views.
     let clsid_key = format!(r"HKCU\Software\Classes\CLSID\{}", clsid);
 
-    // ProgID
+    // ProgID (versioned: LaTeXSnipper.Formula.1)
     if reg_add_view!(&format!(r"HKCU\Software\Classes\{}", prog_id), "", friendly) {
-        entries.push(format!("[{}] ProgID {}", view, prog_id));
+        entries.push(format!("[{}] ProgID {}", view.label(), prog_id));
     }
     reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id), "", clsid);
     reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id), "", prog_id);
+
+    // VersionIndependentProgID (unversioned: LaTeXSnipper.Formula → CurVer → versioned)
+    if reg_add_view!(&format!(r"HKCU\Software\Classes\{}", prog_id_vi), "", friendly) {
+        entries.push(format!("[{}] ProgID (version-independent) {}", view.label(), prog_id_vi));
+    }
+    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi), "", clsid);
+    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id_vi), "", prog_id);
 
     // CLSID
     reg_add_view!(&clsid_key, "", friendly);
@@ -3741,12 +4034,12 @@ fn register_ole_view(
     let inproc_key = format!(r"{}\InprocServer32", clsid_key);
     reg_add_view!(&inproc_key, "", dll_path);
     reg_add_view!(&inproc_key, "ThreadingModel", "Apartment");
-    entries.push(format!("[{}] InprocServer32 → {}", view, dll_path));
+    entries.push(format!("[{}] InprocServer32 → {}", view.label(), dll_path));
 
     entries
 }
 
-/// Uninstall the OLE COM component from both registry views.
+/// Uninstall the OLE COM component from both registry views with verification.
 #[cfg(target_os = "windows")]
 pub fn uninstall_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
@@ -3754,18 +4047,20 @@ pub fn uninstall_ole_component() -> OleComponentResult {
     let prog_id = ole_constants::PROG_ID;
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
 
-    for view_flag in &["/reg:64", "/reg:32"] {
+    for view in &REGISTRY_VIEWS {
         for key in &[
             format!(r"HKCU\Software\Classes\CLSID\{}", clsid),
             format!(r"HKCU\Software\Classes\{}", prog_id),
             format!(r"HKCU\Software\Classes\{}", prog_id_vi),
         ] {
-            let result = super::process::background_command("reg.exe")
-                .args(["delete", key, "/f", view_flag])
-                .output();
+            let result = run_windows_tool(
+                super::process::background_command("reg.exe")
+                    .args(["delete", key, "/f", view.as_reg_arg()]),
+                15,
+            );
             match result {
                 Ok(out) if out.status.success() => {
-                    entries.push(format!("Deleted {} ({})", key, view_flag));
+                    entries.push(format!("Deleted {} ({})", key, view.label()));
                 }
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -3978,9 +4273,11 @@ impl CleanerResult {
 fn check_office_processes() -> Vec<String> {
     let mut running = Vec::new();
     for (name, exe) in &[("Word", "WINWORD.EXE"), ("Excel", "EXCEL.EXE"), ("PowerPoint", "POWERPNT.EXE")] {
-        let output = Command::new("tasklist.exe")
-            .args(["/FI", &format!("IMAGENAME eq {}", exe)])
-            .output();
+        let output = run_windows_tool(
+            Command::new("tasklist.exe")
+                .args(["/FI", &format!("IMAGENAME eq {}", exe)]),
+            5,
+        );
         if let Ok(out) = output {
             let stdout = String::from_utf8_lossy(&out.stdout);
             if stdout.contains(exe) {
@@ -4003,17 +4300,17 @@ fn clean_native_office(result: &mut CleanerResult) {
 
     for entry in &ledger.native_office.vsto {
         // Verify ownership before deleting
-        let reg_value = super::process::background_command("reg.exe")
-            .args(["query", &entry.registry_key, "/v", "Manifest"])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-            .unwrap_or_default();
+        let reg_value = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", &entry.registry_key, "/v", "Manifest"]),
+            10,
+        )
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default();
 
         if reg_value.contains(&entry.manifest) || entry.manifest.is_empty() {
             // We own this entry — safe to delete
-            let _ = super::process::background_command("reg.exe")
-                .args(["delete", &entry.registry_key, "/f"])
-                .output();
+            reg_delete_tree_both(&entry.registry_key);
             result.remove(&format!("VSTO registry: {}", entry.registry_key));
         } else {
             result.skip(&format!("VSTO registry: {} (manifest mismatch, may be from another install)", entry.registry_key));
@@ -4035,26 +4332,32 @@ fn clean_ole(result: &mut CleanerResult) {
             let clsid_key = format!("Software\\Classes\\CLSID\\{}", ole.clsid);
             let inproc_key = format!("{}\\InprocServer32", clsid_key);
 
-            let current_dll = super::process::background_command("reg.exe")
-                .args(["query", &inproc_key, "/ve"])
-                .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                .unwrap_or_default();
+            let current_dll = run_windows_tool(
+                super::process::background_command("reg.exe")
+                    .args(["query", &inproc_key, "/ve"]),
+                10,
+            )
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
 
             if current_dll.contains(&ole.dll_path) || ole.dll_path.is_empty() {
-                // Clean up registry entries
-                let keys = [
-                    format!("Software\\Classes\\CLSID\\{}\\InprocServer32", ole.clsid),
-                    format!("Software\\Classes\\CLSID\\{}", ole.clsid),
-                    format!("Software\\Classes\\{}", ole.prog_id),
-                    format!("Software\\Classes\\{}\\CLSID", ole.prog_id),
-                    format!("Software\\Classes\\{}\\CurVer", ole.prog_id),
-                ];
-                for key in &keys {
-                    let _ = Command::new("reg.exe")
-                        .args(["delete", key, "/f"])
-                        .output();
-                    result.remove(&format!("OLE registry: {}", key));
+                // Clean up registry entries from both views
+                for view in &REGISTRY_VIEWS {
+                    let keys = [
+                        format!("HKCU\\Software\\Classes\\CLSID\\{}\\InprocServer32", ole.clsid),
+                        format!("HKCU\\Software\\Classes\\CLSID\\{}", ole.clsid),
+                        format!("HKCU\\Software\\Classes\\{}", ole.prog_id),
+                        format!("HKCU\\Software\\Classes\\{}\\CLSID", ole.prog_id),
+                        format!("HKCU\\Software\\Classes\\{}\\CurVer", ole.prog_id),
+                    ];
+                    for key in &keys {
+                        let _ = run_windows_tool(
+                            Command::new("reg.exe")
+                                .args(["delete", key, "/f", view.as_reg_arg()]),
+                            15,
+                        );
+                        result.remove(&format!("OLE registry: {} [{}]", key, view.label()));
+                    }
                 }
             } else {
                 result.skip("OLE registry (DLL path mismatch, may be from another install)");

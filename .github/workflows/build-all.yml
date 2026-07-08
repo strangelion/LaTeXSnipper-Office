@@ -139,9 +139,35 @@ jobs:
             throw "VSTO artifact source missing: $src"
           }
         
+          # Detect nested staging directory (old artifact structure):
+          #   _vsto_artifact/staging/Word   → use _vsto_artifact/staging/
+          #   _vsto_artifact/Word            → use _vsto_artifact/
+          if (Test-Path "$src\staging\Word") {
+            Write-Host "  Detected nested staging artifact; using $src\staging as source root"
+            $src = "$src\staging"
+          }
+        
+          # Validate required files
+          $required = @(
+            "Word\LaTeXSnipper.Word.vsto",
+            "Excel\LaTeXSnipper.Excel.vsto",
+            "PowerPoint\LaTeXSnipper.PowerPoint.vsto",
+            "Shared\LaTeXSnipper.NativeOffice.Shared.dll",
+            "OleFormulaObject.x64.dll",
+            "OleFormulaObject.x86.dll",
+            "certificates\LaTeXSnipperOffice.cer",
+            "certificates\native-office-signing.json"
+          )
+          foreach ($rel in $required) {
+            $p = Join-Path $src $rel
+            if (-not (Test-Path -LiteralPath $p)) {
+              throw "VSTO artifact missing required file: $rel; source=$src"
+            }
+          }
+          Write-Host "  All required VSTO artifact files present" -ForegroundColor Green
+        
           $artifactFiles = Get-ChildItem -LiteralPath $src -Recurse -Force
-          Write-Host "VSTO artifact source: $src (exists: $((Test-Path -LiteralPath $src)))"
-          Write-Host "VSTO artifact files: $($artifactFiles.Count)"
+          Write-Host "VSTO artifact source: $src (files: $($artifactFiles.Count))"
         
           # NativeOffice is generated staging content. Never merge it with old output.
           if (Test-Path -LiteralPath $dst) {
@@ -379,12 +405,28 @@ jobs:
             Write-Host "Cleaned up ephemeral PFX"
           }
 
+      - name: Verify OLE DLLs exist in staging
+        shell: pwsh
+        run: |
+          $staging = "apps/native-office/Installer/output/staging"
+          $required = @("OleFormulaObject.x64.dll", "OleFormulaObject.x86.dll")
+          foreach ($file in $required) {
+            $p = Join-Path $staging $file
+            if (-not (Test-Path -LiteralPath $p)) {
+              throw "OLE DLL missing from staging: $file"
+            }
+            Write-Host "  OLE DLL found: $file" -ForegroundColor Green
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: vsto
-          path: |
-            apps/native-office/Installer/output/staging/
-            apps/native-office/Installer/output/certificates/
+          # Upload staging content only (not the staging/ wrapper) so that
+          # the downloaded artifact structure is flat:
+          #   _vsto_artifact/Word/LaTeXSnipper.Word.vsto
+          #   _vsto_artifact/OleFormulaObject.x64.dll
+          #   _vsto_artifact/certificates/LaTeXSnipperOffice.cer
+          path: apps/native-office/Installer/output/staging/**
               
   # ─────────── WPS Plugin ───────────
   wps:

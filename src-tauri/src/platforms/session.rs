@@ -46,6 +46,8 @@ pub struct OfficeSession {
     pub connected_at: chrono::DateTime<chrono::Utc>,
     /// Channel to send outgoing messages to this VSTO client.
     pub writer: Option<mpsc::Sender<Vec<u8>>>,
+    /// Capabilities reported by the VSTO add-in during HOST_READY.
+    pub capabilities: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -129,6 +131,7 @@ impl SessionManager {
                     document_title: None,
                     connected_at: chrono::Utc::now(),
                     writer, // Register the writer channel here
+                    capabilities: vec![],
                 };
                 self.sessions
                     .write()
@@ -169,12 +172,22 @@ impl SessionManager {
                 documentContextId,
                 documentTitle,
                 documentKind: _,
-                capabilities: _,
+                capabilities,
             } => {
                 if let Some(session) = self.sessions.write().await.get_mut(&sessionId) {
                     session.document_id = documentContextId;
                     session.document_title = documentTitle.clone();
                     session.host_version = hostVersion;
+                    // Store capabilities as a list of supported feature strings
+                    if let Some(ref caps) = capabilities {
+                        let mut cap_list = Vec::new();
+                        if caps.insert_formula { cap_list.push("insert_formula".to_string()); }
+                        if caps.replace_formula { cap_list.push("replace_formula".to_string()); }
+                        if caps.read_selection { cap_list.push("read_selection".to_string()); }
+                        if caps.insert_table { cap_list.push("insert_table".to_string()); }
+                        if caps.read_table { cap_list.push("read_table".to_string()); }
+                        session.capabilities = cap_list;
+                    }
                     log::info!(
                         "[Session] HOST_READY {} (session={}, doc={:?}, title={:?})",
                         hostType,
@@ -364,6 +377,40 @@ impl SessionManager {
                     serde_json::json!({
                         "success": success,
                         "formulaId": formulaId,
+                        "error": error,
+                        "sessionId": sid,
+                    }),
+                );
+                ResponseEnvelope {
+                    requestId: rid.clone(),
+                    sessionId: sid.clone(),
+                    response: DesktopMessage::Ping {
+                        requestId: rid,
+                        sessionId: sid,
+                    },
+                }
+            }
+
+            VstoMessage::InsertTableResult {
+                requestId,
+                sessionId,
+                success,
+                tableId,
+                error,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!(
+                    "[Session] INSERT_TABLE_RESULT success={} tableId={:?} error={:?}",
+                    success,
+                    tableId,
+                    error
+                );
+                let _ = self.app_handle.emit(
+                    "native-office-insert-table-result",
+                    serde_json::json!({
+                        "success": success,
+                        "tableId": tableId,
                         "error": error,
                         "sessionId": sid,
                     }),
@@ -580,6 +627,7 @@ impl SessionManager {
                 document_id: s.document_id.clone(),
                 document_title: s.document_title.clone(),
                 connected_at: s.connected_at,
+                capabilities: s.capabilities.clone(),
             })
             .collect()
     }
@@ -656,6 +704,7 @@ pub struct SessionInfo {
     pub document_id: Option<String>,
     pub document_title: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
+    pub capabilities: Vec<String>,
 }
 
 #[derive(Debug)]

@@ -152,17 +152,20 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     // First try non-elevated
-    let output = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script_path.to_string_lossy(),
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("Failed to run cert trust: {e}"))?;
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        &script_path.to_string_lossy(),
+    ])
+    .creation_flags(CREATE_NO_WINDOW);
+    let output = crate::platforms::process::run_with_timeout(
+        &mut cmd,
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(|e| format!("Failed to run cert trust: {e}"))?;
 
     if output.status.success() {
         let _ = fs::remove_file(script_path);
@@ -210,10 +213,13 @@ fn is_cert_trusted() -> Result<bool, String> {
     // On Windows, we try to find our cert in the store
     #[cfg(target_os = "windows")]
     {
-        let output = std::process::Command::new("certutil")
-            .args(["-store", "-user", "Root", "localhost"])
-            .output()
-            .map_err(|e| format!("Failed to query cert store: {e}"))?;
+        let mut cmd = std::process::Command::new("certutil");
+        cmd.args(["-store", "-user", "Root", "localhost"]);
+        let output = crate::platforms::process::run_with_timeout(
+            &mut cmd,
+            std::time::Duration::from_secs(15),
+        )
+        .map_err(|e| format!("Failed to query cert store: {e}"))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         Ok(stdout.contains("localhost") && output.status.success())

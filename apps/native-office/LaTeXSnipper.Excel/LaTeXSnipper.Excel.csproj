@@ -208,20 +208,18 @@
     <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">10.0</VisualStudioVersion>
     <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
   </PropertyGroup>
-  <!-- VSTO manifest signing is opt-in. Installer/build.ps1 supplies the certificate in CI. -->
+  <!-- VSTO manifest signing is opt-in. Installer/build.ps1 supplies the certificate in CI.
+       Remove hardcoded ManifestKeyFile/ManifestCertificateThumbprint to prevent
+       unconditional values from overriding CI-provided certificates. -->
   <PropertyGroup>
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
     <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
     <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
+    <ManifestCertificateThumbprint Condition="'$(VstoManifestThumbprint)' != ''">$(VstoManifestThumbprint)</ManifestCertificateThumbprint>
   </PropertyGroup>
-  <PropertyGroup>
-    <SignManifests>true</SignManifests>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestKeyFile>LaTeXSnipper.Excel_TemporaryKey.pfx</ManifestKeyFile>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestCertificateThumbprint>8FABBBC70DF825D55762754D112F67DCB6432F80</ManifestCertificateThumbprint>
+  <!-- Release builds without CI env vars: disable signing rather than fail on missing PFX. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(VstoManifestKeyFile)' == '' and '$(VstoManifestThumbprint)' == ''">
+    <SignManifests>false</SignManifests>
   </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->

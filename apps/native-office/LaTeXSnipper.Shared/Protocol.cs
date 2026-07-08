@@ -68,6 +68,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoReplaceResult), "REPLACE_RESULT")]
 [JsonDerivedType(typeof(VstoDeleteResult), "DELETE_RESULT")]
 [JsonDerivedType(typeof(VstoConvertResult), "CONVERT_RESULT")]
+[JsonDerivedType(typeof(VstoInsertTableResult), "INSERT_TABLE_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -200,6 +201,13 @@ public class VstoConvertResult : VstoMessage
     [JsonPropertyName("success")] public bool Success { get; set; }
     [JsonPropertyName("newFormulaId")] public string? NewFormulaId { get; set; }
     [JsonPropertyName("newStorageMode")] public string? NewStorageMode { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
+public class VstoInsertTableResult : VstoMessage
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("tableId")] public string? TableId { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 

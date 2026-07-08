@@ -290,7 +290,27 @@ namespace LaTeXSnipper.Word
 
                 case DesktopInsertTable insertTable:
                 {
-                    var success = _tableConverter.InsertTable(insertTable.Table);
+                    try
+                    {
+                        var ok = _tableConverter.InsertTable(insertTable.Table);
+                        _pipeClient.SendOnlyAsync(new VstoInsertTableResult
+                        {
+                            RequestId = insertTable.RequestId,
+                            SessionId = insertTable.SessionId,
+                            Success = ok,
+                            TableId = insertTable.Table.TableId,
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoInsertTableResult
+                        {
+                            RequestId = insertTable.RequestId,
+                            SessionId = insertTable.SessionId,
+                            Success = false,
+                            Error = ex.Message
+                        });
+                    }
                     break;
                 }
 

@@ -110,6 +110,17 @@ pub enum VstoMessage {
         tableXml: Option<String>,
     },
 
+    #[serde(rename = "INSERT_TABLE_RESULT")]
+    InsertTableResult {
+        requestId: String,
+        sessionId: String,
+        success: bool,
+        #[serde(rename = "tableId", skip_serializing_if = "Option::is_none")]
+        tableId: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
     #[serde(rename = "INSERT_RESULT")]
     InsertResult {
         requestId: String,

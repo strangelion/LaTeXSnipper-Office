@@ -405,6 +405,10 @@ pub async fn native_office_status() -> Result<NativeOfficeStatus, String> {
             ole: OleStatus {
                 available: false,
                 bitness_mismatch: false,
+                x64_registered: false,
+                x86_registered: false,
+                x64_dll_exists: false,
+                x86_dll_exists: false,
                 health: "NotSupported".to_string(),
                 detail: "Office integration is only available on Windows.".to_string(),
             },
@@ -540,15 +544,27 @@ pub enum PackageState {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "PascalCase")]
+pub struct RegistryEntryStatus {
+    pub present: bool,
+    pub load_behavior: Option<u32>,
+    pub manifest: Option<String>,
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct HostInstallStatus {
     pub host: String,
     pub office_detected: bool,
-    pub registry_key_present: bool,
-    pub manifest_value: Option<String>,
-    pub vsto_file_exists: bool,
-    pub load_behavior: Option<u32>,
+    /// Per-view (x64/x86) registry status for dual-bit Office support.
+    pub registry_x64: RegistryEntryStatus,
+    pub registry_x86: RegistryEntryStatus,
+    pub manifest_exists: bool,
     pub connected_sessions: usize,
     pub state: HostInstallState,
+    pub capabilities: Vec<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
