@@ -227,9 +227,10 @@ namespace LaTeXSnipper.Word.Metadata
                         System.Diagnostics.Debug.WriteLine($"[TableConverter] Skipping merged cell at ({r},{c})");
                     }
                 }
+                } // end for (r)
 
                 return true;
-            }
+            } // end try
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[TableConverter] Insert failed: {ex.Message}");
