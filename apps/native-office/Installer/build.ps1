@@ -296,11 +296,10 @@ if ($SkipSigning) {
         Write-Host "  Signing metadata: $signingPath" -ForegroundColor Gray
     }
 
-    $buildArgs += "/p:SignManifests=true"
     $buildArgs += "/p:ManifestCertificateThumbprint=$thumbprint"
-    $buildArgs += "/p:ManifestKeyFile=$env:VstoManifestKeyFile"
+    $buildArgs += "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile"
     if ($env:VstoManifestKeyPassword) {
-        $buildArgs += "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword"
+        $buildArgs += "/p:VstoManifestKeyPassword=$env:VstoManifestKeyPassword"
     }
     Write-Host "  Signing: ENABLED" -ForegroundColor Green
 }
