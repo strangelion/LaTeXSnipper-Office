@@ -22,19 +22,28 @@ pub fn background_command(program: impl AsRef<OsStr>) -> Command {
 /// given duration, it is killed and `io::ErrorKind::TimedOut` is returned.
 /// This prevents reg.exe/certutil.exe from hanging the Office toggle forever.
 pub fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Output> {
+    use std::process::Stdio;
     use std::sync::mpsc;
     use std::thread;
 
     let (tx, rx) = mpsc::channel();
 
-    // Spawn the process in a thread so we can set a timeout
-    let mut child = cmd.spawn()?;
-    let child_stdin = child.stdin.take();
+    // IMPORTANT:
+    // Command::spawn() does not capture stdout/stderr by default. Several Office
+    // integration checks parse `reg.exe query` output, so leaving stdout inherited
+    // makes those checks see an empty Output even when reg.exe succeeded. That was
+    // causing false failures such as:
+    //   post-write verification failed: LoadBehavior not readable after write
+    // after successful `reg add` calls.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    // Spawn the process in a thread so we can set a timeout.
+    let child = cmd.spawn()?;
     let child_id = child.id();
 
     thread::spawn(move || {
-        // Drop stdin handle so the child doesn't wait for input
-        drop(child_stdin);
         let result = child.wait_with_output();
         let _ = tx.send(result);
     });
@@ -42,7 +51,7 @@ pub fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Outp
     match rx.recv_timeout(timeout) {
         Ok(result) => result,
         Err(mpsc::RecvTimeoutError::Timeout) => {
-            // Kill the child process
+            // Kill the child process.
             let _ = kill_process(child_id);
             Err(io::Error::new(io::ErrorKind::TimedOut, "process timed out"))
         }
