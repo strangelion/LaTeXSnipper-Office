@@ -218,6 +218,8 @@
     <ManifestKeyFile Condition="'$(VstoManifestKeyFile)' != ''">$(VstoManifestKeyFile)</ManifestKeyFile>
     <ManifestKeyPassword Condition="'$(VstoManifestKeyPassword)' != ''">$(VstoManifestKeyPassword)</ManifestKeyPassword>
     <ManifestCertificateThumbprint Condition="'$(VstoManifestThumbprint)' != ''">$(VstoManifestThumbprint)</ManifestCertificateThumbprint>
+    <!-- Generate .vsto and .dll.manifest during Build (not just Publish) -->
+    <GenerateManifestsInBuild>true</GenerateManifestsInBuild>
   </PropertyGroup>
   <!-- Release builds without CI env vars: disable signing rather than fail on missing PFX. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(VstoManifestKeyFile)' == '' and '$(VstoManifestThumbprint)' == ''">
