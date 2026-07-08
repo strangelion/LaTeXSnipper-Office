@@ -515,6 +515,7 @@ pub async fn native_office_validate_ole() -> Result<crate::platforms::integratio
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NativeOfficeStatus {
     pub platform_supported: bool,
     pub package_state: PackageState,
@@ -543,7 +544,7 @@ pub enum PackageState {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "camelCase")]
 pub struct RegistryEntryStatus {
     pub present: bool,
     pub load_behavior: Option<u32>,
@@ -553,7 +554,7 @@ pub struct RegistryEntryStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "camelCase")]
 pub struct HostInstallStatus {
     pub host: String,
     pub office_detected: bool,
@@ -568,7 +569,6 @@ pub struct HostInstallStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "PascalCase")]
 pub enum HostInstallState {
     NotInstalled,
     Installed,

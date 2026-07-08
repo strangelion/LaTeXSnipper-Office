@@ -355,6 +355,7 @@ jobs:
 
           # Export .cer for inclusion in the release package
           $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString $env:VSTO_CERT_PASSWORD -AsPlainText -Force)
+          "VstoManifestThumbprint=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $certDir = Join-Path $env:GITHUB_WORKSPACE "apps\native-office\Installer\output\certificates"
           New-Item -ItemType Directory -Path $certDir -Force | Out-Null
           $certBytes2 = $cert.Export("Cert")

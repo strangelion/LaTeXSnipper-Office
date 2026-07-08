@@ -27,14 +27,12 @@ pub fn is_taskpane_connected() -> bool {
 // view flag as a single argument ("/reg:32", not ["/reg:", "32"]).
 // ═══════════════════════════════════════════════════════════════════════════
 
-#[cfg(target_os = "windows")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RegistryView {
     X64,
     X86,
 }
 
-#[cfg(target_os = "windows")]
 impl RegistryView {
     fn as_reg_arg(self) -> &'static str {
         match self {
@@ -51,7 +49,6 @@ impl RegistryView {
     }
 }
 
-#[cfg(target_os = "windows")]
 const REGISTRY_VIEWS: [RegistryView; 2] = [RegistryView::X64, RegistryView::X86];
 
 /// Safely parse a REG_DWORD hex value from a `reg query` output line.
@@ -691,11 +688,13 @@ fn spawn_regasm(dll: &Path, unregister: bool) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
     reg_add_string_view(key, name, value, RegistryView::X64)
 }
 
 /// reg.exe add with explicit RegistryView (/reg:32 or /reg:64).
+#[cfg(target_os = "windows")]
 fn reg_add_string_view(
     key: &str,
     name: &str,
@@ -731,10 +730,12 @@ fn reg_add_string_view(
     }
 }
 
+#[cfg(target_os = "windows")]
 fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
     reg_add_dword_view(key, name, value, RegistryView::X64)
 }
 
+#[cfg(target_os = "windows")]
 fn reg_add_dword_view(
     key: &str,
     name: &str,
@@ -761,12 +762,14 @@ fn reg_add_dword_view(
     }
 }
 
+#[cfg(target_os = "windows")]
 fn reg_delete_tree(key: &str) {
     // Delete from both views for thorough cleanup
     let _ = reg_delete_tree_view(key, RegistryView::X64);
     let _ = reg_delete_tree_view(key, RegistryView::X86);
 }
 
+#[cfg(target_os = "windows")]
 fn reg_delete_tree_view(key: &str, view: RegistryView) -> std::io::Result<()> {
     let mut cmd = super::process::background_command("reg.exe");
     cmd.args(["delete", key, "/f"]);
@@ -796,6 +799,7 @@ fn reg_delete_tree_view(key: &str, view: RegistryView) -> std::io::Result<()> {
 
 /// Delete a registry tree from both 64-bit and 32-bit views silently.
 /// Returns () to match old call sites that ignored the result.
+#[cfg(target_os = "windows")]
 fn reg_delete_tree_both(key: &str) {
     let _ = reg_delete_tree_view(key, RegistryView::X64);
     let _ = reg_delete_tree_view(key, RegistryView::X86);
@@ -2041,13 +2045,21 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             }
         });
         if !ole_result.success {
-            return PlatformIntegrationResult::fail(
+            // OLE failure does NOT block VSTO in auto/native/image modes.
+            // VSTO stays registered; user sees degraded state in settings page.
+            log::warn!(
+                "[Office] OLE install failed ({}). VSTO remains enabled; OLE unavailable.",
+                ole_result.message
+            );
+            let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
+            return PlatformIntegrationResult::ok(
                 "office",
                 "native-vsto",
                 format!(
-                    "Native Office VSTO was registered, but OLE registration failed: {}",
-                    ole_result.message
+                    "已启用 Native Office VSTO ({})，但 OLE 组件不可用，将自动降级为 native/image 模式。请重启 Office 加载插件。",
+                    host_names.join(", ")
                 ),
+                true,
             );
         }
 
@@ -2171,7 +2183,7 @@ fn check_native_office_vsto() -> bool {
     false
 }
 
-/// Uninstall Native Office VSTO add-ins with verification.
+/// Uninstall Native Office VSTO add-ins with verification, including OLE cleanup.
 fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
@@ -2184,6 +2196,13 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
 
     #[cfg(target_os = "windows")]
     {
+        // Step 1: Uninstall OLE component first
+        let ole_result = uninstall_ole_component();
+        if !ole_result.success {
+            log::warn!("[Office] OLE uninstall reported issue: {}", ole_result.message);
+        }
+
+        // Step 2: Remove VSTO registry keys
         let mut host_reg_keys: Vec<(String, String)> = Vec::new();
 
         for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
@@ -2198,13 +2217,11 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
                 addin_id
             );
 
-            // Delete from both 64-bit and 32-bit registry views
             reg_delete_tree_both(&reg_key);
-
             host_reg_keys.push((host_name.to_string(), reg_key));
         }
 
-        // Verify removal: check that both views are empty for each host
+        // Step 3: Verify VSTO removal
         let mut remaining_keys: Vec<String> = Vec::new();
         for (host_name, reg_key) in &host_reg_keys {
             for view in &REGISTRY_VIEWS {
@@ -2237,7 +2254,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
             "office",
             "native-vsto",
             format!(
-                "已停用 Native Office VSTO（{}），已确认注册表已清理。重启 Office 完成卸载。",
+                "已停用 Native Office VSTO（{}），OLE 已清理。重启 Office 完成卸载。",
                 host_reg_keys.iter().map(|(h, _)| h.as_str()).collect::<Vec<_>>().join(", ")
             ),
             true,
@@ -3877,8 +3894,8 @@ fn find_ole_dll_path(dll_name: &str) -> Option<std::path::PathBuf> {
 
 /// Write the Desktop exe path to the registry so the OLE DLL's FindDesktopPathRegistry()
 /// can locate the exe. Called during app startup (not just during OLE install).
-#[cfg(target_os = "windows")]
 pub fn register_install_path() {
+    #[cfg(target_os = "windows")]
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let install_path = exe_dir.to_string_lossy().replace('/', "\\");
@@ -3888,6 +3905,10 @@ pub fn register_install_path() {
                 &install_path,
             );
         }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // No-op on non-Windows platforms — registry is not available.
     }
 }
 
@@ -3927,14 +3948,28 @@ pub fn install_ole_component() -> OleComponentResult {
     let friendly = ole_constants::FRIENDLY_NAME;
 
     // Register for 64-bit view
-    entries.extend(register_ole_view(
-        &x64_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X64,
-    ));
+    match register_ole_view(&x64_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X64) {
+        Ok(log) => entries.extend(log),
+        Err(e) => {
+            return OleComponentResult {
+                success: false,
+                message: format!("OLE x64 registration failed: {e}"),
+                entries_modified: entries,
+            };
+        }
+    }
 
     // Register for 32-bit view
-    entries.extend(register_ole_view(
-        &x86_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X86,
-    ));
+    match register_ole_view(&x86_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X86) {
+        Ok(log) => entries.extend(log),
+        Err(e) => {
+            return OleComponentResult {
+                success: false,
+                message: format!("OLE x86 registration failed: {e}"),
+                entries_modified: entries,
+            };
+        }
+    }
 
     // Update ledger with OLE installation
     let mut ledger = IntegrationLedger::load();
@@ -3975,7 +4010,8 @@ pub fn install_ole_component() -> OleComponentResult {
 }
 
 /// Register OLE COM entries for a specific registry view.
-/// Uses RegistryView enum to produce correct /reg:32 or /reg:64 flag.
+/// Returns `Ok(entries_log)` on success or `Err(failure_reason)` if any
+/// critical key could not be written.
 #[cfg(target_os = "windows")]
 fn register_ole_view(
     dll_path: &str,
@@ -3984,59 +4020,58 @@ fn register_ole_view(
     prog_id_vi: &str,
     friendly: &str,
     view: RegistryView,
-) -> Vec<String> {
+) -> Result<Vec<String>, String> {
     let mut entries = Vec::new();
     let reg_flag = view.as_reg_arg();
 
-    macro_rules! reg_add_view {
-        ($key:expr, $name:expr, $value:expr) => {{
-            let mut cmd = super::process::background_command("reg.exe");
-            cmd.args(["add", $key]);
-            if ($name).is_empty() {
-                cmd.arg("/ve");
-            } else {
-                cmd.args(["/v", $name]);
-            }
-            cmd.args(["/t", "REG_SZ", "/d", $value, "/f", reg_flag]);
-            // 15-second timeout to prevent hanging
-            super::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))
-                .map(|out| out.status.success())
-                .unwrap_or(false)
-        }};
+    /// Helper: write a single REG_SZ value; returns Err on failure.
+    fn ole_reg(key: &str, name: &str, value: &str, reg_flag: &str) -> Result<(), String> {
+        let mut cmd = super::process::background_command("reg.exe");
+        cmd.args(["add", key]);
+        if name.is_empty() {
+            cmd.arg("/ve");
+        } else {
+            cmd.args(["/v", name]);
+        }
+        cmd.args(["/t", "REG_SZ", "/d", value, "/f", reg_flag]);
+        super::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))
+            .map(|out| {
+                if out.status.success() { Ok(()) }
+                else { Err(format!("reg add failed: {}", String::from_utf8_lossy(&out.stderr))) }
+            })
+            .unwrap_or(Err("process timed out".to_string()))
     }
 
-    // IMPORTANT: reg.exe requires full hive prefix (HKCU\...)
-    // Using /reg:32 redirects to Wow6432Node automatically, so the
-    // key path is the same for both views.
     let clsid_key = format!(r"HKCU\Software\Classes\CLSID\{}", clsid);
 
-    // ProgID (versioned: LaTeXSnipper.Formula.1)
-    if reg_add_view!(&format!(r"HKCU\Software\Classes\{}", prog_id), "", friendly) {
-        entries.push(format!("[{}] ProgID {}", view.label(), prog_id));
+    // All registry entries; the first failure short-circuits.
+    // Critical: ProgID, CLSID, InprocServer32 must all succeed.
+    let regs: &[(&str, &str, &str)] = &[
+        // ProgID (versioned: LaTeXSnipper.Formula.1)
+        (&format!(r"HKCU\Software\Classes\{}", prog_id), "", friendly),
+        (&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id), "", clsid),
+        (&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id), "", prog_id),
+        // VersionIndependentProgID
+        (&format!(r"HKCU\Software\Classes\{}", prog_id_vi), "", friendly),
+        (&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi), "", clsid),
+        (&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id_vi), "", prog_id),
+        // CLSID
+        (&clsid_key, "", friendly),
+        (&clsid_key, "ProgID", prog_id),
+        (&clsid_key, "VersionIndependentProgID", prog_id_vi),
+        (&clsid_key, "Insertable", ""),
+        // InprocServer32
+        (&format!(r"{}\InprocServer32", clsid_key), "", dll_path),
+        (&format!(r"{}\InprocServer32", clsid_key), "ThreadingModel", "Apartment"),
+    ];
+
+    for (key, name, value) in regs {
+        ole_reg(key, name, value, reg_flag)
+            .map_err(|e| format!("[{}] {}: {}", view.label(), key, e))?;
+        entries.push(format!("[{}] {} = {}", view.label(), key, value));
     }
-    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id), "", clsid);
-    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id), "", prog_id);
 
-    // VersionIndependentProgID (unversioned: LaTeXSnipper.Formula → CurVer → versioned)
-    if reg_add_view!(&format!(r"HKCU\Software\Classes\{}", prog_id_vi), "", friendly) {
-        entries.push(format!("[{}] ProgID (version-independent) {}", view.label(), prog_id_vi));
-    }
-    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi), "", clsid);
-    reg_add_view!(&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id_vi), "", prog_id);
-
-    // CLSID
-    reg_add_view!(&clsid_key, "", friendly);
-    reg_add_view!(&clsid_key, "ProgID", prog_id);
-    reg_add_view!(&clsid_key, "VersionIndependentProgID", prog_id_vi);
-    reg_add_view!(&clsid_key, "Insertable", "");
-
-    // InprocServer32
-    let inproc_key = format!(r"{}\InprocServer32", clsid_key);
-    reg_add_view!(&inproc_key, "", dll_path);
-    reg_add_view!(&inproc_key, "ThreadingModel", "Apartment");
-    entries.push(format!("[{}] InprocServer32 → {}", view.label(), dll_path));
-
-    entries
+    Ok(entries)
 }
 
 /// Uninstall the OLE COM component from both registry views with verification.
@@ -4328,19 +4363,19 @@ fn clean_ole(result: &mut CleanerResult) {
 
     if let Some(ref ole) = ledger.native_office.ole {
         if ole.enabled {
-            // Verify our DLL is registered
+            // Ownership check: verify CLSID exists at all (any registration)
             let clsid_key = format!("Software\\Classes\\CLSID\\{}", ole.clsid);
             let inproc_key = format!("{}\\InprocServer32", clsid_key);
 
-            let current_dll = run_windows_tool(
+            let clsid_exists = run_windows_tool(
                 super::process::background_command("reg.exe")
                     .args(["query", &inproc_key, "/ve"]),
                 10,
             )
-            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-            .unwrap_or_default();
+            .map(|o| o.status.success())
+            .unwrap_or(false);
 
-            if current_dll.contains(&ole.dll_path) || ole.dll_path.is_empty() {
+            if clsid_exists || ole.dll_path.is_empty() {
                 // Clean up registry entries from both views
                 for view in &REGISTRY_VIEWS {
                     let keys = [
@@ -4349,6 +4384,7 @@ fn clean_ole(result: &mut CleanerResult) {
                         format!("HKCU\\Software\\Classes\\{}", ole.prog_id),
                         format!("HKCU\\Software\\Classes\\{}\\CLSID", ole.prog_id),
                         format!("HKCU\\Software\\Classes\\{}\\CurVer", ole.prog_id),
+                        format!("HKCU\\Software\\Classes\\{}", ole.prog_id),
                     ];
                     for key in &keys {
                         let _ = run_windows_tool(
@@ -4360,7 +4396,7 @@ fn clean_ole(result: &mut CleanerResult) {
                     }
                 }
             } else {
-                result.skip("OLE registry (DLL path mismatch, may be from another install)");
+                result.skip("OLE registry (CLSID not found in any view, may be from another install)");
             }
         }
     }
