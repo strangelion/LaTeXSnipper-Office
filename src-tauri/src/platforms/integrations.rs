@@ -329,12 +329,22 @@ pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrat
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
     match platform_id.as_str() {
         "office" => {
-            if check_native_office_vsto() {
+            let ole_status = check_ole_status();
+            if check_native_office_vsto() && ole_status.available {
                 PlatformIntegrationResult::ok(
                     "office",
                     "native-vsto",
-                    "Native Office VSTO add-ins are installed.",
+                    "Native Office VSTO add-ins and OLE component are installed.",
                     false,
+                )
+            } else if check_native_office_vsto() {
+                PlatformIntegrationResult::fail(
+                    "office",
+                    "ole_missing",
+                    format!(
+                        "Native Office VSTO add-ins are installed, but OLE is not ready: {}",
+                        ole_status.detail
+                    ),
                 )
             } else {
                 PlatformIntegrationResult::fail(
@@ -1816,18 +1826,32 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
         // Auto-install OLE COM component — merge into the single Office toggle.
         // Wrapped in catch_unwind to prevent panic=abort from crashing the app
         // when spawn_blocking is used.
-        let ole_installed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let ole_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let result = install_ole_component();
             if result.success {
                 log::info!("[Office] OLE auto-install: {}", result.message);
             } else {
                 log::warn!("[Office] OLE auto-install skipped: {}", result.message);
             }
-            result.success
+            result
         })).unwrap_or_else(|_| {
-            log::error!("[Office] OLE auto-install panicked — this is a bug.");
-            false
+            log::error!("[Office] OLE auto-install panicked; this is a bug.");
+            OleComponentResult {
+                success: false,
+                message: "OLE auto-install panicked.".to_string(),
+                entries_modified: vec![],
+            }
         });
+        if !ole_result.success {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                format!(
+                    "Native Office VSTO was registered, but OLE registration failed: {}",
+                    ole_result.message
+                ),
+            );
+        }
 
         return PlatformIntegrationResult::ok(
             "office",
@@ -3048,12 +3072,20 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     let clsid = ole_constants::CLSID;
     let clsid_key = format!(r"Software\Classes\CLSID\{}", clsid);
 
-    // Helper: check if a registry key exists under a specific root
-    let key_exists = |root: usize, sub_key: &str| -> bool {
+    // Helper: check if a registry key exists under a specific root/view.
+    const KEY_WOW64_64KEY: u32 = 0x0100;
+    const KEY_WOW64_32KEY: u32 = 0x0200;
+    let key_exists = |root: usize, sub_key: &str, view_flag: u32| -> bool {
         let wide: Vec<u16> = OsStr::new(sub_key).encode_wide().chain(std::iter::once(0)).collect();
         unsafe {
             let mut hkey: isize = 0;
-            let result = RegOpenKeyExW(root as *mut _, wide.as_ptr(), 0, 0x20019, &mut hkey);
+            let result = RegOpenKeyExW(
+                root as *mut _,
+                wide.as_ptr(),
+                0,
+                0x20019 | view_flag,
+                &mut hkey,
+            );
             if result == 0 {
                 RegCloseKey(hkey);
                 true
@@ -3064,15 +3096,15 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     };
 
     let key64 = &clsid_key; // 64-bit: HKCU\Software\Classes\CLSID\{guid}
-    let key32 = format!(r"Software\Classes\Wow6432Node\CLSID\{}", clsid); // 32-bit view
+    let key32 = &clsid_key; // 32-bit: same logical key, queried through WOW64 view
 
-    let registry_64 = key_exists(0x80000001, key64); // HKCU
-    let registry_32 = key_exists(0x80000001, &key32);
+    let registry_64 = key_exists(0x80000001, key64, KEY_WOW64_64KEY); // HKCU
+    let registry_32 = key_exists(0x80000001, key32, KEY_WOW64_32KEY);
 
     if !registry_64 && !registry_32 {
         // Fallback: check HKLM
-        let hklm_64 = key_exists(0x80000002, key64);
-        let hklm_32 = key_exists(0x80000002, &key32);
+        let hklm_64 = key_exists(0x80000002, key64, KEY_WOW64_64KEY);
+        let hklm_32 = key_exists(0x80000002, key32, KEY_WOW64_32KEY);
         if !hklm_64 && !hklm_32 {
             return crate::commands::native_office::OleStatus {
                 available: false,

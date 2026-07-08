@@ -196,6 +196,7 @@ std::wstring FindDesktopPath()
 
     // Try multiple exe naming patterns (dev vs production)
     static const wchar_t* exeNames[] = {
+        L"LaTeXSnipper Office.exe",
         L"LaTeXSnipper.exe",
         L"LaTeXSnipper-Office.exe",
         L"latexsnipper-office.exe",
@@ -225,6 +226,7 @@ std::wstring FindDesktopPathRegistry()
         {
             // Try multiple exe naming patterns (dev vs production)
             static const wchar_t* exeNames[] = {
+                L"LaTeXSnipper Office.exe",
                 L"LaTeXSnipper.exe",
                 L"LaTeXSnipper-Office.exe",
                 L"latexsnipper-office.exe",

@@ -1900,11 +1900,14 @@ class UIController {
         const omml = await invoke('latex_to_omml', { latex });
         console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
-        // Render SVG for Excel/PPT (Word uses OMML directly)
+        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+        const shouldRenderPreview = session.host_type !== 'word' || integrationMode === 'ole';
+
+        // Render SVG for OLE/image previews. Word native mode uses OMML directly.
         let svg = null;
         let widthPt = 0;
         let heightPt = 0;
-        if (session.host_type !== 'word') {
+        if (shouldRenderPreview) {
           try {
             if (!window.MathJax) {
               await new Promise((resolve, reject) => {
@@ -1934,8 +1937,35 @@ class UIController {
           }
         }
 
+        let pngBase64 = null;
+        if (shouldRenderPreview && svg) {
+          try {
+            const canvas = document.createElement('canvas');
+            const dpr = window.devicePixelRatio || 1;
+            const drawWidth = Math.max(18, widthPt || 120);
+            const drawHeight = Math.max(18, heightPt || 30);
+            canvas.width = Math.round(drawWidth * dpr);
+            canvas.height = Math.round(drawHeight * dpr);
+            const ctx = canvas.getContext('2d');
+            ctx.scale(dpr, dpr);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, drawWidth, drawHeight);
+
+            const img = new Image();
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            await new Promise((resolve, reject) => {
+              img.onload = () => { ctx.drawImage(img, 0, 0, drawWidth, drawHeight); URL.revokeObjectURL(url); resolve(); };
+              img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG image decode failed')); };
+              img.src = url;
+            });
+            pngBase64 = canvas.toDataURL('image/png').split(',')[1];
+          } catch (e) {
+            Logger.warn('SVG to PNG conversion failed:', e);
+          }
+        }
+
         console.log(`[Insert] Sending to session ${sessionId} (${session.host_type})`);
-        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
         await invoke('native_office_insert_formula', {
           sessionId: sessionId,
           formulaId: crypto.randomUUID(),
@@ -1943,7 +1973,8 @@ class UIController {
           omml: omml,
           display: 'block',
           mode: 'display',
-          svg: svg,
+          svg: shouldRenderPreview ? svg : null,
+          png: pngBase64,
           widthPt: widthPt,
           heightPt: heightPt,
           integrationMode: integrationMode
@@ -3349,11 +3380,14 @@ class UIController {
       const omml = await invoke('latex_to_omml', { latex });
       console.log('[Insert] OMML length:', omml?.length || 0);
 
-      // Render SVG for Excel/PPT (Word uses OMML directly)
+      const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+      const shouldRenderPreview = session.host_type !== 'word' || integrationMode === 'ole';
+
+      // Render SVG for OLE/image previews. Word native mode uses OMML directly.
       let svg = null;
       let widthPt = 0;
       let heightPt = 0;
-      if (session.host_type !== 'word') {
+      if (shouldRenderPreview) {
         try {
           // Ensure MathJax is loaded
           if (!window.MathJax || !window.MathJax.tex2svgPromise) {
@@ -3406,7 +3440,7 @@ class UIController {
 
       // Convert SVG to PNG for Excel/PPT (SVG rendering is unreliable in Office)
       let pngBase64 = null;
-      if (session.host_type !== 'word' && svg) {
+      if (shouldRenderPreview && svg) {
         try {
           const canvas = document.createElement('canvas');
           const dpr = window.devicePixelRatio || 1;
@@ -3431,8 +3465,6 @@ class UIController {
         }
       }
 
-      const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
-
       await invoke('native_office_insert_formula', {
         sessionId: sessionId,
         formulaId: crypto.randomUUID(),
@@ -3440,7 +3472,7 @@ class UIController {
         omml: omml,
         display: isDisplay ? 'block' : 'inline',
         mode: isDisplay ? 'display' : 'inline',
-        svg: session.host_type === 'word' ? null : svg,
+        svg: shouldRenderPreview ? svg : null,
         png: pngBase64,
         widthPt: widthPt,
         heightPt: heightPt,
@@ -3995,34 +4027,47 @@ class UIController {
     const previousEnabled = platform.enabled;
     platform.enabled = requestedEnabled;
     this.platformOperations.add(platformId);
-    await this.renderPlatformList();
 
     let ok = false;
-    if (requestedEnabled) {
-      ok = await this.registerPlatform(platform);
-    } else {
-      ok = await this.unregisterPlatform(platform);
-    }
+    try {
+      await this.renderPlatformList();
 
-    if (!ok) {
-      platform.enabled = previousEnabled;
-    }
-
-    this.savePlatforms();
-    this.platformOperations.delete(platformId);
-    await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
-
-    // Sync settingsManager before updating buttons (order matters)
-    if (platformId === 'office') {
-      const officeToggle = document.getElementById('officeEnabledToggle');
-      if (officeToggle) {
-        officeToggle.checked = platform.enabled;
+      if (requestedEnabled) {
+        ok = await this.registerPlatform(platform);
+      } else {
+        ok = await this.unregisterPlatform(platform);
       }
-      this.settingsManager.set('officeEnabled', platform.enabled);
-    }
 
-    this.updateOfficeInsertButton();
-    this.updateMdCopyButton();
+      if (!ok) {
+        platform.enabled = previousEnabled;
+      }
+    } catch (error) {
+      Logger.error('Platform operation failed:', error);
+      this.showToast('Platform operation failed: ' + (error?.message || error));
+      platform.enabled = previousEnabled;
+      ok = false;
+    } finally {
+      this.savePlatforms();
+      this.platformOperations.delete(platformId);
+
+      try {
+        await this.renderPlatformList({ refreshStatus: platformId === 'office' || platformId === 'wps' });
+      } catch (error) {
+        Logger.error('Platform status refresh failed:', error);
+        await this.renderPlatformList();
+      }
+
+      if (platformId === 'office') {
+        const officeToggle = document.getElementById('officeEnabledToggle');
+        if (officeToggle) {
+          officeToggle.checked = platform.enabled;
+        }
+        this.settingsManager.set('officeEnabled', platform.enabled);
+      }
+
+      this.updateOfficeInsertButton();
+      this.updateMdCopyButton();
+    }
 
     return ok;
   }
