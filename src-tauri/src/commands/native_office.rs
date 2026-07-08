@@ -400,6 +400,14 @@ pub async fn native_office_status() -> Result<NativeOfficeStatus, String> {
             hosts: vec![],
             pipe_security: PipeSecurityStatus::NotAvailable,
             action: RecommendedAction::None,
+            vsto_runtime_installed: false,
+            certificate_trusted: false,
+            ole: OleStatus {
+                available: false,
+                bitness_mismatch: false,
+                health: "NotSupported".to_string(),
+                detail: "Office integration is only available on Windows.".to_string(),
+            },
         })
     }
 }
@@ -510,6 +518,12 @@ pub struct NativeOfficeStatus {
     pub hosts: Vec<HostInstallStatus>,
     pub pipe_security: PipeSecurityStatus,
     pub action: RecommendedAction,
+    /// Whether VSTO Runtime is installed on the system
+    pub vsto_runtime_installed: bool,
+    /// Whether the VSTO signing certificate is trusted (in TrustedPublisher store)
+    pub certificate_trusted: bool,
+    /// OLE COM component status
+    pub ole: OleStatus,
 }
 
 pub use crate::platforms::integrations::OleStatus;

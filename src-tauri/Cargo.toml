@@ -53,4 +53,3 @@ tauri-build = { version = "2", features = [] }
 strip = true
 lto = true
 codegen-units = 1
-panic = "abort"

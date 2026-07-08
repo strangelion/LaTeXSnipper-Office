@@ -180,18 +180,20 @@ namespace LaTeXSnipper.Word.Metadata
                     for (int c = 1; c <= cols && c <= rowData.Cells.Count; c++)
                     {
                         var cellData = rowData.Cells[c - 1];
-                        var cell = wordTable.Cell(r, c);
-                        var cellRange = cell.Range;
-                        cellRange.Text = "";
-
-                        foreach (var inline in cellData.Inlines)
+                        try
                         {
-                            if (inline is InlineText textInline)
+                            var cell = wordTable.Cell(r, c);
+                            var cellRange = cell.Range;
+                            cellRange.Text = "";
+
+                            foreach (var inline in cellData.Inlines)
                             {
-                                cellRange.InsertAfter(textInline.Text);
-                                cellRange.Collapse(
-                                    Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-                            }
+                                if (inline is InlineText textInline)
+                                {
+                                    cellRange.InsertAfter(textInline.Text);
+                                    cellRange.Collapse(
+                                        Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                                }
                             else if (inline is InlineFormula formulaInline)
                             {
                                 string latex = "";
@@ -218,6 +220,11 @@ namespace LaTeXSnipper.Word.Metadata
                                     Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
                             }
                         }
+                    }
+                    catch
+                    {
+                        // Merged cell — skip gracefully
+                        System.Diagnostics.Debug.WriteLine($"[TableConverter] Skipping merged cell at ({r},{c})");
                     }
                 }
 

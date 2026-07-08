@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfficeStatus {
@@ -25,8 +25,10 @@ pub struct RegisterResult {
     pub message: String,
 }
 
-// Cached Office status — computed once, reused for all calls
-static CACHED_STATUS: OnceLock<OfficeStatus> = OnceLock::new();
+// Cached Office status — computed once, can be invalidated after install/uninstall.
+// Using Mutex instead of OnceLock so the cache can be cleared when Office integration
+// is toggled, preventing stale status from persisting across toggle cycles.
+static CACHED_STATUS: Mutex<Option<OfficeStatus>> = Mutex::new(None);
 
 #[tauri::command]
 pub async fn detect_office() -> OfficeStatus {
@@ -58,8 +60,28 @@ pub async fn detect_office() -> OfficeStatus {
         })
 }
 
+/// Clear the cached Office status so the next `detect_office()` call re-detects.
+/// Called from the frontend after enable/disable Office integration.
+#[tauri::command]
+pub async fn invalidate_office_cache() {
+    if let Ok(mut cache) = CACHED_STATUS.lock() {
+        *cache = None;
+    }
+    log::info!("[Office] Cache invalidated");
+}
+
 pub(crate) fn detect_office_cached() -> OfficeStatus {
-    CACHED_STATUS.get_or_init(|| detect_office_impl()).clone()
+    if let Ok(mut cache) = CACHED_STATUS.lock() {
+        if let Some(ref cached) = *cache {
+            return cached.clone();
+        }
+        let detected = detect_office_impl();
+        *cache = Some(detected.clone());
+        detected
+    } else {
+        // Mutex poisoned — fall back to uncached detection
+        detect_office_impl()
+    }
 }
 
 fn detect_office_impl() -> OfficeStatus {

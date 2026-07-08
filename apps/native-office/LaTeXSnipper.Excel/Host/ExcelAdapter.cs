@@ -286,42 +286,10 @@ namespace LaTeXSnipper.Excel.Host
                     return false;
                 }
 
-                // If cell selected, check if any LSNO shape overlaps the active cell
-                var cell = _application.ActiveCell;
-                if (cell == null) return false;
-
-                double cellLeft, cellTop, cellWidth, cellHeight;
-                try
-                {
-                    cellLeft = Convert.ToDouble(cell.Left);
-                    cellTop = Convert.ToDouble(cell.Top);
-                    cellWidth = Convert.ToDouble(cell.Width);
-                    cellHeight = Convert.ToDouble(cell.Height);
-                }
-                catch { return false; }
-
-                double cellRight = cellLeft + cellWidth;
-                double cellBottom = cellTop + cellHeight;
-
-                for (int i = excelSheet.Shapes.Count; i >= 1; i--)
-                {
-                    var shape = excelSheet.Shapes.Item(i);
-                    if (shape.Name?.StartsWith("LSNO_") == true)
-                    {
-                        double sLeft = Convert.ToDouble(shape.Left);
-                        double sTop = Convert.ToDouble(shape.Top);
-                        double sRight = sLeft + Convert.ToDouble(shape.Width);
-                        double sBottom = sTop + Convert.ToDouble(shape.Height);
-
-                        // Check overlap with selected cell
-                        if (sLeft < cellRight && sRight > cellLeft &&
-                            sTop < cellBottom && sBottom > cellTop)
-                        {
-                            shape.Delete();
-                            return true;
-                        }
-                    }
-                }
+                // NO cell-overlap fallback: never scan all shapes looking for LSNO_.
+                // Doing so could delete a formula in an overlapping cell that the user
+                // didn't intend to delete. Require explicit shape selection.
+                return false;
             }
             catch { }
             return false;

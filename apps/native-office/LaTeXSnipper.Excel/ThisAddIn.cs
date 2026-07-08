@@ -90,7 +90,16 @@ namespace LaTeXSnipper.Excel
                             try
                             {
                                 var ctx = _adapter.GetCurrentContextId();
-                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "excel", Application.Version, ctx);
+                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "excel", Application.Version,
+                                    new Capabilities
+                                    {
+                                        InsertFormula = true,
+                                        ReplaceFormula = true,
+                                        ReadSelection = true,
+                                        InsertTable = false,
+                                        ReadTable = false,
+                                    },
+                                    ctx);
                             }
                             catch (Exception ex)
                             {
@@ -214,6 +223,20 @@ namespace LaTeXSnipper.Excel
                 }
                 case DesktopPing:
                     break;
+                default:
+                {
+                    var unknown = message as DesktopMessage;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.Excel] Unhandled DesktopMessage type: {unknown?.GetType().Name}");
+                    _pipeClient?.SendOnlyAsync(new VstoHostError
+                    {
+                        RequestId = unknown?.RequestId ?? "",
+                        SessionId = unknown?.SessionId ?? _sessionId ?? "",
+                        ErrorCode = "NOT_IMPLEMENTED",
+                        Error = $"Command {unknown?.GetType().Name} is not implemented for Excel"
+                    });
+                    break;
+                }
             }
         }
 

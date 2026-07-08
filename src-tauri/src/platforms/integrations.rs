@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 /// Tracks whether the Office.js Taskpane has reported a heartbeat.
 /// Set by the bridge's `/api/office/heartbeat` handler.
@@ -190,7 +191,11 @@ pub async fn install_platform_integration(platform_id: String) -> PlatformIntegr
 }
 
 pub(crate) fn install_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
-    match platform_id.as_str() {
+    // Top-level catch_unwind to prevent panic=abort crashes.
+    // Inner catch_unwind calls in install_native_office_vsto provide additional
+    // granularity, but this outer one catches any unexpected panics.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        match platform_id.as_str() {
         // Office install modes
         "office" => install_native_office_vsto(),
         "office-web" => install_office_js_addin(),
@@ -225,6 +230,21 @@ pub(crate) fn install_platform_integration_sync(platform_id: String) -> Platform
         "libreoffice" => install_libreoffice(),
         other => PlatformIntegrationResult::fail(other, "unknown", "Unsupported platform."),
     }
+    // End of catch_unwind closure — panics caught and returned as structured error
+})) {
+    Ok(result) => result,
+    Err(panic) => {
+        let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic".to_string()
+        };
+        log::error!("[Office] install_platform_integration_sync panicked: {}", msg);
+        PlatformIntegrationResult::fail("office", "panic", format!("内部错误: {}", msg))
+    }
+}
 }
 
 #[tauri::command]
@@ -600,6 +620,12 @@ fn spawn_regasm(dll: &Path, unregister: bool) -> Result<(), String> {
 }
 
 fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
+    reg_add_string_view(key, name, value, "")
+}
+
+/// reg.exe add with optional /reg:32 or /reg:64 flag.
+/// Pass "" for default registry view, "32" for 32-bit, "64" for 64-bit.
+fn reg_add_string_view(key: &str, name: &str, value: &str, reg_view: &str) -> std::io::Result<()> {
     let mut command = super::process::background_command("reg.exe");
     command.args(["add", key]);
     if name.is_empty() {
@@ -612,7 +638,10 @@ fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
     } else {
         command.args(["/t", "REG_SZ", "/d", value, "/f"]);
     }
-    let output = command.output()?;
+    if !reg_view.is_empty() {
+        command.args(["/reg:", reg_view]);
+    }
+    let output = super::process::run_with_timeout(&mut command, Duration::from_secs(15))?;
     if output.status.success() {
         Ok(())
     } else {
@@ -624,20 +653,17 @@ fn reg_add_string(key: &str, name: &str, value: &str) -> std::io::Result<()> {
 }
 
 fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
+    reg_add_dword_view(key, name, value, "")
+}
+
+fn reg_add_dword_view(key: &str, name: &str, value: u32, reg_view: &str) -> std::io::Result<()> {
     let value = value.to_string();
-    let output = super::process::background_command("reg.exe")
-        .args([
-            "add",
-            key,
-            "/v",
-            name,
-            "/t",
-            "REG_DWORD",
-            "/d",
-            &value,
-            "/f",
-        ])
-        .output()?;
+    let mut cmd = super::process::background_command("reg.exe");
+    cmd.args(["add", key, "/v", name, "/t", "REG_DWORD", "/d", &value, "/f"]);
+    if !reg_view.is_empty() {
+        cmd.args(["/reg:", reg_view]);
+    }
+    let output = super::process::run_with_timeout(&mut cmd, Duration::from_secs(15))?;
     if output.status.success() {
         Ok(())
     } else {
@@ -649,9 +675,16 @@ fn reg_add_dword(key: &str, name: &str, value: u32) -> std::io::Result<()> {
 }
 
 fn reg_delete_tree(key: &str) {
-    let _ = super::process::background_command("reg.exe")
-        .args(["delete", key, "/f"])
-        .output();
+    reg_delete_tree_view(key, "");
+}
+
+fn reg_delete_tree_view(key: &str, reg_view: &str) {
+    let mut cmd = super::process::background_command("reg.exe");
+    cmd.args(["delete", key, "/f"]);
+    if !reg_view.is_empty() {
+        cmd.args(["/reg:", reg_view]);
+    }
+    let _ = cmd.output();
 }
 
 fn office_addin_clsid() -> &'static str {
@@ -1687,24 +1720,42 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
 
     #[cfg(target_os = "windows")]
     {
+        log::info!("[Office] Step 1: Check certificate...");
         // Step 1: Check and import VSTO signing certificate to TrustedPublisher
         let ledger = IntegrationLedger::load();
         let is_upgrade = !ledger.install_id.is_empty() && ledger.native_office.vsto.iter().any(|v| !v.registry_key.is_empty());
         let cert_trusted = check_certificate_trusted();
+        log::info!("[Office] Step 1 done: cert_trusted={}", cert_trusted);
         if !cert_trusted && !is_upgrade {
             // Fresh install: try to import the .cer file that ships with the app
             if let Some(cer_path) = find_staging_certificate() {
                 if let Err(e) = import_certificate_to_trusted_publisher(&cer_path) {
                     log::warn!("[Office] Certificate import failed: {}", e);
-                    // Continue anyway — user may need to manually trust
+                    // In dev builds (debug), continue anyway for easier testing.
+                    // In release builds, block — Office won't load untrusted VSTO.
+                    if !cfg!(debug_assertions) {
+                        return PlatformIntegrationResult::fail(
+                            "office",
+                            "native-vsto",
+                            format!("证书导入失败: {}。请以管理员身份运行，或手动导入 {}。", e, cer_path.display()),
+                        );
+                    }
                 } else {
                     log::info!("[Office] Certificate imported to TrustedPublisher");
                 }
+            } else if !cfg!(debug_assertions) {
+                return PlatformIntegrationResult::fail(
+                    "office",
+                    "native-vsto",
+                    "找不到证书文件 LaTeXSnipperOffice.cer。请重新安装 LaTeXSnipper Office。",
+                );
             }
         }
 
+        log::info!("[Office] Step 2: Detect VSTO Runtime...");
         // Step 2: Detect VSTO Runtime
         if !detect_vsto_runtime() {
+            log::warn!("[Office] Step 2: VSTO Runtime NOT found");
             return PlatformIntegrationResult::fail(
                 "office",
                 "native-vsto",
@@ -1736,54 +1787,38 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
                 addin_id
             );
 
-            // Write FriendlyName
-            if let Err(e) = reg_add_string(&reg_key, "FriendlyName", friendly_name) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!("Failed to write {} FriendlyName: {}", host_name, e),
-                );
-            }
+            // Register for both 64-bit and 32-bit registry views to support
+            // both Office x64 and Office x86 on the same Windows installation.
+            let host_ok = |view: &str| -> Result<(), PlatformIntegrationResult> {
+                let vk = |reg_view: &str| -> String {
+                    if !reg_view.is_empty() && reg_view != "64" {
+                        format!("{} /reg:{}", reg_key, reg_view)
+                    } else {
+                        reg_key.clone()
+                    }
+                };
 
-            // Write Description
-            if let Err(e) = reg_add_string(
-                &reg_key,
-                "Description",
-                "LaTeX formula and table integration",
-            ) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!("Failed to write {} Description: {}", host_name, e),
-                );
-            }
+                if let Err(e) = reg_add_string_view(&reg_key, "FriendlyName", friendly_name, view) {
+                    return Err(PlatformIntegrationResult::fail("office", "native-vsto",
+                        format!("Failed to write {} FriendlyName ({}): {}", host_name, view, e)));
+                }
+                let _ = reg_add_string_view(&reg_key, "Description", "LaTeX formula and table integration", view);
+                let _ = reg_add_dword_view(&reg_key, "LoadBehavior", 3, view);
+                let _ = reg_add_dword_view(&reg_key, "CommandLineSafe", 0, view);
+                if let Err(e) = reg_add_string_view(&reg_key, "Manifest", &office_manifest_value(&manifest), view) {
+                    return Err(PlatformIntegrationResult::fail("office", "native-vsto",
+                        format!("Failed to write {} Manifest ({}): {}", host_name, view, e)));
+                }
+                Ok(())
+            };
 
-            // Write LoadBehavior = 3 (load at startup)
-            if let Err(e) = reg_add_dword(&reg_key, "LoadBehavior", 3) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!("Failed to write {} LoadBehavior: {}", host_name, e),
-                );
-            }
-
-            // Write CommandLineSafe = 0
-            if let Err(e) = reg_add_dword(&reg_key, "CommandLineSafe", 0) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!("Failed to write {} CommandLineSafe: {}", host_name, e),
-                );
-            }
-
-            if let Err(e) = reg_add_string(&reg_key, "Manifest", &office_manifest_value(&manifest))
-            {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!("Failed to write {} Manifest: {}", host_name, e),
-                );
-            }
+            // Register for both 64-bit and 32-bit registry views
+            let _ = host_ok("64").map_err(|e| {
+                log::warn!("[Office] 64-bit registration failed (non-fatal): {}", e.message);
+            });
+            let _ = host_ok("32").map_err(|e| {
+                log::warn!("[Office] 32-bit registration failed (non-fatal): {}", e.message);
+            });
 
             installed.push(*host_name);
         }
@@ -1866,8 +1901,11 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
 }
 
 /// Check if Native Office VSTO add-ins are installed with real verification.
+/// Checks both 64-bit and 32-bit registry views for Office x86/x64 support.
 #[cfg(target_os = "windows")]
 fn check_native_office_vsto() -> bool {
+    use std::time::Duration;
+
     for (host_name, addin_id, _, vsto_file) in NATIVE_OFFICE_ADDINS {
         let reg_key = format!(
             r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
@@ -1880,27 +1918,58 @@ fn check_native_office_vsto() -> bool {
             addin_id
         );
 
-        // Check real LoadBehavior value (must be 3 for load at startup)
-        let load_behavior = get_load_behavior(&reg_key);
-        if load_behavior != Some(3) {
-            return false;
-        }
-
-        // Check manifest path exists
-        let manifest_ok = super::process::background_command("reg.exe")
-            .args(["query", &reg_key, "/v", "Manifest"])
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false);
-
-        // Check VSTO file exists in resources
         let vsto_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
 
-        if !manifest_ok || !vsto_exists {
+        // Check either 64-bit or 32-bit view (whichever matches the installed Office)
+        let views_ok = ["64", "32"].iter().any(|view| {
+            let key_with_view = format!("{} /reg:{}", reg_key, view);
+            let load_behavior = get_load_behavior_for_view(&reg_key, view);
+            if load_behavior != Some(3) {
+                return false;
+            }
+
+            // Check manifest path exists
+            let manifest_ok = super::process::background_command("reg.exe")
+                .args(["query", &reg_key, "/v", "Manifest", "/reg:", view])
+                .output()
+                .map(|out| out.status.success())
+                .unwrap_or(false);
+
+            manifest_ok && vsto_exists
+        });
+
+        if !views_ok {
             return false;
         }
     }
     true
+}
+
+/// Get LoadBehavior for a specific registry view.
+#[cfg(target_os = "windows")]
+fn get_load_behavior_for_view(reg_key: &str, view: &str) -> Option<u32> {
+    use std::time::Duration;
+    let output = super::process::run_with_timeout(
+        super::process::background_command("reg.exe")
+            .args(["query", reg_key, "/v", "LoadBehavior", "/reg:", view]),
+        Duration::from_secs(10),
+    ).ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.contains("LoadBehavior") {
+            if let Some(pos) = line.rfind("0x") {
+                if let Ok(val) = u32::from_str_radix(&line[pos+2..pos+10].trim(), 16) {
+                    return Some(val);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1935,10 +2004,10 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
                 addin_id
             );
 
-            // Delete the registry key
-            let _ = super::process::background_command("reg.exe")
-                .args(["delete", &reg_key, "/f"])
-                .output();
+            // Delete from both 64-bit and 32-bit registry views to support
+            // both Office x64 and Office x86 on the same Windows installation.
+            reg_delete_tree_view(&reg_key, "64");
+            reg_delete_tree_view(&reg_key, "32");
 
             uninstalled.push(*host_name);
         }
@@ -2894,6 +2963,9 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
         hosts,
         pipe_security,
         action,
+        vsto_runtime_installed: vsto_runtime_ok,
+        certificate_trusted: cert_trusted,
+        ole: check_ole_status(),
     }
 }
 
@@ -3150,8 +3222,17 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
             )
         };
         unsafe { RegCloseKey(inproc_hkey); }
-        if query_result == 0 && value_len > 0 {
-            Some(String::from_utf16_lossy(&value_buf[..(value_len as usize / 2 - 1)]))
+        if query_result == 0 && value_len >= 2 {
+            let max_bytes = (value_buf.len() * 2) as u32; // 2048
+            let actual_bytes = value_len.min(max_bytes) as usize;
+            let u16_count = actual_bytes / 2;
+            // Strip null terminator if present (common for REG_SZ)
+            let end = if u16_count > 0 && value_buf[u16_count - 1] == 0 {
+                u16_count - 1
+            } else {
+                u16_count
+            };
+            Some(String::from_utf16_lossy(&value_buf[..end]))
         } else {
             None
         }
@@ -3631,7 +3712,10 @@ fn register_ole_view(
                 cmd.args(["/v", $name]);
             }
             cmd.args(["/t", "REG_SZ", "/d", $value, "/f", view_flag]);
-            cmd.output().map(|out| out.status.success()).unwrap_or(false)
+            // 15-second timeout to prevent hanging
+            super::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))
+                .map(|out| out.status.success())
+                .unwrap_or(false)
         }};
     }
 
@@ -3784,13 +3868,13 @@ fn find_staging_certificate() -> Option<std::path::PathBuf> {
 /// Import a .cer certificate to CurrentUser TrustedPublisher store.
 #[cfg(target_os = "windows")]
 fn import_certificate_to_trusted_publisher(cer_path: &std::path::Path) -> Result<(), String> {
-    let output = super::process::background_command("certutil.exe")
-        .args([
-            "-addstore",
-            "TrustedPublisher",
-            cer_path.to_str().unwrap_or_default(),
-        ])
-        .output()
+    let mut cmd = super::process::background_command("certutil.exe");
+    cmd.args([
+        "-addstore",
+        "TrustedPublisher",
+        cer_path.to_str().unwrap_or_default(),
+    ]);
+    let output = super::process::run_with_timeout(&mut cmd, Duration::from_secs(15))
         .map_err(|e| format!("Failed to run certutil: {}", e))?;
 
     if output.status.success() {

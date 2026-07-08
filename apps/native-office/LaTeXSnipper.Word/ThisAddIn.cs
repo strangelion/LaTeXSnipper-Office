@@ -122,7 +122,16 @@ namespace LaTeXSnipper.Word
                                     $"[LaTeXSnipper.Word] Sending HOST_READY...");
 
                                 _ = _pipeClient.SendHostReadyAsync(
-                                    _sessionId, "word", "1.0.0", contextId, doc?.Name);
+                                    _sessionId, "word", "1.0.0",
+                                    new Capabilities
+                                    {
+                                        InsertFormula = true,
+                                        ReplaceFormula = true,
+                                        ReadSelection = true,
+                                        InsertTable = true,
+                                        ReadTable = true,
+                                    },
+                                    contextId, doc?.Name);
 
                                 System.Diagnostics.Debug.WriteLine(
                                     "[LaTeXSnipper.Word] HOST_READY sent.");
@@ -308,6 +317,20 @@ namespace LaTeXSnipper.Word
                         NewFormulaId = result.FormulaId,
                         NewStorageMode = result.StorageMode,
                         Error = result.Error
+                    });
+                    break;
+                }
+                default:
+                {
+                    var unknown = message as DesktopMessage;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.Word] Unhandled DesktopMessage type: {unknown?.GetType().Name}");
+                    _pipeClient.SendOnlyAsync(new VstoHostError
+                    {
+                        RequestId = unknown?.RequestId ?? "",
+                        SessionId = unknown?.SessionId ?? _sessionId ?? "",
+                        ErrorCode = "NOT_IMPLEMENTED",
+                        Error = $"Command {unknown?.GetType().Name} is not implemented for Word"
                     });
                     break;
                 }

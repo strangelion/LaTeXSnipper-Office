@@ -95,6 +95,10 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] {imageData} shape added: name={shape.Name}, left={left}, top={top}, w={width}, h={height}");
+
+                    // Clean up temp file after successful insertion
+                    try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+                    catch { /* best-effort */ }
                 }
                 else if (!string.IsNullOrEmpty(payload.Latex))
                 {
@@ -278,16 +282,10 @@ namespace LaTeXSnipper.PowerPoint.Host
                     }
                 }
 
-                // Fallback: iterate all shapes to find LSNO shapes
-                for (int i = slide.Shapes.Count; i >= 1; i--)
-                {
-                    var shape = slide.Shapes[i];
-                    if (shape.Name?.StartsWith("LSNO_") == true)
-                    {
-                        shape.Delete();
-                        return true;
-                    }
-                }
+                // NO fallback scan: never iterate all shapes looking for LSNO_ to delete.
+                // Doing so could delete a different formula than the user intended.
+                // The user must explicitly select the formula shape first.
+                return false;
             }
             catch { }
             return false;
@@ -389,6 +387,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                         {
                             try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch { }
                         }
+
+                        // Clean up temp file
+                        try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+                        catch { /* best-effort */ }
+
                         return true;
                     }
                 }

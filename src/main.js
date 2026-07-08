@@ -1656,6 +1656,13 @@ class UIController {
       }
       e.target.disabled = false;
       this.updateTabVisibility();
+      // Invalidate Rust Office status cache so next detect_office() re-detects
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        await invoke('invalidate_office_cache');
+      } catch (e) {
+        Logger.warn('[Office] Failed to invalidate cache:', e);
+      }
       // Refresh OLE status display after Office toggle completes
       this.checkOleStatus();
       Logger.info(`[Office] After toggle: platform=${this.platforms.find(p => p.id === 'office')?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
@@ -1795,6 +1802,7 @@ class UIController {
 
     // Host selector state
     this._selectedSessionId = null;
+    this._selectedHostType = '';
     this._sessions = [];
 
     // Update host selector dropdown
@@ -1822,6 +1830,7 @@ class UIController {
           const opt = document.createElement('div');
           opt.className = 'custom-select-option';
           opt.dataset.value = session.session_id;
+          opt.dataset.hostType = session.host_type || '';
           opt.textContent = `${session.host_type} - ${session.document_title || '未命名'}`;
           opt.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1829,10 +1838,13 @@ class UIController {
             trigger.querySelector('span').textContent = opt.textContent;
             trigger.dataset.value = opt.dataset.value;
             this._selectedSessionId = opt.dataset.value;
+            this._selectedHostType = opt.dataset.hostType;
             selectorContainer.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
             opt.classList.add('selected');
             selectorContainer.classList.remove('open');
-            Logger.info(`Office target: ${this._selectedSessionId || 'none'}`);
+            // Update button visibility based on selected host capabilities
+            this.updateOfficeInsertButton();
+            Logger.info(`Office target: ${this._selectedSessionId || 'none'} type=${this._selectedHostType}`);
           });
           selector.appendChild(opt);
         }
@@ -1851,6 +1863,7 @@ class UIController {
           trigger.dataset.value = selectedOption.dataset.value;
           selectedOption.classList.add('selected');
           this._selectedSessionId = selectedOption.dataset.value;
+          this._selectedHostType = selectedOption.dataset.hostType || '';
         }
 
         // Toggle dropdown
@@ -3671,9 +3684,31 @@ class UIController {
 
     if (rows.length === 0) return null;
 
+    // Build formulas dictionary for VSTO to look up by formulaRef.
+    // Without this, cells containing $...$ get inserted as "[Formula]" placeholder.
+    const formulas = {};
+    for (const row of rows) {
+      for (const cell of (row.cells || [])) {
+        for (const inline of (cell.inlines || [])) {
+          if (inline.type === 'formula' && inline.formulaRef && inline.formula?.latex) {
+            formulas[inline.formulaRef] = {
+              schemaVersion: 3,
+              formulaId: inline.formulaRef,
+              latex: inline.formula.latex,
+              omml: '',
+              display: 'inline',
+              revision: 0,
+              storageMode: 'native',
+            };
+          }
+        }
+      }
+    }
+
     return {
       tableId: crypto.randomUUID(),
-      table: { rows }
+      table: { rows },
+      formulas: Object.keys(formulas).length > 0 ? formulas : undefined,
     };
   }
 
@@ -3700,10 +3735,14 @@ class UIController {
     if (btn) btn.style.display = enabled ? '' : 'none';
     const loadBtn = document.getElementById('loadFromWord');
     if (loadBtn) loadBtn.style.display = enabled ? '' : 'none';
+
+    // Table buttons: only available for Word host (Excel/PPT don't implement table)
+    const hostType = this._selectedHostType || '';
+    const hasTable = hostType === 'word';
     const tableInsert = document.getElementById('insertTableBtn');
-    if (tableInsert) tableInsert.style.display = enabled ? '' : 'none';
+    if (tableInsert) tableInsert.style.display = (enabled && hasTable) ? '' : 'none';
     const tableRead = document.getElementById('readTableBtn');
-    if (tableRead) tableRead.style.display = enabled ? '' : 'none';
+    if (tableRead) tableRead.style.display = (enabled && hasTable) ? '' : 'none';
   }
 
   updateOfficeIntegrationHint(mode) {
@@ -3969,11 +4008,32 @@ class UIController {
 
     if (refreshStatus) {
       if (officePlatform && officeStatus?.installed) {
-        const officeIntegration = await this.getPlatformIntegrationStatus('office');
-        if (officeIntegration.success) {
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          const nativeStatus = await invoke('native_office_status');
+          if (nativeStatus) {
+            // Per-host VSTO registration status
+            const hostParts = [];
+            if (nativeStatus.hosts) {
+              for (const h of nativeStatus.hosts) {
+                const sym = h.state === 'Installed' ? '✅' : (h.state === 'Broken' ? '⚠️' : '⬜');
+                hostParts.push(`${sym}${h.host}`);
+              }
+            }
+            officePlatform.desc = hostParts.join(' ') || 'Office detected';
+
+            // Certificate & OLE status (shown at end)
+            const extra = [];
+            if (nativeStatus.certificateTrusted) extra.push('证书受信');
+            if (nativeStatus.ole?.health === 'Registered') extra.push('OLE可用');
+            if (extra.length > 0) officePlatform.desc += ' · ' + extra.join(' ');
+
+            // Log full status for debugging
+            Logger.info('[Office] Native status:', nativeStatus);
+          }
+        } catch (e) {
+          Logger.warn('[Office] Failed to get native status:', e);
           officePlatform.desc += ' · 插件已启用';
-        } else if (officeIntegration.message) {
-          officePlatform.desc += ' · 插件未启用';
         }
       }
 

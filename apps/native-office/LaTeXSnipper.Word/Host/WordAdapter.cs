@@ -429,14 +429,33 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = $"OLE automation failed: {initEx.Message}" };
                 }
 
+                // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
+                // Without this tag, OLE formulas cannot be read, replaced, deleted, or converted.
+                Microsoft.Office.Interop.Word.ContentControl? cc = null;
+                try
+                {
+                    var oleRange = oleShape.Range;
+                    cc = doc.ContentControls.Add(
+                        Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                        oleRange);
+                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
+                    cc.LockContentControl = false;
+                    cc.LockContents = false;
+                }
+                catch
+                {
+                    // ContentControl wrapping is best-effort — OLE object is still inserted
+                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
+                }
+
                 FormulaDocumentManifest.Write(doc, payload);
 
                 return new InsertResult
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
-                    RangeStart = (uint)range.Start,
-                    RangeEnd = (uint)range.End
+                    RangeStart = (uint)(cc?.Range.Start ?? oleShape.Range.Start),
+                    RangeEnd = (uint)(cc?.Range.End ?? oleShape.Range.End)
                 };
             }
             catch (Exception ex)
@@ -454,25 +473,51 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = "No render data for image insertion" };
 
                 // Word prefers PNG for inline images
+                string tempPath = "";
                 if (payload.Render?.Png != null)
                 {
-                    var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
                     System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
                     range.InlineShapes.AddPicture(tempPath);
                 }
                 else
                 {
-                    var tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
                     System.IO.File.WriteAllText(tempPath, payload.Render!.Svg!);
                     range.InlineShapes.AddPicture(tempPath);
                 }
+
+                // Wrap the image in a ContentControl with tag so Delete/Replace/Convert can find it.
+                // Without this tag, image formulas cannot be read, replaced, deleted, or converted.
+                Microsoft.Office.Interop.Word.ContentControl? cc = null;
+                try
+                {
+                    cc = doc.ContentControls.Add(
+                        Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                        range);
+                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
+                    cc.LockContentControl = false;
+                    cc.LockContents = false;
+                }
+                catch
+                {
+                    // Best-effort; image is still inserted
+                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap image with ContentControl");
+                }
+
+                // Write to manifest for reliable read/replace/delete/convert
+                FormulaDocumentManifest.Write(doc, payload);
+
+                // Clean up temp file after successful insertion
+                try { if (!string.IsNullOrEmpty(tempPath) && System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); }
+                catch { /* temp file cleanup is best-effort */ }
 
                 return new InsertResult
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
-                    RangeStart = (uint)range.Start,
-                    RangeEnd = (uint)range.End
+                    RangeStart = (uint)(cc?.Range.Start ?? range.Start),
+                    RangeEnd = (uint)(cc?.Range.End ?? range.End)
                 };
             }
             catch (Exception ex)

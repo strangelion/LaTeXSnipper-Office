@@ -40,6 +40,45 @@ namespace LaTeXSnipper.PowerPoint
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
             _adapter = new Host.PowerPointAdapter(Application);
             _ = InitializePipeAsync();
+
+            // Register activation events to keep document context fresh
+            Application.PresentationOpen += OnPresentationOpen;
+            Application.SlideShowBegin += OnSlideShowBegin;
+            Application.SlideShowEnd += OnSlideShowEnd;
+        }
+
+        private void OnPresentationOpen(Microsoft.Office.Interop.PowerPoint.Presentation pres)
+        {
+            SendContextChanged();
+        }
+
+        private void OnSlideShowBegin(Microsoft.Office.Interop.PowerPoint.SlideShowWindow window)
+        {
+            SendContextChanged();
+        }
+
+        private void OnSlideShowEnd(Microsoft.Office.Interop.PowerPoint.Presentation pres)
+        {
+            SendContextChanged();
+        }
+
+        private void SendContextChanged()
+        {
+            try
+            {
+                var contextId = _adapter?.GetCurrentContextId();
+                if (_pipeClient != null && _sessionId != null && !string.IsNullOrEmpty(contextId))
+                {
+                    _pipeClient.SendOnlyAsync(new VstoContextChanged
+                    {
+                        RequestId = Guid.NewGuid().ToString("N").Substring(0, 12),
+                        SessionId = _sessionId,
+                        DocumentContextId = contextId,
+                        DocumentTitle = Application.ActivePresentation?.Name
+                    });
+                }
+            }
+            catch { }
         }
 
         private async Task InitializePipeAsync()
@@ -68,7 +107,16 @@ namespace LaTeXSnipper.PowerPoint
                             try
                             {
                                 var ctx = _adapter.GetCurrentContextId();
-                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "powerpoint", Application.Version, ctx);
+                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "powerpoint", Application.Version,
+                                    new Capabilities
+                                    {
+                                        InsertFormula = true,
+                                        ReplaceFormula = true,
+                                        ReadSelection = true,
+                                        InsertTable = false,
+                                        ReadTable = false,
+                                    },
+                                    ctx);
                             }
                             catch (Exception ex)
                             {
@@ -192,11 +240,28 @@ namespace LaTeXSnipper.PowerPoint
                 }
                 case DesktopPing:
                     break;
+                default:
+                {
+                    var unknown = message as DesktopMessage;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[LaTeXSnipper.PowerPoint] Unhandled DesktopMessage type: {unknown?.GetType().Name}");
+                    _pipeClient?.SendOnlyAsync(new VstoHostError
+                    {
+                        RequestId = unknown?.RequestId ?? "",
+                        SessionId = unknown?.SessionId ?? _sessionId ?? "",
+                        ErrorCode = "NOT_IMPLEMENTED",
+                        Error = $"Command {unknown?.GetType().Name} is not implemented for PowerPoint"
+                    });
+                    break;
+                }
             }
         }
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            Application.PresentationOpen -= OnPresentationOpen;
+            Application.SlideShowBegin -= OnSlideShowBegin;
+            Application.SlideShowEnd -= OnSlideShowEnd;
             _pipeClient?.Disconnect();
         }
 

@@ -17,6 +17,21 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use platforms::session::SessionManager;
 
 fn main() {
+    // Set up panic hook to write crash info to a file
+    let log_dir = dirs_next::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("LaTeXSnipper");
+    std::fs::create_dir_all(&log_dir).ok();
+    let log_path = log_dir.join("crash.log");
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = format!("[{}] PANIC: {}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), info);
+        let _ = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&log_path)
+            .map(|mut f| std::io::Write::write_all(&mut f, msg.as_bytes()));
+        prev_hook(info);
+    }));
+
     // Collect args before Tauri consumes them
     let args: Vec<String> = std::env::args().collect();
 
@@ -163,6 +178,7 @@ fn main() {
             platforms::integrations::install_platform_integration,
             platforms::integrations::uninstall_platform_integration,
             platforms::integrations::check_platform_integration,
+            platforms::office::invalidate_office_cache,
             math::omml_to_latex,
             math::latex_to_omml,
             math::mathml_to_latex,

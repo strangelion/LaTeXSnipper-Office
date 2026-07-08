@@ -255,9 +255,10 @@ public class PipeClient : IDisposable
     }
 
     /// <summary>
-    /// Send HOST_READY after Word is fully initialized.
+    /// Send HOST_READY after the add-in is fully initialized.
+    /// The capabilities describe which commands this host supports.
     /// </summary>
-    public async Task SendHostReadyAsync(string sessionId, string hostType, string hostVersion, string? documentContextId = null, string? documentTitle = null)
+    public async Task SendHostReadyAsync(string sessionId, string hostType, string hostVersion, Capabilities capabilities, string? documentContextId = null, string? documentTitle = null)
     {
         var msg = new VstoHostReady
         {
@@ -265,6 +266,7 @@ public class PipeClient : IDisposable
             SessionId = sessionId,
             HostType = hostType,
             HostVersion = hostVersion,
+            Capabilities = capabilities,
             DocumentContextId = documentContextId,
             DocumentTitle = documentTitle
         };
