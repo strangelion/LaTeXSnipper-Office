@@ -227,81 +227,149 @@ if ($SkipSigning) {
         ".vsto and .dll.manifest files."
     )
 } else {
-    # Signing priority:
-    # 1. VstoManifestKeyFile + VstoManifestKeyPassword env vars (CI/production)
-    # 2. VstoManifestThumbprint env var (existing cert in store)
-    # 3. Auto-generate dev cert (local dev only, with warning)
+    # VSTO/ClickOnce signing must use a certificate already present in
+    # Cert:\CurrentUser\My. Passing a password-protected PFX directly to
+    # MSBuild is unreliable in CI because MSBuild may try an interactive import.
+    #
+    # Supported release flow:
+    #   env:VstoManifestKeyFile      = path to PFX
+    #   env:VstoManifestKeyPassword  = PFX password
+    #   env:VstoManifestThumbprint   = optional expected thumbprint
+    #
+    # After importing the PFX, invoke MSBuild with the thumbprint only and
+    # explicitly clear ManifestKeyFile/VstoManifestKeyFile so project-level
+    # env properties cannot make MSBuild import the PFX again.
 
+    $providedPfxPath = $env:VstoManifestKeyFile
+    $providedPfxPassword = $env:VstoManifestKeyPassword
+    $expectedThumbprint = $env:VstoManifestThumbprint
     $is_dev_cert = $false
 
-    if ($env:VstoManifestKeyFile) {
-        # Explicit PFX provided
-        if (-not (Test-Path $env:VstoManifestKeyFile)) {
-            throw "VstoManifestKeyFile not found: $($env:VstoManifestKeyFile)"
+    function Import-VstoSigningPfx {
+        param(
+            [Parameter(Mandatory = $true)][string]$PfxPath,
+            [string]$Password,
+            [string]$ExpectedThumbprint
+        )
+
+        if (-not (Test-Path -LiteralPath $PfxPath)) {
+            throw "VstoManifestKeyFile not found: $PfxPath"
         }
-        if ($env:VstoManifestThumbprint) {
-            $thumbprint = $env:VstoManifestThumbprint
-        } else {
-            $thumbprint = (Get-PfxCertificate -FilePath $env:VstoManifestKeyFile).Thumbprint
+
+        $importParams = @{
+            FilePath          = (Resolve-Path -LiteralPath $PfxPath).Path
+            CertStoreLocation = "Cert:\CurrentUser\My"
+            Exportable        = $true
         }
-        Write-Host "  Signing: using provided certificate ($thumbprint)" -ForegroundColor Green
-    } elseif ($env:VstoManifestThumbprint) {
-        # Thumbprint only — cert already in store
-        $thumbprint = $env:VstoManifestThumbprint
+
+        if ($Password) {
+            $importParams.Password = ConvertTo-SecureString $Password -AsPlainText -Force
+        }
+
+        try {
+            $imported = @(Import-PfxCertificate @importParams)
+        } catch {
+            throw "Failed to import VSTO signing PFX into Cert:\CurrentUser\My. Check VstoManifestKeyPassword. $($_.Exception.Message)"
+        }
+
+        if (-not $imported -or $imported.Count -eq 0) {
+            throw "PFX import returned no certificate: $PfxPath"
+        }
+
+        if ($ExpectedThumbprint) {
+            $normalized = $ExpectedThumbprint.Replace(" ", "").ToUpperInvariant()
+            $cert = $imported | Where-Object { $_.Thumbprint.ToUpperInvariant() -eq $normalized } | Select-Object -First 1
+            if (-not $cert) {
+                $cert = Get-ChildItem "Cert:\CurrentUser\My" |
+                    Where-Object { $_.Thumbprint.ToUpperInvariant() -eq $normalized } |
+                    Select-Object -First 1
+            }
+            if (-not $cert) {
+                throw "Imported PFX, but expected thumbprint was not found in CurrentUser\My: $ExpectedThumbprint"
+            }
+            return $cert
+        }
+
+        $certWithKey = $imported | Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+        if ($certWithKey) { return $certWithKey }
+
+        throw "Imported PFX does not contain a certificate with a private key: $PfxPath"
+    }
+
+    if ($providedPfxPath) {
+        $storeCert = Import-VstoSigningPfx `
+            -PfxPath $providedPfxPath `
+            -Password $providedPfxPassword `
+            -ExpectedThumbprint $expectedThumbprint
+        $thumbprint = $storeCert.Thumbprint
+        Write-Host "  Signing: imported PFX into CurrentUser\My ($thumbprint)" -ForegroundColor Green
+    } elseif ($expectedThumbprint) {
+        $thumbprint = $expectedThumbprint.Replace(" ", "").ToUpperInvariant()
+        $storeCert = Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+        if (-not $storeCert) {
+            throw "VSTO signing certificate not found in Cert:\CurrentUser\My: $thumbprint"
+        }
         Write-Host "  Signing: using store certificate ($thumbprint)" -ForegroundColor Green
     } else {
-        # Dev fallback — generate temp cert
+        # Dev fallback — generate temp cert directly in CurrentUser\My.
         $is_dev_cert = $true
         $tempPath = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
         $devPfx = Join-Path $tempPath "LaTeXSnipper-Office.pfx"
         $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
-        $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipper-Office, O=strangelion" `
+        $storeCert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipper-Office, O=strangelion" `
             -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Office Dev" `
             -CertStoreLocation "Cert:\CurrentUser\My" `
             -NotAfter (Get-Date).AddYears(30) `
             -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
-        $cert | Export-PfxCertificate -FilePath $devPfx -Password $pwd
-        $thumbprint = $cert.Thumbprint
+        $storeCert | Export-PfxCertificate -FilePath $devPfx -Password $pwd | Out-Null
+        $thumbprint = $storeCert.Thumbprint
         Write-Host "  [DEV] Auto-generated self-signed certificate (not for release!)" -ForegroundColor Yellow
-        Write-Host "  [DEV] Subject: CN=LaTeXSnipper-Office, O=strangelion" -ForegroundColor Yellow
         Write-Host "  [DEV] Thumbprint: $thumbprint" -ForegroundColor Yellow
-        Write-Host "  [DEV] Set VstoManifestKeyFile=$devPfx for CI builds" -ForegroundColor Yellow
-
-        $env:VstoManifestKeyFile = $devPfx
-        $env:VstoManifestKeyPassword = "test"
     }
 
-    # Export .cer (public key only) for user distribution
+    $storeCert = Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
+    if (-not $storeCert) {
+        throw "Signing certificate is not in Cert:\CurrentUser\My after import: $thumbprint"
+    }
+    if (-not $storeCert.HasPrivateKey) {
+        throw "Signing certificate does not have a private key: $thumbprint"
+    }
+
+    # Prevent MSBuild/project files from seeing env:VstoManifestKeyFile and trying
+    # to import a password-protected PFX interactively during Build/Publish.
+    Remove-Item Env:VstoManifestKeyFile -ErrorAction SilentlyContinue
+    Remove-Item Env:VstoManifestKeyPassword -ErrorAction SilentlyContinue
+    $env:VstoManifestThumbprint = $thumbprint
+
+    # Export .cer (public key only) for user distribution/trust checks.
     $certDir = Join-Path $absoluteOutputDir "certificates"
     New-Item -ItemType Directory -Path $certDir -Force | Out-Null
     $cerPath = Join-Path $certDir "LaTeXSnipperOffice.cer"
-    $storeCert = Get-ChildItem "Cert:\CurrentUser\My\$thumbprint" -ErrorAction SilentlyContinue
-    if ($storeCert) {
-        $certBytes = $storeCert.Export("Cert")
-        [System.IO.File]::WriteAllBytes($cerPath, $certBytes)
-        Write-Host "  Certificate .cer exported: $cerPath" -ForegroundColor Gray
+    $certBytes = $storeCert.Export("Cert")
+    [System.IO.File]::WriteAllBytes($cerPath, $certBytes)
+    Write-Host "  Certificate .cer exported: $cerPath" -ForegroundColor Gray
 
-        # Generate signing metadata JSON consumed by check_certificate_trusted()
-        $sha256Algo = [System.Security.Cryptography.SHA256]::Create()
-        $sha256Bytes = $sha256Algo.ComputeHash($storeCert.RawData)
-        $sha256Hex = ($sha256Bytes | ForEach-Object { $_.ToString("X2") }) -join ""
-        $signingJson = @{
-            schemaVersion     = 1
-            subject           = $storeCert.Subject
-            sha1Thumbprint    = $thumbprint.ToUpper()
-            sha256Thumbprint  = $sha256Hex
-            certificateFile   = "LaTeXSnipperOffice.cer"
-        } | ConvertTo-Json -Compress
-        $signingPath = Join-Path $certDir "native-office-signing.json"
-        Set-Content -Path $signingPath -Value $signingJson -Encoding UTF8
-        Write-Host "  Signing metadata: $signingPath" -ForegroundColor Gray
-    }
+    $sha256Algo = [System.Security.Cryptography.SHA256]::Create()
+    $sha256Bytes = $sha256Algo.ComputeHash($storeCert.RawData)
+    $sha256Hex = ($sha256Bytes | ForEach-Object { $_.ToString("X2") }) -join ""
+    $signingJson = @{
+        schemaVersion     = 1
+        subject           = $storeCert.Subject
+        sha1Thumbprint    = $thumbprint.ToUpper()
+        sha256Thumbprint  = $sha256Hex
+        certificateFile   = "LaTeXSnipperOffice.cer"
+    } | ConvertTo-Json -Compress
+    $signingPath = Join-Path $certDir "native-office-signing.json"
+    Set-Content -Path $signingPath -Value $signingJson -Encoding UTF8
+    Write-Host "  Signing metadata: $signingPath" -ForegroundColor Gray
 
+    $buildArgs += "/p:SignManifests=true"
     $buildArgs += "/p:ManifestCertificateThumbprint=$thumbprint"
-    $buildArgs += "/p:ManifestKeyFile=$env:VstoManifestKeyFile"
-    if ($env:VstoManifestKeyPassword) {
-        $buildArgs += "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword"
-    }
+    $buildArgs += "/p:ManifestKeyFile="
+    $buildArgs += "/p:ManifestKeyPassword="
+    $buildArgs += "/p:VstoManifestKeyFile="
+    $buildArgs += "/p:VstoManifestKeyPassword="
+    $buildArgs += "/p:VstoManifestThumbprint=$thumbprint"
     Write-Host "  Signing: ENABLED" -ForegroundColor Green
 }
 
@@ -328,11 +396,11 @@ foreach ($hostName in $hosts) {
         "/p:VSToolsPath=$officeToolsOverlayVSToolsPath",
         "/p:GenerateManifests=true",
         "/p:SignManifests=true",
-        "/p:ManifestKeyFile=$env:VstoManifestKeyFile",
-        "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword",
         "/p:ManifestCertificateThumbprint=$thumbprint",
-        "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile",
-        "/p:VstoManifestKeyPassword=$env:VstoManifestKeyPassword",
+        "/p:ManifestKeyFile=",
+        "/p:ManifestKeyPassword=",
+        "/p:VstoManifestKeyFile=",
+        "/p:VstoManifestKeyPassword=",
         "/p:VstoManifestThumbprint=$thumbprint",
         "/p:PublishUrl=$hostPublishUrl",
         "/p:PublishDir=$hostPublishUrl",
