@@ -825,6 +825,7 @@ fn office_addin_codebase(dll: &Path) -> String {
     format!("file:///{}", dll.to_string_lossy().replace('\\', "/"))
 }
 
+#[cfg(target_os = "windows")]
 fn register_hkcu_office_com_addin(dll: &Path) -> Result<(), String> {
     let clsid = office_addin_clsid();
     let clsid_key = hkcu_classes_key(&format!(r"CLSID\{}", clsid));
@@ -869,6 +870,7 @@ fn register_hkcu_office_com_addin(dll: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn unregister_hkcu_office_com_addin() {
     // Clean HKCU
     reg_delete_tree(&hkcu_classes_key("LaTeXSnipper.Office"));
@@ -881,6 +883,7 @@ fn unregister_hkcu_office_com_addin() {
     reg_delete_tree(r"HKCR\LaTeXSnipper.Office");
 }
 
+#[cfg(target_os = "windows")]
 fn cleanup_legacy_office_com_addins() {
     for app in ["Word", "Excel", "PowerPoint"] {
         for addin in [
@@ -912,6 +915,7 @@ fn cleanup_legacy_office_com_addins() {
     ));
 }
 
+#[cfg(target_os = "windows")]
 fn office_com_addin_registered() -> bool {
     // Check if registered for any Office app (Word, Excel, or PowerPoint)
     let addin_ok = ["Word", "Excel", "PowerPoint"].iter().any(|app| {
@@ -1021,6 +1025,7 @@ Write-Output 'Registration complete.'
     println!("[Office] Registration script launched (UAC prompt may appear).");
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn office_vsto_registered() -> bool {
     let roots = [
@@ -1291,6 +1296,7 @@ fn find_regasm() -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "windows")]
 fn install_office_vsto() -> PlatformIntegrationResult {
     let status = super::office::detect_office_cached();
     if !status.installed {
@@ -2391,6 +2397,7 @@ fn install_office() -> PlatformIntegrationResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn uninstall_office() -> PlatformIntegrationResult {
     let startup = office_startup_dotm();
@@ -2462,6 +2469,7 @@ fn uninstall_office() -> PlatformIntegrationResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[allow(dead_code)]
 fn check_office() -> PlatformIntegrationResult {
     let startup = office_startup_dotm();

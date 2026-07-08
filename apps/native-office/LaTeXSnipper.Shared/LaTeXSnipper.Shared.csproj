@@ -12,6 +12,8 @@
     <TargetFrameworkProfile />
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
+    <!-- Shared library: never sign VSTO manifests even if /p:SignManifests=true is passed -->
+    <SignManifests>false</SignManifests>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
