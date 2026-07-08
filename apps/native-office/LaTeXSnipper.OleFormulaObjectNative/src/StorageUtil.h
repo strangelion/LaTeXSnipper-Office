@@ -4,6 +4,7 @@
 
 #include <objidl.h>
 #include <string>
+#include <vector>
 
 HRESULT SavePresentationToStorage(IStorage* storage, const FormulaPresentation& presentation);
 HRESULT LoadPresentationFromStorage(IStorage* storage, FormulaPresentation* presentation);

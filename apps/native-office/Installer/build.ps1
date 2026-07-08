@@ -298,9 +298,9 @@ if ($SkipSigning) {
 
     $buildArgs += "/p:SignManifests=true"
     $buildArgs += "/p:ManifestCertificateThumbprint=$thumbprint"
-    $buildArgs += "/p:VstoManifestKeyFile=$env:VstoManifestKeyFile"
+    $buildArgs += "/p:ManifestKeyFile=$env:VstoManifestKeyFile"
     if ($env:VstoManifestKeyPassword) {
-        $buildArgs += "/p:VstoManifestKeyPassword=$env:VstoManifestKeyPassword"
+        $buildArgs += "/p:ManifestKeyPassword=$env:VstoManifestKeyPassword"
     }
     Write-Host "  Signing: ENABLED" -ForegroundColor Green
 }
