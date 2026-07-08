@@ -530,7 +530,8 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
             nlohmann::json doc = nlohmann::json::parse(response);
             if (doc.contains("formula") && doc["formula"].is_object())
             {
-                newPayloadJson = doc["formula"].dump();
+                std::string narrow = doc["formula"].dump();
+                newPayloadJson.assign(narrow.begin(), narrow.end());
             }
         }
         catch (...) {}
