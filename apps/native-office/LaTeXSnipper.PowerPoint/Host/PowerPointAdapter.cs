@@ -222,6 +222,16 @@ namespace LaTeXSnipper.PowerPoint.Host
         {
             try
             {
+                // Normalize OLE payload before insertion (P0-2)
+                try
+                {
+                    payload = OleFormulaInterop.NormalizeForOle(payload);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return new InsertResult { Success = false, Error = ex.Message };
+                }
+
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
@@ -229,13 +239,14 @@ namespace LaTeXSnipper.PowerPoint.Host
                 float left = (slideWidth - width) / 2f;
                 float top = 100f;
 
+                // P0-5: FileName: "" → Type.Missing (empty string causes PPT to fail)
                 var shape = slide.Shapes.AddOLEObject(
                     Left: left,
                     Top: top,
                     Width: width,
                     Height: height,
                     ClassName: "LaTeXSnipper.Formula.1",
-                    FileName: "",
+                    FileName: Type.Missing,
                     DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse
                 );
 

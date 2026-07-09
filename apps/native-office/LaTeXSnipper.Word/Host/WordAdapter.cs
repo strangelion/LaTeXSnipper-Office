@@ -359,6 +359,16 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] OMML to insert: [{payload.Omml}]");
 
+                if (mode == InsertMode.Inline)
+                {
+                    // Inline formula: use Word's OMaths.Add().BuildUp() instead of InsertXML.
+                    // This avoids the block-level XML error ("该操作不是程序块级XML元素之外的有效操作")
+                    // that occurs when a <w:p>-containing Flat OPC is inserted into an inline range.
+                    return InsertWordInlineNative(doc, range, payload);
+                }
+
+                // Display / DisplayNumbered: keep InsertXML but normalize insertion point first
+                var blockRange = NormalizeToBlockInsertionPoint(range);
                 var cleanOmml = NormalizeOmml(payload.Omml, mode);
                 if (string.IsNullOrWhiteSpace(cleanOmml))
                     return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
@@ -368,7 +378,7 @@ namespace LaTeXSnipper.Word.Host
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
-                range.InsertXML(flatOpc);
+                blockRange.InsertXML(flatOpc);
 
                 FormulaDocumentManifest.Write(doc, payload);
 
@@ -376,8 +386,8 @@ namespace LaTeXSnipper.Word.Host
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
-                    RangeStart = (uint)range.Start,
-                    RangeEnd = (uint)range.End
+                    RangeStart = (uint)blockRange.Start,
+                    RangeEnd = (uint)blockRange.End
                 };
             }
             catch (Exception ex)
@@ -392,10 +402,113 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        /// <summary>
+        /// Insert an inline formula using Word's native OMaths.Add().BuildUp().
+        /// This avoids the block-level XML error from InsertXML with <w:p>-containing Flat OPC.
+        /// </summary>
+        private InsertResult InsertWordInlineNative(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
+        {
+            try
+            {
+                // Use LaTeX or a simple placeholder; Word will convert via BuildUp
+                string linearFormula = !string.IsNullOrEmpty(payload.Latex)
+                    ? payload.Latex
+                    : " ";
+
+                range.Text = linearFormula;
+                range = doc.Range(range.Start, range.Start + linearFormula.Length);
+
+                var oMaths = range.OMaths;
+                var oMath = oMaths.Add(range);
+                oMath.BuildUp();
+
+                // Wrap the equation in a ContentControl for metadata tracking
+                Microsoft.Office.Interop.Word.ContentControl? cc = null;
+                try
+                {
+                    cc = doc.ContentControls.Add(
+                        Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                        oMath.Range);
+                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
+                    cc.LockContentControl = false;
+                    cc.LockContents = false;
+                }
+                catch
+                {
+                    // Best-effort — formula is still inserted
+                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap inline formula with ContentControl");
+                }
+
+                FormulaDocumentManifest.Write(doc, payload);
+
+                return new InsertResult
+                {
+                    Success = true,
+                    FormulaId = payload.FormulaId,
+                    RangeStart = (uint)oMath.Range.Start,
+                    RangeEnd = (uint)oMath.Range.End
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WordAdapter] InsertWordInlineNative error: {ex.Message}");
+                // Fallback: try the old InsertXML approach with inline-safe XML
+                var cleanOmml = NormalizeOmml(payload.Omml ?? "", InsertMode.Inline);
+                if (!string.IsNullOrWhiteSpace(cleanOmml))
+                {
+                    try
+                    {
+                        // Minimal inline-safe OMML — no <w:p> wrapper
+                        var inlineXml = $"<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">{cleanOmml}</m:oMath>";
+                        range.InsertXML(inlineXml);
+                        FormulaDocumentManifest.Write(doc, payload);
+                        return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                    }
+                    catch { }
+                }
+                return new InsertResult { Success = false, Error = $"Inline formula insert failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Ensure the range is at a block-level insertion point (start of a paragraph).
+        /// Moves to the end of the current paragraph and inserts a new paragraph if needed.
+        /// </summary>
+        private static Microsoft.Office.Interop.Word.Range NormalizeToBlockInsertionPoint(Microsoft.Office.Interop.Word.Range range)
+        {
+            try
+            {
+                // If cursor is inside a paragraph (not at start or end), collapse and move to a new paragraph
+                if (range.Start != range.Paragraphs[1].Range.Start &&
+                    range.Start != range.Paragraphs[1].Range.End - 1)
+                {
+                    range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                    range.InsertParagraphAfter();
+                    range = range.Duplicate;
+                    range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                }
+                return range;
+            }
+            catch
+            {
+                return range;
+            }
+        }
+
         private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload, InsertMode mode = InsertMode.Inline)
         {
             try
             {
+                // Normalize OLE payload before insertion
+                try
+                {
+                    payload = OleFormulaInterop.NormalizeForOle(payload);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return new InsertResult { Success = false, Error = ex.Message };
+                }
+
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 

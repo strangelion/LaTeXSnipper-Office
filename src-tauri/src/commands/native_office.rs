@@ -56,7 +56,14 @@ pub async fn native_office_insert_formula(
                 })
             }),
         source: None,
-        storage_mode: None,
+        storage_mode: integration_mode.as_deref().map(|s| {
+            match s {
+                "ole" => "ole".to_string(),
+                "image" => "image".to_string(),
+                "native" => "native-omml".to_string(),
+                _ => "auto".to_string(),
+            }
+        }),
         revision: 0,
     };
 

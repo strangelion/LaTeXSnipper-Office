@@ -239,6 +239,16 @@ namespace LaTeXSnipper.Excel.Host
         {
             try
             {
+                // Normalize OLE payload before insertion
+                try
+                {
+                    payload = OleFormulaInterop.NormalizeForOle(payload);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return new InsertResult { Success = false, Error = ex.Message };
+                }
+
                 double cellLeft = 0, cellTop = 0;
                 try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
 

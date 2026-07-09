@@ -140,19 +140,33 @@ LONG GetNativeOleLockCount()
 }
 
 FormulaOleObject::FormulaOleObject()
-    : presentation_([]() -> FormulaPresentation {
-        // Check registry for a pending payload from the VSTO add-in
-        std::wstring pendingJson = ConsumePendingPayload();
-        if (!pendingJson.empty())
-        {
-            FormulaPresentation loaded = CreatePresentationFromPayload(pendingJson);
-            if (!loaded.latex.empty())
-                return loaded;
-        }
-        return CreatePlaceholderPresentation(kFormulaDefaultLatex);
-    }())
 {
-    formulaId_.resize(32, L'0');
+    // Check registry for a pending payload from the VSTO add-in (P0-3)
+    std::wstring pendingJson = ConsumePendingPayload();
+    if (!pendingJson.empty())
+    {
+        FormulaPresentation loaded = CreatePresentationFromPayload(pendingJson);
+        if (!loaded.latex.empty() && !loaded.enhancedMetafile.empty())
+        {
+            presentation_ = std::move(loaded);
+            canonicalPayloadJson_ = pendingJson;
+            formulaId_ = ExtractJsonString(pendingJson, L"formulaId");
+            if (formulaId_.empty())
+                formulaId_.resize(32, L'0');
+            dirty_ = true;
+        }
+        else
+        {
+            presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
+            formulaId_.resize(32, L'0');
+        }
+    }
+    else
+    {
+        presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
+        formulaId_.resize(32, L'0');
+    }
+
     WriteNativeOleLog(L"FormulaOleObject constructed.");
     InterlockedIncrement(&g_objectCount);
 }
@@ -606,11 +620,107 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
         HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
         if (metafile == nullptr)
         {
+            WriteNativeOleLog(L"FormulaOleObject GetData: CF_ENHMETAFILE — no EMF data");
             return E_FAIL;
         }
 
         medium->tymed = TYMED_ENHMF;
         medium->hEnhMetaFile = metafile;
+        medium->pUnkForRelease = nullptr;
+        return S_OK;
+    }
+
+    // CF_DIB: Convert EMF to DIB via GDI (for PPT/Excel compatibility)
+    if (format->cfFormat == CF_DIB)
+    {
+        HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
+        if (metafile == nullptr)
+        {
+            WriteNativeOleLog(L"FormulaOleObject GetData: CF_DIB — no EMF data to convert");
+            return E_FAIL;
+        }
+
+        // Get EMF dimensions
+        ENHMETAHEADER header{};
+        GetEnhMetaFileHeader(metafile, sizeof(header), &header);
+        int width = header.rclFrame.right - header.rclFrame.left;
+        int height = header.rclFrame.bottom - header.rclFrame.top;
+
+        // Convert to DIB
+        HDC screen = GetDC(nullptr);
+        HDC memDC = CreateCompatibleDC(screen);
+        if (memDC == nullptr) { ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
+
+        // Create bitmap from EMF
+        RECT rect{0, 0, width / 100, height / 100}; // EMF units: 0.01mm → pixels approx
+        HBITMAP bitmap = CreateCompatibleBitmap(screen, rect.right, rect.bottom);
+        if (bitmap == nullptr) { DeleteDC(memDC); ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
+
+        SelectObject(memDC, bitmap);
+        PlayEnhMetaFile(memDC, metafile, &rect);
+        DeleteEnhMetaFile(metafile);
+
+        // Get DIB bits
+        DIBSECTION dib;
+        GetObject(bitmap, sizeof(dib), &dib);
+
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = dib.dsBm.bmWidth;
+        bmi.bmiHeader.biHeight = dib.dsBm.bmHeight;
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        DWORD dibSize = sizeof(BITMAPINFOHEADER) + dib.dsBm.bmWidth * dib.dsBm.bmHeight * 4;
+        HGLOBAL dibHandle = GlobalAlloc(GMEM_MOVEABLE, dibSize);
+        if (dibHandle == nullptr) { DeleteObject(bitmap); DeleteDC(memDC); ReleaseDC(nullptr, screen); return E_FAIL; }
+
+        auto* dibBits = static_cast<BYTE*>(GlobalLock(dibHandle));
+        memcpy(dibBits, &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
+        GetDIBits(memDC, bitmap, 0, dib.dsBm.bmHeight,
+                  dibBits + sizeof(BITMAPINFOHEADER), &bmi, DIB_RGB_COLORS);
+        GlobalUnlock(dibHandle);
+
+        DeleteObject(bitmap);
+        DeleteDC(memDC);
+        ReleaseDC(nullptr, screen);
+
+        medium->tymed = TYMED_HGLOBAL;
+        medium->hGlobal = dibHandle;
+        medium->pUnkForRelease = nullptr;
+        return S_OK;
+    }
+
+    // CF_BITMAP: GDI bitmap fallback
+    if (format->cfFormat == CF_BITMAP)
+    {
+        HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
+        if (metafile == nullptr)
+        {
+            WriteNativeOleLog(L"FormulaOleObject GetData: CF_BITMAP — no EMF data to convert");
+            return E_FAIL;
+        }
+
+        ENHMETAHEADER header{};
+        GetEnhMetaFileHeader(metafile, sizeof(header), &header);
+        int width = (header.rclFrame.right - header.rclFrame.left) / 100;
+        int height = (header.rclFrame.bottom - header.rclFrame.top) / 100;
+        if (width <= 0) width = 120;
+        if (height <= 0) height = 30;
+
+        HDC screen = GetDC(nullptr);
+        HDC memDC = CreateCompatibleDC(screen);
+        RECT rect{0, 0, width, height};
+        HBITMAP bitmap = CreateCompatibleBitmap(screen, width, height);
+        SelectObject(memDC, bitmap);
+        PlayEnhMetaFile(memDC, metafile, &rect);
+        DeleteEnhMetaFile(metafile);
+        DeleteDC(memDC);
+        ReleaseDC(nullptr, screen);
+
+        medium->tymed = TYMED_GDI;
+        medium->hBitmap = bitmap;
         medium->pUnkForRelease = nullptr;
         return S_OK;
     }
@@ -659,6 +769,24 @@ STDMETHODIMP FormulaOleObject::QueryGetData(FORMATETC* format)
         return (format->tymed & TYMED_MFPICT) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
     }
 
+    // P1-4: Support DIB and BITMAP for PPT/Excel compatibility
+    if (format->cfFormat == CF_DIB)
+    {
+        return (format->tymed & TYMED_HGLOBAL) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
+    }
+
+    if (format->cfFormat == CF_BITMAP)
+    {
+        return (format->tymed & TYMED_GDI) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
+    }
+
+    // Support DVASPECT_ICON
+    if (format->dwAspect == DVASPECT_ICON)
+    {
+        return DV_E_FORMATETC; // Icon not supported, but handled gracefully
+    }
+
+    WriteNativeOleLog(L"FormulaOleObject QueryGetData: unsupported format");
     return DV_E_FORMATETC;
 }
 
@@ -707,9 +835,13 @@ STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD direction, IEnumFORMATETC** e
     // Return the formats our IDataObject::GetData() supports:
     //   CF_ENHMETAFILE  — EMF picture rendering
     //   CF_METAFILEPICT — legacy metafile fallback
+    //   CF_DIB          — device-independent bitmap (PPT/Excel compatibility)
+    //   CF_BITMAP       — GDI bitmap fallback (PPT/Excel compatibility)
     static const FORMATETC formats[] = {
         {CF_ENHMETAFILE,  nullptr, DVASPECT_CONTENT, -1, TYMED_ENHMF},
         {CF_METAFILEPICT, nullptr, DVASPECT_CONTENT, -1, TYMED_MFPICT},
+        {CF_DIB,          nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL},
+        {CF_BITMAP,       nullptr, DVASPECT_CONTENT, -1, TYMED_GDI},
     };
 
     *enumFormatEtc = new (std::nothrow) FormulaFormatEnum(formats, ARRAYSIZE(formats));
@@ -784,7 +916,17 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
     HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
     if (metafile == nullptr)
     {
-        return E_FAIL;
+        WriteNativeOleLog(L"FormulaOleObject Draw: no EMF data to render — drawing placeholder");
+        // Draw a simple border/placeholder so the user sees something is there
+        HPEN pen = CreatePen(PS_DASH, 1, RGB(0xCC, 0xCC, 0xCC));
+        HGDIOBJ oldPen = SelectObject(drawContext, pen);
+        HGDIOBJ oldBrush = SelectObject(drawContext, GetStockObject(NULL_BRUSH));
+        RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
+        Rectangle(drawContext, rect.left, rect.top, rect.right, rect.bottom);
+        SelectObject(drawContext, oldPen);
+        SelectObject(drawContext, oldBrush);
+        DeleteObject(pen);
+        return S_OK;
     }
 
     RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
@@ -1156,6 +1298,13 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     FormulaPresentation loaded = CreatePresentationFromPayload(wsJson);
     if (loaded.latex.empty())
         return E_FAIL;
+
+    // P0-4: Reject if no preview data available (EMF/PNG)
+    if (loaded.enhancedMetafile.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — empty preview (no EMF/PNG)");
+        return E_FAIL;
+    }
 
     presentation_ = std::move(loaded);
     canonicalPayloadJson_ = wsJson;

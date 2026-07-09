@@ -47,64 +47,81 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .setup(|app| {
-            // System tray
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("LaTeXSnipper Office")
-                .icon_as_template(true)
-                .on_tray_icon_event(|tray_icon, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        let app = tray_icon.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(app)?;
+            #[cfg(target_os = "windows")]
+            let is_ole_edit = ole_pipe_name.is_some();
+            #[cfg(not(target_os = "windows"))]
+            let is_ole_edit = false;
 
-            // Exit app when main window is closed
-            let handle = app.handle().clone();
-            if let Some(window) = app.get_webview_window("main") {
-                let h = handle.clone();
-                // On CloseRequested (user clicks X), exit immediately.
-                // This prevents the app from lingering in the background, which
-                // would block NSIS uninstaller from removing the files.
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
-                        // Force exit — kills background tasks (pipe server, bridge)
-                        // so the process doesn't linger and block uninstall.
-                        std::process::exit(0);
-                    }
-                });
+            // Skip heavy initialization in OLE edit mode (P1-2).
+            // --ole-edit should only open a minimal editor window without
+            // tray, global shortcuts, or VSTO named pipe server.
+            //
+            // The office bridge is still needed for formula rendering.
+            if !is_ole_edit {
+                // System tray
+                let _tray = TrayIconBuilder::new()
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .tooltip("LaTeXSnipper Office")
+                    .icon_as_template(true)
+                    .on_tray_icon_event(|tray_icon, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray_icon.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
+
+                // Exit app when main window is closed
+                let handle = app.handle().clone();
+                if let Some(window) = app.get_webview_window("main") {
+                    let h = handle.clone();
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { .. } = event {
+                            std::process::exit(0);
+                        }
+                    });
+                }
+
+                // Global shortcut
+                let handle = app.handle().clone();
+                let shortcut = if cfg!(target_os = "macos") {
+                    "Command+Shift+L"
+                } else {
+                    "Control+Shift+L"
+                };
+
+                app.global_shortcut()
+                    .on_shortcut(shortcut, move |_app, _shortcut, event| {
+                        if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                            if let Some(window) = handle.get_webview_window("main") {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })?;
+            } else {
+                // In OLE edit mode, we still need a minimal window setup
+                let handle = app.handle().clone();
+                if let Some(window) = app.get_webview_window("main") {
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { .. } = event {
+                            std::process::exit(0);
+                        }
+                    });
+                }
             }
 
-            // Global shortcut
-            let handle = app.handle().clone();
-            let shortcut = if cfg!(target_os = "macos") {
-                "Command+Shift+L"
-            } else {
-                "Control+Shift+L"
-            };
-
-            app.global_shortcut()
-                .on_shortcut(shortcut, move |_app, _shortcut, event| {
-                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        if let Some(window) = handle.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })?;
-
-            // Create SessionManager and start Named Pipe server (Windows only)
+            // Create SessionManager and start Named Pipe server (Windows only, skip in OLE edit)
             #[cfg(target_os = "windows")]
-            {
+            if !is_ole_edit {
                 let app_handle = app.handle().clone();
                 let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
                 app.manage(session_manager.clone());
@@ -116,7 +133,7 @@ fn main() {
                 platforms::integrations::register_install_path();
             }
 
-            // Start Office Bridge (HTTPS, port 19876)
+            // Start Office Bridge (HTTPS, port 19876) — always needed for rendering
             let bridge_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 platforms::office_bridge::start_bridge_server(bridge_handle).await;

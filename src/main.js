@@ -3504,18 +3504,51 @@ class UIController {
       if (this._oleSessionToken) {
         try {
           const { emit } = await import('@tauri-apps/api/event');
-          // Merge saved payload_json (if available) with current edits
+
+          // P1-1: Regenerate preview for OLE edit save, so the OLE DLL
+          // receives updated SVG/PNG instead of stale preview data.
+          let renderedSvg = null;
+          let pngBase64Ole = null;
+          let widthPtOle = 0;
+          let heightPtOle = 0;
+          try {
+            const rendered = await this._renderLatexSvg(latex, isDisplay);
+            renderedSvg = rendered.svg;
+            widthPtOle = rendered.widthPt;
+            heightPtOle = rendered.heightPt;
+            pngBase64Ole = await this._svgToPngBase64(rendered.svg, rendered.widthPt, rendered.heightPt);
+          } catch (e) {
+            Logger.warn('[OLE] Preview regeneration failed, reusing old preview:', e);
+          }
+
           let formulaPayload = {
             formulaId: this._oleFormulaId || crypto.randomUUID(),
             latex: latex,
             omml: omml,
             display: isDisplay ? 'block' : 'inline',
-            revision: 1,
+            revision: (this._olePayloadJson?.revision || 0) + 1,
             storageMode: 'ole',
           };
-          // Preserve original payload fields (render, presentation, source) from OLE
+
+          // Only include render data if regeneration succeeded
+          if (renderedSvg && pngBase64Ole) {
+            formulaPayload.render = {
+              svg: renderedSvg,
+              png: pngBase64Ole,
+              widthPt: widthPtOle,
+              heightPt: heightPtOle,
+            };
+          }
+
+          // Preserve original payload fields (presentation, source) from OLE
           if (this._olePayloadJson) {
-            formulaPayload = { ...this._olePayloadJson, ...formulaPayload };
+            // Merge: new fields override, old render/presentation are kept only
+            // if render regeneration failed
+            formulaPayload = {
+              ...this._olePayloadJson,
+              ...formulaPayload,
+              render: formulaPayload.render || this._olePayloadJson.render,
+            };
           }
           await emit(`ole-edit-result-${this._oleSessionToken}`, {
             action: 'save',

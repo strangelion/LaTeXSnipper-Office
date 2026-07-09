@@ -122,4 +122,40 @@ public static class OleFormulaInterop
             return false;
         }
     }
+
+    /// <summary>
+    /// Normalize a FormulaPayload for OLE insertion.
+    /// Sets storageMode to "ole", ensures schemaVersion and revision are valid,
+    /// and checks that preview data (PNG or EMF) is present.
+    /// Throws InvalidOperationException if required fields are missing.
+    /// </summary>
+    public static FormulaPayload NormalizeForOle(FormulaPayload payload)
+    {
+        if (payload == null)
+            throw new ArgumentNullException(nameof(payload));
+
+        if (string.IsNullOrWhiteSpace(payload.FormulaId))
+            throw new InvalidOperationException("OLE formula requires a non-empty FormulaId");
+
+        if (string.IsNullOrWhiteSpace(payload.Latex))
+            throw new InvalidOperationException("OLE formula requires non-empty LaTeX");
+
+        payload.StorageMode = "ole";
+        if (payload.SchemaVersion <= 0)
+            payload.SchemaVersion = 3;
+        if (payload.Revision < 0)
+            payload.Revision = 0;
+
+        // Check for preview data
+        bool hasPng = payload.Render?.Png != null;
+        bool hasEmf = payload.Presentation?.EmfBase64 != null;
+        if (!hasPng && !hasEmf)
+        {
+            throw new InvalidOperationException(
+                "OLE formula requires preview data (Render.Png or Presentation.EmfBase64). " +
+                "Ensure the formula is rendered before OLE insertion.");
+        }
+
+        return payload;
+    }
 }

@@ -24,7 +24,6 @@ namespace
 {
 
 // Forward declarations
-std::wstring FindDesktopPathRegistry();
 std::wstring FindDesktopPath();
 
 // ConnectNamedPipe with timeout (milliseconds).
@@ -173,58 +172,54 @@ std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
 //   EXE: <root>\LaTeXSnipper.exe
 std::wstring FindDesktopPath()
 {
-    wchar_t dllPath[MAX_PATH];
-    DWORD len = GetModuleFileNameW(g_dllModule, dllPath, MAX_PATH);
-    if (len == 0 || len >= MAX_PATH)
+    // Priority 1: Registry InstallPath (written by Rust register_install_path())
+    // This is the most reliable location for production installs.
     {
-        // Fallback: try registry (legacy installers)
-        return FindDesktopPathRegistry();
-    }
-
-    std::wstring path(dllPath, len);
-
-    // Walk up from DLL to find the application root.
-    // The DLL lives in: <root>\resources\NativeOffice\OleFormulaObject.x64.dll
-    // We need to go up 3 levels from the DLL to get root.
-    for (int i = 0; i < 3; ++i)
-    {
-        size_t pos = path.find_last_of(L"\\/");
-        if (pos == std::wstring::npos)
-            break;
-        path = path.substr(0, pos);
-    }
-
-    // Try multiple exe naming patterns (dev vs production)
-    static const wchar_t* exeNames[] = {
-        L"LaTeXSnipper Office.exe",
-        L"LaTeXSnipper.exe",
-        L"LaTeXSnipper-Office.exe",
-        L"latexsnipper-office.exe",
-    };
-    for (auto name : exeNames)
-    {
-        std::wstring exe = path + L"\\" + name;
-        if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
-            return exe;
-    }
-
-    // Absolute fallback: rely on PATH
-    return L"LaTeXSnipper.exe";
-}
-
-// Legacy registry-based lookup, kept as fallback only.
-// Also acts as primary path when the InstallPath is written by Rust install_ole_component().
-std::wstring FindDesktopPathRegistry()
-{
-    wchar_t basePath[MAX_PATH];
-    HKEY keys[] = {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-    for (auto root : keys)
-    {
-        DWORD size = sizeof(basePath);
-        if (RegGetValueW(root, L"Software\\LaTeXSnipper", L"InstallPath",
-                         RRF_RT_REG_SZ, nullptr, basePath, &size) == ERROR_SUCCESS)
+        wchar_t basePath[MAX_PATH];
+        HKEY keys[] = {HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        for (auto root : keys)
         {
-            // Try multiple exe naming patterns (dev vs production)
+            DWORD size = sizeof(basePath);
+            if (RegGetValueW(root, L"Software\\LaTeXSnipper", L"InstallPath",
+                             RRF_RT_REG_SZ, nullptr, basePath, &size) == ERROR_SUCCESS)
+            {
+                static const wchar_t* exeNames[] = {
+                    L"LaTeXSnipper Office.exe",
+                    L"LaTeXSnipper.exe",
+                    L"LaTeXSnipper-Office.exe",
+                    L"latexsnipper-office.exe",
+                };
+                for (auto name : exeNames)
+                {
+                    std::wstring exe = std::wstring(basePath) + L"\\" + name;
+                    if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
+                    {
+                        WriteNativeOleLog(L"FindDesktopPath: found via registry InstallPath");
+                        return exe;
+                    }
+                }
+            }
+        }
+    }
+
+    // Priority 2: DLL relative path (dev / portable builds)
+    {
+        wchar_t dllPath[MAX_PATH];
+        DWORD len = GetModuleFileNameW(g_dllModule, dllPath, MAX_PATH);
+        if (len > 0 && len < MAX_PATH)
+        {
+            std::wstring path(dllPath, len);
+
+            // Walk up from DLL to find the application root.
+            // DLL: <root>\resources\NativeOffice\OleFormulaObject.x64.dll
+            for (int i = 0; i < 3; ++i)
+            {
+                size_t pos = path.find_last_of(L"\\/");
+                if (pos == std::wstring::npos)
+                    break;
+                path = path.substr(0, pos);
+            }
+
             static const wchar_t* exeNames[] = {
                 L"LaTeXSnipper Office.exe",
                 L"LaTeXSnipper.exe",
@@ -233,12 +228,42 @@ std::wstring FindDesktopPathRegistry()
             };
             for (auto name : exeNames)
             {
-                std::wstring exe = std::wstring(basePath) + L"\\" + name;
+                std::wstring exe = path + L"\\" + name;
                 if (GetFileAttributesW(exe.c_str()) != INVALID_FILE_ATTRIBUTES)
+                {
+                    WriteNativeOleLog(L"FindDesktopPath: found via DLL relative path");
                     return exe;
+                }
             }
         }
     }
+
+    // Priority 3: Windows App Paths in registry
+    {
+        static const wchar_t* appNames[] = {
+            L"LaTeXSnipper Office.exe",
+            L"LaTeXSnipper.exe",
+            L"LaTeXSnipper-Office.exe",
+        };
+        for (auto appName : appNames)
+        {
+            std::wstring keyPath = std::wstring(L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\") + appName;
+            wchar_t exePath[MAX_PATH];
+            DWORD size = sizeof(exePath);
+            if (RegGetValueW(HKEY_LOCAL_MACHINE, keyPath.c_str(), nullptr,
+                             RRF_RT_REG_SZ, nullptr, exePath, &size) == ERROR_SUCCESS)
+            {
+                if (GetFileAttributesW(exePath) != INVALID_FILE_ATTRIBUTES)
+                {
+                    WriteNativeOleLog(L"FindDesktopPath: found via App Paths");
+                    return std::wstring(exePath);
+                }
+            }
+        }
+    }
+
+    // Priority 4: Absolute PATH fallback
+    WriteNativeOleLog(L"FindDesktopPath: fallback to PATH");
     return L"LaTeXSnipper.exe";
 }
 
