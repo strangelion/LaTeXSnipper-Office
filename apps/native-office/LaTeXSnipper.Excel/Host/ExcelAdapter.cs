@@ -119,7 +119,7 @@ namespace LaTeXSnipper.Excel.Host
                 width, height
             );
             shape.Name = $"LSNO_{payload.FormulaId}";
-            shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+            shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
             return new InsertResult { Success = true, FormulaId = payload.FormulaId };
         }
 
@@ -179,6 +179,19 @@ namespace LaTeXSnipper.Excel.Host
                             Display = "inline",
                             StorageMode = "ole"
                         };
+                    }
+
+                    // Layer 1d: JSON-based alt text format
+                    if (!string.IsNullOrEmpty(altText) && altText.StartsWith("{"))
+                    {
+                        try
+                        {
+                            var jsonPayload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(altText,
+                                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
+                                return jsonPayload;
+                        }
+                        catch { }
                     }
                 }
 

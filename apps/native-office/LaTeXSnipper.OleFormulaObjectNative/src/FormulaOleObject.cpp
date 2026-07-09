@@ -363,11 +363,18 @@ STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, H
 {
     WriteNativeOleLog(L"FormulaOleObject DoVerb.");
 
-    if (verb == OLEIVERB_PRIMARY || verb == OLEIVERB_SHOW || verb == 0 || verb == 1)
+    // User double-click / primary action: open editor
+    if (verb == OLEIVERB_PRIMARY || verb == 0 || verb == 1)
     {
-        // Verb 0: Edit Formula
-        // Verb 1: Open in LaTeXSnipper (same as edit)
         return StartEditSession();
+    }
+
+    // OLEIVERB_SHOW: Office requests display (e.g. open doc, activate, refresh).
+    // Do NOT open editor — only refresh the preview.
+    if (verb == OLEIVERB_SHOW || verb == OLEIVERB_OPEN)
+    {
+        NotifyPresentationChanged();
+        return S_OK;
     }
 
     if (verb == 2)
@@ -1349,7 +1356,11 @@ HRESULT FormulaOleObject::StartEditSession()
 
         if (hr == S_OK)
         {
-            // Store result for lazy pickup by ApplyPendingEditResult()
+            // Store result for lazy pickup by ApplyPendingEditResult().
+            // Do NOT call clientSite_->SaveObject() or NotifyPresentationChanged()
+            // from this background thread — those are COM apartment-sensitive calls
+            // that belong to Office's STA thread. Cross-apartment invocation risks
+            // hangs or crashes in certain Office versions.
             pendingEditResult_ = result;
             editCompleted_ = true;
 
@@ -1361,14 +1372,6 @@ HRESULT FormulaOleObject::StartEditSession()
         }
 
         editThreadRunning_ = false;
-
-        // Notify Office about the change via client site (best-effort, may fail cross-apartment)
-        if (hr == S_OK && clientSite_ != nullptr)
-        {
-            // Call SaveObject to trigger Office to call our Save()
-            clientSite_->SaveObject();
-            NotifyPresentationChanged();
-        }
 
         Release();  // Balance the AddRef above
     }).detach();

@@ -2029,41 +2029,10 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
             log::warn!("[Office] Failed to save integration ledger: {}", e);
         }
 
-        // Auto-install OLE COM component — merge into the single Office toggle.
-        let ole_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let result = install_ole_component();
-            if result.success {
-                log::info!("[Office] OLE auto-install: {}", result.message);
-            } else {
-                log::warn!("[Office] OLE auto-install skipped: {}", result.message);
-            }
-            result
-        })).unwrap_or_else(|_| {
-            log::error!("[Office] OLE auto-install panicked.");
-            OleComponentResult {
-                success: false,
-                message: "OLE auto-install panicked.".to_string(),
-                entries_modified: vec![],
-            }
-        });
-        if !ole_result.success {
-            // OLE failure does NOT block VSTO in auto/native/image modes.
-            // VSTO stays registered; user sees degraded state in settings page.
-            log::warn!(
-                "[Office] OLE install failed ({}). VSTO remains enabled; OLE unavailable.",
-                ole_result.message
-            );
-            let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
-            return PlatformIntegrationResult::ok(
-                "office",
-                "native-vsto",
-                format!(
-                    "已启用 Native Office VSTO ({})，但 OLE 组件不可用，将自动降级为 native/image 模式。请重启 Office 加载插件。",
-                    host_names.join(", ")
-                ),
-                true,
-            );
-        }
+        // OLE is NOT auto-installed during VSTO enable.
+        // Users enable OLE separately via the "安装 OLE 公式对象" button in settings.
+        // This avoids unexpected COM registration prompts and keeps the enable flow clean.
+        log::info!("[Office] OLE auto-install skipped — user installs OLE separately via settings.");
 
         let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
         return PlatformIntegrationResult::ok(

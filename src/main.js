@@ -3644,19 +3644,22 @@ class UIController {
     }
 
     const rows = [];
-    const lines = body.split('\n');
+    // Split by \\ (row separator) instead of newline, so inline tabular
+    // like "a & b \\ c & d" is parsed correctly.
+    const rowTexts = body
+      .replace(/\\hline|\\toprule|\\midrule|\\bottomrule/g, '')
+      .split(/\\+/)
+      .map(s => s.trim())
+      .filter(Boolean);
 
-    for (let line of lines) {
-      line = line.trim();
+    for (let rowText of rowTexts) {
+      let line = rowText.trim();
       // Skip \hline, \cline, \toprule, \midrule, \bottomrule, empty
       if (!line || line.startsWith('\\hline') || line.startsWith('\\cline')
         || line.startsWith('\\toprule') || line.startsWith('\\midrule')
         || line.startsWith('\\bottomrule')) {
         continue;
       }
-
-      // Remove trailing \\
-      line = line.replace(/\\\\\s*$/, '').trim();
 
       // Split by & for cells
       const cellTexts = line.split('&').map(t => t.trim());

@@ -93,8 +93,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                         left, top, width, height
                     );
                     shape.Name = $"LSNO_{payload.FormulaId}";
-                    shape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+                    var meta = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+                    shape.AlternativeText = meta;
+                    shape.Name = $"LSNO_{payload.FormulaId}";
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] {imageData} shape added: name={shape.Name}, left={left}, top={top}, w={width}, h={height}");
+                    System.Diagnostics.Debug.WriteLine($"[PPTAdapter] AlternativeText: {meta}");
 
                     // Clean up temp file after successful insertion
                     try { if (File.Exists(tempPath)) File.Delete(tempPath); }
@@ -108,7 +111,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     );
                     textShape.TextFrame.TextRange.Text = payload.Latex;
                     textShape.Name = $"LSNO_{payload.FormulaId}";
-                    textShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+                    textShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"text\"}}";
                 }
 
                 return new InsertResult { Success = true, FormulaId = payload.FormulaId };
@@ -178,6 +181,19 @@ namespace LaTeXSnipper.PowerPoint.Host
                             Display = "inline",
                             StorageMode = "ole"
                         };
+                    }
+
+                    // Layer 1c: JSON-based alt text format
+                    if (!string.IsNullOrEmpty(altText) && altText.StartsWith("{"))
+                    {
+                        try
+                        {
+                            var jsonPayload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(altText,
+                                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
+                                return jsonPayload;
+                        }
+                        catch { }
                     }
                 }
             }

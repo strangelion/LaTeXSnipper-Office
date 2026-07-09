@@ -83,7 +83,13 @@ public static class OleFormulaInterop
                 return false;
             if (actual.Revision != expectedPayload.Revision)
                 return false;
-            if (actual.StorageMode != expectedPayload.StorageMode)
+
+            // OLE internally normalizes StorageMode to "ole".
+            // Allow null/auto/native from input payload to match "ole" after round-trip.
+            var expectedMode = expectedPayload.StorageMode;
+            if (expectedMode == null || expectedMode == "auto" || expectedMode == "native")
+                expectedMode = "ole";
+            if (actual.StorageMode != expectedMode)
                 return false;
 
             return true;
