@@ -21,10 +21,10 @@ param(
 $ErrorActionPreference = "Stop"
 $exitCode = 0
 
-Write-Host "=" * 60
+Write-Host ("=" * 60)
 Write-Host "Native Office VSTO Payload Integrity Test"
 Write-Host "Root: $PayloadRoot"
-Write-Host "=" * 60
+Write-Host ("=" * 60)
 
 if (-not (Test-Path -LiteralPath $PayloadRoot)) {
     Write-Host "FAIL: Payload root directory does not exist: $PayloadRoot" -ForegroundColor Red
@@ -71,23 +71,31 @@ if ($vstoFiles.Count -eq 0) {
 }
 
 foreach ($vsto in $vstoFiles) {
-    # .vsto is actually a ZIP archive
     try {
-        $tempDir = Join-Path $env:TEMP "vsto-check-$([System.Guid]::NewGuid().ToString('N'))"
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-        Expand-Archive -LiteralPath $vsto.FullName -DestinationPath $tempDir -Force
-
-        # Check for required entries
-        $manifestEntries = Get-ChildItem -LiteralPath $tempDir -Filter "*.manifest"
-        if ($manifestEntries.Count -eq 0) {
-            Write-Host "  WARNING: $($vsto.Name) has no .manifest inside" -ForegroundColor Yellow
-        } else {
-            Write-Host "  OK $($vsto.Name) ($($manifestEntries.Count) manifest(s))" -ForegroundColor Green
+        [xml]$deployment = Get-Content -LiteralPath $vsto.FullName -Raw
+        $dependencies = $deployment.SelectNodes("//*[local-name()='dependentAssembly' and @codebase]")
+        if ($null -eq $dependencies -or $dependencies.Count -eq 0) {
+            Write-Host "  FAIL: $($vsto.Name) has no dependentAssembly codebase entries" -ForegroundColor Red
+            $exitCode = 1
+            continue
         }
 
-        Remove-Item -LiteralPath $tempDir -Recurse -Force
+        $baseDir = Split-Path -Parent $vsto.FullName
+        foreach ($dependency in $dependencies) {
+            $codebase = $dependency.GetAttribute("codebase")
+            if ([string]::IsNullOrWhiteSpace($codebase)) {
+                continue
+            }
+            $targetPath = Join-Path $baseDir $codebase
+            if (-not (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
+                Write-Host "  FAIL: $($vsto.Name) references missing file: $codebase" -ForegroundColor Red
+                $exitCode = 1
+            } else {
+                Write-Host "  OK $($vsto.Name) references $codebase" -ForegroundColor Green
+            }
+        }
     } catch {
-        Write-Host "  FAIL: $($vsto.Name) is not a valid VSTO archive: $_" -ForegroundColor Red
+        Write-Host "  FAIL: $($vsto.Name) is not a valid XML VSTO manifest: $_" -ForegroundColor Red
         $exitCode = 1
     }
 }
@@ -128,12 +136,12 @@ if (Test-Path -LiteralPath $jsonPath) {
 # Summary
 # ---------------------------------------------------------------------------
 Write-Host ""
-Write-Host "=" * 60
+Write-Host ("=" * 60)
 if ($exitCode -eq 0) {
     Write-Host "RESULT: ALL CHECKS PASSED" -ForegroundColor Green
 } else {
     Write-Host "RESULT: SOME CHECKS FAILED (exit code $exitCode)" -ForegroundColor Red
 }
-Write-Host "=" * 60
+Write-Host ("=" * 60)
 
 exit $exitCode

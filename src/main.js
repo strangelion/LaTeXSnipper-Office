@@ -1645,26 +1645,36 @@ class UIController {
     document.getElementById('officeEnabledToggle')?.addEventListener('change', async (e) => {
       const enabled = e.target.checked;
       e.target.disabled = true;
-      this.settingsManager.set('officeEnabled', enabled);
-      Logger.info(`[Office] Toggle → ${enabled ? 'ON' : 'OFF'}`);
-      const ok = await this.setPlatformEnabled('office', enabled);
-      Logger.info(`[Office] setPlatformEnabled('office', ${enabled}) → ${ok}`);
-      if (!ok) {
-        Logger.warn('[Office] Platform enable failed, reverting toggle');
+      try {
+        this.settingsManager.set('officeEnabled', enabled);
+        Logger.info(`[Office] Toggle -> ${enabled ? 'ON' : 'OFF'}`);
+        const ok = await this.setPlatformEnabled('office', enabled);
+        Logger.info(`[Office] setPlatformEnabled('office', ${enabled}) -> ${ok}`);
+        if (!ok) {
+          Logger.warn('[Office] Platform enable failed, reverting toggle');
+          this.settingsManager.set('officeEnabled', !enabled);
+          e.target.checked = !enabled;
+        }
+        this.updateTabVisibility();
+
+        // Invalidate Rust Office status cache so next detect_office() re-detects.
+        try {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await this.withTimeout(invoke('invalidate_office_cache'), 5000, 'Office cache invalidate');
+        } catch (error) {
+          Logger.warn('[Office] Failed to invalidate cache:', error);
+        }
+
+        // Refresh OLE status display after Office toggle completes.
+        await this.checkOleStatus();
+      } catch (e) {
+        Logger.error('[Office] Toggle failed:', e);
+        this.showToast('Office 状态切换失败: ' + (e?.message || e));
         this.settingsManager.set('officeEnabled', !enabled);
         e.target.checked = !enabled;
+      } finally {
+        e.target.disabled = false;
       }
-      e.target.disabled = false;
-      this.updateTabVisibility();
-      // Invalidate Rust Office status cache so next detect_office() re-detects
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('invalidate_office_cache');
-      } catch (e) {
-        Logger.warn('[Office] Failed to invalidate cache:', e);
-      }
-      // Refresh OLE status display after Office toggle completes
-      this.checkOleStatus();
       Logger.info(`[Office] After toggle: platform=${this.platforms.find(p => p.id === 'office')?.enabled}, setting=${this.settingsManager.get('officeEnabled')}`);
     });
 
@@ -3770,7 +3780,11 @@ class UIController {
     if (!statusEl) return;
     try {
       const { invoke } = await import('@tauri-apps/api/core');
-      const status = await invoke('native_office_ole_status');
+      const status = await this.withTimeout(
+        invoke('native_office_ole_status'),
+        8000,
+        'OLE status'
+      );
       const health = status?.health || 'Unknown';
       const detail = status?.detail || '';
       if (health === 'Registered') {
