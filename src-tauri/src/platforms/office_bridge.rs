@@ -236,6 +236,9 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             }),
         )
         .route("/api/office/convert", post(handle_convert))
+        // Compatible routes for Obsidian and WPS plugins that call /convert/latex and /convert/omml
+        .route("/convert/latex", post(handle_convert))
+        .route("/convert/omml", post(handle_convert))
         .route("/api/office/render-formula", post(handle_render_formula))
         .route("/api/office/render-result", post(handle_render_result))
         .route("/api/office/load-selection", post(handle_load_selection))

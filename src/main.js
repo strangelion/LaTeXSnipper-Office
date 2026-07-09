@@ -1932,12 +1932,11 @@ class UIController {
         console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
         const isWord = session.host_type === 'word';
-        // Word always uses native OMML - ignore the integration mode setting.
-        // Excel/PPT use the integration mode from settings (default: auto).
-        const integrationMode = isWord ? 'auto' : (this.settingsManager.get('officeIntegrationMode') || 'auto');
-        const shouldRenderPreview = !isWord
-          || integrationMode === 'ole'
-          || integrationMode === 'image';
+        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+        const shouldRenderPreview =
+          !isWord ||
+          integrationMode === 'ole' ||
+          integrationMode === 'image';
 
         // Render SVG for OLE/image previews. Word native mode uses OMML directly.
         let svg = null;
@@ -1951,7 +1950,7 @@ class UIController {
             heightPt = rendered.heightPt;
           } catch (e) {
             Logger.error('SVG render error:', e);
-            this.showToast(`SVG 渲染失败: ${e.message}，插入已取消`);
+            this.showToast('公式 SVG 渲染失败，可能存在不支持的 LaTeX 宏');
             return;
           }
         }
@@ -1962,6 +1961,10 @@ class UIController {
             pngBase64 = await this._svgToPngBase64(svg, widthPt, heightPt);
           } catch (e) {
             Logger.warn('SVG to PNG conversion failed:', e);
+            if (integrationMode === 'image') {
+              this.showToast('兼容图片生成失败，请尝试 SVG/OLE/OMML 模式');
+              return;
+            }
           }
         }
 
@@ -1973,7 +1976,7 @@ class UIController {
           omml: omml,
           display: 'block',
           mode: 'display',
-          svg: shouldRenderPreview ? svg : null,
+          svg: integrationMode === 'image' ? null : (shouldRenderPreview ? svg : null),
           png: pngBase64,
           widthPt: widthPt,
           heightPt: heightPt,
@@ -2082,7 +2085,11 @@ class UIController {
           Logger.info(`Native Office: formula inserted (id=${formulaId})`);
         } else {
           Logger.error(`Native Office: insert failed: ${error}`);
-          this.showToast('插入失败: ' + error);
+          // Translate OLE errors to user-friendly messages
+          const friendlyMsg = error && error.includes('OLE')
+            ? 'OLE 插入失败。当前是强制 OLE 模式，因此不会自动降级为兼容图像。请检查 OLE 高级对象是否已启用，或切换为自动/兼容图像模式。'
+            : '插入失败: ' + (error || '未知错误');
+          this.showToast(friendlyMsg);
         }
       });
 
@@ -3380,13 +3387,12 @@ class UIController {
       const omml = await invoke('latex_to_omml', { latex });
       console.log('[Insert] OMML length:', omml?.length || 0);
 
-      // Word always uses native OMML — ignore the integration mode setting.
-      // Excel/PPT use the integration mode from settings (default: auto).
       const isWord = session.host_type === 'word';
-      const integrationMode = isWord ? 'auto' : (this.settingsManager.get('officeIntegrationMode') || 'auto');
-      const shouldRenderPreview = !isWord
-        || integrationMode === 'ole'
-        || integrationMode === 'image';
+      const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+      const shouldRenderPreview =
+        !isWord ||
+        integrationMode === 'ole' ||
+        integrationMode === 'image';
 
       // Render SVG for OLE/image previews. Word native mode uses OMML directly.
       let svg = null;
@@ -3400,7 +3406,7 @@ class UIController {
           heightPt = rendered.heightPt;
         } catch (e) {
           Logger.error('[Insert] SVG render error for Excel/PPT:', e);
-          this.showToast(`${session.host_type} 需要 SVG 渲染但失败: ${e.message}，插入已取消`);
+          this.showToast(`${session.host_type} 公式 SVG 渲染失败，可能存在不支持的 LaTeX 宏: ${e.message}，插入已取消`);
           return; // block insert — don't send SVG-less request
         }
       }
@@ -3413,7 +3419,11 @@ class UIController {
         try {
           pngBase64 = await this._svgToPngBase64(svg, widthPt, heightPt);
         } catch (e) {
-          Logger.warn('[Insert] SVG→PNG conversion failed, falling back to SVG:', e);
+          Logger.warn('[Insert] SVG→PNG conversion failed:', e);
+          if (integrationMode === 'image') {
+            this.showToast('兼容图片生成失败，请尝试 SVG/OLE/OMML 模式');
+            return;
+          }
         }
       }
 
@@ -3424,7 +3434,7 @@ class UIController {
         omml: omml,
         display: isDisplay ? 'block' : 'inline',
         mode: isDisplay ? 'display' : 'inline',
-        svg: shouldRenderPreview ? svg : null,
+        svg: integrationMode === 'image' ? null : (shouldRenderPreview ? svg : null),
         png: pngBase64,
         widthPt: widthPt,
         heightPt: heightPt,
@@ -3510,19 +3520,17 @@ class UIController {
     ctx.fillRect(0, 0, drawWidth, drawHeight);
 
     const img = new Image();
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    // Use data URL instead of blob: to avoid CSP issues in Tauri WebView.
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     await new Promise((resolve, reject) => {
       img.onload = () => {
         ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
-        URL.revokeObjectURL(url);
         resolve();
       };
       img.onerror = () => {
-        URL.revokeObjectURL(url);
         reject(new Error('SVG image decode failed'));
       };
-      img.src = url;
+      img.src = svgUrl;
     });
     return canvas.toDataURL('image/png').split(',')[1];
   }
@@ -4215,7 +4223,7 @@ class UIController {
       return false;
     }
 
-    if (platform.id === 'office' || platform.id === 'wps') {
+    if (platform.id === 'office' || platform.id === 'wps' || platform.id === 'obsidian') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         if (platform.id === 'office') {
@@ -4282,7 +4290,7 @@ class UIController {
         this.showToast('卸载失败: ' + e.message);
         return false;
       }
-    } else if (platform.id === 'wps') {
+    } else if (platform.id === 'wps' || platform.id === 'obsidian') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
         const result = await invoke('uninstall_platform_integration', { platformId: platform.id });

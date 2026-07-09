@@ -42,7 +42,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 {
                     var oleResult = TryInsertOle(slide, payload);
                     if (oleResult != null) return oleResult;
-                    return new InsertResult { Success = false, Error = "OLE insertion failed and mode is 'ole' — no fallback permitted" };
+                    return new InsertResult { Success = false, Error = "OLE not available. Switch to Auto or Image mode, or enable OLE in LaTeXSnipper settings." };
                 }
 
                 if (storageMode == "auto")

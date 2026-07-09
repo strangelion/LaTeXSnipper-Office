@@ -141,10 +141,9 @@ export default class LaTeXSnipperPlugin extends Plugin {
   // ─── Commands ──────────────────────────────────────────────────────
 
   insertFormula(display: "inline" | "block" | "numbered") {
-    router.dispatch("obsidian", {
-      type: "InsertFormula",
-      payload: { latex: "", display },
-    });
+    // Open the formula editor instead of inserting an empty formula.
+    // An empty LaTeX results in `$$` which breaks Markdown rendering.
+    this.openEditor();
   }
 
   async openEditor() {

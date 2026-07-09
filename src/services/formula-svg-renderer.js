@@ -166,15 +166,14 @@ export class FormulaSvgRenderer {
     const widthPx = Math.min(Math.ceil(widthPt / 0.75 * scale), options.maxCanvasWidth ?? 2400);
     const heightPx = Math.min(Math.ceil(heightPt / 0.75 * scale), options.maxCanvasHeight ?? 1200);
 
-    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
     try {
       const img = await new Promise((resolve, reject) => {
         const image = new Image();
         image.onload = () => resolve(image);
         image.onerror = reject;
-        image.src = url;
+        image.src = svgUrl;
       });
 
       const canvas = document.createElement('canvas');
@@ -191,7 +190,7 @@ export class FormulaSvgRenderer {
         heightPt,
       };
     } finally {
-      URL.revokeObjectURL(url);
+      // No blob URL to revoke (using data URL)
     }
   }
 }
