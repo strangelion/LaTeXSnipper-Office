@@ -361,14 +361,9 @@ namespace LaTeXSnipper.Word.Host
 
                 if (mode == InsertMode.Inline)
                 {
-                    // Inline formula: use Word's OMaths.Add().BuildUp() instead of InsertXML.
-                    // This avoids the block-level XML error ("该操作不是程序块级XML元素之外的有效操作")
-                    // that occurs when a <w:p>-containing Flat OPC is inserted into an inline range.
                     return InsertWordInlineNative(doc, range, payload);
                 }
 
-                // Display / DisplayNumbered: keep InsertXML but normalize insertion point first
-                var blockRange = NormalizeToBlockInsertionPoint(range);
                 var cleanOmml = NormalizeOmml(payload.Omml, mode);
                 if (string.IsNullOrWhiteSpace(cleanOmml))
                     return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
@@ -378,7 +373,7 @@ namespace LaTeXSnipper.Word.Host
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
-                blockRange.InsertXML(flatOpc);
+                range.InsertXML(flatOpc);
 
                 FormulaDocumentManifest.Write(doc, payload);
 
@@ -386,8 +381,8 @@ namespace LaTeXSnipper.Word.Host
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
-                    RangeStart = (uint)blockRange.Start,
-                    RangeEnd = (uint)blockRange.End
+                    RangeStart = (uint)range.Start,
+                    RangeEnd = (uint)range.End
                 };
             }
             catch (Exception ex)

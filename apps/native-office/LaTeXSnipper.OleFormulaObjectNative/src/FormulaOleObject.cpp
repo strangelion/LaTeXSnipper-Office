@@ -637,113 +637,6 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
         return S_OK;
     }
 
-    // CF_DIB: Convert EMF to DIB via GDI (for PPT/Excel compatibility)
-    if (format->cfFormat == CF_DIB)
-    {
-        HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
-        if (metafile == nullptr)
-        {
-            WriteNativeOleLog(L"FormulaOleObject GetData: CF_DIB — no EMF data to convert");
-            return E_FAIL;
-        }
-
-        // Get EMF dimensions (rclFrame is in 0.01mm units)
-        ENHMETAHEADER header{};
-        GetEnhMetaFileHeader(metafile, sizeof(header), &header);
-        LONG width01mm = header.rclFrame.right - header.rclFrame.left;
-        LONG height01mm = header.rclFrame.bottom - header.rclFrame.top;
-
-        // Convert to DIB
-        HDC screen = GetDC(nullptr);
-        int dpiX = GetDeviceCaps(screen, LOGPIXELSX);
-        int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
-
-        // Correct unit conversion: 0.01mm → pixels: px = rclFrame * dpi / 2540.0
-        int widthPx = Himetric01MmToPixels(width01mm, dpiX);
-        int heightPx = Himetric01MmToPixels(height01mm, dpiY);
-
-        HDC memDC = CreateCompatibleDC(screen);
-        if (memDC == nullptr) { ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
-
-        // Create bitmap from EMF with correct pixel dimensions
-        RECT rect{0, 0, widthPx, heightPx};
-        HBITMAP bitmap = CreateCompatibleBitmap(screen, rect.right, rect.bottom);
-        if (bitmap == nullptr) { DeleteDC(memDC); ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
-
-        SelectObject(memDC, bitmap);
-        PlayEnhMetaFile(memDC, metafile, &rect);
-        DeleteEnhMetaFile(metafile);
-
-        // Get DIB bits
-        DIBSECTION dib;
-        GetObject(bitmap, sizeof(dib), &dib);
-
-        BITMAPINFO bmi{};
-        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = dib.dsBm.bmWidth;
-        bmi.bmiHeader.biHeight = dib.dsBm.bmHeight;
-        bmi.bmiHeader.biPlanes = 1;
-        bmi.bmiHeader.biBitCount = 32;
-        bmi.bmiHeader.biCompression = BI_RGB;
-
-        DWORD dibSize = sizeof(BITMAPINFOHEADER) + dib.dsBm.bmWidth * dib.dsBm.bmHeight * 4;
-        HGLOBAL dibHandle = GlobalAlloc(GMEM_MOVEABLE, dibSize);
-        if (dibHandle == nullptr) { DeleteObject(bitmap); DeleteDC(memDC); ReleaseDC(nullptr, screen); return E_FAIL; }
-
-        auto* dibBits = static_cast<BYTE*>(GlobalLock(dibHandle));
-        memcpy(dibBits, &bmi.bmiHeader, sizeof(BITMAPINFOHEADER));
-        GetDIBits(memDC, bitmap, 0, dib.dsBm.bmHeight,
-                  dibBits + sizeof(BITMAPINFOHEADER), &bmi, DIB_RGB_COLORS);
-        GlobalUnlock(dibHandle);
-
-        DeleteObject(bitmap);
-        DeleteDC(memDC);
-        ReleaseDC(nullptr, screen);
-
-        medium->tymed = TYMED_HGLOBAL;
-        medium->hGlobal = dibHandle;
-        medium->pUnkForRelease = nullptr;
-        return S_OK;
-    }
-
-    // CF_BITMAP: GDI bitmap fallback
-    if (format->cfFormat == CF_BITMAP)
-    {
-        HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
-        if (metafile == nullptr)
-        {
-            WriteNativeOleLog(L"FormulaOleObject GetData: CF_BITMAP — no EMF data to convert");
-            return E_FAIL;
-        }
-
-        ENHMETAHEADER header{};
-        GetEnhMetaFileHeader(metafile, sizeof(header), &header);
-        LONG frameWidth = header.rclFrame.right - header.rclFrame.left;
-        LONG frameHeight = header.rclFrame.bottom - header.rclFrame.top;
-
-        HDC screen = GetDC(nullptr);
-        int dpiX2 = GetDeviceCaps(screen, LOGPIXELSX);
-        int dpiY2 = GetDeviceCaps(screen, LOGPIXELSY);
-        int widthPx = Himetric01MmToPixels(frameWidth, dpiX2);
-        int heightPx = Himetric01MmToPixels(frameHeight, dpiY2);
-        if (widthPx <= 0) widthPx = 120;
-        if (heightPx <= 0) heightPx = 30;
-
-        HDC memDC = CreateCompatibleDC(screen);
-        RECT rect{0, 0, widthPx, heightPx};
-        HBITMAP bitmap = CreateCompatibleBitmap(screen, widthPx, heightPx);
-        SelectObject(memDC, bitmap);
-        PlayEnhMetaFile(memDC, metafile, &rect);
-        DeleteEnhMetaFile(metafile);
-        DeleteDC(memDC);
-        ReleaseDC(nullptr, screen);
-
-        medium->tymed = TYMED_GDI;
-        medium->hBitmap = bitmap;
-        medium->pUnkForRelease = nullptr;
-        return S_OK;
-    }
-
     HGLOBAL metafilePict = CreateMetaFilePictFromEnhancedMetafile(presentation_);
     if (metafilePict == nullptr)
     {
@@ -788,21 +681,11 @@ STDMETHODIMP FormulaOleObject::QueryGetData(FORMATETC* format)
         return (format->tymed & TYMED_MFPICT) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
     }
 
-    // P1-4: Support DIB and BITMAP for PPT/Excel compatibility
-    if (format->cfFormat == CF_DIB)
-    {
-        return (format->tymed & TYMED_HGLOBAL) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
-    }
-
-    if (format->cfFormat == CF_BITMAP)
-    {
-        return (format->tymed & TYMED_GDI) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
-    }
-
-    // Support DVASPECT_ICON
+    // CF_DIB and CF_BITMAP are not advertised in EnumFormatEtc per P1-4.
+    // Return format-not-supported so Office does not attempt to call GetData.
     if (format->dwAspect == DVASPECT_ICON)
     {
-        return DV_E_FORMATETC; // Icon not supported, but handled gracefully
+        return DV_E_FORMATETC;
     }
 
     WriteNativeOleLog(L"FormulaOleObject QueryGetData: unsupported format");
@@ -854,13 +737,14 @@ STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD direction, IEnumFORMATETC** e
     // Return the formats our IDataObject::GetData() supports:
     //   CF_ENHMETAFILE  — EMF picture rendering
     //   CF_METAFILEPICT — legacy metafile fallback
-    //   CF_DIB          — device-independent bitmap (PPT/Excel compatibility)
-    //   CF_BITMAP       — GDI bitmap fallback (PPT/Excel compatibility)
+    //
+    // CF_DIB and CF_BITMAP are intentionally NOT included here.
+    // They were attempted but caused crashes in mso20win32client.dll
+    // when Word/PPT requested them and our GDI conversion ran in
+    // the Office process context. EMF is the supported format.
     static const FORMATETC formats[] = {
         {CF_ENHMETAFILE,  nullptr, DVASPECT_CONTENT, -1, TYMED_ENHMF},
         {CF_METAFILEPICT, nullptr, DVASPECT_CONTENT, -1, TYMED_MFPICT},
-        {CF_DIB,          nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL},
-        {CF_BITMAP,       nullptr, DVASPECT_CONTENT, -1, TYMED_GDI},
     };
 
     *enumFormatEtc = new (std::nothrow) FormulaFormatEnum(formats, ARRAYSIZE(formats));
@@ -935,23 +819,14 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
     HENHMETAFILE metafile = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
     if (metafile == nullptr)
     {
-        WriteNativeOleLog(L"FormulaOleObject Draw: no EMF data to render — drawing placeholder");
-        // Draw a simple border/placeholder so the user sees something is there
-        HPEN pen = CreatePen(PS_DASH, 1, RGB(0xCC, 0xCC, 0xCC));
-        HGDIOBJ oldPen = SelectObject(drawContext, pen);
-        HGDIOBJ oldBrush = SelectObject(drawContext, GetStockObject(NULL_BRUSH));
-        RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
-        Rectangle(drawContext, rect.left, rect.top, rect.right, rect.bottom);
-        SelectObject(drawContext, oldPen);
-        SelectObject(drawContext, oldBrush);
-        DeleteObject(pen);
-        return S_OK;
+        WriteNativeOleLog(L"FormulaOleObject Draw: no EMF data — returning S_FALSE");
+        return S_FALSE; // Not an error; Office will not render anything
     }
 
     RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
     BOOL played = PlayEnhMetaFile(drawContext, metafile, &rect);
     DeleteEnhMetaFile(metafile);
-    return played ? S_OK : HResultFromWin32LastError();
+    return played ? S_OK : S_FALSE;
 }
 
 STDMETHODIMP FormulaOleObject::GetColorSet(DWORD, LONG, void*, DVTARGETDEVICE*, HDC, LOGPALETTE** colorSet)
