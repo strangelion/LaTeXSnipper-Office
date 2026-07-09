@@ -671,20 +671,26 @@ namespace LaTeXSnipper.Word.Host
                 "",
                 System.Text.RegularExpressions.RegexOptions.Singleline);
 
-            if (clean.Contains("<m:oMathPara>"))
+            if (clean.Contains("<m:oMathPara"))
             {
-                var start = clean.IndexOf("<m:oMath>");
+                if (mode != InsertMode.Inline)
+                    return clean;
+
+                var start = clean.IndexOf("<m:oMath");
+                while (start >= 0 && start + "<m:oMath".Length < clean.Length && clean[start + "<m:oMath".Length] == 'P')
+                    start = clean.IndexOf("<m:oMath", start + 1);
+
                 var end = clean.LastIndexOf("</m:oMath>");
                 if (start >= 0 && end > start)
-                    clean = clean.Substring(start, end + "</m:oMath>".Length - start);
+                    return clean.Substring(start, end + "</m:oMath>".Length - start);
             }
             else if (!clean.Contains("<m:oMath"))
             {
                 clean = $"<m:oMath>{clean}</m:oMath>";
             }
 
-            if (mode == InsertMode.Inline && clean.Contains("<m:oMathPara>"))
-                clean = clean.Replace("<m:oMathPara>", "").Replace("</m:oMathPara>", "");
+            if (mode != InsertMode.Inline && !clean.Contains("<m:oMathPara"))
+                clean = $"<m:oMathPara>{clean}</m:oMathPara>";
 
             return clean;
         }

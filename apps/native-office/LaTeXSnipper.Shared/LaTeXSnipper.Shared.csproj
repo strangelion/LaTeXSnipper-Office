@@ -10,6 +10,7 @@
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
+    <RuntimeIdentifiers>win</RuntimeIdentifiers>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <!-- Shared library: never sign VSTO manifests even if /p:SignManifests=true is passed -->

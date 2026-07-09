@@ -1924,7 +1924,9 @@ class UIController {
         console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
         const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
-        const shouldRenderPreview = session.host_type !== 'word' || integrationMode === 'ole';
+        const shouldRenderPreview = session.host_type !== 'word'
+          || integrationMode === 'ole'
+          || integrationMode === 'image';
 
         // Render SVG for OLE/image previews. Word native mode uses OMML directly.
         let svg = null;
@@ -1932,57 +1934,21 @@ class UIController {
         let heightPt = 0;
         if (shouldRenderPreview) {
           try {
-            if (!window.MathJax) {
-              await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = './public/mathjax/tex-svg.js';
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-              });
-            }
-            if (window.MathJax) {
-              await window.MathJax.startup.promise;
-              const node = await window.MathJax.tex2svgPromise(latex, { display: true });
-              const svgElement = node.querySelector('svg');
-              if (svgElement) {
-                svg = svgElement.outerHTML;
-                const viewBox = svgElement.getAttribute('viewBox');
-                if (viewBox) {
-                  const parts = viewBox.split(' ');
-                  widthPt = parseFloat(parts[2]) || 120;
-                  heightPt = parseFloat(parts[3]) || 30;
-                }
-              }
-            }
+            const rendered = await this._renderLatexSvg(latex, true);
+            svg = rendered.svg;
+            widthPt = rendered.widthPt;
+            heightPt = rendered.heightPt;
           } catch (e) {
             Logger.error('SVG render error:', e);
+            this.showToast(`SVG 渲染失败: ${e.message}，插入已取消`);
+            return;
           }
         }
 
         let pngBase64 = null;
         if (shouldRenderPreview && svg) {
           try {
-            const canvas = document.createElement('canvas');
-            const dpr = window.devicePixelRatio || 1;
-            const drawWidth = Math.max(18, widthPt || 120);
-            const drawHeight = Math.max(18, heightPt || 30);
-            canvas.width = Math.round(drawWidth * dpr);
-            canvas.height = Math.round(drawHeight * dpr);
-            const ctx = canvas.getContext('2d');
-            ctx.scale(dpr, dpr);
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0, 0, drawWidth, drawHeight);
-
-            const img = new Image();
-            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            await new Promise((resolve, reject) => {
-              img.onload = () => { ctx.drawImage(img, 0, 0, drawWidth, drawHeight); URL.revokeObjectURL(url); resolve(); };
-              img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG image decode failed')); };
-              img.src = url;
-            });
-            pngBase64 = canvas.toDataURL('image/png').split(',')[1];
+            pngBase64 = await this._svgToPngBase64(svg, widthPt, heightPt);
           } catch (e) {
             Logger.warn('SVG to PNG conversion failed:', e);
           }
@@ -3404,7 +3370,9 @@ class UIController {
       console.log('[Insert] OMML length:', omml?.length || 0);
 
       const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
-      const shouldRenderPreview = session.host_type !== 'word' || integrationMode === 'ole';
+      const shouldRenderPreview = session.host_type !== 'word'
+        || integrationMode === 'ole'
+        || integrationMode === 'image';
 
       // Render SVG for OLE/image previews. Word native mode uses OMML directly.
       let svg = null;
@@ -3412,49 +3380,13 @@ class UIController {
       let heightPt = 0;
       if (shouldRenderPreview) {
         try {
-          // Ensure MathJax is loaded
-          if (!window.MathJax || !window.MathJax.tex2svgPromise) {
-            await new Promise((resolve, reject) => {
-              const script = document.createElement('script');
-              script.src = './public/mathjax/tex-svg.js';
-              script.onload = resolve;
-              script.onerror = () => reject(new Error('MathJax script failed to load'));
-              document.head.appendChild(script);
-            });
-          }
-
-          await window.MathJax.startup.promise;
-          const node = await window.MathJax.tex2svgPromise(latex, { display: isDisplay });
-          const svgElement = node.querySelector('svg');
-          if (svgElement) {
-            svg = svgElement.outerHTML;
-            // Use explicit width/height attributes (ex/em) or fallback to viewBox
-            const svgWidth = svgElement.getAttribute('width');
-            const svgHeight = svgElement.getAttribute('height');
-            if (svgWidth && svgHeight) {
-              // Parse '36.949ex' → 36.949, assume 1ex ≈ 6pt (roughly 1ex = 0.5em = 6pt)
-              const wMatch = svgWidth.match(/^([\d.]+)/);
-              const hMatch = svgHeight.match(/^([\d.]+)/);
-              widthPt = (wMatch ? parseFloat(wMatch[1]) * 6 : 120);
-              heightPt = (hMatch ? parseFloat(hMatch[1]) * 6 : 30);
-            } else {
-              const viewBox = svgElement.getAttribute('viewBox');
-              if (viewBox) {
-                const parts = viewBox.split(' ');
-                // viewBox internal units are ~10 per pt for 72dpi; scale down
-                widthPt = (parseFloat(parts[2]) || 1200) / 10;
-                heightPt = (parseFloat(parts[3]) || 300) / 10;
-              }
-            }
-            // Clamp to reasonable range
-            widthPt = Math.max(18, Math.min(600, widthPt));
-            heightPt = Math.max(18, Math.min(400, heightPt));
-          } else {
-            throw new Error('MathJax did not produce an SVG element');
-          }
+          const rendered = await this._renderLatexSvg(latex, isDisplay);
+          svg = rendered.svg;
+          widthPt = rendered.widthPt;
+          heightPt = rendered.heightPt;
         } catch (e) {
           Logger.error('[Insert] SVG render error for Excel/PPT:', e);
-          this.showToast(`Excel/PPT 需要 SVG 渲染但失败: ${e.message}，插入已取消`);
+          this.showToast(`${session.host_type} 需要 SVG 渲染但失败: ${e.message}，插入已取消`);
           return; // block insert — don't send SVG-less request
         }
       }
@@ -3465,24 +3397,7 @@ class UIController {
       let pngBase64 = null;
       if (shouldRenderPreview && svg) {
         try {
-          const canvas = document.createElement('canvas');
-          const dpr = window.devicePixelRatio || 1;
-          canvas.width = Math.round(widthPt * dpr);
-          canvas.height = Math.round(heightPt * dpr);
-          const ctx = canvas.getContext('2d');
-          ctx.scale(dpr, dpr);
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, widthPt, heightPt);
-
-          const img = new Image();
-          const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          await new Promise((resolve, reject) => {
-            img.onload = () => { ctx.drawImage(img, 0, 0, widthPt, heightPt); URL.revokeObjectURL(url); resolve(); };
-            img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('SVG→Image decode failed')); };
-            img.src = url;
-          });
-          pngBase64 = canvas.toDataURL('image/png').split(',')[1]; // strip data: prefix
+          pngBase64 = await this._svgToPngBase64(svg, widthPt, heightPt);
         } catch (e) {
           Logger.warn('[Insert] SVG→PNG conversion failed, falling back to SVG:', e);
         }
@@ -3556,6 +3471,110 @@ class UIController {
     }
   }
 
+  async _ensureMathJaxSvgRenderer() {
+    if (window.MathJax?.tex2svgPromise) {
+      if (window.MathJax.startup?.promise) {
+        await window.MathJax.startup.promise;
+      }
+      return;
+    }
+
+    if (!this._mathJaxSvgLoadPromise) {
+      this._mathJaxSvgLoadPromise = new Promise((resolve, reject) => {
+        const existing = document.getElementById('mathjax-tex-svg-loader');
+        if (existing) existing.remove();
+
+        window.MathJax = {
+          tex: {
+            packages: { '[+]': ['ams', 'newcommand', 'noundefined', 'require', 'autoload', 'configmacros'] }
+          },
+          svg: { fontCache: 'none' },
+          startup: { typeset: false }
+        };
+
+        const script = document.createElement('script');
+        script.id = 'mathjax-tex-svg-loader';
+        script.src = './public/mathjax/tex-svg.js';
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('MathJax script failed to load'));
+        document.head.appendChild(script);
+      }).finally(() => {
+        this._mathJaxSvgLoadPromise = null;
+      });
+    }
+
+    await this._mathJaxSvgLoadPromise;
+    if (window.MathJax?.startup?.promise) {
+      await window.MathJax.startup.promise;
+    }
+    if (!window.MathJax?.tex2svgPromise) {
+      throw new Error('MathJax SVG renderer is unavailable');
+    }
+  }
+
+  async _renderLatexSvg(latex, display) {
+    await this._ensureMathJaxSvgRenderer();
+    const node = await window.MathJax.tex2svgPromise(latex, { display });
+    const svgElement = node.querySelector('svg');
+    if (!svgElement) {
+      throw new Error('MathJax did not produce an SVG element');
+    }
+
+    let widthPt = 120;
+    let heightPt = 30;
+    const svgWidth = svgElement.getAttribute('width');
+    const svgHeight = svgElement.getAttribute('height');
+    if (svgWidth && svgHeight) {
+      const wMatch = svgWidth.match(/^([\d.]+)/);
+      const hMatch = svgHeight.match(/^([\d.]+)/);
+      widthPt = wMatch ? parseFloat(wMatch[1]) * 6 : widthPt;
+      heightPt = hMatch ? parseFloat(hMatch[1]) * 6 : heightPt;
+    } else {
+      const viewBox = svgElement.getAttribute('viewBox');
+      if (viewBox) {
+        const parts = viewBox.split(' ');
+        widthPt = (parseFloat(parts[2]) || 1200) / 10;
+        heightPt = (parseFloat(parts[3]) || 300) / 10;
+      }
+    }
+
+    return {
+      svg: svgElement.outerHTML,
+      widthPt: Math.max(18, Math.min(600, widthPt)),
+      heightPt: Math.max(18, Math.min(400, heightPt))
+    };
+  }
+
+  async _svgToPngBase64(svg, widthPt, heightPt) {
+    const canvas = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    const drawWidth = Math.max(18, widthPt || 120);
+    const drawHeight = Math.max(18, heightPt || 30);
+    canvas.width = Math.round(drawWidth * dpr);
+    canvas.height = Math.round(drawHeight * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, drawWidth, drawHeight);
+
+    const img = new Image();
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    await new Promise((resolve, reject) => {
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('SVG image decode failed'));
+      };
+      img.src = url;
+    });
+    return canvas.toDataURL('image/png').split(',')[1];
+  }
+
   async loadFromWord() {
     try {
       const { invoke } = await import('@tauri-apps/api/core');
@@ -3584,7 +3603,17 @@ class UIController {
   /** Check if the selected Office session supports a given capability. */
   supportsOfficeCapability(cap) {
     const session = this._sessions?.find(s => s.session_id === this._selectedSessionId);
-    return !!session?.capabilities?.includes(cap);
+    if (!session) return false;
+    const aliases = {
+      insert_table: ['insert_table', 'insertTable'],
+      read_table: ['read_table', 'readTable'],
+      insert_formula: ['insert_formula', 'insertFormula'],
+      replace_formula: ['replace_formula', 'replaceFormula'],
+      read_selection: ['read_selection', 'readSelection']
+    };
+    const keys = aliases[cap] || [cap];
+    if (session.capabilities?.some(c => keys.includes(c))) return true;
+    return String(session.host_type || '').toLowerCase() === 'word' && (cap === 'insert_table' || cap === 'read_table');
   }
 
   async insertTableToWord() {
