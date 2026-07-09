@@ -2199,6 +2199,7 @@ class UIController {
       listen('native-office-focus-ocr', async () => {
         Logger.info('Native Office: focus OCR requested');
         this.switchSection('ocr');
+        this.showToast('OCR 识别需要启用本地识别功能（recognition feature），当前构建未包含');
       });
 
       // Focus on Settings tab (from VSTO Ribbon)
