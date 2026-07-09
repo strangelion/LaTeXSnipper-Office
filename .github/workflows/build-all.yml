@@ -538,6 +538,13 @@ jobs:
           cache: npm
           cache-dependency-path: apps/vscode-extension/package-lock.json
 
+      - name: Set version in package.json
+        working-directory: apps/vscode-extension
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' package.json
+          echo "VS Code extension version set to $VERSION"
+
       - name: Install deps
         working-directory: apps/vscode-extension
         run: npm ci
@@ -571,6 +578,15 @@ jobs:
           cache: npm
           cache-dependency-path: apps/browser-extension/package-lock.json
 
+      - name: Set version in manifests
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          for f in manifest.chrome.json manifest.firefox.json; do
+            perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' "$f"
+          done
+          echo "Browser extension version set to $VERSION"
+
       - name: Install deps
         working-directory: apps/browser-extension
         run: npm ci
@@ -587,7 +603,7 @@ jobs:
           cp dist/*.js dist-chrome/
           cp manifest.chrome.json dist-chrome/manifest.json
           cp popup.html dist-chrome/
-          cd dist-chrome && zip -r ../latexsnipper-browser-chrome.zip .
+          cd dist-chrome && zip -r "../latexsnipper-browser-chrome_$VERSION.zip" .
 
       - name: Build Firefox
         working-directory: apps/browser-extension
@@ -601,14 +617,14 @@ jobs:
           cp dist/*.js dist-firefox/
           cp manifest.firefox.json dist-firefox/manifest.json
           cp popup.html dist-firefox/
-          cd dist-firefox && zip -r ../latexsnipper-browser-firefox.zip .
+          cd dist-firefox && zip -r "../latexsnipper-browser-firefox_$VERSION.zip" .
 
       - uses: actions/upload-artifact@v4
         with:
           name: browser-extension
           path: |
-            apps/browser-extension/latexsnipper-browser-chrome.zip
-            apps/browser-extension/latexsnipper-browser-firefox.zip
+            apps/browser-extension/latexsnipper-browser-chrome_*.zip
+            apps/browser-extension/latexsnipper-browser-firefox_*.zip
 
   # ─────────── Package + Release ───────────
   package:
