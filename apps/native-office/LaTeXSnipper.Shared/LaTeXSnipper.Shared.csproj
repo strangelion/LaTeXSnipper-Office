@@ -46,7 +46,7 @@
     <Reference Include="office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="System.Text.Json" Version="10.0.9" />
+    <PackageReference Include="System.Text.Json" Version="6.0.10" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Protocol.cs" />
@@ -57,6 +57,7 @@
     <Compile Include="ICommandHostAdapter.cs" />
     <Compile Include="Metadata\FormulaDocumentManifest.cs" />
     <Compile Include="OleFormulaInterop.cs" />
+    <Compile Include="OleFormulaPendingPayloadStore.cs" />
     <Compile Include="FormulaObjectLocator.cs" />
     <Compile Include="Metadata\ManifestDiagnostics.cs" />
     <Compile Include="RibbonLocalizer.cs" />
