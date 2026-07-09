@@ -33,6 +33,28 @@ impl HostType {
             _ => None,
         }
     }
+
+    /// Default capabilities for a host type.
+    /// Used before HOST_READY reports real capabilities via the pipe protocol.
+    pub fn default_capabilities(&self) -> Vec<String> {
+        match self {
+            Self::Word => vec![
+                "insert_formula",
+                "replace_formula",
+                "read_selection",
+                "insert_table",
+                "read_table",
+            ],
+            Self::Excel | Self::PowerPoint => vec![
+                "insert_formula",
+                "replace_formula",
+                "read_selection",
+            ],
+        }
+        .into_iter()
+        .map(String::from)
+        .collect()
+    }
 }
 
 /// A single VSTO session representing one connected Office Add-in.
@@ -131,7 +153,7 @@ impl SessionManager {
                     document_title: None,
                     connected_at: chrono::Utc::now(),
                     writer, // Register the writer channel here
-                    capabilities: vec![],
+                    capabilities: host.default_capabilities(),
                 };
                 self.sessions
                     .write()

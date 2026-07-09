@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfficeStatus {
@@ -280,22 +281,25 @@ fn word_startup_dir() -> String {
 }
 
 fn query_reg(key: &str, value_name: &str) -> Option<String> {
-    let output = super::process::background_command("reg.exe")
-        .args(["query", key, "/v", value_name])
-        .output()
-        .ok()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || !stdout.contains(value_name) {
-        return None;
-    }
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(value_name) {
-            let parts: Vec<&str> = trimmed.splitn(3, "  ").collect();
-            if parts.len() >= 3 {
-                return Some(parts[2].trim().to_string());
+    for view in ["/reg:64", "/reg:32"] {
+        if let Ok(output) = super::process::run_with_timeout(
+            super::process::background_command("reg.exe")
+                .args(["query", key, "/v", value_name, view]),
+            Duration::from_secs(10),
+        ) {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if output.status.success() && stdout.contains(value_name) {
+                // Parse "    LoadBehavior    REG_DWORD    0x3"
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with(value_name) {
+                        // Use whitespace splitting instead of fixed slice
+                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                        if parts.len() >= 3 {
+                            return Some(parts[parts.len() - 1].to_string());
+                        }
+                    }
+                }
             }
         }
     }
@@ -310,13 +314,16 @@ fn office_addin_registered(app: &str) -> bool {
         "LaTeXSnipper.OfficePlugin",
         "LaTeXSnipper-Office",
     ];
+    let views = ["/reg:64", "/reg:32"];
     names.iter().any(|name| {
         let key = format!(r"HKCU\Software\Microsoft\Office\{}\Addins\{}", app, name);
-        super::process::background_command("reg.exe")
-            .args(["query", &key])
-            .output()
-            .map(|out| out.status.success())
-            .unwrap_or(false)
+        views.iter().any(|view| {
+            super::process::background_command("reg.exe")
+                .args(["query", &key, view])
+                .output()
+                .map(|out| out.status.success())
+                .unwrap_or(false)
+        })
     })
 }
 

@@ -1,6 +1,7 @@
 // LaTeXSnipper Office - Main JavaScript
 
 import { t, applyTranslations, setLocale, getResolvedLocale } from './i18n.js';
+import { FormulaSvgRenderer } from './services/formula-svg-renderer.js';
 
 // ═══════════════════════════════════════════
 // Logging System
@@ -1357,6 +1358,7 @@ class UIController {
     this.library = new FormulaLibrary();
     this.themeManager = new ThemeManager();
     this.settingsManager = new SettingsManager();
+    this.formulaSvgRenderer = new FormulaSvgRenderer();
     this.platformOperations = new Set();
 
     this.initCustomSelects();
@@ -1830,6 +1832,8 @@ class UIController {
           selector.innerHTML = '';
           selectorContainer.style.display = 'none';
           this._selectedSessionId = null;
+          this._selectedHostType = '';
+          this.updateOfficeInsertButton();
           return;
         }
 
@@ -1875,6 +1879,9 @@ class UIController {
           this._selectedSessionId = selectedOption.dataset.value;
           this._selectedHostType = selectedOption.dataset.hostType || '';
         }
+
+        // Refresh button visibility based on updated session/host selection
+        this.updateOfficeInsertButton();
 
         // Toggle dropdown
         trigger.onclick = (e) => {
@@ -3306,8 +3313,8 @@ class UIController {
       if (format === 'mathml') {
         textToCopy = `<math xmlns="http://www.w3.org/1998/Math/MathML">${this._latexToMathml(latex)}</math>`;
       } else if (format === 'svg') {
-        const svg = await this.editor.renderer.render(latex, false);
-        textToCopy = svg || latex;
+        const result = await this._renderLatexSvg(latex, false);
+        textToCopy = result.svg || latex;
       } else if (format === 'md') {
         const isDisplay = document.getElementById('displayMode')?.checked || false;
         textToCopy = isDisplay ? `$$\n${latex}\n$$` : `$${latex}$`;
@@ -3471,80 +3478,17 @@ class UIController {
     }
   }
 
-  async _ensureMathJaxSvgRenderer() {
-    if (window.MathJax?.tex2svgPromise) {
-      if (window.MathJax.startup?.promise) {
-        await window.MathJax.startup.promise;
-      }
-      return;
-    }
-
-    if (!this._mathJaxSvgLoadPromise) {
-      this._mathJaxSvgLoadPromise = new Promise((resolve, reject) => {
-        const existing = document.getElementById('mathjax-tex-svg-loader');
-        if (existing) existing.remove();
-
-        window.MathJax = {
-          tex: {
-            packages: { '[+]': ['ams', 'newcommand', 'noundefined', 'require', 'autoload', 'configmacros'] }
-          },
-          svg: { fontCache: 'none' },
-          startup: { typeset: false }
-        };
-
-        const script = document.createElement('script');
-        script.id = 'mathjax-tex-svg-loader';
-        script.src = './public/mathjax/tex-svg.js';
-        script.onload = resolve;
-        script.onerror = () => reject(new Error('MathJax script failed to load'));
-        document.head.appendChild(script);
-      }).finally(() => {
-        this._mathJaxSvgLoadPromise = null;
-      });
-    }
-
-    await this._mathJaxSvgLoadPromise;
-    if (window.MathJax?.startup?.promise) {
-      await window.MathJax.startup.promise;
-    }
-    if (!window.MathJax?.tex2svgPromise) {
-      throw new Error('MathJax SVG renderer is unavailable');
-    }
-  }
-
+  /** @deprecated Use this.formulaSvgRenderer.renderFormulaSvg() instead. */
   async _renderLatexSvg(latex, display) {
-    await this._ensureMathJaxSvgRenderer();
-    const node = await window.MathJax.tex2svgPromise(latex, { display });
-    const svgElement = node.querySelector('svg');
-    if (!svgElement) {
-      throw new Error('MathJax did not produce an SVG element');
-    }
-
-    let widthPt = 120;
-    let heightPt = 30;
-    const svgWidth = svgElement.getAttribute('width');
-    const svgHeight = svgElement.getAttribute('height');
-    if (svgWidth && svgHeight) {
-      const wMatch = svgWidth.match(/^([\d.]+)/);
-      const hMatch = svgHeight.match(/^([\d.]+)/);
-      widthPt = wMatch ? parseFloat(wMatch[1]) * 6 : widthPt;
-      heightPt = hMatch ? parseFloat(hMatch[1]) * 6 : heightPt;
-    } else {
-      const viewBox = svgElement.getAttribute('viewBox');
-      if (viewBox) {
-        const parts = viewBox.split(' ');
-        widthPt = (parseFloat(parts[2]) || 1200) / 10;
-        heightPt = (parseFloat(parts[3]) || 300) / 10;
-      }
-    }
-
+    const result = await this.formulaSvgRenderer.renderFormulaSvg(latex, { display });
     return {
-      svg: svgElement.outerHTML,
-      widthPt: Math.max(18, Math.min(600, widthPt)),
-      heightPt: Math.max(18, Math.min(400, heightPt))
+      svg: result.svg,
+      widthPt: result.widthPt,
+      heightPt: result.heightPt,
     };
   }
 
+  /** @deprecated Use this.formulaSvgRenderer.renderFormulaPng() instead. */
   async _svgToPngBase64(svg, widthPt, heightPt) {
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
@@ -3574,6 +3518,8 @@ class UIController {
     });
     return canvas.toDataURL('image/png').split(',')[1];
   }
+
+
 
   async loadFromWord() {
     try {
@@ -3613,7 +3559,22 @@ class UIController {
     };
     const keys = aliases[cap] || [cap];
     if (session.capabilities?.some(c => keys.includes(c))) return true;
-    return String(session.host_type || '').toLowerCase() === 'word' && (cap === 'insert_table' || cap === 'read_table');
+    // Fallback when VSTO did not report capabilities (e.g. session just created):
+    // use host-type defaults matching Rust HostType::default_capabilities()
+    const host = String(session.host_type || '').toLowerCase();
+    if (this._supportsCapFallback(host, cap)) return true;
+    return false;
+  }
+
+  /** Fallback when VSTO did not report capabilities (matching Rust HostType::default_capabilities()). */
+  _supportsCapFallback(host, cap) {
+    if (host === 'word') {
+      return ['insert_formula', 'replace_formula', 'read_selection', 'insert_table', 'read_table'].includes(cap);
+    }
+    if (host === 'excel' || host === 'powerpoint') {
+      return ['insert_formula', 'replace_formula', 'read_selection'].includes(cap);
+    }
+    return false;
   }
 
   async insertTableToWord() {
@@ -3785,13 +3746,13 @@ class UIController {
     const loadBtn = document.getElementById('loadFromWord');
     if (loadBtn) loadBtn.style.display = enabled ? '' : 'none';
 
-    // Table buttons: only available for Word host (Excel/PPT don't implement table)
-    const hostType = this._selectedHostType || '';
-    const hasTable = hostType === 'word';
+    // Table buttons: use capability check (Word supports tables, Excel/PPT do not)
+    const canInsertTable = enabled && this.supportsOfficeCapability('insert_table');
+    const canReadTable = enabled && this.supportsOfficeCapability('read_table');
     const tableInsert = document.getElementById('insertTableBtn');
-    if (tableInsert) tableInsert.style.display = (enabled && hasTable) ? '' : 'none';
+    if (tableInsert) tableInsert.style.display = canInsertTable ? '' : 'none';
     const tableRead = document.getElementById('readTableBtn');
-    if (tableRead) tableRead.style.display = (enabled && hasTable) ? '' : 'none';
+    if (tableRead) tableRead.style.display = canReadTable ? '' : 'none';
   }
 
   updateOfficeIntegrationHint(mode) {
