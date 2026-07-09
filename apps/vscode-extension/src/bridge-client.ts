@@ -4,7 +4,7 @@ export class BridgeClient {
   get bridgeUrl(): string {
     return vscode.workspace
       .getConfiguration("latexsnipper")
-      .get<string>("bridgeUrl", "http://127.0.0.1:19876");
+      .get<string>("bridgeUrl", "http://127.0.0.1:19877");
   }
 
   get token(): string {

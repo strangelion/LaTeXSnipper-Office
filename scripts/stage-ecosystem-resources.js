@@ -54,14 +54,23 @@ function stageObsidian() {
 
 // ─── VS Code ──────────────────────────────────────────────────────────
 function stageVscode() {
-  const distDir = path.join(__dirname, "..", "apps", "vscode-extension", "dist");
+  const appDir = path.join(__dirname, "..", "apps", "vscode-extension");
+  const distDir = path.join(appDir, "dist");
   const dstDir = path.join(ECO_ROOT, "vscode");
 
   ensureDir(dstDir);
 
-  const extensionJs = path.join(distDir, "extension.js");
-  if (fs.existsSync(extensionJs)) {
-    fs.copyFileSync(extensionJs, path.join(dstDir, "extension.js"));
+  // Copy package.json (needed for VS Code extension detection)
+  const pkgSrc = path.join(appDir, "package.json");
+  if (fs.existsSync(pkgSrc)) {
+    fs.copyFileSync(pkgSrc, path.join(dstDir, "package.json"));
+    console.log("  [VS Code] Copied package.json");
+  }
+
+  // Copy built extension.js
+  const extSrc = path.join(distDir, "extension.js");
+  if (fs.existsSync(extSrc)) {
+    fs.copyFileSync(extSrc, path.join(dstDir, "extension.js"));
     console.log("  [VS Code] Copied extension.js");
   } else {
     console.warn("  [VS Code] WARNING: extension.js not found. Run npm run build:vscode first.");
@@ -70,21 +79,67 @@ function stageVscode() {
 
 // ─── Browser Extension ────────────────────────────────────────────────
 function stageBrowser() {
-  const distDir = path.join(__dirname, "..", "apps", "browser-extension", "dist");
+  const appDir = path.join(__dirname, "..", "apps", "browser-extension");
+  const distDir = path.join(appDir, "dist");
   const dstDir = path.join(ECO_ROOT, "browser");
 
   ensureDir(dstDir);
 
-  const files = ["background.js", "content.js", "popup.html"];
+  // Copy built JS files from dist
+  const jsFiles = ["background.js", "content.js", "popup.js"];
   let copied = 0;
-  for (const f of files) {
+  for (const f of jsFiles) {
     const src = path.join(distDir, f);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(dstDir, f));
       copied++;
     }
   }
+
+  // Copy popup.html from app root
+  const popupSrc = path.join(appDir, "popup.html");
+  if (fs.existsSync(popupSrc)) {
+    fs.copyFileSync(popupSrc, path.join(dstDir, "popup.html"));
+    copied++;
+  }
+
+  // Copy both manifests
+  for (const m of ["manifest.chrome.json", "manifest.firefox.json"]) {
+    const src = path.join(appDir, m);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(dstDir, m));
+    }
+  }
+
   console.log(`  [Browser] Staged ${copied} files`);
+}
+
+// ─── WPS ───────────────────────────────────────────────────────────────
+function stageWps() {
+  const appDir = path.join(__dirname, "..", "apps", "wps", "installer");
+  const dstDir = path.join(ECO_ROOT, "wps");
+
+  if (!fs.existsSync(appDir)) {
+    console.warn("  [WPS] WARNING: WPS installer dir not found. Skipping.");
+    return;
+  }
+
+  function copyDir(src, dest) {
+    if (!fs.existsSync(src)) return;
+    ensureDir(dest);
+    for (const entry of fs.readdirSync(src)) {
+      const s = path.join(src, entry);
+      const d = path.join(dest, entry);
+      if (fs.statSync(s).isDirectory()) {
+        copyDir(s, d);
+      } else {
+        fs.copyFileSync(s, d);
+      }
+    }
+  }
+
+  copyDir(appDir, dstDir);
+  console.log("  [WPS] Staged resources");
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────
@@ -93,4 +148,5 @@ ensureDir(ECO_ROOT);
 stageObsidian();
 stageVscode();
 stageBrowser();
+stageWps();
 console.log("[stage-ecosystem] Done.");

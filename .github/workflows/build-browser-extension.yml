@@ -1,0 +1,93 @@
+name: Build Browser Extension
+
+on:
+  push:
+    tags:
+      - 'browser-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Extension version'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/browser-extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/browser-extension
+        run: npm ci
+
+      - name: Build Chrome extension
+        working-directory: apps/browser-extension
+        run: npm run build:chrome
+
+      - name: Package Chrome extension
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          mkdir -p dist-chrome
+          cp dist/*.js dist-chrome/
+          cp manifest.chrome.json dist-chrome/manifest.json
+          cp popup.html dist-chrome/
+          cd dist-chrome && zip -r ../latexsnipper-browser-chrome.zip .
+
+      - name: Build Firefox extension
+        working-directory: apps/browser-extension
+        run: npm run build:firefox
+
+      - name: Package Firefox extension
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          mkdir -p dist-firefox
+          cp dist/*.js dist-firefox/
+          cp manifest.firefox.json dist-firefox/manifest.json
+          cp popup.html dist-firefox/
+          cd dist-firefox && zip -r ../latexsnipper-browser-firefox.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension
+          path: |
+            apps/browser-extension/latexsnipper-browser-chrome.zip
+            apps/browser-extension/latexsnipper-browser-firefox.zip
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/browser-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: |
+            apps/browser-extension/latexsnipper-browser-chrome.zip
+            apps/browser-extension/latexsnipper-browser-firefox.zip
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper Browser Extension ${{ github.ref_name }}
+
+            ### Chrome/Edge 安装
+            1. 解压 `latexsnipper-browser-chrome.zip`
+            2. 打开 `chrome://extensions` → 开启开发者模式 → 加载已解压的扩展
+
+            ### Firefox 安装
+            1. 解压 `latexsnipper-browser-firefox.zip`
+            2. 打开 `about:debugging` → 临时加载附加组件

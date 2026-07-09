@@ -19,7 +19,7 @@ interface LaTeXSnipperSettings {
 }
 
 const DEFAULT_SETTINGS: LaTeXSnipperSettings = {
-  bridgeUrl: "http://127.0.0.1:19876",
+  bridgeUrl: "http://127.0.0.1:19877",
   defaultDisplay: "inline",
   autoNumber: false,
 };
@@ -357,7 +357,7 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
           .setPlaceholder("http://127.0.0.1:19876")
           .setValue(this.plugin.settings.bridgeUrl)
           .onChange(async (val) => {
-            this.plugin.settings.bridgeUrl = val || "https://127.0.0.1:19876";
+            this.plugin.settings.bridgeUrl = val || "http://127.0.0.1:19877";
             await this.plugin.saveData(this.plugin.settings);
           }),
       );

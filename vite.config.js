@@ -17,7 +17,7 @@ export default defineConfig({
     // Proxy Bridge requests during development.
     proxy: {
       '/bridge': {
-        target: 'http://127.0.0.1:28765',
+        target: 'http://127.0.0.1:19877',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/bridge/, ''),
       },
@@ -36,5 +36,3 @@ export default defineConfig({
     include: ['mathlive', 'mathjax'],
   },
 });
-
-

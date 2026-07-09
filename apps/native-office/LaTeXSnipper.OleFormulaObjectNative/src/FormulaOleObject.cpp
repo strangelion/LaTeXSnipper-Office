@@ -14,6 +14,38 @@
 #include <string>
 #include <sstream>
 
+// Pending payload from registry — consumed during construction so the correct
+// formula renders immediately without waiting for InitializeFromJson.
+namespace
+{
+std::wstring ConsumePendingPayload()
+{
+    constexpr wchar_t kPayloadKey[] = L"Software\\LaTeXSnipper\\OfficePlugin\\OleFormulaObject";
+    constexpr wchar_t kPendingPayloadValue[] = L"PendingPayload";
+
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS)
+        return L"";
+
+    DWORD type = 0;
+    DWORD byteCount = 0;
+    std::wstring payload;
+    if (RegQueryValueExW(key, kPendingPayloadValue, nullptr, &type, nullptr, &byteCount) == ERROR_SUCCESS &&
+        type == REG_SZ && byteCount >= sizeof(wchar_t))
+    {
+        payload.resize(byteCount / sizeof(wchar_t));
+        RegQueryValueExW(key, kPendingPayloadValue, nullptr, &type,
+            reinterpret_cast<BYTE*>(&payload[0]), &byteCount);
+        while (!payload.empty() && payload.back() == L'\0')
+            payload.pop_back();
+    }
+
+    RegDeleteValueW(key, kPendingPayloadValue);
+    RegCloseKey(key);
+    return payload;
+}
+}
+
 namespace
 {
 volatile LONG g_objectCount = 0;
@@ -108,7 +140,17 @@ LONG GetNativeOleLockCount()
 }
 
 FormulaOleObject::FormulaOleObject()
-    : presentation_(CreatePlaceholderPresentation(kFormulaDefaultLatex))
+    : presentation_([]() -> FormulaPresentation {
+        // Check registry for a pending payload from the VSTO add-in
+        std::wstring pendingJson = ConsumePendingPayload();
+        if (!pendingJson.empty())
+        {
+            FormulaPresentation loaded = CreatePresentationFromPayload(pendingJson);
+            if (!loaded.latex.empty())
+                return loaded;
+        }
+        return CreatePlaceholderPresentation(kFormulaDefaultLatex);
+    }())
 {
     formulaId_.resize(32, L'0');
     WriteNativeOleLog(L"FormulaOleObject constructed.");

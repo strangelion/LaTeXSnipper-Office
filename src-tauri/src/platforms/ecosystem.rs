@@ -73,13 +73,16 @@ pub struct ActionError {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EcosystemClient {
     pub client_id: String,
     pub client_type: String,
     pub client_name: String,
     pub capabilities: Vec<String>,
     pub version: String,
+    #[serde(default)]
     pub last_seen: String,
+    #[serde(default)]
     pub connected_at: String,
 }
 

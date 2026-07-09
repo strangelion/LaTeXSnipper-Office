@@ -280,13 +280,16 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .route("/api/ecosystem/actions/next", get(handle_ecosystem_actions_next))
         .route("/api/ecosystem/actions/ack", post(handle_ecosystem_ack))
         .route("/api/ecosystem/actions/complete", post(handle_ecosystem_actions_complete))
+        .route("/api/ecosystem/actions/push", post(handle_ecosystem_actions_push))
         .route("/api/ecosystem/actions/status/{action_id}", get(handle_ecosystem_action_status))
         .route("/api/ecosystem/formula/edit", post(handle_ecosystem_formula_edit))
         .route("/api/ecosystem/clipboard/write", post(handle_ecosystem_clipboard_write))
+        // ── WPS / cross-platform compatibility ──
+        .route("/config", get(handle_config))
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
-            tower_http::cors::CorsLayer::permissive()
+            tower_http::cors::CorsLayer::new()
                 .allow_origin(tower_http::cors::Any)
                 .allow_methods(tower_http::cors::Any)
                 .allow_headers(tower_http::cors::Any),
@@ -457,9 +460,34 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         }
     });
 
-    // Start HTTPS server with self-signed certificate.
+    // Start both HTTP (ecosystem API / dev) and HTTPS (Office.js) servers.
+    // Office.js requires TLS, but ecosystem plugins (VS Code, Obsidian, etc.)
+    // and development frontends (Vite) work better with plain HTTP.
+    //
     // Certificate is auto-generated on first run.
     // Certificate trust is handled separately (by install_office_js_addin / "启用 Word 集成").
+
+    // ── HTTP server (ecosystem API / dev) ──
+    let http_port = BRIDGE_PORT + 1; // 19877
+    let http_addr: std::net::SocketAddr = match format!("127.0.0.1:{}", http_port).parse() {
+        Ok(a) => a,
+        Err(e) => {
+            println!("[Bridge] Invalid HTTP address: {}", e);
+            return;
+        }
+    };
+    let http_app = app.clone();
+    let http_server = tokio::spawn(async move {
+        println!("[Bridge] Also listening on http://{} (ecosystem API)", http_addr);
+        if let Err(e) = axum_server::bind(http_addr)
+            .serve(http_app.into_make_service())
+            .await
+        {
+            println!("[Bridge] HTTP server error: {}", e);
+        }
+    });
+
+    // ── HTTPS server (Office.js) ──
     match super::tls_cert::get_or_create_tls_config(&app_handle) {
         Ok(tls_config) => {
             let addr = format!("127.0.0.1:{}", BRIDGE_PORT);
@@ -485,6 +513,9 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             println!("[Bridge] Office.js requires HTTPS. Cannot start without TLS.");
         }
     }
+
+    // Keep HTTP server running even if HTTPS stops
+    let _ = http_server.await;
 }
 
 async fn handle_convert(
@@ -972,8 +1003,56 @@ async fn handle_ecosystem_clients(
 
 async fn handle_ecosystem_enqueue(
     State(state): State<Arc<BridgeState>>,
-    Json(action): Json<EcosystemActionEnvelope>,
+    Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    // Accept both full EcosystemActionEnvelope and simplified format from plugins.
+    // If action_id is missing, treat as simplified and fill in defaults.
+    let has_action_id = payload.get("actionId").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty())
+        || payload.get("action_id").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty());
+
+    let action = if has_action_id {
+        // Full envelope — try to deserialize directly
+        match serde_json::from_value::<EcosystemActionEnvelope>(payload) {
+            Ok(a) => a,
+            Err(e) => {
+                return Json(serde_json::json!({
+                    "ok": false,
+                    "error": format!("Invalid envelope: {}", e),
+                }));
+            }
+        }
+    } else {
+        // Simplified format — wrap into envelope
+        let action_id = format!("act_{}", uuid_simple());
+        let now = chrono::Utc::now();
+        let expires = now + chrono::Duration::seconds(300);
+        let action_type = payload["actionType"].as_str().or_else(|| payload["action_type"].as_str()).unwrap_or("unknown").to_string();
+        let origin = payload["origin"].as_str().unwrap_or("plugin").to_string();
+        let target = payload["target"].as_str().unwrap_or("desktop").to_string();
+        let inner_payload = payload.get("payload").cloned().unwrap_or(serde_json::json!({}));
+        let timeout_ms = payload["timeoutMs"].as_u64().or_else(|| payload["timeout_ms"].as_u64()).unwrap_or(300_000);
+
+        EcosystemActionEnvelope {
+            action_id,
+            action_type,
+            origin,
+            target,
+            target_client_id: None,
+            created_at: now.to_rfc3339(),
+            expires_at: expires.to_rfc3339(),
+            timeout_ms,
+            nonce: uuid_simple(),
+            require_ack: false,
+            allow_fallback: true,
+            priority: "normal".to_string(),
+            reply_to: None,
+            payload: inner_payload,
+            trace_id: uuid_simple(),
+            app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            protocol_version: 1,
+        }
+    };
+
     match state.ecosystem_queue.enqueue(action.clone()).await {
         Ok(()) => Json(serde_json::json!({
             "ok": true,
@@ -1049,6 +1128,85 @@ async fn handle_ecosystem_action_status(
             "status": "not_found",
         })),
     }
+}
+
+#[derive(Deserialize)]
+struct PushActionPayload {
+    #[serde(rename = "type")]
+    action_type: String,
+    latex: String,
+    display: Option<bool>,
+    format: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct PushRequest {
+    target: String,
+    action: PushActionPayload,
+}
+
+/// Simplified push endpoint — wraps action into envelope automatically.
+/// Request: { target: "vscode", action: { type: "InsertFormula", latex: "...", display: true } }
+async fn handle_ecosystem_actions_push(
+    State(state): State<Arc<BridgeState>>,
+    Json(push): Json<PushRequest>,
+) -> Json<serde_json::Value> {
+    let action_id = format!("act_{}", uuid_simple());
+    let now = chrono::Utc::now();
+    let expires = now + chrono::Duration::seconds(300);
+
+    let envelope = EcosystemActionEnvelope {
+        action_id: action_id.clone(),
+        action_type: push.action.action_type,
+        origin: "desktop".to_string(),
+        target: push.target.clone(),
+        target_client_id: None,
+        created_at: now.to_rfc3339(),
+        expires_at: expires.to_rfc3339(),
+        timeout_ms: 300_000,
+        nonce: uuid_simple(),
+        require_ack: false,
+        allow_fallback: true,
+        priority: "normal".to_string(),
+        reply_to: None,
+        payload: serde_json::json!({
+            "latex": push.action.latex,
+            "display": push.action.display.unwrap_or(false),
+            "format": push.action.format.unwrap_or_else(|| "markdown".to_string()),
+        }),
+        trace_id: uuid_simple(),
+        app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        protocol_version: 1,
+    };
+
+    match state.ecosystem_queue.enqueue(envelope).await {
+        Ok(()) => Json(serde_json::json!({
+            "ok": true,
+            "actionId": action_id,
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "error": e,
+        })),
+    }
+}
+
+/// WPS-compatible /config endpoint.
+async fn handle_config() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "ok": true,
+        "result": {
+            "bridgeVersion": env!("CARGO_PKG_VERSION"),
+            "baseUrl": "https://127.0.0.1:19876",
+            "httpUrl": "http://127.0.0.1:19877",
+            "capabilities": [
+                "latex_to_markdown",
+                "latex_to_svg",
+                "latex_to_png",
+                "insert_formula_action"
+            ]
+        }
+    }))
 }
 
 async fn handle_ecosystem_formula_edit(

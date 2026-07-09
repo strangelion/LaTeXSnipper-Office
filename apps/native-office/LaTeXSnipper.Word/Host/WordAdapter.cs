@@ -347,7 +347,7 @@ namespace LaTeXSnipper.Word.Host
 
                 if (storageMode == "ole")
                 {
-                    return InsertOleObject(doc, range, payload);
+                    return InsertOleObject(doc, range, payload, mode);
                 }
 
                 if (storageMode == "image")
@@ -392,12 +392,17 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
-        private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
+        private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload, InsertMode mode = InsertMode.Inline)
         {
             try
             {
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+                // Save payload to registry BEFORE creating OLE object.
+                // The C++ OLE DLL reads this during construction to render the correct formula
+                // immediately, avoiding a race between InitializeFromJson and Office's render request.
+                OleFormulaPendingPayloadStore.Save(payload);
 
                 var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
                     range.InlineShapes.AddOLEObject(
@@ -446,6 +451,38 @@ namespace LaTeXSnipper.Word.Host
                 {
                     // ContentControl wrapping is best-effort — OLE object is still inserted
                     System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
+                }
+
+                // Add auto-numbering for DisplayNumbered mode
+                if (mode == InsertMode.DisplayNumbered)
+                {
+                    try
+                    {
+                        var numberedRange = cc?.Range ?? oleShape.Range;
+                        numberedRange = numberedRange.Duplicate;
+                        numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+
+                        // Insert tab before number
+                        numberedRange.Text = "\t";
+                        numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+
+                        // Insert SEQ field for automatic number
+                        var field = doc.Fields.Add(
+                            numberedRange,
+                            Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                            " SEQ LaTeXSnipperEquation \\* ARABIC ",
+                            true);
+                        field.Update();
+
+                        // Move past the field
+                        var fieldRange = field.Result;
+                        fieldRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Numbering is best-effort — OLE object is still inserted
+                        System.Diagnostics.Debug.WriteLine($"[WordAdapter] OLE numbering failed: {ex.Message}");
+                    }
                 }
 
                 FormulaDocumentManifest.Write(doc, payload);

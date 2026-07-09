@@ -635,7 +635,7 @@ class SettingsManager {
       displayMode: 'inline',
       fontStyle: 'tex',
       fontColor: '#000000',
-      bridgeUrl: 'http://127.0.0.1:19876',
+      bridgeUrl: 'http://127.0.0.1:19877',
       theme: 'light',
       officeEnabled: true,
       officeIntegrationMode: 'auto',
@@ -1529,6 +1529,7 @@ class UIController {
     document.getElementById('copyMd')?.addEventListener('click', () => this.copyFormula('md'));
 
     document.getElementById('insertToWord')?.addEventListener('click', () => this.insertToWord());
+    document.getElementById('insertToEcosystem')?.addEventListener('click', () => this.insertToEcosystem());
     document.getElementById('loadFromWord')?.addEventListener('click', () => this.loadFromWord());
     document.getElementById('insertTableBtn')?.addEventListener('click', () => this.insertTableToWord());
     document.getElementById('readTableBtn')?.addEventListener('click', () => this.readTableFromWord());
@@ -1821,6 +1822,7 @@ class UIController {
     // Host selector state
     this._selectedSessionId = null;
     this._selectedHostType = '';
+    this._selectedEcosystemTarget = '';
     this._sessions = [];
 
     // Update host selector dropdown
@@ -1899,6 +1901,36 @@ class UIController {
         Logger.error('Failed to update host selector:', e);
       }
     };
+
+    // Ecosystem target selector (VS Code / Obsidian / Browser / WPS)
+    this.updateEcosystemHostSelector = () => {
+      const selector = document.getElementById('ecosystemTargetHost');
+      const container = document.getElementById('ecosystemHostSelector');
+      if (!selector || !container) return;
+
+      selector.querySelectorAll('.custom-select-option').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const trigger = container.querySelector('.custom-select-trigger');
+          trigger.querySelector('span').textContent = opt.textContent;
+          trigger.dataset.value = opt.dataset.value;
+          this._selectedEcosystemTarget = opt.dataset.value;
+          container.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+          container.classList.remove('open');
+        });
+      });
+
+      const trigger = container.querySelector('.custom-select-trigger');
+      trigger.onclick = (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+        container.classList.toggle('open');
+      };
+    };
+
+    // Initial ecosystem host selector setup
+    this.updateEcosystemHostSelector();
 
     // Close dropdown on outside click
     document.addEventListener('click', () => {
@@ -3502,6 +3534,51 @@ class UIController {
     }
   }
 
+  /** Push formula to an ecosystem plugin (VS Code, Obsidian, Browser, WPS). */
+  async insertToEcosystem() {
+    const latex = this.editor.getLatex();
+    if (!latex) {
+      this.showStatus('请先输入公式');
+      return;
+    }
+
+    // Determine target from the selected ecosystem platform
+    const selectorContainer = document.getElementById('ecosystemHostSelector');
+    if (!selectorContainer) return;
+    const trigger = selectorContainer.querySelector('.custom-select-trigger');
+    const target = trigger?.dataset?.value;
+    if (!target) {
+      this.showToast('请先选择目标平台');
+      return;
+    }
+
+    const display = document.getElementById('displayMode')?.checked || false;
+
+    try {
+      const res = await fetch('http://127.0.0.1:19877/api/ecosystem/actions/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          target,
+          action: {
+            type: 'InsertFormula',
+            latex,
+            display,
+            format: 'markdown',
+          },
+        }),
+      });
+
+      if (res.ok) {
+        this.showToast(`公式已发送到 ${target}，请在对应应用查看`);
+      } else {
+        this.showToast(`发送失败: ${res.status}`);
+      }
+    } catch (e) {
+      this.showToast(`桥接服务未运行: ${e.message}`);
+    }
+  }
+
   async cancelOleEdit() {
     // Emit cancel to any active OLE session
     if (this._oleSessionToken) {
@@ -3531,20 +3608,21 @@ class UIController {
 
   /** @deprecated Use this.formulaSvgRenderer.renderFormulaPng() instead. */
   async _svgToPngBase64(svg, widthPt, heightPt) {
-    const MAX_CANVAS = 2400;
+    const MAX_CANVAS = 4800;
+    const scale = 2;
+    const drawWidth = Math.max(36, Math.min(MAX_CANVAS, Math.round(widthPt / 0.75 * scale)));
+    const drawHeight = Math.max(24, Math.min(MAX_CANVAS, Math.round(heightPt / 0.75 * scale)));
+
     const canvas = document.createElement('canvas');
-    const dpr = window.devicePixelRatio || 1;
-    const drawWidth = Math.max(18, Math.min(MAX_CANVAS, widthPt || 120));
-    const drawHeight = Math.max(18, Math.min(MAX_CANVAS, heightPt || 30));
-    canvas.width = Math.min(Math.round(drawWidth * dpr), MAX_CANVAS);
-    canvas.height = Math.min(Math.round(drawHeight * dpr), MAX_CANVAS);
+    canvas.width = drawWidth;
+    canvas.height = drawHeight;
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+
+    // Clear to transparent
     ctx.clearRect(0, 0, drawWidth, drawHeight);
 
     const img = new Image();
-    // Use data URL instead of blob: to avoid CSP issues in Tauri WebView.
-    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     await new Promise((resolve, reject) => {
       img.onload = () => {
         ctx.drawImage(img, 0, 0, drawWidth, drawHeight);
@@ -3820,6 +3898,13 @@ class UIController {
     if (tableInsert) tableInsert.style.display = canInsertTable ? '' : 'none';
     const tableRead = document.getElementById('readTableBtn');
     if (tableRead) tableRead.style.display = canReadTable ? '' : 'none';
+
+    // Show ecosystem controls if any non-Office plugin platform is enabled
+    const hasEcoPlatform = this.platforms.some(p => p.enabled && ['vscode', 'obsidian', 'browser', 'wps'].includes(p.id));
+    const ecoSelector = document.getElementById('ecosystemHostSelector');
+    const ecoBtn = document.getElementById('insertToEcosystem');
+    if (ecoSelector) ecoSelector.style.display = hasEcoPlatform ? '' : 'none';
+    if (ecoBtn) ecoBtn.style.display = hasEcoPlatform ? '' : 'none';
   }
 
   updateOfficeIntegrationHint(mode) {
@@ -4127,6 +4212,38 @@ class UIController {
           wpsPlatform.desc = wpsStatus.message;
         }
       }
+
+      // Check ecosystem client status for VS Code, Obsidian, Browser
+      const ecosystemTargets = ['vscode', 'obsidian', 'browser'];
+      try {
+        const res = await fetch('http://127.0.0.1:19877/api/ecosystem/clients', {
+          signal: AbortSignal.timeout(3000),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const clients = data.clients || [];
+          for (const id of ecosystemTargets) {
+            const p = this.platforms.find(pl => pl.id === id);
+            if (p && p.enabled) {
+              const client = clients.find(c => c.clientType === id || (c.clientId && c.clientId.startsWith(id)));
+              if (client) {
+                const lastSeen = new Date(client.lastSeen).getTime();
+                const now = Date.now();
+                const connected = (now - lastSeen) < 30000; // 30s heartbeat threshold
+                p.desc = connected ? `已连接 (${client.clientName || id})` : '未连接';
+              } else {
+                p.desc = '等待插件连接...';
+              }
+            }
+          }
+        }
+      } catch {
+        // Bridge not available — show "离线" for ecosystem platforms
+        for (const id of ecosystemTargets) {
+          const p = this.platforms.find(pl => pl.id === id);
+          if (p) p.desc = '桌面端未运行';
+        }
+      }
     }
 
     listEl.innerHTML = this.platforms.map(p => {
@@ -4249,7 +4366,7 @@ class UIController {
   platformSupport = {
     office: { ready: true, message: '' },
     obsidian: { ready: true, message: 'Obsidian 插件开发中，敬请期待' },
-    vscode: { ready: false, message: 'VS Code 扩展开发中，敬请期待' },
+    vscode: { ready: true, message: '' },
     wps: { ready: true, message: '' },
     typora: { ready: true, message: '剪贴板集成：复制 Markdown 公式后粘贴到 Typora' },
     notion: { ready: true, message: '剪贴板集成：复制 Markdown 公式后粘贴到 Notion' },
@@ -4376,7 +4493,7 @@ class UIController {
 
   async refreshEcosystemClients() {
     try {
-      const resp = await fetch('http://127.0.0.1:19876/api/ecosystem/clients', {
+      const resp = await fetch('http://127.0.0.1:19877/api/ecosystem/clients', {
         signal: AbortSignal.timeout(3000),
       });
       const data = await resp.json();
@@ -4408,7 +4525,7 @@ class UIController {
     }
   }
 
-  /** Show Obsidian vault selection dialog. Returns selected path or null if cancelled. */
+  /** Show Obsidian vault/plugins selection dialog. Returns detected vault path or null. */
   async _showObsidianVaultDialog() {
     return new Promise((resolve) => {
       const overlay = document.createElement('div');
@@ -4416,13 +4533,16 @@ class UIController {
       overlay.innerHTML = `
 <div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
   <div style="background:var(--card-bg,#fff);border-radius:12px;padding:24px;max-width:520px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);font-family:system-ui,-apple-system,sans-serif;">
-    <h2 style="margin:0 0 4px;font-size:1.1rem;font-weight:600;color:var(--text,#1a1a1a);">选择 Obsidian Vault</h2>
-    <p style="margin:0 0 16px;font-size:0.85rem;color:var(--muted,#888);">插件将被复制到 vault 的 <code style="background:var(--card-bg,#f0f0f0);padding:1px 4px;border-radius:3px;">.obsidian/plugins/latexsnipper/</code></p>
+    <h2 style="margin:0 0 4px;font-size:1.1rem;font-weight:600;color:var(--text,#1a1a1a);">安装 Obsidian 插件</h2>
+    <p style="margin:0 0 16px;font-size:0.85rem;color:var(--muted,#888);">输入 Obsidian <strong>插件目录</strong>或 <strong>Vault 目录</strong></p>
     <div style="margin-bottom:12px;">
-      <label style="font-size:0.8rem;font-weight:500;color:var(--muted,#888);display:block;margin-bottom:4px;">Vault 路径（输入或粘贴）</label>
-      <input id="obsidianVaultInput" type="text" style="width:100%;padding:8px 12px;border:1px solid var(--border-color,#ddd);border-radius:6px;font-size:0.85rem;background:var(--card-bg,#fff);color:var(--text,#1a1a1a);box-sizing:border-box;" placeholder="C:\\Users\\...\\MyVault" />
+      <label style="font-size:0.8rem;font-weight:500;color:var(--muted,#888);display:block;margin-bottom:4px;">插件目录路径</label>
+      <input id="obsidianVaultInput" type="text" style="width:100%;padding:8px 12px;border:1px solid var(--border-color,#ddd);border-radius:6px;font-size:0.85rem;background:var(--card-bg,#fff);color:var(--text,#1a1a1a);box-sizing:border-box;" placeholder="C:\\Users\\...\\.obsidian\\plugins" />
     </div>
-    <p style="font-size:0.78rem;color:var(--muted,#999);margin:0 0 16px;">提示：在 Obsidian 中点击 设置 → 关于 → 查看 vault 路径 复制即可</p>
+    <p style="font-size:0.78rem;color:var(--muted,#999);margin:0 0 16px;line-height:1.6;">
+      如何找到插件目录：打开 Obsidian → 设置 → 社区插件 → 在"已安装插件"右侧点击文件夹图标
+      <br>也支持直接输入 Vault 目录（包含 .obsidian 的文件夹）
+    </p>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button id="obsidianCancelBtn" style="padding:8px 20px;border:1px solid var(--border-color,#ddd);border-radius:6px;background:transparent;cursor:pointer;font-size:0.85rem;">取消</button>
       <button id="obsidianConfirmBtn" style="padding:8px 20px;border:none;border-radius:6px;background:var(--accent,#4a6cf7);color:#fff;cursor:pointer;font-size:0.85rem;font-weight:500;">确认安装</button>
@@ -4436,8 +4556,20 @@ class UIController {
         resolve(null);
       };
       document.getElementById('obsidianConfirmBtn').onclick = () => {
-        const val = document.getElementById('obsidianVaultInput').value.trim();
-        if (!val) { this.showToast('请输入 Vault 路径'); return; }
+        let val = document.getElementById('obsidianVaultInput').value.trim();
+        if (!val) { this.showToast('请输入路径'); return; }
+
+        // Accept either plugins folder directly or vault root
+        // If path ends with "plugins", assume it's the plugins folder → derive vault path
+        if (val.replace(/\\/g, '/').endsWith('/.obsidian/plugins') || val.replace(/\\/g, '/').endsWith('/plugins')) {
+          // Step up to vault root: remove "/plugins" or "/.obsidian/plugins"
+          val = val.replace(/\\/g, '/')
+            .replace(/\/plugins$/, '')
+            .replace(/\/\.obsidian\/plugins$/, '')
+            .replace(/\/\.obsidian$/, '');
+          val = val.replace(/\//g, '\\'); // restore Windows backslashes
+        }
+
         overlay.remove();
         resolve(val);
       };
@@ -4456,7 +4588,7 @@ class UIController {
       const data = await response.json();
       const result = data.result || data;
       this.bridgeConfig = {
-        url: result.bridge_url || 'http://127.0.0.1:28765',
+        url: result.bridge_url || result.baseUrl || 'http://127.0.0.1:19877',
         token: result.token,
       };
       Logger.info(`Bridge connected, token: ${this.bridgeConfig.token?.substring(0, 10)}...`);

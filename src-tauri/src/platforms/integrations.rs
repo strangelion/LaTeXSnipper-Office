@@ -2719,7 +2719,44 @@ fn vscode_extension_dir() -> PathBuf {
         .join("latexsnipper-office")
 }
 
+fn vscode_plugin_source() -> Option<PathBuf> {
+    // 1. Bundled ecosystem resources (production Tauri install)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join("resources").join("Ecosystem").join("vscode");
+            if bundled.join("extension.js").exists() && bundled.join("package.json").exists() {
+                return Some(bundled);
+            }
+        }
+    }
+    // 2. Repo source (development builds)
+    if let Some(root) = repo_root_from_manifest() {
+        let dir = root.join("apps").join("vscode-extension");
+        if dir.join("dist").join("extension.js").exists() {
+            return Some(dir);
+        }
+    }
+    // 3. Old bundled layout for backward compatibility
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let legacy = dir.join("resources").join("vscode");
+            if legacy.join("extension.js").exists() && legacy.join("package.json").exists() {
+                return Some(legacy);
+            }
+        }
+    }
+    None
+}
+
 fn install_vscode() -> PlatformIntegrationResult {
+    let Some(source) = vscode_plugin_source() else {
+        return PlatformIntegrationResult::fail(
+            "vscode",
+            "plugin",
+            "VS Code extension build artifacts not found. Run `npm run build:vscode` then `npm run stage:ecosystem` first.",
+        );
+    };
+
     let dir = vscode_extension_dir();
     if let Err(err) = fs::create_dir_all(&dir) {
         return PlatformIntegrationResult::fail(
@@ -2729,68 +2766,28 @@ fn install_vscode() -> PlatformIntegrationResult {
         );
     }
 
-    let package_json = r#"{
-  "name": "latexsnipper-office",
-  "displayName": "LaTeXSnipper Office",
-  "description": "Insert LaTeXSnipper formulas into the active editor.",
-  "version": "1.0.0",
-  "publisher": "latexsnipper",
-  "engines": { "vscode": "^1.80.0" },
-  "activationEvents": ["onCommand:latexsnipper.insertInline", "onCommand:latexsnipper.insertDisplay"],
-  "main": "./extension.js",
-  "contributes": {
-    "commands": [
-      { "command": "latexsnipper.insertInline", "title": "LaTeXSnipper: Insert Inline Formula From Clipboard" },
-      { "command": "latexsnipper.insertDisplay", "title": "LaTeXSnipper: Insert Display Formula From Clipboard" }
-    ]
-  }
-}
-"#;
-    let extension_js = r#"const vscode = require('vscode');
-
-async function insertText(text) {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showWarningMessage('No active editor.');
-    return;
-  }
-  await editor.edit((edit) => edit.insert(editor.selection.active, text));
-}
-
-function activate(context) {
-  context.subscriptions.push(vscode.commands.registerCommand('latexsnipper.insertInline', async () => {
-    const latex = await vscode.env.clipboard.readText();
-    await insertText(`$${latex}$`);
-  }));
-  context.subscriptions.push(vscode.commands.registerCommand('latexsnipper.insertDisplay', async () => {
-    const latex = await vscode.env.clipboard.readText();
-    await insertText(`$$\n${latex}\n$$`);
-  }));
-}
-
-function deactivate() {}
-module.exports = { activate, deactivate };
-"#;
-
-    if let Err(err) = fs::write(dir.join("package.json"), package_json) {
-        return PlatformIntegrationResult::fail(
-            "vscode",
-            "plugin",
-            format!("Failed to write VS Code package.json: {err}"),
-        );
+    // Copy package.json
+    let src_pkg = source.join("package.json");
+    if src_pkg.exists() {
+        if let Err(err) = fs::copy(&src_pkg, dir.join("package.json")) {
+            return PlatformIntegrationResult::fail("vscode", "plugin", format!("Failed to copy package.json: {err}"));
+        }
     }
-    if let Err(err) = fs::write(dir.join("extension.js"), extension_js) {
-        return PlatformIntegrationResult::fail(
-            "vscode",
-            "plugin",
-            format!("Failed to write VS Code extension.js: {err}"),
-        );
+
+    // Copy extension.js from dist/ (repo layout) or directly (bundled layout)
+    let src_js = if source.join("dist").join("extension.js").exists() {
+        source.join("dist").join("extension.js")
+    } else {
+        source.join("extension.js")
+    };
+    if let Err(err) = fs::copy(&src_js, dir.join("extension.js")) {
+        return PlatformIntegrationResult::fail("vscode", "plugin", format!("Failed to copy extension.js: {err}"));
     }
 
     PlatformIntegrationResult::ok(
         "vscode",
         "plugin",
-        format!("Installed unpacked VS Code extension at {}. Restart VS Code, then use LaTeXSnipper commands from the Command Palette.", dir.display()),
+        format!("Installed VS Code extension at {}. Restart VS Code, then use LaTeXSnipper commands from the Command Palette.", dir.display()),
         true,
     )
 }

@@ -1,0 +1,64 @@
+name: Build VS Code Extension
+
+on:
+  push:
+    tags:
+      - 'vscode-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Extension version'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build-vscode:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/vscode-extension
+        run: npm ci
+
+      - name: Build extension
+        working-directory: apps/vscode-extension
+        run: npm run build
+
+      - name: Package VSIX
+        working-directory: apps/vscode-extension
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: apps/vscode-extension/*.vsix
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/vscode-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: apps/vscode-extension/*.vsix
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper VS Code Extension ${{ github.ref_name }}
+
+            ### 安装
+            下载 `.vsix` 文件，在 VS Code 中按 `Ctrl+Shift+P` → `Extensions: Install from VSIX...`

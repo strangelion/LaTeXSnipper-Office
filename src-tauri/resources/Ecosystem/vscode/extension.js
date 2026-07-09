@@ -1,3 +1,4 @@
+"use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -39,7 +40,7 @@ var vscode4 = __toESM(require("vscode"));
 var vscode = __toESM(require("vscode"));
 var BridgeClient = class {
   get bridgeUrl() {
-    return vscode.workspace.getConfiguration("latexsnipper").get("bridgeUrl", "http://127.0.0.1:19876");
+    return vscode.workspace.getConfiguration("latexsnipper").get("bridgeUrl", "http://127.0.0.1:19877");
   }
   get token() {
     return vscode.workspace.getConfiguration("latexsnipper").get("bridgeToken", "");

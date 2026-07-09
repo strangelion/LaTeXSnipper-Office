@@ -1,3 +1,4 @@
+import * as vscode from "vscode";
 import { BridgeClient } from "./bridge-client";
 import { insertText } from "./editor-adapter";
 
