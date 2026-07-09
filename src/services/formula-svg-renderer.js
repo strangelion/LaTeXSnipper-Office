@@ -121,8 +121,10 @@ export class FormulaSvgRenderer {
 
       m = s.match(/^([\d.]+)em$/);
       if (m) return parseFloat(m[1]) * 10;
+
       m = s.match(/^([\d.]+)pt$/);
       if (m) return parseFloat(m[1]);
+
       m = s.match(/^([\d.]+)px$/);
       if (m) return parseFloat(m[1]) * 0.75;
 
