@@ -1701,6 +1701,7 @@ class UIController {
         if (span) {
           const opt = modeSelect.querySelector(`.custom-select-option[data-value="${savedMode}"]`);
           span.textContent = opt?.textContent || savedMode;
+          span.removeAttribute('data-i18n');
         }
       }
       modeSelect.querySelectorAll('.custom-select-option').forEach(o => {
@@ -1930,8 +1931,11 @@ class UIController {
         const omml = await invoke('latex_to_omml', { latex });
         console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
-        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
-        const shouldRenderPreview = session.host_type !== 'word'
+        const isWord = session.host_type === 'word';
+        // Word always uses native OMML - ignore the integration mode setting.
+        // Excel/PPT use the integration mode from settings (default: auto).
+        const integrationMode = isWord ? 'auto' : (this.settingsManager.get('officeIntegrationMode') || 'auto');
+        const shouldRenderPreview = !isWord
           || integrationMode === 'ole'
           || integrationMode === 'image';
 
@@ -3311,7 +3315,7 @@ class UIController {
 
     try {
       if (format === 'mathml') {
-        textToCopy = `<math xmlns="http://www.w3.org/1998/Math/MathML">${this._latexToMathml(latex)}</math>`;
+        textToCopy = `<math xmlns="http://www.w3.org/1998/Math/MathML">${this.latexToMathML(latex)}</math>`;
       } else if (format === 'svg') {
         const result = await this._renderLatexSvg(latex, false);
         textToCopy = result.svg || latex;
@@ -3376,8 +3380,11 @@ class UIController {
       const omml = await invoke('latex_to_omml', { latex });
       console.log('[Insert] OMML length:', omml?.length || 0);
 
-      const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
-      const shouldRenderPreview = session.host_type !== 'word'
+      // Word always uses native OMML — ignore the integration mode setting.
+      // Excel/PPT use the integration mode from settings (default: auto).
+      const isWord = session.host_type === 'word';
+      const integrationMode = isWord ? 'auto' : (this.settingsManager.get('officeIntegrationMode') || 'auto');
+      const shouldRenderPreview = !isWord
         || integrationMode === 'ole'
         || integrationMode === 'image';
 
@@ -3490,12 +3497,13 @@ class UIController {
 
   /** @deprecated Use this.formulaSvgRenderer.renderFormulaPng() instead. */
   async _svgToPngBase64(svg, widthPt, heightPt) {
+    const MAX_CANVAS = 2400;
     const canvas = document.createElement('canvas');
     const dpr = window.devicePixelRatio || 1;
-    const drawWidth = Math.max(18, widthPt || 120);
-    const drawHeight = Math.max(18, heightPt || 30);
-    canvas.width = Math.round(drawWidth * dpr);
-    canvas.height = Math.round(drawHeight * dpr);
+    const drawWidth = Math.max(18, Math.min(MAX_CANVAS, widthPt || 120));
+    const drawHeight = Math.max(18, Math.min(MAX_CANVAS, heightPt || 30));
+    canvas.width = Math.min(Math.round(drawWidth * dpr), MAX_CANVAS);
+    canvas.height = Math.min(Math.round(drawHeight * dpr), MAX_CANVAS);
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.fillStyle = 'white';
@@ -3558,12 +3566,13 @@ class UIController {
       read_selection: ['read_selection', 'readSelection']
     };
     const keys = aliases[cap] || [cap];
-    if (session.capabilities?.some(c => keys.includes(c))) return true;
-    // Fallback when VSTO did not report capabilities (e.g. session just created):
-    // use host-type defaults matching Rust HostType::default_capabilities()
+    const caps = session.capabilities;
+    if (Array.isArray(caps) && caps.length > 0) {
+      return caps.some(c => keys.includes(c));
+    }
+    // Fallback only when capabilities array is empty or missing
     const host = String(session.host_type || '').toLowerCase();
-    if (this._supportsCapFallback(host, cap)) return true;
-    return false;
+    return this._supportsCapFallback(host, cap);
   }
 
   /** Fallback when VSTO did not report capabilities (matching Rust HostType::default_capabilities()). */
@@ -3726,6 +3735,10 @@ class UIController {
     const sessionId = this._selectedSessionId;
     if (!sessionId) {
       this.showToast('请先选择目标 Office 宿主');
+      return;
+    }
+    if (!this.supportsOfficeCapability('read_table')) {
+      this.showToast('当前 Office 宿主暂不支持表格读取');
       return;
     }
     try {

@@ -418,22 +418,21 @@ pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrat
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
     match platform_id.as_str() {
         "office" => {
+            let vsto_ok = check_native_office_vsto();
             let ole_status = check_ole_status();
-            if check_native_office_vsto() && ole_status.available {
+
+            if vsto_ok {
+                let message = if ole_status.available {
+                    "Native Office VSTO add-ins are installed. OLE advanced object is available."
+                } else {
+                    "Native Office VSTO add-ins are installed. OLE advanced object is not available, but basic Office integration works."
+                };
+
                 PlatformIntegrationResult::ok(
                     "office",
                     "native-vsto",
-                    "Native Office VSTO add-ins and OLE component are installed.",
+                    message,
                     false,
-                )
-            } else if check_native_office_vsto() {
-                PlatformIntegrationResult::fail(
-                    "office",
-                    "ole_missing",
-                    format!(
-                        "Native Office VSTO add-ins are installed, but OLE is not ready: {}",
-                        ole_status.detail
-                    ),
                 )
             } else {
                 PlatformIntegrationResult::fail(
@@ -4317,7 +4316,7 @@ fn check_office_processes() -> Vec<String> {
     let mut running = Vec::new();
     for (name, exe) in &[("Word", "WINWORD.EXE"), ("Excel", "EXCEL.EXE"), ("PowerPoint", "POWERPNT.EXE")] {
         let output = run_windows_tool(
-            Command::new("tasklist.exe")
+            super::process::background_command("tasklist.exe")
                 .args(["/FI", &format!("IMAGENAME eq {}", exe)]),
             5,
         );
@@ -4396,7 +4395,7 @@ fn clean_ole(result: &mut CleanerResult) {
                     ];
                     for key in &keys {
                         let _ = run_windows_tool(
-                            Command::new("reg.exe")
+                            super::process::background_command("reg.exe")
                                 .args(["delete", key, "/f", view.as_reg_arg()]),
                             15,
                         );

@@ -42,7 +42,7 @@ export class FormulaSvgRenderer {
 
     window.MathJax = {
       tex: {
-        packages: { '[+]': ['ams', 'newcommand', 'noundefined', 'require', 'autoload', 'configmacros'] },
+        packages: { '[+]': ['ams', 'newcommand'] },
       },
       svg: { fontCache: 'none' },
       startup: { typeset: false },
@@ -113,9 +113,23 @@ export class FormulaSvgRenderer {
     const maxHeightPt = options.maxHeightPt ?? 240;
 
     const parseLength = (value, fallback) => {
-      const s = String(value).trim();
-      const n = parseFloat(s.replace(/[^\d.-]/g, ''));
-      return Number.isFinite(n) && n > 0 ? n * 0.75 : fallback;
+      const s = String(value || '').trim();
+      if (!s) return fallback;
+
+      let m = s.match(/^([\d.]+)ex$/);
+      if (m) return parseFloat(m[1]) * 4.30554;
+
+      m = s.match(/^([\d.]+)em$/);
+      if (m) return parseFloat(m[1]) * 10;
+      m = s.match(/^([\d.]+)pt$/);
+      if (m) return parseFloat(m[1]);
+      m = s.match(/^([\d.]+)px$/);
+      if (m) return parseFloat(m[1]) * 0.75;
+
+      m = s.match(/^([\d.]+)/);
+      if (m) return parseFloat(m[1]) * 0.75;
+
+      return fallback;
     };
 
     const widthAttr = svg.getAttribute('width') || '';
@@ -124,14 +138,11 @@ export class FormulaSvgRenderer {
     let widthPt = parseLength(widthAttr, 120);
     let heightPt = parseLength(heightAttr, 36);
 
-    // Use viewBox as fallback
-    if (!widthPt || !heightPt) {
-      const viewBox = svg.getAttribute('viewBox');
-      if (viewBox) {
-        const parts = viewBox.split(/\s+/);
-        widthPt = (parseFloat(parts[2]) || 1200) / 10;
-        heightPt = (parseFloat(parts[3]) || 300) / 10;
-      }
+    // Use viewBox as fallback when width/height are missing
+    if ((!widthPt || !heightPt) && svg.getAttribute('viewBox')) {
+      const viewBox = svg.getAttribute('viewBox').split(/\s+/);
+      widthPt = (parseFloat(viewBox[2]) || 1200) / 10;
+      heightPt = (parseFloat(viewBox[3]) || 300) / 10;
     }
 
     widthPt = Math.min(maxWidthPt, Math.max(minWidthPt, widthPt));

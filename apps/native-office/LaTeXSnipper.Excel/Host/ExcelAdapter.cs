@@ -48,8 +48,8 @@ namespace LaTeXSnipper.Excel.Host
                 if (storageMode == "auto")
                 {
                     var oleResult = TryInsertOle(sheet, cell, payload);
-                    if (oleResult != null)
-                        return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "ole" };
+                    if (oleResult?.Success == true)
+                        return oleResult;
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")

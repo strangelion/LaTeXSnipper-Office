@@ -48,7 +48,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 if (storageMode == "auto")
                 {
                     var oleResult = TryInsertOle(slide, payload);
-                    if (oleResult != null) return oleResult;
+                    if (oleResult?.Success == true) return oleResult;
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")
