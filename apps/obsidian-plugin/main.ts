@@ -8,6 +8,7 @@
 import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal } from "obsidian";
 import { ObsidianAdapter, ObsidianEditorAPI, ObsidianBridgeAPI } from "./obsidian.adapter";
 import { router } from "../../core-protocol/command.router";
+import { setupEcosystemBridge } from "./src/editor-adapter";
 
 // ─── Settings ────────────────────────────────────────────────────────
 
@@ -136,6 +137,11 @@ export default class LaTeXSnipperPlugin extends Plugin {
 
     // ── Settings tab ────────────────────────────────────────────────
     this.addSettingTab(new LaTeXSnipperSettingTab(this.app, this));
+
+    // ── Ecosystem Bridge ────────────────────────────────────────────
+    // Start the ecosystem action poller so the desktop app can push
+    // InsertFormula/ReplaceSelection actions into this Obsidian editor.
+    setupEcosystemBridge(this);
   }
 
   // ─── Commands ──────────────────────────────────────────────────────

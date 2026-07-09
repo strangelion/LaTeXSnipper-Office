@@ -1735,6 +1735,11 @@ class UIController {
     });
     this.checkOleStatus();
 
+    // Ecosystem client list refresh
+    document.getElementById('refreshEcosystemBtn')?.addEventListener('click', () => {
+      this.refreshEcosystemClients();
+    });
+
     // Simple Markdown → HTML renderer (covers GitHub release notes)
     function renderMarkdown(md) {
       return md
@@ -3935,7 +3940,7 @@ class UIController {
     {
       id: 'typora',
       name: 'Typora',
-      desc: 'Markdown 编辑器',
+      desc: '剪贴板集成（复制 Markdown 公式后手动粘贴）',
       icon: '/icons/platforms/typora.svg',
       color: '#4a90d9',
       enabled: false,
@@ -3945,7 +3950,7 @@ class UIController {
     {
       id: 'notion',
       name: 'Notion',
-      desc: '知识管理工具',
+      desc: '剪贴板集成（复制 Markdown 公式后手动粘贴）',
       icon: '/icons/platforms/notion.svg',
       color: '#000000',
       enabled: false,
@@ -4208,8 +4213,8 @@ class UIController {
     obsidian: { ready: true, message: 'Obsidian 插件开发中，敬请期待' },
     vscode: { ready: false, message: 'VS Code 扩展开发中，敬请期待' },
     wps: { ready: true, message: '' },
-    typora: { ready: true, message: 'Typora 集成开发中，敬请期待' },
-    notion: { ready: true, message: 'Notion 集成开发中，敬请期待' },
+    typora: { ready: true, message: '剪贴板集成：复制 Markdown 公式后粘贴到 Typora' },
+    notion: { ready: true, message: '剪贴板集成：复制 Markdown 公式后粘贴到 Notion' },
     libreoffice: { ready: false, message: 'LibreOffice 扩展开发中，敬请期待' },
   };
 
@@ -4311,6 +4316,40 @@ class UIController {
 
     this.showToast(`${platform.name} 已取消注册`);
     return true;
+  }
+
+  async refreshEcosystemClients() {
+    try {
+      const resp = await fetch('http://127.0.0.1:19876/api/ecosystem/clients', {
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await resp.json();
+      const listEl = document.getElementById('ecosystemClientList');
+      if (!listEl) return;
+      if (!data.ok || !data.clients || data.clients.length === 0) {
+        listEl.innerHTML = '<span style="color:var(--muted);">暂无已连接客户端</span>';
+        return;
+      }
+      listEl.innerHTML = data.clients.map(c => {
+        const lastSeen = new Date(c.lastSeen).toLocaleString('zh-CN');
+        const svgIcon = {
+          vscode: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17.5 2.5L8 12l9.5 9.5 2-2L12 12l7.5-7.5-2-2z" fill="currentColor"/><path d="M7 6.5L2 12l5 5.5 2-2L6 12l3-3.5-2-2z" fill="currentColor"/></svg>',
+          obsidian: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 7h8M8 11h6M8 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+          browser: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>',
+          typora: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+          notion: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 7h10M7 12h10M7 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+        }[c.clientType] || '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color);">
+          <span style="width:16px;height:16px;display:flex;align-items:center;">${svgIcon}</span>
+          <span style="flex:1;"><strong>${c.clientName}</strong> (${c.clientId})</span>
+          <span style="color:var(--muted);font-size:0.75rem;">${lastSeen}</span>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      Logger.warn('Failed to fetch ecosystem clients:', e);
+      const listEl = document.getElementById('ecosystemClientList');
+      if (listEl) listEl.innerHTML = '<span style="color:var(--error);">无法连接 Bridge 服务</span>';
+    }
   }
 
   ocrLatex = '';

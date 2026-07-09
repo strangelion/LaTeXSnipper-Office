@@ -1,0 +1,14 @@
+{
+  "manifest_version": 2,
+  "name": "LaTeXSnipper",
+  "version": "0.1.0",
+  "description": "Read, edit and insert LaTeX formulas on the web",
+  "permissions": ["activeTab", "contextMenus", "storage", "clipboardWrite", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "scripts": ["background.js"], "persistent": false },
+  "browser_action": { "default_popup": "popup.html", "default_title": "LaTeXSnipper" },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
+}

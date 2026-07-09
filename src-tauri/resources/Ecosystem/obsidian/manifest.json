@@ -1,0 +1,9 @@
+{
+  "id": "latexsnipper-obsidian",
+  "name": "LaTeXSnipper",
+  "version": "3.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "LaTeX formula insertion and editing for Obsidian",
+  "author": "LaTeXSnipper",
+  "isDesktopOnly": true
+}

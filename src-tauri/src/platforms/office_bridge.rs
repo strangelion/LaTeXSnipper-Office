@@ -82,6 +82,8 @@ struct BridgeState {
     action_queue: Arc<Mutex<VecDeque<(String, OfficeAction)>>>,
     action_counter: Arc<std::sync::atomic::AtomicU64>,
     heartbeat_received: Arc<std::sync::atomic::AtomicBool>,
+    /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
+    ecosystem_queue: super::ecosystem::EcosystemActionQueue,
 }
 
 fn fix_omml(omml: &str) -> String {
@@ -223,6 +225,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         action_queue: Arc::new(Mutex::new(VecDeque::new())),
         action_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         heartbeat_received: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
     };
 
     // Try to serve Office.js taskpane files from resource dir
@@ -268,6 +271,18 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             "/api/office/actions/complete",
             post(handle_actions_complete),
         )
+        // ── Ecosystem Bridge API ──
+        .route("/api/ecosystem/ping", get(handle_ecosystem_ping))
+        .route("/api/ecosystem/clients/register", post(handle_ecosystem_client_register))
+        .route("/api/ecosystem/clients/heartbeat", post(handle_ecosystem_client_heartbeat))
+        .route("/api/ecosystem/clients", get(handle_ecosystem_clients))
+        .route("/api/ecosystem/actions/enqueue", post(handle_ecosystem_enqueue))
+        .route("/api/ecosystem/actions/next", get(handle_ecosystem_actions_next))
+        .route("/api/ecosystem/actions/ack", post(handle_ecosystem_ack))
+        .route("/api/ecosystem/actions/complete", post(handle_ecosystem_actions_complete))
+        .route("/api/ecosystem/actions/status/{action_id}", get(handle_ecosystem_action_status))
+        .route("/api/ecosystem/formula/edit", post(handle_ecosystem_formula_edit))
+        .route("/api/ecosystem/clipboard/write", post(handle_ecosystem_clipboard_write))
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
@@ -884,4 +899,234 @@ async fn handle_actions_complete(
         success: true,
         message: "action acknowledged".into(),
     })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Ecosystem Bridge Handlers
+// ═══════════════════════════════════════════════════════════════
+
+use super::ecosystem::{
+    ActionError, EcosystemActionEnvelope, EcosystemClient, EcosystemActionQueue,
+};
+
+fn _extract_queue(state: &BridgeState) -> &EcosystemActionQueue {
+    &state.ecosystem_queue
+}
+
+#[derive(Serialize)]
+struct EcoOkResponse {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+impl EcoOkResponse {
+    fn ok() -> Self {
+        Self { ok: true, message: None }
+    }
+    fn with_msg(msg: impl Into<String>) -> Self {
+        Self { ok: true, message: Some(msg.into()) }
+    }
+}
+
+async fn handle_ecosystem_ping(
+    State(state): State<Arc<BridgeState>>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "ok": true,
+        "service": "latexsnipper-ecosystem-bridge",
+        "protocolVersion": 1,
+        "serverVersion": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+async fn handle_ecosystem_client_register(
+    State(state): State<Arc<BridgeState>>,
+    Json(client): Json<EcosystemClient>,
+) -> Json<serde_json::Value> {
+    state.ecosystem_queue.register_client(client).await;
+    Json(serde_json::json!({
+        "ok": true,
+        "protocolVersion": 1,
+        "serverVersion": env!("CARGO_PKG_VERSION"),
+        "heartbeatIntervalMs": 10000,
+    }))
+}
+
+async fn handle_ecosystem_client_heartbeat(
+    State(state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    if let Some(client_id) = payload["clientId"].as_str() {
+        state.ecosystem_queue.client_heartbeat(client_id).await;
+    }
+    Json(serde_json::json!({ "ok": true }))
+}
+
+async fn handle_ecosystem_clients(
+    State(state): State<Arc<BridgeState>>,
+) -> Json<serde_json::Value> {
+    let clients = state.ecosystem_queue.list_clients().await;
+    Json(serde_json::json!({ "ok": true, "clients": clients }))
+}
+
+async fn handle_ecosystem_enqueue(
+    State(state): State<Arc<BridgeState>>,
+    Json(action): Json<EcosystemActionEnvelope>,
+) -> Json<serde_json::Value> {
+    match state.ecosystem_queue.enqueue(action.clone()).await {
+        Ok(()) => Json(serde_json::json!({
+            "ok": true,
+            "actionId": action.action_id,
+        })),
+        Err(e) => Json(serde_json::json!({
+            "ok": false,
+            "error": e,
+        })),
+    }
+}
+
+async fn handle_ecosystem_actions_next(
+    State(state): State<Arc<BridgeState>>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    let client_id = params.get("clientId").map(|s| s.as_str()).unwrap_or("");
+    let target = params.get("target").map(|s| s.as_str()).unwrap_or("");
+    match state.ecosystem_queue.next(client_id, target).await {
+        Some(action) => Json(serde_json::json!({
+            "found": true,
+            "action": action,
+        })),
+        None => Json(serde_json::json!({
+            "found": false,
+            "action": null,
+        })),
+    }
+}
+
+async fn handle_ecosystem_ack(
+    State(state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let action_id = payload["actionId"].as_str().unwrap_or("");
+    match state.ecosystem_queue.ack(action_id).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })),
+        Err(e) => Json(serde_json::json!({ "ok": false, "error": e })),
+    }
+}
+
+async fn handle_ecosystem_actions_complete(
+    State(state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let action_id = payload["actionId"].as_str().unwrap_or("");
+    let ok = payload["ok"].as_bool().unwrap_or(false);
+    let result = payload.get("result").cloned();
+    let error = payload.get("error").map(|e| ActionError {
+        code: e["code"].as_str().unwrap_or("UNKNOWN").to_string(),
+        message: e["message"].as_str().unwrap_or("").to_string(),
+    });
+    match state.ecosystem_queue.complete(action_id, ok, result, error).await {
+        Ok(()) => Json(serde_json::json!({ "ok": true })),
+        Err(e) => Json(serde_json::json!({ "ok": false, "error": e })),
+    }
+}
+
+async fn handle_ecosystem_action_status(
+    State(state): State<Arc<BridgeState>>,
+    axum::extract::Path(action_id): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    match state.ecosystem_queue.status(&action_id).await {
+        Some(record) => Json(serde_json::json!({
+            "actionId": action_id,
+            "status": record.status,
+            "updatedAt": record.updated_at,
+            "result": record.result,
+            "error": record.error,
+        })),
+        None => Json(serde_json::json!({
+            "actionId": action_id,
+            "status": "not_found",
+        })),
+    }
+}
+
+async fn handle_ecosystem_formula_edit(
+    State(state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    // Parse the edit request into an action and forward it to the desktop
+    let latex = payload["latex"].as_str().unwrap_or("").to_string();
+    let display = payload["display"].as_bool().unwrap_or(false);
+    let origin = payload["origin"].as_str().unwrap_or("plugin").to_string();
+
+    let action_id = format!("act_{}", uuid_simple());
+    let now = chrono::Utc::now();
+    let expires = now + chrono::Duration::seconds(300);
+
+    let action = EcosystemActionEnvelope {
+        action_id: action_id.clone(),
+        action_type: "EditFormula".to_string(),
+        origin: origin.clone(),
+        target: "desktop".to_string(),
+        target_client_id: None,
+        created_at: now.to_rfc3339(),
+        expires_at: expires.to_rfc3339(),
+        timeout_ms: 300_000,
+        nonce: uuid_simple(),
+        require_ack: false,
+        allow_fallback: true,
+        priority: "normal".to_string(),
+        reply_to: None,
+        payload: serde_json::json!({
+            "latex": latex,
+            "display": display,
+            "source": format!("{}-edit", origin),
+        }),
+        trace_id: uuid_simple(),
+        app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        protocol_version: 1,
+    };
+
+    state.ecosystem_queue.enqueue(action).await.unwrap_or_default();
+
+    // Notify the desktop app via Tauri event
+    let _ = state.app_handle.emit("ecosystem-action-open", &serde_json::json!({
+        "actionId": action_id,
+        "origin": origin,
+        "latex": latex,
+        "display": display,
+    }));
+
+    Json(serde_json::json!({
+        "ok": true,
+        "actionId": action_id,
+        "message": "Formula edit requested. LaTeXSnipper should open the editor.",
+    }))
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", t)
+}
+
+async fn handle_ecosystem_clipboard_write(
+    State(state): State<Arc<BridgeState>>,
+    Json(payload): Json<serde_json::Value>,
+) -> Json<serde_json::Value> {
+    let text = payload["text"].as_str().unwrap_or("").to_string();
+    if text.is_empty() {
+        return Json(serde_json::json!({ "ok": false, "error": "empty text" }));
+    }
+
+    // Write to clipboard via Tauri API
+    if let Some(window) = state.app_handle.get_webview_window("main") {
+        let _ = window.eval(&format!("navigator.clipboard.writeText({:?})", text));
+    }
+
+    Json(serde_json::json!({ "ok": true }))
 }

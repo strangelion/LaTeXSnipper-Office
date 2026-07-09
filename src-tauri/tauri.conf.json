@@ -40,7 +40,8 @@
       "resources/OfficeJS/**/*",
       "resources/WPS/**/*",
       "resources/NativeOffice/**/*",
-      "resources/Obsidian/**/*"
+      "resources/Obsidian/**/*",
+      "resources/Ecosystem/**/*"
     ],
     "windows": {
       "webviewInstallMode": {

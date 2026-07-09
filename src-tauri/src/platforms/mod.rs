@@ -1,5 +1,6 @@
 #[cfg(target_os = "windows")]
 pub mod acl;
+pub mod ecosystem;
 pub mod handshake;
 pub mod integrations;
 pub mod office;

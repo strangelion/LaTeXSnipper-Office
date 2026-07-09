@@ -264,7 +264,21 @@
           </div>
           <div class="settings-card" id="platformList"></div>
           <p style="font-size:0.7rem;color:var(--muted);margin:0.5rem 1rem 0;">启用后可通过快捷键快速插入公式到对应平台</p>
-        </div>
+
+          <!-- Ecosystem clients -->
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label">已连接客户端</span>
+            </div>
+            <div class="settings-row">
+              <div id="ecosystemClientList" style="width:100%;font-size:0.8rem;color:var(--muted);">
+                <span>暂无已连接客户端</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <button id="refreshEcosystemBtn" class="btn secondary" style="flex:1;">刷新客户端列表</button>
+            </div>
+          </div>        </div>
 
         <div id="settingsTabs" class="settings-subpage">
           <div class="settings-subpage-header">
@@ -326,7 +340,7 @@
               <button id="officeOleUninstallBtn" class="btn secondary" style="display:none">移除 OLE</button>
             </div>
           </div>
-        </div>
+
 
         <div id="settingsExport" class="settings-subpage">
           <div class="settings-subpage-header">
