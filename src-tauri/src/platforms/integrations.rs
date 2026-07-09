@@ -4448,3 +4448,41 @@ pub fn run_cleaner(scope: &str, plan_only: bool) -> CleanerResult {
 
     result
 }
+
+/// Install Obsidian plugin to a specific vault path (user-selected via dialog).
+/// Falls back to auto-scan if path is empty or invalid.
+#[tauri::command]
+pub async fn install_obsidian_to_vault(vault_path: String) -> PlatformIntegrationResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = obsidian_plugin_source();
+        if source.is_none() {
+            return PlatformIntegrationResult::fail(
+                "obsidian", "plugin",
+                "Obsidian plugin source not found.",
+            );
+        }
+        let source = source.unwrap();
+
+        if !vault_path.is_empty() {
+            let vault = std::path::PathBuf::from(&vault_path);
+            if vault.join(".obsidian").is_dir() {
+                let plugin_dir = vault.join(".obsidian").join("plugins").join("latexsnipper-obsidian");
+                if let Err(e) = fs::create_dir_all(&plugin_dir) {
+                    return PlatformIntegrationResult::fail("obsidian", "plugin",
+                        format!("Failed to create plugin directory: {e}"));
+                }
+                let _ = fs::copy(source.join("main.js"), plugin_dir.join("main.js"));
+                let _ = fs::copy(source.join("manifest.json"), plugin_dir.join("manifest.json"));
+                if let Some(name) = vault.file_name() {
+                    return PlatformIntegrationResult::ok("obsidian", "plugin",
+                        format!("已安装到 vault: {}", name.to_string_lossy()), true);
+                }
+            }
+        }
+
+        // Fallback: auto-detect vaults
+        install_obsidian()
+    })
+    .await
+    .unwrap_or_else(|e| PlatformIntegrationResult::fail("obsidian", "panic", e.to_string()))
+}

@@ -4270,6 +4270,24 @@ class UIController {
     if (platform.id === 'office' || platform.id === 'wps' || platform.id === 'obsidian') {
       try {
         const { invoke } = await import('@tauri-apps/api/core');
+        if (platform.id === 'obsidian') {
+          // Show vault selection dialog before installation
+          const vaultPath = await this._showObsidianVaultDialog();
+          if (vaultPath === null) {
+            platform.enabled = false;
+            this.savePlatforms();
+            return false;
+          }
+          const result = await invoke('install_obsidian_to_vault', { vaultPath });
+          if (result.success) {
+            this.showToast('Obsidian 插件已安装到 vault，请重启 Obsidian 启用');
+            return true;
+          } else {
+            this.showToast('安装失败: ' + (result.message || result.error));
+            platform.enabled = false;
+            return false;
+          }
+        }
         if (platform.id === 'office') {
           const status = await this.getOfficeStatus();
           Logger.info(`[Office] detect_office result: installed=${status.installed}, word=${status.word?.available}, excel=${status.excel?.available}, ppt=${status.powerpoint?.available}`);
@@ -4389,6 +4407,42 @@ class UIController {
       const listEl = document.getElementById('ecosystemClientList');
       if (listEl) listEl.innerHTML = '<span style="color:var(--error);">无法连接 Bridge 服务</span>';
     }
+  }
+
+  /** Show Obsidian vault selection dialog. Returns selected path or null if cancelled. */
+  async _showObsidianVaultDialog() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.id = 'obsidianVaultOverlay';
+      overlay.innerHTML = `
+<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <div style="background:var(--card-bg,#fff);border-radius:12px;padding:24px;max-width:520px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);font-family:system-ui,-apple-system,sans-serif;">
+    <h2 style="margin:0 0 4px;font-size:1.1rem;font-weight:600;color:var(--text,#1a1a1a);">选择 Obsidian Vault</h2>
+    <p style="margin:0 0 16px;font-size:0.85rem;color:var(--muted,#888);">插件将被复制到 vault 的 <code style="background:var(--card-bg,#f0f0f0);padding:1px 4px;border-radius:3px;">.obsidian/plugins/latexsnipper/</code></p>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.8rem;font-weight:500;color:var(--muted,#888);display:block;margin-bottom:4px;">Vault 路径（输入或粘贴）</label>
+      <input id="obsidianVaultInput" type="text" style="width:100%;padding:8px 12px;border:1px solid var(--border-color,#ddd);border-radius:6px;font-size:0.85rem;background:var(--card-bg,#fff);color:var(--text,#1a1a1a);box-sizing:border-box;" placeholder="C:\\Users\\...\\MyVault" />
+    </div>
+    <p style="font-size:0.78rem;color:var(--muted,#999);margin:0 0 16px;">提示：在 Obsidian 中点击 设置 → 关于 → 查看 vault 路径 复制即可</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="obsidianCancelBtn" style="padding:8px 20px;border:1px solid var(--border-color,#ddd);border-radius:6px;background:transparent;cursor:pointer;font-size:0.85rem;">取消</button>
+      <button id="obsidianConfirmBtn" style="padding:8px 20px;border:none;border-radius:6px;background:var(--accent,#4a6cf7);color:#fff;cursor:pointer;font-size:0.85rem;font-weight:500;">确认安装</button>
+    </div>
+  </div>
+</div>`;
+      document.body.appendChild(overlay);
+
+      document.getElementById('obsidianCancelBtn').onclick = () => {
+        overlay.remove();
+        resolve(null);
+      };
+      document.getElementById('obsidianConfirmBtn').onclick = () => {
+        const val = document.getElementById('obsidianVaultInput').value.trim();
+        if (!val) { this.showToast('请输入 Vault 路径'); return; }
+        overlay.remove();
+        resolve(val);
+      };
+    });
   }
 
   ocrLatex = '';

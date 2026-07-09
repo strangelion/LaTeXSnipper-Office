@@ -8,7 +8,9 @@ export class BridgeClient {
   }
 
   get bridgeUrl(): string {
-    return "http://127.0.0.1:19876";
+    // Read from plugin settings if available, fall back to default
+    const settings = (this.plugin as any).settings;
+    return settings?.bridgeUrl || "http://127.0.0.1:19876";
   }
 
   get token(): string {

@@ -176,6 +176,7 @@ fn main() {
             platforms::office::check_office_registration,
             platforms::office::write_pending_formula,
             platforms::integrations::install_platform_integration,
+            platforms::integrations::install_obsidian_to_vault,
             platforms::integrations::uninstall_platform_integration,
             platforms::integrations::check_platform_integration,
             platforms::office::invalidate_office_cache,
