@@ -3681,7 +3681,7 @@ class UIController {
     // like "a & b \\ c & d" is parsed correctly.
     const rowTexts = body
       .replace(/\\hline|\\toprule|\\midrule|\\bottomrule/g, '')
-      .split(/\\\\/)
+      .split(/\\\\(?:\s*\[[^\]]*\])?/)
       .map(s => s.trim())
       .filter(Boolean);
 
