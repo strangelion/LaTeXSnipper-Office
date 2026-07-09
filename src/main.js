@@ -3540,8 +3540,7 @@ class UIController {
     canvas.height = Math.min(Math.round(drawHeight * dpr), MAX_CANVAS);
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
-    ctx.fillStyle = 'white';
-    ctx.fillRect(0, 0, drawWidth, drawHeight);
+    ctx.clearRect(0, 0, drawWidth, drawHeight);
 
     const img = new Image();
     // Use data URL instead of blob: to avoid CSP issues in Tauri WebView.
