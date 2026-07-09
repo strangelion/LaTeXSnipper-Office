@@ -522,9 +522,97 @@ jobs:
           name: obsidian
           path: apps/obsidian-plugin/dist/*.zip
 
+  # ─────────── VS Code Extension ───────────
+  vscode-extension:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/vscode-extension
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/vscode-extension
+        run: npm run build
+
+      - name: Package VSIX
+        working-directory: apps/vscode-extension
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: apps/vscode-extension/*.vsix
+
+  # ─────────── Browser Extension ───────────
+  browser-extension:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/browser-extension/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/browser-extension
+        run: npm ci
+
+      - name: Build Chrome
+        working-directory: apps/browser-extension
+        run: npm run build:chrome
+
+      - name: Package Chrome
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          mkdir -p dist-chrome
+          cp dist/*.js dist-chrome/
+          cp manifest.chrome.json dist-chrome/manifest.json
+          cp popup.html dist-chrome/
+          cd dist-chrome && zip -r ../latexsnipper-browser-chrome.zip .
+
+      - name: Build Firefox
+        working-directory: apps/browser-extension
+        run: npm run build:firefox
+
+      - name: Package Firefox
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          mkdir -p dist-firefox
+          cp dist/*.js dist-firefox/
+          cp manifest.firefox.json dist-firefox/manifest.json
+          cp popup.html dist-firefox/
+          cd dist-firefox && zip -r ../latexsnipper-browser-firefox.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension
+          path: |
+            apps/browser-extension/latexsnipper-browser-chrome.zip
+            apps/browser-extension/latexsnipper-browser-firefox.zip
+
   # ─────────── Package + Release ───────────
   package:
-    needs: [prepare, tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian]
+    needs: [prepare, tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian, vscode-extension, browser-extension]
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -580,6 +668,13 @@ jobs:
           Remove-Item -LiteralPath $vstoZip -Force -ErrorAction SilentlyContinue
           $vstoItems = Get-ChildItem -LiteralPath $vstoRoot -Force
           Compress-Archive -Path $vstoItems.FullName -DestinationPath $vstoZip -CompressionLevel Optimal
+
+          # VS Code
+          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
+          Copy-Item "artifacts/vscode-extension/*.vsix" "$release/plugins/" -Force
+
+          # Browser
+          Copy-Item "artifacts/browser-extension/*.zip" "$release/plugins/" -Force
 
           # WPS
           $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
