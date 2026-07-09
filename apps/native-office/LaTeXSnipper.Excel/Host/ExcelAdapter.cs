@@ -120,6 +120,11 @@ namespace LaTeXSnipper.Excel.Host
             );
             shape.Name = $"LSNO_{payload.FormulaId}";
             shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+
+            // Clean up temp file after successful insertion
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+            catch { /* best-effort */ }
+
             return new InsertResult { Success = true, FormulaId = payload.FormulaId };
         }
 
@@ -392,7 +397,7 @@ namespace LaTeXSnipper.Excel.Host
                         var newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                             Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         newShape.Name = $"LSNO_{formulaId}";
-                        newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
+                        newShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{formulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
 
                         // Restore preserved properties
                         if (oldPlacement >= 0)

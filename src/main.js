@@ -1937,7 +1937,15 @@ class UIController {
         console.log(`[Insert] OMML length: ${omml?.length || 0}`);
 
         const isWord = session.host_type === 'word';
-        const integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+        let integrationMode = this.settingsManager.get('officeIntegrationMode') || 'auto';
+        // For Excel/PPT auto mode: if OLE is not available, skip OLE and use image directly.
+        if (!isWord && integrationMode === 'auto') {
+          const oleStatusEl = document.getElementById('officeOleStatus');
+          if (oleStatusEl && (oleStatusEl.textContent || '').includes('未安装')) {
+            integrationMode = 'image';
+            Logger.info('[Insert] OLE not available, auto → image for Excel/PPT');
+          }
+        }
         const shouldRenderPreview =
           !isWord ||
           integrationMode === 'ole' ||
@@ -1987,7 +1995,7 @@ class UIController {
           heightPt: heightPt,
           integrationMode: integrationMode
         });
-        this.showToast(`已发送到 ${session.host_type}`);
+        this.showToast('正在发送到 Office，等待确认...');
         this.addHistoryItem(latex);
       } catch (e) {
         this.showToast('发送失败: ' + e.message);
@@ -2088,6 +2096,7 @@ class UIController {
         const { success, formulaId, error, sessionId } = event.payload;
         if (success) {
           Logger.info(`Native Office: formula inserted (id=${formulaId})`);
+          this.showToast('公式插入成功');
         } else {
           Logger.error(`Native Office: insert failed: ${error}`);
           // Translate OLE errors to user-friendly messages
@@ -2127,15 +2136,24 @@ class UIController {
           return;
         }
 
-        // For insert / edit actions, show window and load formula
+        // Update session selection to match the source host
+        this._selectedSessionId = sessionId;
+        if (sourceHost) this._selectedHostType = sourceHost;
+        await this.updateOfficeHostSelector();
+
+        // Switch to editor section regardless of current page
+        this.switchSection('editor');
+
+        // Show and focus the window
         await win.show();
         await win.setFocus();
 
         // If action=edit and omml is provided, load formula into editor
         if (action === 'edit' && omml) {
           try {
-            const latex = this.editor.renderer.toMathML ?
-              window.ommlToLatex(omml) : omml;
+            // ommlToLatex is a module-level function in this file
+            const latex = typeof ommlToLatex === 'function' ?
+              ommlToLatex(omml) : omml;
             this.editor.setLatex(latex);
           } catch (e) {
             Logger.error('Failed to load OMML into editor:', e);
@@ -3446,8 +3464,8 @@ class UIController {
         integrationMode: integrationMode
       });
       console.log('[Insert] Success');
-      this.showToast(`已插入到 ${session.host_type}`);
       this.addHistoryItem(latex);
+      // The INSERT_RESULT event handler will show the actual success/failure toast.
 
       // If there is an active OLE edit session, emit result back to the pipe
       if (this._oleSessionToken) {
@@ -3639,7 +3657,8 @@ class UIController {
    * Supports: \\begin{tabular}{...} ... \\end{tabular}
    * Handles: \\hline, \\cline, \\multicolumn{n}{...}{content}, \\multirow{n}{*}{content}
    */
-  _parseLatexTableToPayload(latex) {
+  async _parseLatexTableToPayload(latex) {
+    const { invoke } = await import('@tauri-apps/api/core');
     // Find \begin{tabular} ... \end{tabular}
     const beginMatch = latex.match(/\\begin\{tabular\}/);
     if (!beginMatch) return null;
@@ -3661,7 +3680,7 @@ class UIController {
     // like "a & b \\ c & d" is parsed correctly.
     const rowTexts = body
       .replace(/\\hline|\\toprule|\\midrule|\\bottomrule/g, '')
-      .split(/\\+/)
+      .split(/\\\\/)
       .map(s => s.trim())
       .filter(Boolean);
 
@@ -3719,26 +3738,45 @@ class UIController {
 
     if (rows.length === 0) return null;
 
-    // Build formulas dictionary for VSTO to look up by formulaRef.
-    // Without this, cells containing $...$ get inserted as "[Formula]" placeholder.
+    // Build formulas dictionary with OMML conversion.
+    // Each formula cell's LaTeX is converted to OMML via the Rust backend,
+    // so Word's TableConverter can insert it as native OMML instead of plain text.
     const formulas = {};
+    const ommlPromises = [];
     for (const row of rows) {
       for (const cell of (row.cells || [])) {
         for (const inline of (cell.inlines || [])) {
           if (inline.type === 'formula' && inline.formulaRef && inline.formula?.latex) {
-            formulas[inline.formulaRef] = {
-              schemaVersion: 3,
-              formulaId: inline.formulaRef,
-              latex: inline.formula.latex,
-              omml: '',
-              display: 'inline',
-              revision: 0,
-              storageMode: 'native',
-            };
+            const ref = inline.formulaRef;
+            const latexStr = inline.formula.latex;
+            const p = invoke('latex_to_omml', { latex: latexStr }).then(omml => {
+              formulas[ref] = {
+                schemaVersion: 3,
+                formulaId: ref,
+                latex: latexStr,
+                omml: omml || '',
+                display: 'inline',
+                revision: 0,
+                storageMode: 'native',
+              };
+            }).catch(() => {
+              // Fallback: omml empty (VSTO will use plain LaTeX)
+              formulas[ref] = {
+                schemaVersion: 3,
+                formulaId: ref,
+                latex: latexStr,
+                omml: '',
+                display: 'inline',
+                revision: 0,
+                storageMode: 'native',
+              };
+            });
+            ommlPromises.push(p);
           }
         }
       }
     }
+    await Promise.all(ommlPromises);
 
     return {
       tableId: crypto.randomUUID(),

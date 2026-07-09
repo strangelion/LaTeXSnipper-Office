@@ -385,9 +385,10 @@ STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, H
 
     if (verb == 3)
     {
-        // Verb 3: Refresh Preview — re-render and update
-        // For now, trigger a light edit session that re-renders
-        return StartEditSession();
+        // Verb 3: Refresh Preview — re-render and update the preview.
+        // Do NOT open the editor (the previous implementation started EditSession).
+        NotifyPresentationChanged();
+        return S_OK;
     }
 
     return OLEOBJ_S_CANNOT_DOVERB_NOW;
