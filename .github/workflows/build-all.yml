@@ -656,6 +656,7 @@ jobs:
       - name: Build & Package Browser extension
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path "artifacts/browser" -Force | Out-Null
           npm --prefix apps/browser-extension ci
           npm --prefix apps/browser-extension run build:chrome
           Compress-Archive -Path "apps/browser-extension/dist/*" -DestinationPath "artifacts/browser/latexsnipper-browser-chrome.zip" -Force
