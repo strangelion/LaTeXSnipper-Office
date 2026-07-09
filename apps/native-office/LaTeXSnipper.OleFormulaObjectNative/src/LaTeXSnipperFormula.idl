@@ -27,7 +27,7 @@ library LaTeXSnipperFormulaLib
     importlib("stdole2.tlb");
 
     [
-        uuid(C8F6C5BC-6A05-4E98-B3A0-AB52E52C4CA0),
+        uuid(B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F),
         helpstring("LaTeXSnipper Formula Object Class")
     ]
     coclass LaTeXSnipperFormula

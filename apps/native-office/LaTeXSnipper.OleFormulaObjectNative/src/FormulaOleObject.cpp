@@ -616,6 +616,9 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
         return E_POINTER;
     }
 
+    // Zero output medium before any processing — prevents stale data in failure paths
+    if (medium) ZeroMemory(medium, sizeof(*medium));
+
     HRESULT queryResult = QueryGetData(format);
     if (FAILED(queryResult))
     {
@@ -673,12 +676,16 @@ STDMETHODIMP FormulaOleObject::QueryGetData(FORMATETC* format)
 
     if (format->cfFormat == CF_ENHMETAFILE)
     {
-        return (format->tymed & TYMED_ENHMF) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
+        if ((format->tymed & TYMED_ENHMF) == 0) return DV_E_TYMED;
+        if (presentation_.enhancedMetafile.empty()) return DV_E_FORMATETC;
+        return ValidateContentAspect(format->dwAspect);
     }
 
     if (format->cfFormat == CF_METAFILEPICT)
     {
-        return (format->tymed & TYMED_MFPICT) == 0 ? DV_E_TYMED : ValidateContentAspect(format->dwAspect);
+        if ((format->tymed & TYMED_MFPICT) == 0) return DV_E_TYMED;
+        if (presentation_.enhancedMetafile.empty()) return DV_E_FORMATETC;
+        return ValidateContentAspect(format->dwAspect);
     }
 
     // CF_DIB and CF_BITMAP are not advertised in EnumFormatEtc per P1-4.
@@ -1193,13 +1200,13 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     if (loaded.latex.empty())
         return E_FAIL;
 
-    // P0-4: Log warning if no preview data, but still accept — the constructor
-    // already handled the pending payload race via registry. InitializeFromJson
-    // is called immediately after construction, so there is no window for stale
-    // preview. The VSTO side also validates preview before creation.
+    // P0-D: Hard reject when no EMF preview data — an OLE object without valid
+    // preview will cause Office to request rendering and crash when it fails.
+    // The VSTO side receives E_INVALIDARG and rolls back the OLE object.
     if (loaded.enhancedMetafile.empty())
     {
-        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson — no EMF/PNG preview, will render placeholder");
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — no valid EMF after payload conversion");
+        return E_INVALIDARG;
     }
 
     presentation_ = std::move(loaded);

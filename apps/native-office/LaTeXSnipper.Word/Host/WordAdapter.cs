@@ -373,6 +373,7 @@ namespace LaTeXSnipper.Word.Host
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
+                range = NormalizeToBlockInsertionPoint(range);
                 range.InsertXML(flatOpc);
 
                 FormulaDocumentManifest.Write(doc, payload);
@@ -430,7 +431,7 @@ namespace LaTeXSnipper.Word.Host
                             <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
                         </w:sdtPr>
                         <w:sdtContent>
-                            {mathOnly}
+                            <w:p>{mathOnly}</w:p>
                         </w:sdtContent>
                     </w:sdt>";
 
@@ -479,20 +480,6 @@ namespace LaTeXSnipper.Word.Host
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[WordAdapter] InsertWordInlineNative error: {ex.Message}");
-                // Fallback: try the old InsertXML approach with inline-safe XML
-                var cleanOmml = NormalizeOmml(payload.Omml ?? "", InsertMode.Inline);
-                if (!string.IsNullOrWhiteSpace(cleanOmml))
-                {
-                    try
-                    {
-                        // Minimal inline-safe OMML — no <w:p> wrapper
-                        var inlineXml = $"<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">{cleanOmml}</m:oMath>";
-                        range.InsertXML(inlineXml);
-                        FormulaDocumentManifest.Write(doc, payload);
-                        return new InsertResult { Success = true, FormulaId = payload.FormulaId };
-                    }
-                    catch { }
-                }
                 return new InsertResult { Success = false, Error = $"Inline formula insert failed: {ex.Message}" };
             }
         }
@@ -545,11 +532,12 @@ namespace LaTeXSnipper.Word.Host
                 OleFormulaPendingPayloadStore.Save(payload);
 
                 var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
-                    range.InlineShapes.AddOLEObject(
+                    doc.InlineShapes.AddOLEObject(
                         ClassType: "LaTeXSnipper.Formula.1",
                         FileName: Type.Missing,
                         LinkToFile: false,
-                        DisplayAsIcon: false);
+                        DisplayAsIcon: false,
+                        Range: range);
 
                 oleShape.Width = width;
                 oleShape.Height = height;

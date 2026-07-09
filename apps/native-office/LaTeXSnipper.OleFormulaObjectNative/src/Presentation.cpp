@@ -473,8 +473,12 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     if (widthPx < 1) widthPx = 1;
     if (heightPx < 1) heightPx = 1;
 
-    RECT metafileBounds = {0, 0, widthPx, heightPx};
-    HDC metaDc = CreateEnhMetaFileW(screenDc, nullptr, &metafileBounds,
+    RECT frame01mm = {
+        0, 0,
+        PointsToHimetric(widthPoints),
+        PointsToHimetric(heightPoints)
+    };
+    HDC metaDc = CreateEnhMetaFileW(screenDc, nullptr, &frame01mm,
                                      L"LaTeXSnipper\0Formula\0");
     ReleaseDC(nullptr, screenDc);
 

@@ -17,6 +17,8 @@ namespace LaTeXSnipper.Word
         private Metadata.TableConverter _tableConverter;
         private PipeClient _pipeClient;
         private SynchronizationContext _syncContext;
+        private System.Windows.Forms.Control? _uiDispatcher;
+        private int _uiThreadId;
         private string _sessionId;
         private bool _pipeConnected;
 
@@ -41,6 +43,9 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] ThisAddIn_Startup reached.");
 
+            _uiThreadId = Thread.CurrentThread.ManagedThreadId;
+            _uiDispatcher = new System.Windows.Forms.Control();
+            _uiDispatcher.CreateControl();
             _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
@@ -110,10 +115,15 @@ namespace LaTeXSnipper.Word
 
                     _pipeConnected = true;
 
-                    if (_syncContext != null)
+                    if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
                     {
-                        _syncContext.Post(_ =>
+                        _uiDispatcher.BeginInvoke(new Action(() =>
                         {
+                            if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] FATAL: HOST_READY not on UI thread");
+                                return;
+                            }
                             try
                             {
                                 var contextId = _adapter.GetCurrentContextId();
@@ -141,7 +151,7 @@ namespace LaTeXSnipper.Word
                                 System.Diagnostics.Debug.WriteLine(
                                     $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
                             }
-                        }, null);
+                        }));
                     }
 
                     System.Diagnostics.Debug.WriteLine(
@@ -164,10 +174,15 @@ namespace LaTeXSnipper.Word
         {
             if (_adapter == null) return;
 
-            if (_syncContext != null)
+            if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
             {
-                _syncContext.Post(_ =>
+                _uiDispatcher.BeginInvoke(new Action(() =>
                 {
+                    if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] FATAL: Command not on UI thread");
+                        return;
+                    }
                     try
                     {
                         HandleCommand(message);
@@ -177,12 +192,12 @@ namespace LaTeXSnipper.Word
                         System.Diagnostics.Debug.WriteLine(
                             $"[LaTeXSnipper.Word] Command handler error: {ex.Message}");
                     }
-                }, null);
+                }));
             }
             else
             {
                 System.Diagnostics.Debug.WriteLine(
-                    "[LaTeXSnipper.Word] No sync context - message dropped");
+                    "[LaTeXSnipper.Word] No dispatcher available - message dropped");
             }
         }
 

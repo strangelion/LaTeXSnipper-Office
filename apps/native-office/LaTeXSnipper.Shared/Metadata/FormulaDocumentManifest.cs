@@ -375,9 +375,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     var xdoc = XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
                     xdoc.Root!.Add(BuildEntryElement(payload, locator));
                     xml = xdoc.ToString(SaveOptions.DisableFormatting);
+                    customXmlParts.Add(xml);
                 }
-
-                customXmlParts.Add(xml);
             }
             catch (Exception ex)
             {

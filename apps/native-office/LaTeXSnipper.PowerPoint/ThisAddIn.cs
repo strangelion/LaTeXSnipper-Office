@@ -14,6 +14,8 @@ namespace LaTeXSnipper.PowerPoint
         private Host.PowerPointAdapter _adapter;
         private PipeClient _pipeClient;
         private SynchronizationContext _syncContext;
+        private System.Windows.Forms.Control? _uiDispatcher;
+        private int _uiThreadId;
         private string _sessionId;
         private bool _pipeConnected;
 
@@ -36,6 +38,9 @@ namespace LaTeXSnipper.PowerPoint
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Startup reached.");
+            _uiThreadId = Thread.CurrentThread.ManagedThreadId;
+            _uiDispatcher = new System.Windows.Forms.Control();
+            _uiDispatcher.CreateControl();
             _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
             _adapter = new Host.PowerPointAdapter(Application);
@@ -102,8 +107,13 @@ namespace LaTeXSnipper.PowerPoint
                     if (await _pipeClient.SendHelloAsync(_sessionId, secret, "powerpoint", Application.Version))
                     {
                         _pipeConnected = true;
-                        _syncContext.Post(_ =>
+                        _uiDispatcher.BeginInvoke(new Action(() =>
                         {
+                            if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] FATAL: HOST_READY not on UI thread");
+                                return;
+                            }
                             try
                             {
                                 var ctx = _adapter.GetCurrentContextId();
@@ -122,7 +132,7 @@ namespace LaTeXSnipper.PowerPoint
                             {
                                 System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] HOST_READY error: " + ex.Message);
                             }
-                        }, null);
+                        }));
                         return;
                     }
                 }
@@ -137,11 +147,23 @@ namespace LaTeXSnipper.PowerPoint
         private void OnMessageReceived(object sender, DesktopMessage message)
         {
             if (_adapter == null) return;
-            _syncContext?.Post(_ =>
+            if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
             {
-                try { HandleCommand(message); }
-                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Handler error: " + ex.Message); }
-            }, null);
+                _uiDispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
+                    {
+                        System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] FATAL: Command not on UI thread");
+                        return;
+                    }
+                    try { HandleCommand(message); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Handler error: " + ex.Message); }
+                }));
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] No dispatcher available - message dropped");
+            }
         }
 
         private void HandleCommand(DesktopMessage message)
