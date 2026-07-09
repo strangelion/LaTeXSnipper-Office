@@ -425,9 +425,13 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     FormulaPresentation presentation{};
     presentation.payloadJson = payloadJson;
 
-    // Get size from payload
-    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
-    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
+    // Get size from payload (try nested render.widthPt first, then flat widthPt)
+    double widthPoints = JsonReadNestedString(payloadJson, L"render", L"widthPt").empty()
+        ? ExtractJsonNumber(payloadJson, L"widthPt")
+        : std::stod(JsonReadNestedString(payloadJson, L"render", L"widthPt"));
+    double heightPoints = JsonReadNestedString(payloadJson, L"render", L"heightPt").empty()
+        ? ExtractJsonNumber(payloadJson, L"heightPt")
+        : std::stod(JsonReadNestedString(payloadJson, L"render", L"heightPt"));
     if (widthPoints <= 0) widthPoints = 180;
     if (heightPoints <= 0) heightPoints = 42;
 

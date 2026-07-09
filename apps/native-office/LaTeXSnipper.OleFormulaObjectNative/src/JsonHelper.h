@@ -25,8 +25,13 @@
 #include <nlohmann/json.hpp>
 #define HAS_NLOHMANN_JSON 1
 #else
+// nlohmann/json.hpp is a required build dependency.
+// Run: powershell -File vendor/nlohmann/fetch_json.ps1
 #define HAS_NLOHMANN_JSON 0
 #endif
+
+// nlohmann/json.hpp is optional. When absent, hand-written ExtractJsonString is used.
+// ExtractJsonString correctly handles JSON escape sequences (\\, \").
 
 // --- UTF-8 / UTF-16 conversion helpers ---
 #ifdef _WIN32

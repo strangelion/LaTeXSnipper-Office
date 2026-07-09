@@ -10,7 +10,6 @@
 
     <SummaryInformation Description="LaTeXSnipper Native Office VSTO Add-in for Word, Excel, and PowerPoint" />
 
-    <!-- Minimal OS requirement -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of LaTeXSnipper Native Office is already installed." />
 
     <!-- Directory structure -->
@@ -24,6 +23,15 @@
         </Directory>
       </Directory>
     </StandardDirectory>
+
+    <!-- Registry search: detect Office bitness -->
+    <Property Id="OFFICE64BIT">
+      <RegistrySearch Id="OfficeBitnessC2R"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
+        Name="Platform"
+        Type="raw" />
+    </Property>
 
     <!-- Components -->
     <ComponentGroup Id="ProductComponents" Directory="NativeOfficeDir">
@@ -39,15 +47,13 @@
         <File Source="$(var.SharedBinDir)\Microsoft.Bcl.AsyncInterfaces.dll" />
       </Component>
 
-      <!-- Word Add-in (with full runtime dependencies) -->
+      <!-- Word Add-in -->
       <Component Id="WordComponent" Directory="WordDir" Guid="B2C3D4E5-2222-3333-4444-555566667777">
         <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.dll" />
         <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.vsto" />
         <File Source="$(var.WordBinDir)\LaTeXSnipper.Word.dll.manifest" />
         <File Source="$(var.SharedBinDir)\LaTeXSnipper.NativeOffice.Shared.dll" />
         <File Source="$(var.SharedBinDir)\System.Text.Json.dll" />
-
-        <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Word\Addins\LaTeXSnipper.NativeOffice.Word">
           <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — Word" />
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Word" />
@@ -57,15 +63,13 @@
         </RegistryKey>
       </Component>
 
-      <!-- Excel Add-in (with full runtime dependencies) -->
+      <!-- Excel Add-in -->
       <Component Id="ExcelComponent" Directory="ExcelDir" Guid="C3D4E5F6-3333-4444-5555-666677778888">
         <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.dll" />
         <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.vsto" />
         <File Source="$(var.ExcelBinDir)\LaTeXSnipper.Excel.dll.manifest" />
         <File Source="$(var.SharedBinDir)\LaTeXSnipper.NativeOffice.Shared.dll" />
         <File Source="$(var.SharedBinDir)\System.Text.Json.dll" />
-
-        <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Excel\Addins\LaTeXSnipper.NativeOffice.Excel">
           <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — Excel" />
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for Excel" />
@@ -75,15 +79,13 @@
         </RegistryKey>
       </Component>
 
-      <!-- PowerPoint Add-in (with full runtime dependencies) -->
+      <!-- PowerPoint Add-in -->
       <Component Id="PowerPointComponent" Directory="PowerPointDir" Guid="D4E5F6A7-4444-5555-6666-777788889999">
         <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.dll" />
         <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.vsto" />
         <File Source="$(var.PowerPointBinDir)\LaTeXSnipper.PowerPoint.dll.manifest" />
         <File Source="$(var.SharedBinDir)\LaTeXSnipper.NativeOffice.Shared.dll" />
         <File Source="$(var.SharedBinDir)\System.Text.Json.dll" />
-
-        <!-- VSTO Registry Entries -->
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\PowerPoint\Addins\LaTeXSnipper.NativeOffice.PowerPoint">
           <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office — PowerPoint" />
           <RegistryValue Type="string" Name="Description" Value="LaTeX formula and table integration for PowerPoint" />
@@ -93,9 +95,10 @@
         </RegistryKey>
       </Component>
 
-      <!-- OLE Formula Object (x86). Only installed when Office is 32-bit. -->
+      <!-- OLE Formula Object (both DLLs installed, only matching bitness registered) -->
       <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA">
         <File Id="OleDllX86" Source="$(var.OleBinDir)\OleFormulaObject.x86.dll" Name="OleFormulaObject.x86.dll" />
+        <Condition>OFFICE64BIT ~= "x86" OR OFFICE64BIT = ""</Condition>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />
@@ -133,9 +136,10 @@
         </RegistryKey>
       </Component>
 
-      <!-- OLE Formula Object (x64). Only installed when Office is 64-bit. -->
+      <!-- OLE Formula Object (x64) — installed only when Office is 64-bit -->
       <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB">
         <File Id="OleDllX64" Source="$(var.OleBinDir)\OleFormulaObject.x64.dll" Name="OleFormulaObject.x64.dll" />
+        <Condition>OFFICE64BIT ~= "x64"</Condition>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />
@@ -185,7 +189,6 @@
       <ComponentRef Id="OleComponentX64" />
     </Feature>
 
-    <!-- WiX v4 built-in installer UI -->
     <ui:WixUI
       Id="WixUI_InstallDir"
       InstallDirectory="INSTALLDIR" />

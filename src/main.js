@@ -3419,6 +3419,13 @@ class UIController {
       this.showStatus('请先输入公式');
       return;
     }
+
+    // P1-A: OLE edit mode — skip insert, only save back to existing OLE object
+    if (this._oleSessionToken) {
+      await this._saveOleEditOnly(latex);
+      return;
+    }
+
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const isDisplay = document.getElementById('displayMode')?.checked || false;
@@ -3499,71 +3506,73 @@ class UIController {
       console.log('[Insert] Success');
       this.addHistoryItem(latex);
       // The INSERT_RESULT event handler will show the actual success/failure toast.
-
-      // If there is an active OLE edit session, emit result back to the pipe
-      if (this._oleSessionToken) {
-        try {
-          const { emit } = await import('@tauri-apps/api/event');
-
-          // P1-1: Regenerate preview for OLE edit save, so the OLE DLL
-          // receives updated SVG/PNG instead of stale preview data.
-          let renderedSvg = null;
-          let pngBase64Ole = null;
-          let widthPtOle = 0;
-          let heightPtOle = 0;
-          try {
-            const rendered = await this._renderLatexSvg(latex, isDisplay);
-            renderedSvg = rendered.svg;
-            widthPtOle = rendered.widthPt;
-            heightPtOle = rendered.heightPt;
-            pngBase64Ole = await this._svgToPngBase64(rendered.svg, rendered.widthPt, rendered.heightPt);
-          } catch (e) {
-            Logger.warn('[OLE] Preview regeneration failed, reusing old preview:', e);
-          }
-
-          let formulaPayload = {
-            formulaId: this._oleFormulaId || crypto.randomUUID(),
-            latex: latex,
-            omml: omml,
-            display: isDisplay ? 'block' : 'inline',
-            revision: (this._olePayloadJson?.revision || 0) + 1,
-            storageMode: 'ole',
-          };
-
-          // Only include render data if regeneration succeeded
-          if (renderedSvg && pngBase64Ole) {
-            formulaPayload.render = {
-              svg: renderedSvg,
-              png: pngBase64Ole,
-              widthPt: widthPtOle,
-              heightPt: heightPtOle,
-            };
-          }
-
-          // Preserve original payload fields (presentation, source) from OLE
-          if (this._olePayloadJson) {
-            // Merge: new fields override, old render/presentation are kept only
-            // if render regeneration failed
-            formulaPayload = {
-              ...this._olePayloadJson,
-              ...formulaPayload,
-              render: formulaPayload.render || this._olePayloadJson.render,
-            };
-          }
-          await emit(`ole-edit-result-${this._oleSessionToken}`, {
-            action: 'save',
-            formula: formulaPayload,
-          });
-          // Clear OLE session state
-          this._oleSessionToken = null;
-          this._oleFormulaId = null;
-          this._olePayloadJson = null;
-        } catch (e) {
-          Logger.error('Failed to emit OLE edit result:', e);
-        }
-      }
     } catch (error) {
       this.showToast(`插入失败: ${error.message || error}`);
+    }
+  }
+
+  /** Save OLE edit result back to the existing OLE object — does NOT insert a new formula. */
+  async _saveOleEditOnly(latex) {
+    const isDisplay = document.getElementById('displayMode')?.checked || false;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const { emit } = await import('@tauri-apps/api/event');
+      const omml = await invoke('latex_to_omml', { latex });
+
+      // P1-1: Regenerate preview
+      let renderedSvg = null;
+      let pngBase64Ole = null;
+      let widthPtOle = 0;
+      let heightPtOle = 0;
+      try {
+        const rendered = await this._renderLatexSvg(latex, isDisplay);
+        renderedSvg = rendered.svg;
+        widthPtOle = rendered.widthPt;
+        heightPtOle = rendered.heightPt;
+        pngBase64Ole = await this._svgToPngBase64(rendered.svg, rendered.widthPt, rendered.heightPt);
+      } catch (e) {
+        Logger.warn('[OLE] Preview regeneration failed, reusing old preview:', e);
+      }
+
+      let formulaPayload = {
+        formulaId: this._oleFormulaId || crypto.randomUUID(),
+        latex: latex,
+        omml: omml,
+        display: isDisplay ? 'block' : 'inline',
+        revision: (this._olePayloadJson?.revision || 0) + 1,
+        storageMode: 'ole',
+      };
+
+      if (renderedSvg && pngBase64Ole) {
+        formulaPayload.render = {
+          svg: renderedSvg,
+          png: pngBase64Ole,
+          widthPt: widthPtOle,
+          heightPt: heightPtOle,
+        };
+      }
+
+      if (this._olePayloadJson) {
+        formulaPayload = {
+          ...this._olePayloadJson,
+          ...formulaPayload,
+          render: formulaPayload.render || this._olePayloadJson.render,
+        };
+      }
+
+      await emit(`ole-edit-result-${this._oleSessionToken}`, {
+        action: 'save',
+        formula: formulaPayload,
+      });
+
+      this._oleSessionToken = null;
+      this._oleFormulaId = null;
+      this._olePayloadJson = null;
+      this.showToast('公式已更新');
+      this.addHistoryItem(latex);
+    } catch (e) {
+      Logger.error('[OLE] Save failed:', e);
+      this.showToast(`OLE 保存失败: ${e.message}`);
     }
   }
 

@@ -40,8 +40,8 @@ namespace LaTeXSnipper.Excel.Host
                 if (storageMode == "ole")
                 {
                     var oleResult = TryInsertOle(sheet, cell, payload);
-                    if (oleResult != null)
-                        return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "ole" };
+                    if (oleResult != null && oleResult.Success)
+                        return oleResult;
                     return new InsertResult { Success = false, Error = "OLE not available. Switch to Auto or Image mode, or enable OLE in LaTeXSnipper settings." };
                 }
 
@@ -54,7 +54,7 @@ namespace LaTeXSnipper.Excel.Host
 
                 if (storageMode == "native" || storageMode == "native-omml")
                 {
-                    return new InsertResult { Success = false, Error = "Excel does not support native OMML insertion" };
+                    return new InsertResult { Success = false, Error = "Native OMML insertion in Excel is not yet implemented. Use OLE or Image mode instead." };
                 }
 
                 // Image / text fallback
@@ -254,6 +254,10 @@ namespace LaTeXSnipper.Excel.Host
 
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+
+                // P0-A: Write pending payload BEFORE creating OLE object,
+                // so the C++ constructor can read it immediately.
+                OleFormulaPendingPayloadStore.Save(payload);
 
                 var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
                 var ole = oleObjects.Add(

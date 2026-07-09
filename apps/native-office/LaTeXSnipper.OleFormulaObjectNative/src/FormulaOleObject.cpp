@@ -1,5 +1,6 @@
 #include "FormulaOleObject.h"
 
+#include "JsonHelper.h"
 #include "NativeLog.h"
 #include "OleEditSession.h"
 #include "OleFormulaIds.h"
@@ -50,6 +51,12 @@ namespace
 {
 volatile LONG g_objectCount = 0;
 volatile LONG g_lockCount = 0;
+
+// P1-C: Helper to convert 0.01mm to pixels at given DPI
+inline int Himetric01MmToPixels(LONG value01mm, int dpi)
+{
+    return (std::max)(1, static_cast<int>(std::round(value01mm * dpi / 2540.0)));
+}
 
 // IID_ILatexSnipperFormula is defined in LaTeXSnipperFormula.h
 
@@ -640,19 +647,26 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
             return E_FAIL;
         }
 
-        // Get EMF dimensions
+        // Get EMF dimensions (rclFrame is in 0.01mm units)
         ENHMETAHEADER header{};
         GetEnhMetaFileHeader(metafile, sizeof(header), &header);
-        int width = header.rclFrame.right - header.rclFrame.left;
-        int height = header.rclFrame.bottom - header.rclFrame.top;
+        LONG width01mm = header.rclFrame.right - header.rclFrame.left;
+        LONG height01mm = header.rclFrame.bottom - header.rclFrame.top;
 
         // Convert to DIB
         HDC screen = GetDC(nullptr);
+        int dpiX = GetDeviceCaps(screen, LOGPIXELSX);
+        int dpiY = GetDeviceCaps(screen, LOGPIXELSY);
+
+        // Correct unit conversion: 0.01mm → pixels: px = rclFrame * dpi / 2540.0
+        int widthPx = Himetric01MmToPixels(width01mm, dpiX);
+        int heightPx = Himetric01MmToPixels(height01mm, dpiY);
+
         HDC memDC = CreateCompatibleDC(screen);
         if (memDC == nullptr) { ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
 
-        // Create bitmap from EMF
-        RECT rect{0, 0, width / 100, height / 100}; // EMF units: 0.01mm → pixels approx
+        // Create bitmap from EMF with correct pixel dimensions
+        RECT rect{0, 0, widthPx, heightPx};
         HBITMAP bitmap = CreateCompatibleBitmap(screen, rect.right, rect.bottom);
         if (bitmap == nullptr) { DeleteDC(memDC); ReleaseDC(nullptr, screen); DeleteEnhMetaFile(metafile); return E_FAIL; }
 
@@ -704,15 +718,20 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
 
         ENHMETAHEADER header{};
         GetEnhMetaFileHeader(metafile, sizeof(header), &header);
-        int width = (header.rclFrame.right - header.rclFrame.left) / 100;
-        int height = (header.rclFrame.bottom - header.rclFrame.top) / 100;
-        if (width <= 0) width = 120;
-        if (height <= 0) height = 30;
+        LONG frameWidth = header.rclFrame.right - header.rclFrame.left;
+        LONG frameHeight = header.rclFrame.bottom - header.rclFrame.top;
 
         HDC screen = GetDC(nullptr);
+        int dpiX2 = GetDeviceCaps(screen, LOGPIXELSX);
+        int dpiY2 = GetDeviceCaps(screen, LOGPIXELSY);
+        int widthPx = Himetric01MmToPixels(frameWidth, dpiX2);
+        int heightPx = Himetric01MmToPixels(frameHeight, dpiY2);
+        if (widthPx <= 0) widthPx = 120;
+        if (heightPx <= 0) heightPx = 30;
+
         HDC memDC = CreateCompatibleDC(screen);
-        RECT rect{0, 0, width, height};
-        HBITMAP bitmap = CreateCompatibleBitmap(screen, width, height);
+        RECT rect{0, 0, widthPx, heightPx};
+        HBITMAP bitmap = CreateCompatibleBitmap(screen, widthPx, heightPx);
         SelectObject(memDC, bitmap);
         PlayEnhMetaFile(memDC, metafile, &rect);
         DeleteEnhMetaFile(metafile);
@@ -1266,29 +1285,29 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     _bstr_t json(payloadJson);
     std::wstring wsJson((const wchar_t*)json, json.length());
 
-    // Validate required fields
-    std::wstring formulaId = ExtractJsonString(wsJson, L"formulaId");
+    // Validate required fields — use nlohmann-based JsonReadString (handles LaTeX {} and \ escapes)
+    std::wstring formulaId = JsonReadString(wsJson, L"formulaId");
     if (formulaId.empty())
     {
         WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — missing formulaId");
         return E_INVALIDARG;
     }
 
-    double schemaVersion = ExtractJsonNumber(wsJson, L"schemaVersion");
+    double schemaVersion = JsonReadNumber(wsJson, L"schemaVersion");
     if (schemaVersion < 1.0 || schemaVersion > 5.0)
     {
         WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — incompatible schemaVersion");
         return E_INVALIDARG;
     }
 
-    std::wstring latex = ExtractJsonString(wsJson, L"latex");
+    std::wstring latex = JsonReadString(wsJson, L"latex");
     if (latex.empty())
     {
         WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — empty latex");
         return E_INVALIDARG;
     }
 
-    std::wstring storageMode = ExtractJsonString(wsJson, L"storageMode");
+    std::wstring storageMode = JsonReadString(wsJson, L"storageMode");
     if (storageMode.empty())
     {
         // Default to "ole" for OLE objects
@@ -1299,11 +1318,13 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     if (loaded.latex.empty())
         return E_FAIL;
 
-    // P0-4: Reject if no preview data available (EMF/PNG)
+    // P0-4: Log warning if no preview data, but still accept — the constructor
+    // already handled the pending payload race via registry. InitializeFromJson
+    // is called immediately after construction, so there is no window for stale
+    // preview. The VSTO side also validates preview before creation.
     if (loaded.enhancedMetafile.empty())
     {
-        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — empty preview (no EMF/PNG)");
-        return E_FAIL;
+        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson — no EMF/PNG preview, will render placeholder");
     }
 
     presentation_ = std::move(loaded);

@@ -232,6 +232,12 @@
     <SignManifests>false</SignManifests>
     <GenerateManifests>false</GenerateManifests>
   </PropertyGroup>
+  <PropertyGroup>
+    <ManifestKeyFile>LaTeXSnipper.Excel_TemporaryKey.pfx</ManifestKeyFile>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ManifestCertificateThumbprint>8FABBBC70DF825D55762754D112F67DCB6432F80</ManifestCertificateThumbprint>
+  </PropertyGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- Include additional build rules for an Office application add-in. -->
   <Import Project="$(VSToolsPath)\OfficeTools\Microsoft.VisualStudio.Tools.Office.targets" Condition="'$(VSToolsPath)' != '' AND '$(SignManifests)' != 'false'" />

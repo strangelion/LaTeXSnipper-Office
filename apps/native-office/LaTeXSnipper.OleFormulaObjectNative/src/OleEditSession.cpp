@@ -556,32 +556,16 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
             if (doc.contains("formula") && doc["formula"].is_object())
             {
                 std::string narrow = doc["formula"].dump();
-                newPayloadJson.assign(narrow.begin(), narrow.end());
+                // Convert UTF-8 to wide string properly
+                int wideLen = MultiByteToWideChar(CP_UTF8, 0, narrow.data(), (int)narrow.size(), nullptr, 0);
+                newPayloadJson.resize(wideLen);
+                MultiByteToWideChar(CP_UTF8, 0, narrow.data(), (int)narrow.size(), &newPayloadJson[0], wideLen);
             }
         }
         catch (...) {}
 #else
-        // Fallback: manual brace matching (fragile with nested objects)
-        size_t formulaStart = response.find(L"\"formula\":{");
-        if (formulaStart != std::wstring::npos)
-        {
-            size_t braceStart = response.find(L'{', formulaStart + 10);
-            if (braceStart != std::wstring::npos)
-            {
-                int depth = 1;
-                size_t end = braceStart + 1;
-                while (end < response.size() && depth > 0)
-                {
-                    if (response[end] == L'{') ++depth;
-                    else if (response[end] == L'}') --depth;
-                    ++end;
-                }
-                if (depth == 0)
-                {
-                    newPayloadJson = L"{" + response.substr(braceStart + 1, end - braceStart - 2) + L"}";
-                }
-            }
-        }
+        // Fallback: ExtractJsonString handles JSON escape sequences correctly
+        newPayloadJson = ExtractJsonString(response, L"formula");
 #endif
 
         // Extract latex (from formula.latex or top-level latex)

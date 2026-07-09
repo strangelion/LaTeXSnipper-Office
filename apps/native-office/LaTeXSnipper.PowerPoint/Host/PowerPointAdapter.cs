@@ -53,7 +53,7 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                 if (storageMode == "native" || storageMode == "native-omml")
                 {
-                    return new InsertResult { Success = false, Error = "PowerPoint does not support native OMML insertion" };
+                    return new InsertResult { Success = false, Error = "Native OMML insertion in PowerPoint is not yet implemented. Use OLE or Image mode instead." };
                 }
 
                 // Prefer PNG over SVG (Office renders PNG more reliably)
@@ -239,15 +239,19 @@ namespace LaTeXSnipper.PowerPoint.Host
                 float left = (slideWidth - width) / 2f;
                 float top = 100f;
 
-                // P0-5: FileName: "" → Type.Missing (empty string causes PPT to fail)
+                // P0-A: Write pending payload BEFORE creating OLE object,
+                // so the C++ constructor can read it immediately.
+                OleFormulaPendingPayloadStore.Save(payload);
+
+                // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
                 var shape = slide.Shapes.AddOLEObject(
                     Left: left,
                     Top: top,
                     Width: width,
                     Height: height,
                     ClassName: "LaTeXSnipper.Formula.1",
-                    FileName: Type.Missing,
-                    DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse
+                    DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse,
+                    Link: Microsoft.Office.Core.MsoTriState.msoFalse
                 );
 
                 shape.Name = $"LSNO_{payload.FormulaId}";

@@ -410,44 +410,76 @@ namespace LaTeXSnipper.Word.Host
         {
             try
             {
-                // Use LaTeX or a simple placeholder; Word will convert via BuildUp
-                string linearFormula = !string.IsNullOrEmpty(payload.Latex)
-                    ? payload.Latex
-                    : " ";
-
-                range.Text = linearFormula;
-                range = doc.Range(range.Start, range.Start + linearFormula.Length);
-
-                var oMaths = range.OMaths;
-                var oMath = oMaths.Add(range);
-                oMath.BuildUp();
-
-                // Wrap the equation in a ContentControl for metadata tracking
-                Microsoft.Office.Interop.Word.ContentControl? cc = null;
-                try
+                // Inline formula: insert OMML directly without <w:p> wrapper.
+                // Using InsertXML with a bare <m:oMath> fragment avoids the block-level
+                // XML error that occurs when <w:p>-containing Flat OPC is inserted inline.
+                var cleanOmml = NormalizeOmml(payload.Omml ?? "", InsertMode.Inline);
+                if (!string.IsNullOrWhiteSpace(cleanOmml))
                 {
-                    cc = doc.ContentControls.Add(
-                        Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
-                        oMath.Range);
-                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
-                    cc.LockContentControl = false;
-                    cc.LockContents = false;
+                    // Strip any <m:oMathPara> wrapper — keep only <m:oMath>
+                    var mathOnly = cleanOmml;
+                    if (mathOnly.Contains("<m:oMathPara"))
+                    {
+                        var start = mathOnly.IndexOf("<m:oMath");
+                        while (start >= 0 && start + 10 < mathOnly.Length && mathOnly[start + 10] == 'P')
+                            start = mathOnly.IndexOf("<m:oMath", start + 1);
+                        var end = mathOnly.LastIndexOf("</m:oMath>");
+                        if (start >= 0 && end > start)
+                            mathOnly = mathOnly.Substring(start, end + "</m:oMath>".Length - start);
+                    }
+
+                    // Wrap in minimal inline content control for metadata tracking
+                    var inlineBody = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+                        <w:sdtPr>
+                            <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
+                        </w:sdtPr>
+                        <w:sdtContent>
+                            {mathOnly}
+                        </w:sdtContent>
+                    </w:sdt>";
+
+                    // Wrap in Flat OPC for InsertXML
+                    var flatOpc = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
+                    <pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">
+                        <pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"">
+                            <pkg:xmlData>
+                                <Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">
+                                    <Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>
+                                </Relationships>
+                            </pkg:xmlData>
+                        </pkg:part>
+                        <pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">
+                            <pkg:xmlData>
+                                <w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
+                                            xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
+                                    <w:body>{inlineBody}</w:body>
+                                </w:document>
+                            </pkg:xmlData>
+                        </pkg:part>
+                    </pkg:package>";
+
+                    range.InsertXML(flatOpc);
+                    FormulaDocumentManifest.Write(doc, payload);
+
+                    return new InsertResult
+                    {
+                        Success = true,
+                        FormulaId = payload.FormulaId,
+                        RangeStart = (uint)range.Start,
+                        RangeEnd = (uint)range.End
+                    };
                 }
-                catch
+
+                // Fallback: insert linear formula text
+                if (!string.IsNullOrEmpty(payload.Latex))
                 {
-                    // Best-effort — formula is still inserted
-                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap inline formula with ContentControl");
+                    range.Text = payload.Latex;
+                    FormulaDocumentManifest.Write(doc, payload);
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
                 }
 
-                FormulaDocumentManifest.Write(doc, payload);
-
-                return new InsertResult
-                {
-                    Success = true,
-                    FormulaId = payload.FormulaId,
-                    RangeStart = (uint)oMath.Range.Start,
-                    RangeEnd = (uint)oMath.Range.End
-                };
+                return new InsertResult { Success = false, Error = "No OMML or LaTeX content for inline formula" };
             }
             catch (Exception ex)
             {
