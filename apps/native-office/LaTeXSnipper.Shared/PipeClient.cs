@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using System.Collections.Concurrent;
 using System.IO;
@@ -85,10 +86,10 @@ public class PipeClient : IDisposable
     /// Send a message without waiting for a response (fire-and-forget).
     /// Used for result/event messages that do not expect a reply.
     /// </summary>
-    public async Task SendOnlyAsync(VstoMessage message, CancellationToken ct = default)
+    public Task SendOnlyAsync(VstoMessage message, CancellationToken ct = default)
     {
         if (_pipe == null || !_connected)
-            return;
+            return Task.CompletedTask;
 
         try
         {
@@ -109,6 +110,7 @@ public class PipeClient : IDisposable
             _connected = false;
             Disconnected?.Invoke(this, EventArgs.Empty);
         }
+        return Task.CompletedTask;
     }
 
     /// <summary>

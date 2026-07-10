@@ -221,7 +221,6 @@ namespace LaTeXSnipper.Excel.Host
                                 if (string.IsNullOrEmpty(name) || !name.StartsWith("LSNO_"))
                                     continue;
 
-                                string? altText = oleObj.AlternativeText as string;
                                 string? extractedId = ExtractFormulaIdFromShapeName(name);
 
                                 // Try reading payload via COM automation
@@ -335,14 +334,15 @@ namespace LaTeXSnipper.Excel.Host
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
 
                     // Initialize with formula payload via OLE automation
-                    if (!OleFormulaInterop.Initialize(ole.Object, payload))
+                    var oleAutomation = ole.Object;
+                    if (oleAutomation == null || !OleFormulaInterop.Initialize(oleAutomation, payload))
                     {
                         ole.Delete();
                         return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
                     }
 
                     // Verify round-trip
-                    if (!OleFormulaInterop.VerifyRoundTrip(ole.Object, payload))
+                    if (!OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload))
                     {
                         ole.Delete();
                         return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };

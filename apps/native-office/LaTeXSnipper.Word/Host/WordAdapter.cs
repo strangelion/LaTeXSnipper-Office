@@ -601,9 +601,10 @@ namespace LaTeXSnipper.Word.Host
                 // The C++ OLE DLL reads this during construction to render the correct formula
                 // immediately, avoiding a race between InitializeFromJson and Office's render request.
                 OleFormulaPendingPayloadStore.Save(payload);
+                Microsoft.Office.Interop.Word.InlineShape oleShape;
                 try
                 {
-                    var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
+                    oleShape = (Microsoft.Office.Interop.Word.InlineShape)
                         doc.InlineShapes.AddOLEObject(
                             ClassType: "LaTeXSnipper.Formula.1",
                             FileName: Type.Missing,
@@ -617,12 +618,13 @@ namespace LaTeXSnipper.Word.Host
                     // Initialize with formula payload via OLE automation
                     try
                     {
-                        if (!OleFormulaInterop.Initialize(oleShape.OLEFormat.Object, payload))
+                        var oleAutomation = oleShape.OLEFormat?.Object;
+                        if (oleAutomation == null || !OleFormulaInterop.Initialize(oleAutomation, payload))
                         {
                             oleShape.Delete();
                             return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
                         }
-                        if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload))
+                        if (!OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload))
                         {
                             oleShape.Delete();
                             return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
