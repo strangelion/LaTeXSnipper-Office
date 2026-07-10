@@ -263,14 +263,15 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
                     // Initialize with formula payload via OLE automation
-                    if (!OleFormulaInterop.Initialize(shape.OLEFormat.Object, payload))
+                    var oleAutomation = shape.OLEFormat?.Object;
+                    if (oleAutomation == null || !OleFormulaInterop.Initialize(oleAutomation, payload))
                     {
                         shape.Delete();
                         return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
                     }
 
                     // Verify round-trip
-                    if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload))
+                    if (!OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload))
                     {
                         shape.Delete();
                         return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
