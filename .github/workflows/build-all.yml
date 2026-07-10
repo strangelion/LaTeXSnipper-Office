@@ -578,13 +578,13 @@ jobs:
         working-directory: apps/vscode-extension
         run: npm run build
 
-      - name: Package VSIX
-        working-directory: apps/vscode-extension
-        run: npm run package
-
       - name: Clean old VSIX packages
         working-directory: apps/vscode-extension
         run: Remove-Item *.vsix -Force -ErrorAction SilentlyContinue
+
+      - name: Package VSIX
+        working-directory: apps/vscode-extension
+        run: npm run package
 
       - uses: actions/upload-artifact@v4
         with:
