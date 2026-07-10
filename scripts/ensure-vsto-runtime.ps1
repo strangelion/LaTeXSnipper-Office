@@ -48,7 +48,7 @@ $tempRoot = if ($env:RUNNER_TEMP) {
 }
 
 $installer = Join-Path $tempRoot "vstor_redist.exe"
-$runtimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
+$runtimeUrl = "https://download.microsoft.com/download/c/0/e/c0e39fdf-68c9-4332-b745-5268ed69cb54/vstor_redist.exe"
 
 Write-Host "Downloading VSTO runtime redistributable..." -ForegroundColor Cyan
 Invoke-WebRequest -Uri $runtimeUrl -OutFile $installer

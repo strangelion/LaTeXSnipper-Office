@@ -14,7 +14,7 @@ function OnAddinLoad(ribbonUI) {
             try {
                 var line = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z/, '') + ' ' + msg
                 console.log('[LaTeXSnipper] ' + line)
-                try { wps.OAAssist.HttpRequest('https://127.0.0.1:19876/log', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ msg: line })) } catch(e) {}
+                try { wps.OAAssist.HttpRequest('http://127.0.0.1:19876/log', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ msg: line })) } catch(e) {}
             } catch(e) {}
         }
 

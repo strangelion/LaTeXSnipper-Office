@@ -67,8 +67,8 @@ function hasRequiredStaging() {
   }
 
   const newestSource = newestSourceMtimeMs(nativeSourceRoot);
-  const oldestOutput = Math.min(...requiredFiles.map((file) => fs.statSync(file).mtimeMs));
-  return oldestOutput >= newestSource;
+  const stagingUpdated = fs.statSync(staging).mtimeMs;
+  return stagingUpdated >= newestSource;
 }
 
 if (hasRequiredStaging()) {
