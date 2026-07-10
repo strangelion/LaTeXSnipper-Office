@@ -2,7 +2,6 @@
 #include "OleFormulaIds.h"
 
 #include <atlbase.h>
-#include <gdiplus.h>
 #include <new>
 
 extern LONG GetNativeOleObjectCount();
@@ -12,8 +11,10 @@ extern LONG GetNativeOleLockCount();
 // from the DLL's own location, avoiding hardcoded registry keys.
 HMODULE g_dllModule = nullptr;
 
-// One-time GDI+ token for PNG→EMF conversion in Presentation.cpp
-// Must be visible from Presentation.cpp
+// GDI+ token for PNG→EMF conversion in Presentation.cpp.
+// Initialized lazily via std::call_once; never explicitly shut down
+// (DLL_PROCESS_DETACH runs under loader lock where GdiplusShutdown
+// can deadlock — the OS reclaims process resources on exit).
 ULONG_PTR g_gdiplusToken = 0;
 
 STDAPI DllCanUnloadNow()
@@ -53,15 +54,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD reason, void*)
         if (hinstDLL != nullptr)
         {
             g_dllModule = hinstDLL;
-        }
-        // P1-8: GDI+ initialization moved to lazy std::call_once in Presentation.cpp
-        // to avoid loader lock deadlocks when Office hosts the DLL.
-        break;
-    case DLL_PROCESS_DETACH:
-        if (g_gdiplusToken != 0)
-        {
-            Gdiplus::GdiplusShutdown(g_gdiplusToken);
-            g_gdiplusToken = 0;
         }
         break;
     }

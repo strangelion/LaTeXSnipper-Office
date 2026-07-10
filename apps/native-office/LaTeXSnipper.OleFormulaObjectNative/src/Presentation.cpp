@@ -12,6 +12,10 @@
 #include <shlwapi.h>
 #include <gdiplus.h>
 
+// Defined in OleFormulaHandlerModule.cpp.
+// Must remain outside the anonymous namespace for external linkage.
+extern ULONG_PTR g_gdiplusToken;
+
 namespace
 {
 constexpr int kDefaultWidthPoints = 180;
@@ -22,17 +26,15 @@ constexpr int kEmfDpi = 144;
 
 // P1-8: Lazy GDI+ initialization — avoids calling GdiplusStartup inside DllMain
 // where the loader lock is held, which can cause Office startup deadlocks.
-extern ULONG_PTR g_gdiplusToken;
-
 std::once_flag g_gdiplusInitFlag;
 
 void EnsureGdiplusInitialized()
 {
     std::call_once(g_gdiplusInitFlag, []() {
-        if (g_gdiplusToken == 0)
+        if (::g_gdiplusToken == 0)
         {
             Gdiplus::GdiplusStartupInput gdiInput;
-            Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiInput, nullptr);
+            Gdiplus::GdiplusStartup(&::g_gdiplusToken, &gdiInput, nullptr);
         }
     });
 }
