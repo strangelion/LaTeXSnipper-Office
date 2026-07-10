@@ -54,6 +54,23 @@ public static class OleFormulaInterop
     }
 
     /// <summary>
+    /// Check whether the OLE object was initialized with a real payload
+    /// (not a placeholder). Returns true if initialized, false otherwise.
+    /// </summary>
+    public static bool IsInitialized(dynamic oleAutomationObject)
+    {
+        try
+        {
+            return oleAutomationObject.IsInitialized();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OleFormulaInterop] IsInitialized failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Verify round-trip: all key fields survive the OLE object's InitializeFromJson
     /// and GetPayloadJson cycle without corruption.
     /// </summary>

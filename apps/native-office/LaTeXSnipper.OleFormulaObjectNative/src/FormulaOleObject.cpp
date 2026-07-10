@@ -1342,6 +1342,15 @@ STDMETHODIMP FormulaOleObject::OpenEditor()
     return StartEditSession();
 }
 
+STDMETHODIMP FormulaOleObject::IsInitialized(VARIANT_BOOL* result)
+{
+    if (result == nullptr)
+        return E_POINTER;
+
+    *result = initializedFromRealPayload_ ? VARIANT_TRUE : VARIANT_FALSE;
+    return S_OK;
+}
+
 // ===================================================================
 // IDispatch implementation (no type library — manual dispatch table)
 // ===================================================================
@@ -1374,6 +1383,7 @@ STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT c
         { L"ReplacePayloadJson", 3 },
         { L"GetFormulaId",       4 },
         { L"OpenEditor",         5 },
+        { L"IsInitialized",      6 },
     };
 
     for (const auto& entry : kDispatchTable)
@@ -1440,6 +1450,21 @@ STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wF
 
     case 5: // OpenEditor
         return OpenEditor();
+
+    case 6: // IsInitialized
+        if (pVarResult != nullptr && (wFlags & DISPATCH_METHOD))
+        {
+            VARIANT_BOOL result = VARIANT_FALSE;
+            HRESULT hr = IsInitialized(&result);
+            if (SUCCEEDED(hr))
+            {
+                VariantClear(pVarResult);
+                pVarResult->vt = VT_BOOL;
+                pVarResult->boolVal = result;
+            }
+            return hr;
+        }
+        return DISP_E_MEMBERNOTFOUND;
 
     default:
         return DISP_E_MEMBERNOTFOUND;
@@ -1564,7 +1589,9 @@ void FormulaOleObject::ApplyPendingEditResult()
     // P1: Validate the result before committing.
     // If the desktop editor returned an incomplete/invalid result, reject it
     // and keep the current presentation intact.
-    if (candidate.latex.empty() || candidate.enhancedMetafile.empty())
+    if (candidate.latex.empty() ||
+        candidate.enhancedMetafile.empty() ||
+        !HasValidEmf(candidate.enhancedMetafile))
     {
         WriteNativeOleLog(L"FormulaOleObject: ApplyPendingEditResult rejected -- result has no valid EMF.");
         return;

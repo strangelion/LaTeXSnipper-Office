@@ -1784,7 +1784,7 @@ class UIController {
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
-        const current = '1.0.0';
+        const current = '1.2.2';
         const latest = (data.tag_name || '').replace(/^v/, '');
         if (latest && latest !== current) {
           statusEl.innerHTML = `发现新版本 <a href="${data.html_url}" target="_blank">v${latest}</a>`;

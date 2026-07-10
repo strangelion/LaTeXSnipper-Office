@@ -217,6 +217,7 @@ $buildArgs = @(
     "/p:PublishUrl=$publishUrl"
     "/p:InstallUrl=$publishUrl"
     "/p:GenerateManifests=true"
+    "/p:LaTeXSnipperVersion=$Version"
     "/v:minimal"
 )
 

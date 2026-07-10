@@ -15,6 +15,7 @@ interface ILatexSnipperFormula : IDispatch {
     [id(3)] HRESULT ReplacePayloadJson([in] BSTR payloadJson);
     [id(4)] HRESULT GetFormulaId([out, retval] BSTR* formulaId);
     [id(5)] HRESULT OpenEditor();
+    [id(6)] HRESULT IsInitialized([out, retval] VARIANT_BOOL* result);
 };
 
 [

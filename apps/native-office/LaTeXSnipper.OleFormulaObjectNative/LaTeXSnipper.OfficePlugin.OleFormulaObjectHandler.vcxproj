@@ -116,7 +116,7 @@
   </ItemGroup>
   <PropertyGroup>
     <PreBuildEvent>
-      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1" -Version "$(Version)"</Command>
+      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1" -Version "$(LaTeXSnipperVersion)"</Command>
       <Message>Generating OleVersion.h from package.json...</Message>
     </PreBuildEvent>
   </PropertyGroup>

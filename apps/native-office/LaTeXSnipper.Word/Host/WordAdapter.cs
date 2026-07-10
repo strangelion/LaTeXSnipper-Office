@@ -615,11 +615,11 @@ namespace LaTeXSnipper.Word.Host
                     oleShape.Width = width;
                     oleShape.Height = height;
 
-                    // P0-T29: Retry OLE automation activation with short delays.
+                    // P0-T31: Retry OLE automation activation with longer delays.
                     // Word may not expose OLEFormat.Object immediately after insertion.
-                    // After retries, if still unavailable, delete the object (it may be invalid).
+                    // After retries, check IsInitialized() before deleting.
                     dynamic oleAutomation = null;
-                    for (int attempt = 0; attempt < 5; attempt++)
+                    for (int attempt = 0; attempt < 10; attempt++)
                     {
                         try
                         {
@@ -631,30 +631,40 @@ namespace LaTeXSnipper.Word.Host
                         {
                             // COM not ready yet
                         }
-                        System.Threading.Thread.Sleep(50);
+                        System.Threading.Thread.Sleep(100);
                     }
 
                     if (oleAutomation != null)
                     {
-                        // Verify the constructor's initialization succeeded.
+                        // P0-T31: Check if C++ constructor initialized with real payload.
+                        bool isInitialized = OleFormulaInterop.IsInitialized(oleAutomation);
+
+                        // Verify the round-trip
                         bool verified = OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
-                        if (!verified)
+                        if (!verified && isInitialized)
                         {
-                            // Constructor path may have failed (e.g. DLL crash).
-                            // Attempt to re-initialize via Automation as a fallback.
+                            // Constructor initialized but verification failed — re-init as fallback
                             bool initialized = OleFormulaInterop.Initialize(oleAutomation, payload);
                             verified = initialized && OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
                         }
 
-                        if (!verified)
+                        if (!verified && isInitialized)
                         {
                             oleShape.Delete();
                             return new InsertResult { Success = false, Error = "OLE payload verification failed -- rollback" };
                         }
+
+                        if (!isInitialized && !verified)
+                        {
+                            // Constructor did NOT initialize AND verification failed — object is invalid
+                            oleShape.Delete();
+                            return new InsertResult { Success = false, Error = "OLE object was not initialized with real payload -- rollback" };
+                        }
                     }
                     else
                     {
-                        // Automation still unavailable after retries — object is likely invalid.
+                        // Automation still unavailable after 10 retries (1s total).
+                        // Check via IsInitialized if possible, otherwise delete.
                         oleShape.Delete();
                         return new InsertResult { Success = false, Error = "Word could not activate the OLE automation object after retries." };
                     }

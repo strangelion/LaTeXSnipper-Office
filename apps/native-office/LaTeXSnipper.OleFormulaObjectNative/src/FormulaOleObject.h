@@ -103,6 +103,7 @@ public:
     STDMETHOD(ReplacePayloadJson)(BSTR payloadJson) override;
     STDMETHOD(GetFormulaId)(BSTR* formulaId) override;
     STDMETHOD(OpenEditor)() override;
+    STDMETHOD(IsInitialized)(VARIANT_BOOL* result) override;
 
     // IDispatch
     STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;
