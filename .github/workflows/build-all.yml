@@ -428,7 +428,7 @@ jobs:
 
       - name: Generate OLE version header from package.json
         shell: pwsh
-        run: .\scripts\build-ole-version.ps1
+        run: .\scripts\build-ole-version.ps1 -Version $env:VERSION
 
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln

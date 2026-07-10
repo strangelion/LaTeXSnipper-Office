@@ -615,47 +615,48 @@ namespace LaTeXSnipper.Word.Host
                     oleShape.Width = width;
                     oleShape.Height = height;
 
-                    // P0-T18: The C++ constructor already consumed PendingPayload and
-                    // initialized the object with the correct formula + EMF.
+                    // P0-T29: Retry OLE automation activation with short delays.
                     // Word may not expose OLEFormat.Object immediately after insertion.
-                    // Do NOT delete the object if Automation is temporarily unavailable.
-                    try
+                    // After retries, if still unavailable, delete the object (it may be invalid).
+                    dynamic oleAutomation = null;
+                    for (int attempt = 0; attempt < 5; attempt++)
                     {
-                        var oleAutomation = oleShape.OLEFormat?.Object;
-                        if (oleAutomation != null)
+                        try
                         {
-                            // Verify the constructor's initialization succeeded.
-                            bool verified = OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
-                            if (!verified)
-                            {
-                                // Constructor path may have failed (e.g. DLL crash).
-                                // Attempt to re-initialize via Automation as a fallback.
-                                bool initialized = OleFormulaInterop.Initialize(oleAutomation, payload);
-                                verified = initialized && OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
-                            }
-
-                            if (!verified)
-                            {
-                                oleShape.Delete();
-                                return new InsertResult { Success = false, Error = "OLE payload verification failed — rollback" };
-                            }
+                            oleAutomation = oleShape.OLEFormat?.Object;
+                            if (oleAutomation != null)
+                                break;
                         }
-                        else
+                        catch
                         {
-                            // Automation not immediately available — trust constructor path.
-                            // PendingPayload was consumed during construction; the object
-                            // already has the correct formula and EMF.
-                            System.Diagnostics.Debug.WriteLine(
-                                "[WordAdapter] OLE automation not immediately available; " +
-                                "verification deferred — trusting constructor-initialized object.");
+                            // COM not ready yet
+                        }
+                        System.Threading.Thread.Sleep(50);
+                    }
+
+                    if (oleAutomation != null)
+                    {
+                        // Verify the constructor's initialization succeeded.
+                        bool verified = OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
+                        if (!verified)
+                        {
+                            // Constructor path may have failed (e.g. DLL crash).
+                            // Attempt to re-initialize via Automation as a fallback.
+                            bool initialized = OleFormulaInterop.Initialize(oleAutomation, payload);
+                            verified = initialized && OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
+                        }
+
+                        if (!verified)
+                        {
+                            oleShape.Delete();
+                            return new InsertResult { Success = false, Error = "OLE payload verification failed -- rollback" };
                         }
                     }
-                    catch (Exception initEx)
+                    else
                     {
-                        // Only delete if we can definitively confirm the object is broken.
-                        // Transient COM errors should not destroy a valid constructor-initialized object.
-                        System.Diagnostics.Debug.WriteLine(
-                            $"[WordAdapter] OLE automation error (keeping object): {initEx.Message}");
+                        // Automation still unavailable after retries — object is likely invalid.
+                        oleShape.Delete();
+                        return new InsertResult { Success = false, Error = "Word could not activate the OLE automation object after retries." };
                     }
                 }
                 finally

@@ -112,11 +112,11 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="src\OleFormulaObjectHandler.def" />
-    <None Include="..\..\..\..\scripts\build-ole-version.ps1" />
+    <None Include="..\..\..\scripts\build-ole-version.ps1" />
   </ItemGroup>
   <PropertyGroup>
     <PreBuildEvent>
-      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\..\scripts\build-ole-version.ps1"</Command>
+      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1" -Version "$(Version)"</Command>
       <Message>Generating OleVersion.h from package.json...</Message>
     </PreBuildEvent>
   </PropertyGroup>

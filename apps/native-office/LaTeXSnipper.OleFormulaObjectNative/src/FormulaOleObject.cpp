@@ -1552,14 +1552,26 @@ void FormulaOleObject::ApplyPendingEditResult()
     if (!editCompleted_.load())
         return;
 
-    WriteNativeOleLog(L"FormulaOleObject: Applying pending async edit result.");
-
     // Atomically consume the flag and take the result under lock
     editCompleted_.store(false);
+
+    FormulaPresentation candidate;
     {
         std::lock_guard<std::mutex> lock(editResultMutex_);
-        presentation_ = std::move(pendingEditResult_);
+        candidate = std::move(pendingEditResult_);
     }
+
+    // P1: Validate the result before committing.
+    // If the desktop editor returned an incomplete/invalid result, reject it
+    // and keep the current presentation intact.
+    if (candidate.latex.empty() || candidate.enhancedMetafile.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject: ApplyPendingEditResult rejected -- result has no valid EMF.");
+        return;
+    }
+
+    WriteNativeOleLog(L"FormulaOleObject: Applying pending async edit result.");
+    presentation_ = std::move(candidate);
     initializedFromRealPayload_ = true;
     dirty_ = true;
 
@@ -1575,6 +1587,9 @@ void FormulaOleObject::ApplyPendingEditResult()
         if (!id.empty())
             formulaId_ = id;
     }
+
+    // P1: Notify Office that the presentation changed so it refreshes the display.
+    NotifyPresentationChanged();
 }
 
 // ===================================================================
