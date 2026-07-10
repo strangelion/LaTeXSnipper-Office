@@ -34,16 +34,40 @@ HRESULT ReadStream(IStorage* storage, const wchar_t* name, std::vector<BYTE>* by
         return result;
     }
 
+    // P1-7: Enforce size limits to prevent malicious/corrupt documents from
+    // causing excessive memory allocation in the Office process.
+    // JSON/Envelope streams: max 8 MB; EMF streams: max 64 MB.
+    constexpr ULONGLONG MAX_JSON_ENVELOPE_SIZE = 8 * 1024 * 1024;   // 8 MiB
+    constexpr ULONGLONG MAX_EMF_SIZE = 64 * 1024 * 1024;            // 64 MiB
+
     STATSTG stats{};
     result = stream->Stat(&stats, STATFLAG_NONAME);
     if (SUCCEEDED(result))
     {
-        bytes->resize(static_cast<size_t>(stats.cbSize.QuadPart));
+        ULONGLONG streamSize = stats.cbSize.QuadPart;
+        bool isEmfStream = (wcscmp(name, L"PresentationEmf") == 0);
+        ULONGLONG maxSize = isEmfStream ? MAX_EMF_SIZE : MAX_JSON_ENVELOPE_SIZE;
+
+        if (streamSize > maxSize)
+        {
+            stream->Release();
+            return STG_E_MEDIUMFULL;
+        }
+
+        bytes->resize(static_cast<size_t>(streamSize));
         ULONG read = 0;
         result = stream->Read(bytes->data(), static_cast<ULONG>(bytes->size()), &read);
         if (SUCCEEDED(result))
         {
             bytes->resize(read);
+
+            // P1-7: Validate UTF-16 length alignment for JSON/Envelope streams
+            if (!isEmfStream && (read % 2 != 0))
+            {
+                bytes->clear();
+                stream->Release();
+                return STG_E_INVALIDPARAMETER;
+            }
         }
     }
 
@@ -127,9 +151,9 @@ HRESULT LoadEnvelopeFromStorage(IStorage* storage, std::wstring* json)
     return S_OK;
 }
 
-HRESULT StorageUtilBackup(IStorage* storage, std::vector<BYTE>* outPayload, std::vector<BYTE>* outEmf)
+HRESULT StorageUtilBackup(IStorage* storage, std::vector<BYTE>* outPayload, std::vector<BYTE>* outEmf, std::vector<BYTE>* outEnvelope)
 {
-    if (storage == nullptr || outPayload == nullptr || outEmf == nullptr)
+    if (storage == nullptr || outPayload == nullptr || outEmf == nullptr || outEnvelope == nullptr)
         return E_POINTER;
 
     HRESULT hr = ReadStream(storage, kPayloadStream, outPayload);
@@ -145,10 +169,17 @@ HRESULT StorageUtilBackup(IStorage* storage, std::vector<BYTE>* outPayload, std:
         outEmf->clear();
     }
 
+    // P1-6: Also backup FormulaEnvelope.json so all three streams are restored on failure
+    hr = ReadStream(storage, kEnvelopeStream, outEnvelope);
+    if (FAILED(hr))
+    {
+        outEnvelope->clear();
+    }
+
     return S_OK;
 }
 
-HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, const std::vector<BYTE>& emf)
+HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, const std::vector<BYTE>& emf, const std::vector<BYTE>& envelope)
 {
     if (storage == nullptr)
         return E_POINTER;
@@ -156,6 +187,7 @@ HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, 
     // Delete existing streams
     storage->DestroyElement(kPayloadStream);
     storage->DestroyElement(kEmfStream);
+    storage->DestroyElement(kEnvelopeStream);
 
     // Restore payload
     if (!payload.empty())
@@ -168,6 +200,13 @@ HRESULT StorageUtilRestore(IStorage* storage, const std::vector<BYTE>& payload, 
     if (!emf.empty())
     {
         HRESULT hr = WriteStream(storage, kEmfStream, emf.data(), static_cast<ULONG>(emf.size()));
+        if (FAILED(hr)) return hr;
+    }
+
+    // P1-6: Restore envelope
+    if (!envelope.empty())
+    {
+        HRESULT hr = WriteStream(storage, kEnvelopeStream, envelope.data(), static_cast<ULONG>(envelope.size()));
         if (FAILED(hr)) return hr;
     }
 

@@ -2204,15 +2204,26 @@ class UIController {
       // OLE edit session — frontend must respond with ole-edit-result-{token}
       listen('ole-edit-open', async (event) => {
         const { formula_id, latex, session_token, payload_json } = event.payload;
-        Logger.info(`OLE edit open: formulaId=${formula_id}`);
+        Logger.info(`OLE edit open: formulaId=${formula_id} session=${session_token}`);
+
+        // P0-5: Use a Map to support concurrent OLE edit sessions.
+        // Each session is keyed by its unique pipe-derived UUID (session_token).
+        if (!this._oleSessions) {
+          this._oleSessions = new Map();
+        }
+
+        // Store session data — new sessions do NOT overwrite existing ones
+        this._oleSessions.set(session_token, {
+          formulaId: formula_id,
+          payloadJson: payload_json,
+        });
+
         // Load the formula into the editor
         this.switchSection('editor');
 
         // If full payload is available, use omml for richer editing
         if (payload_json?.omml) {
           this.editor.setLatex(latex || '');
-          // Store full payload for save
-          this._olePayloadJson = payload_json;
         } else {
           this.editor.setLatex(latex || '');
         }
@@ -3514,12 +3525,23 @@ class UIController {
   /** Save OLE edit result back to the existing OLE object — does NOT insert a new formula. */
   async _saveOleEditOnly(latex) {
     const isDisplay = document.getElementById('displayMode')?.checked || false;
+    const sessionToken = this._oleSessionToken;
+    if (!sessionToken) {
+      this.showToast('No active OLE session');
+      return;
+    }
+
+    // Look up session data from Map
+    const sessionData = this._oleSessions?.get(sessionToken);
+    const oldPayloadJson = sessionData?.payloadJson;
+
     try {
       const { invoke } = await import('@tauri-apps/api/core');
       const { emit } = await import('@tauri-apps/api/event');
       const omml = await invoke('latex_to_omml', { latex });
 
-      // P1-1: Regenerate preview
+      // P0-6: Regenerate preview — abort save if preview generation fails.
+      // Never allow "new LaTeX + old preview" to be saved.
       let renderedSvg = null;
       let pngBase64Ole = null;
       let widthPtOle = 0;
@@ -3531,43 +3553,42 @@ class UIController {
         heightPtOle = rendered.heightPt;
         pngBase64Ole = await this._svgToPngBase64(rendered.svg, rendered.widthPt, rendered.heightPt);
       } catch (e) {
-        Logger.warn('[OLE] Preview regeneration failed, reusing old preview:', e);
+        Logger.error('[OLE] Preview regeneration failed — aborting save:', e);
+        this.showToast('预览生成失败，无法保存公式');
+        return;
       }
 
       let formulaPayload = {
-        formulaId: this._oleFormulaId || crypto.randomUUID(),
+        formulaId: sessionData?.formulaId || this._oleFormulaId || crypto.randomUUID(),
         latex: latex,
         omml: omml,
         display: isDisplay ? 'block' : 'inline',
-        revision: (this._olePayloadJson?.revision || 0) + 1,
+        revision: (oldPayloadJson?.revision || 0) + 1,
         storageMode: 'ole',
-      };
-
-      if (renderedSvg && pngBase64Ole) {
-        formulaPayload.render = {
+        render: {
           svg: renderedSvg,
           png: pngBase64Ole,
           widthPt: widthPtOle,
           heightPt: heightPtOle,
-        };
-      }
+        },
+      };
 
-      if (this._olePayloadJson) {
+      if (oldPayloadJson) {
         formulaPayload = {
-          ...this._olePayloadJson,
+          ...oldPayloadJson,
           ...formulaPayload,
-          render: formulaPayload.render || this._olePayloadJson.render,
         };
       }
 
-      await emit(`ole-edit-result-${this._oleSessionToken}`, {
+      await emit(`ole-edit-result-${sessionToken}`, {
         action: 'save',
         formula: formulaPayload,
       });
 
+      // Clean up session state
+      this._oleSessions?.delete(sessionToken);
       this._oleSessionToken = null;
       this._oleFormulaId = null;
-      this._olePayloadJson = null;
       this.showToast('公式已更新');
       this.addHistoryItem(latex);
     } catch (e) {
@@ -3632,9 +3653,10 @@ class UIController {
       } catch (e) {
         Logger.error('Failed to cancel OLE edit:', e);
       }
+      // Clean up session from Map
+      this._oleSessions?.delete(this._oleSessionToken);
       this._oleSessionToken = null;
       this._oleFormulaId = null;
-      this._olePayloadJson = null;
     }
   }
 

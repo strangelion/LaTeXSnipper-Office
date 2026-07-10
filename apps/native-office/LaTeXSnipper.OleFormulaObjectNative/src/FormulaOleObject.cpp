@@ -17,12 +17,21 @@
 
 // Pending payload from registry — consumed during construction so the correct
 // formula renders immediately without waiting for InitializeFromJson.
+//
+// Uses per-PID.TID isolation: the VSTO add-in writes to
+// "PendingPayload.{pid}.{tid}" and the C++ DLL reads the same key,
+// preventing concurrent insertions from overwriting each other.
 namespace
 {
 std::wstring ConsumePendingPayload()
 {
     constexpr wchar_t kPayloadKey[] = L"Software\\LaTeXSnipper\\OfficePlugin\\OleFormulaObject";
-    constexpr wchar_t kPendingPayloadValue[] = L"PendingPayload";
+
+    // Build isolated value name: "PendingPayload.{pid}.{tid}"
+    DWORD pid = GetCurrentProcessId();
+    DWORD tid = GetCurrentThreadId();
+    wchar_t valueName[64]{};
+    swprintf_s(valueName, L"PendingPayload.%lu.%lu", pid, tid);
 
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS)
@@ -31,17 +40,17 @@ std::wstring ConsumePendingPayload()
     DWORD type = 0;
     DWORD byteCount = 0;
     std::wstring payload;
-    if (RegQueryValueExW(key, kPendingPayloadValue, nullptr, &type, nullptr, &byteCount) == ERROR_SUCCESS &&
+    if (RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &byteCount) == ERROR_SUCCESS &&
         type == REG_SZ && byteCount >= sizeof(wchar_t))
     {
         payload.resize(byteCount / sizeof(wchar_t));
-        RegQueryValueExW(key, kPendingPayloadValue, nullptr, &type,
+        RegQueryValueExW(key, valueName, nullptr, &type,
             reinterpret_cast<BYTE*>(&payload[0]), &byteCount);
         while (!payload.empty() && payload.back() == L'\0')
             payload.pop_back();
     }
 
-    RegDeleteValueW(key, kPendingPayloadValue);
+    RegDeleteValueW(key, valueName);
     RegCloseKey(key);
     return payload;
 }
@@ -1025,6 +1034,8 @@ STDMETHODIMP FormulaOleObject::GetClassID(CLSID* classId)
 
 STDMETHODIMP FormulaOleObject::IsDirty()
 {
+    // P0-3: Check for pending async edit result so Office sees updated state
+    ApplyPendingEditResult();
     return dirty_ ? S_OK : S_FALSE;
 }
 
@@ -1086,9 +1097,9 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
 
     // Transactional save: backup existing data first, then restore if envelope fails.
     // This prevents payload/preview inconsistency when envelope write fails.
-    std::vector<BYTE> backupPayload, backupEmf;
+    std::vector<BYTE> backupPayload, backupEmf, backupEnvelope;
     {
-        HRESULT hr = StorageUtilBackup(storage, &backupPayload, &backupEmf);
+        HRESULT hr = StorageUtilBackup(storage, &backupPayload, &backupEmf, &backupEnvelope);
         if (FAILED(hr))
         {
             WriteNativeOleLog(L"Save: Backup failed; continuing without rollback capability.");
@@ -1119,7 +1130,7 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
             envelopeJson.find(L"\"latex\"") == std::wstring::npos)
         {
             WriteNativeOleLog(L"Save: Envelope JSON validation failed — missing required fields.");
-            StorageUtilRestore(storage, backupPayload, backupEmf);
+            StorageUtilRestore(storage, backupPayload, backupEmf, backupEnvelope);
             return STG_E_INVALIDPARAMETER;
         }
 
@@ -1132,7 +1143,7 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
         {
             // Envelope save failed — restore backed-up payload and EMF
             WriteNativeOleLog(L"Save: Envelope save failed — restoring payload from backup.");
-            StorageUtilRestore(storage, backupPayload, backupEmf);
+            StorageUtilRestore(storage, backupPayload, backupEmf, backupEnvelope);
         }
     }
 
@@ -1224,6 +1235,9 @@ STDMETHODIMP FormulaOleObject::GetPayloadJson(BSTR* payloadJson)
     if (payloadJson == nullptr)
         return E_POINTER;
 
+    // P0-3: Apply pending async edit result so caller gets the latest data
+    ApplyPendingEditResult();
+
     // Return the canonical JSON stored during InitializeFromJson/ReplacePayloadJson/Load
     // Fallback: construct a minimal payload if no canonical JSON is available
     std::wstring json;
@@ -1249,11 +1263,10 @@ STDMETHODIMP FormulaOleObject::ReplacePayloadJson(BSTR payloadJson)
     if (payloadJson == nullptr)
         return E_POINTER;
 
-    _bstr_t json(payloadJson);
-    std::wstring wsJson((const wchar_t*)json, json.length());
-
-    canonicalPayloadJson_ = wsJson; // store canonical JSON first
-
+    // P0-4: Delegate entirely to InitializeFromJson which performs all validation
+    // before committing to canonicalPayloadJson_ / presentation_ / formulaId_.
+    // Do NOT write canonicalPayloadJson_ here — if InitializeFromJson fails
+    // (e.g. invalid schema, empty LaTeX, missing EMF), the old state must remain intact.
     return InitializeFromJson(payloadJson);
 }
 
@@ -1419,7 +1432,9 @@ HRESULT FormulaOleObject::StartEditSession()
 {
     WriteNativeOleLog(L"FormulaOleObject: Starting edit session (async, background thread).");
 
-    if (editThreadRunning_)
+    // atomic check-and-set: only one edit session at a time
+    bool expected = false;
+    if (!editThreadRunning_.compare_exchange_strong(expected, true))
     {
         WriteNativeOleLog(L"FormulaOleObject: Edit session already in progress.");
         return S_OK;
@@ -1439,8 +1454,7 @@ HRESULT FormulaOleObject::StartEditSession()
     // Capture state before spawning the thread
     std::wstring capturedFormulaId = formulaId_;
     FormulaPresentation capturedPresentation = presentation_;
-    editThreadRunning_ = true;
-    editCompleted_ = false;
+    editCompleted_.store(false);
 
     // Explicit AddRef for the background thread; Release when done
     AddRef();
@@ -1452,12 +1466,12 @@ HRESULT FormulaOleObject::StartEditSession()
         if (hr == S_OK)
         {
             // Store result for lazy pickup by ApplyPendingEditResult().
-            // Do NOT call clientSite_->SaveObject() or NotifyPresentationChanged()
-            // from this background thread — those are COM apartment-sensitive calls
-            // that belong to Office's STA thread. Cross-apartment invocation risks
-            // hangs or crashes in certain Office versions.
-            pendingEditResult_ = result;
-            editCompleted_ = true;
+            // Use a mutex to safely transfer the FormulaPresentation (contains strings/vectors).
+            {
+                std::lock_guard<std::mutex> lock(editResultMutex_);
+                pendingEditResult_ = std::move(result);
+            }
+            editCompleted_.store(true);
 
             WriteNativeOleLog(L"FormulaOleObject: Edit session completed successfully (async).");
         }
@@ -1466,7 +1480,7 @@ HRESULT FormulaOleObject::StartEditSession()
             WriteNativeOleLog(L"FormulaOleObject: Edit session cancelled or failed (async).");
         }
 
-        editThreadRunning_ = false;
+        editThreadRunning_.store(false);
 
         Release();  // Balance the AddRef above
     }).detach();
@@ -1477,11 +1491,17 @@ HRESULT FormulaOleObject::StartEditSession()
 
 void FormulaOleObject::ApplyPendingEditResult()
 {
-    if (!editCompleted_)
+    if (!editCompleted_.load())
         return;
 
     WriteNativeOleLog(L"FormulaOleObject: Applying pending async edit result.");
-    presentation_ = pendingEditResult_;
+
+    // Atomically consume the flag and take the result under lock
+    editCompleted_.store(false);
+    {
+        std::lock_guard<std::mutex> lock(editResultMutex_);
+        presentation_ = std::move(pendingEditResult_);
+    }
     dirty_ = true;
 
     if (!presentation_.payloadJson.empty())
@@ -1496,8 +1516,6 @@ void FormulaOleObject::ApplyPendingEditResult()
         if (!id.empty())
             formulaId_ = id;
     }
-
-    editCompleted_ = false;
 }
 
 // ===================================================================

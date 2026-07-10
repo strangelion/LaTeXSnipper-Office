@@ -59,6 +59,69 @@ namespace LaTeXSnipper.Word.Host
                 }
                 catch { }
 
+                // P1-5: Layer 0b: Cursor adjacency detection — if the cursor is immediately
+                // before or after an InlineShape, range.InlineShapes may not include it.
+                // Expand the range by 1 character in each direction and retry.
+                try
+                {
+                    var doc = range.Document;
+                    var expandedRange = doc.Range(
+                        Math.Max(0, range.Start - 1),
+                        Math.Min(doc.Content.End, range.End + 1));
+                    foreach (Microsoft.Office.Interop.Word.InlineShape inlineShape in expandedRange.InlineShapes)
+                    {
+                        if (inlineShape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        {
+                            try
+                            {
+                                var oleObj = inlineShape.OLEFormat?.Object;
+                                if (oleObj != null)
+                                {
+                                    var json = OleFormulaInterop.GetPayloadJson(oleObj);
+                                    if (!string.IsNullOrEmpty(json))
+                                    {
+                                        var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
+                                            return payload;
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+
+                // P1-5: Layer 0c: Fallback — search the entire Selection.InlineShapes
+                // in case the selection object type differs from the range's shape collection.
+                try
+                {
+                    foreach (Microsoft.Office.Interop.Word.InlineShape inlineShape in _application.Selection.InlineShapes)
+                    {
+                        if (inlineShape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        {
+                            try
+                            {
+                                var oleObj = inlineShape.OLEFormat?.Object;
+                                if (oleObj != null)
+                                {
+                                    var json = OleFormulaInterop.GetPayloadJson(oleObj);
+                                    if (!string.IsNullOrEmpty(json))
+                                    {
+                                        var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
+                                            return payload;
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                catch { }
+
                 // Find formulaId from ContentControl tag first
                 var existingFormulaId = Metadata.FormulaMetadata.FindFormulaIdAtRange(range);
 
@@ -297,13 +360,21 @@ namespace LaTeXSnipper.Word.Host
                     if (tag == $"latexsnipper:formula:{formulaId}")
                     {
                         var range = cc.Range.Duplicate;
-                        cc.Delete();
-
-                        // Re-insert at the same location
+                        // P1-2: Insert new formula FIRST, then delete old one.
+                        // This is transactional: if insertion fails, the old formula remains intact.
                         _application.Selection.SetRange(range.Start, range.Start);
                         var mode = string.IsNullOrEmpty(newPayload.Display) || newPayload.Display == "inline"
                             ? InsertMode.Inline : InsertMode.Display;
-                        return InsertFormula(newPayload, mode);
+                        var insertResult = InsertFormula(newPayload, mode);
+                        if (!insertResult.Success)
+                        {
+                            // New formula failed to insert — old formula is untouched
+                            return insertResult;
+                        }
+
+                        // New formula inserted successfully — safe to delete old one
+                        cc.Delete();
+                        return insertResult;
                     }
                 }
 
@@ -530,36 +601,45 @@ namespace LaTeXSnipper.Word.Host
                 // The C++ OLE DLL reads this during construction to render the correct formula
                 // immediately, avoiding a race between InitializeFromJson and Office's render request.
                 OleFormulaPendingPayloadStore.Save(payload);
-
-                var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
-                    doc.InlineShapes.AddOLEObject(
-                        ClassType: "LaTeXSnipper.Formula.1",
-                        FileName: Type.Missing,
-                        LinkToFile: false,
-                        DisplayAsIcon: false,
-                        Range: range);
-
-                oleShape.Width = width;
-                oleShape.Height = height;
-
-                // Initialize with formula payload via OLE automation
                 try
                 {
-                    if (!OleFormulaInterop.Initialize(oleShape.OLEFormat.Object, payload))
+                    var oleShape = (Microsoft.Office.Interop.Word.InlineShape)
+                        doc.InlineShapes.AddOLEObject(
+                            ClassType: "LaTeXSnipper.Formula.1",
+                            FileName: Type.Missing,
+                            LinkToFile: false,
+                            DisplayAsIcon: false,
+                            Range: range);
+
+                    oleShape.Width = width;
+                    oleShape.Height = height;
+
+                    // Initialize with formula payload via OLE automation
+                    try
                     {
-                        oleShape.Delete();
-                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                        if (!OleFormulaInterop.Initialize(oleShape.OLEFormat.Object, payload))
+                        {
+                            oleShape.Delete();
+                            return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                        }
+                        if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload))
+                        {
+                            oleShape.Delete();
+                            return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                        }
                     }
-                    if (!OleFormulaInterop.VerifyRoundTrip(oleShape.OLEFormat.Object, payload))
+                    catch (Exception initEx)
                     {
                         oleShape.Delete();
-                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                        return new InsertResult { Success = false, Error = $"OLE automation failed: {initEx.Message}" };
                     }
                 }
-                catch (Exception initEx)
+                finally
                 {
-                    oleShape.Delete();
-                    return new InsertResult { Success = false, Error = $"OLE automation failed: {initEx.Message}" };
+                    // Safety net: if the C++ constructor failed to consume the payload
+                    // (e.g. DLL crash), clean up the registry value so stale data does not
+                    // leak into the next OLE object construction.
+                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
@@ -781,7 +861,9 @@ namespace LaTeXSnipper.Word.Host
                 if (newStorageMode == "ole")
                 {
                     // --- Transactional OLE conversion ---
-                    // 1. Create a temporary formula payload
+                    // 1. Create a temporary formula payload — copy Render/Presentation from
+                    //    existing formula so the OLE object has valid preview data.
+                    //    Without this, NormalizeForOle rejects the payload ("OLE formula requires preview data").
                     var olePayload = new FormulaPayload
                     {
                         FormulaId = convertedFormulaId,
@@ -791,7 +873,20 @@ namespace LaTeXSnipper.Word.Host
                         StorageMode = "ole",
                         Revision = existing.Revision + 1,
                         SchemaVersion = 3,
+                        Render = existing.Render,
+                        Presentation = existing.Presentation,
                     };
+
+                    // If existing formula has no preview, we cannot create OLE.
+                    // The user must re-render the formula first.
+                    if (olePayload.Render == null && olePayload.Presentation == null)
+                    {
+                        return new InsertResult
+                        {
+                            Success = false,
+                            Error = "OLE conversion requires preview data. Please re-render the formula first."
+                        };
+                    }
 
                     // 2. Insert OLE object BEFORE deleting old ContentControl
                     var range = existingCc.Range.Duplicate;

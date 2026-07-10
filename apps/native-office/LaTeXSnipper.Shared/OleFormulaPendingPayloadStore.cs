@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.Diagnostics;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
@@ -13,18 +15,32 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 /// without waiting for InitializeFromJson (which is called after AddOLEObject
 /// returns and may race with Office's rendering requests).
 ///
-/// Registry path: HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject\PendingPayload
-/// Same key as the legacy LaTeXSnipper project for compatibility.
+/// Uses per-PID.TID isolation to prevent concurrent insertions (e.g. Word +
+/// PowerPoint simultaneously) from overwriting each other's payloads.
+///
+/// Registry path: HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject
+/// Value name:    PendingPayload.{ProcessId}.{ThreadId}
 /// </summary>
 public static class OleFormulaPendingPayloadStore
 {
     private const string KeyPath = @"Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
-    private const string PendingPayloadValue = "PendingPayload";
+    private const string PendingPayloadPrefix = "PendingPayload.";
+
+    /// <summary>
+    /// Build the per-PID.TID value name for registry isolation.
+    /// </summary>
+    private static string GetValueName()
+    {
+        int pid = Process.GetCurrentProcess().Id;
+        int tid = Thread.CurrentThread.ManagedThreadId;
+        return $"{PendingPayloadPrefix}{pid}.{tid}";
+    }
 
     /// <summary>
     /// Save a FormulaPayload JSON to the registry for the OLE DLL to consume.
     /// Must be called BEFORE InlineShapes.AddOLEObject().
-    /// Overwrites any previous pending payload.
+    /// Uses current PID.TID as the value name so concurrent insertions
+    /// in different processes or threads do not collide.
     /// </summary>
     public static void Save(FormulaPayload payload)
     {
@@ -38,23 +54,24 @@ public static class OleFormulaPendingPayloadStore
 
         using RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath)
             ?? throw new InvalidOperationException("Cannot open OLE formula payload registry key.");
-        key.SetValue(PendingPayloadValue, json, RegistryValueKind.String);
+        key.SetValue(GetValueName(), json, RegistryValueKind.String);
     }
 
     /// <summary>
-    /// Read and delete the pending payload from the registry.
+    /// Read and delete the pending payload from the registry for the current PID.TID.
     /// Called by the OLE DLL during construction.
-    /// Returns null if no pending payload exists.
+    /// Returns null if no pending payload exists for the current thread.
     /// </summary>
     public static string? Consume()
     {
         using RegistryKey? key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true);
         if (key == null) return null;
 
-        string? value = key.GetValue(PendingPayloadValue) as string;
+        string valueName = GetValueName();
+        string? value = key.GetValue(valueName) as string;
         if (value != null)
         {
-            key.DeleteValue(PendingPayloadValue);
+            key.DeleteValue(valueName);
         }
         return value;
     }

@@ -2,6 +2,7 @@
 #include "OleFormulaIds.h"
 
 #include <atlbase.h>
+#include <gdiplus.h>
 #include <new>
 
 extern LONG GetNativeOleObjectCount();
@@ -53,11 +54,8 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD reason, void*)
         {
             g_dllModule = hinstDLL;
         }
-        // One-time GDI+ initialization for PNG→EMF conversion
-        {
-            Gdiplus::GdiplusStartupInput gdiInput;
-            Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiInput, nullptr);
-        }
+        // P1-8: GDI+ initialization moved to lazy std::call_once in Presentation.cpp
+        // to avoid loader lock deadlocks when Office hosts the DLL.
         break;
     case DLL_PROCESS_DETACH:
         if (g_gdiplusToken != 0)

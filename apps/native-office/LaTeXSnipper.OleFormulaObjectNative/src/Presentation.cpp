@@ -7,8 +7,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <mutex>
 #include <objidl.h>
 #include <shlwapi.h>
+#include <gdiplus.h>
 
 namespace
 {
@@ -17,6 +19,23 @@ constexpr int kDefaultHeightPoints = 42;
 constexpr int kPointsPerInch = 72;
 constexpr int kHimetricPerInch = 2540;
 constexpr int kEmfDpi = 144;
+
+// P1-8: Lazy GDI+ initialization — avoids calling GdiplusStartup inside DllMain
+// where the loader lock is held, which can cause Office startup deadlocks.
+extern ULONG_PTR g_gdiplusToken;
+
+std::once_flag g_gdiplusInitFlag;
+
+void EnsureGdiplusInitialized()
+{
+    std::call_once(g_gdiplusInitFlag, []() {
+        if (g_gdiplusToken == 0)
+        {
+            Gdiplus::GdiplusStartupInput gdiInput;
+            Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiInput, nullptr);
+        }
+    });
+}
 
 int PointsToHimetric(int points)
 {
@@ -424,6 +443,9 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
 {
     FormulaPresentation presentation{};
     presentation.payloadJson = payloadJson;
+
+    // P1-8: Ensure GDI+ is initialized before any GDI+ calls
+    EnsureGdiplusInitialized();
 
     // Get size from payload (try nested render.widthPt first, then flat widthPt)
     double widthPoints = JsonReadNestedString(payloadJson, L"render", L"widthPt").empty()

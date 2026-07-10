@@ -4,6 +4,8 @@
 #include "LaTeXSnipperFormula.h"  // MIDL-generated from LaTeXSnipperFormula.idl
 
 #include <atlbase.h>
+#include <atomic>
+#include <mutex>
 #include <oleidl.h>
 #include <string>
 
@@ -131,8 +133,11 @@ private:
     std::wstring formulaId_;
 
     // Async edit session: DoVerb spawns a thread so Office UI is not blocked.
-    volatile bool editThreadRunning_ = false;
-    volatile bool editCompleted_ = false;
+    // Uses atomics for thread-safe flag access and a mutex to protect
+    // pendingEditResult_ which contains non-trivially-copyable types.
+    std::atomic<bool> editThreadRunning_{false};
+    std::atomic<bool> editCompleted_{false};
+    std::mutex editResultMutex_;
     FormulaPresentation pendingEditResult_;
 };
 

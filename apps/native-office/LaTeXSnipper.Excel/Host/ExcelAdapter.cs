@@ -42,7 +42,10 @@ namespace LaTeXSnipper.Excel.Host
                     var oleResult = TryInsertOle(sheet, cell, payload);
                     if (oleResult != null && oleResult.Success)
                         return oleResult;
-                    return new InsertResult { Success = false, Error = "OLE not available. Switch to Auto or Image mode, or enable OLE in LaTeXSnipper settings." };
+                    // P1-3: Return the actual error from TryInsertOle, not a generic message.
+                    // Auto mode callers can decide to fall back; explicit OLE mode surfaces the error.
+                    string error = oleResult?.Error ?? "OLE activation failed: unknown error";
+                    return new InsertResult { Success = false, Error = error };
                 }
 
                 if (storageMode == "auto")
@@ -50,6 +53,7 @@ namespace LaTeXSnipper.Excel.Host
                     var oleResult = TryInsertOle(sheet, cell, payload);
                     if (oleResult?.Success == true)
                         return oleResult;
+                    // Auto mode: fall through to image/text fallback below
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")
@@ -200,6 +204,61 @@ namespace LaTeXSnipper.Excel.Host
                     }
                 }
 
+                // P1-4: Layer 1e: ShapeRange may not always detect OLE objects.
+                // Try ActiveSheet.OLEObjects() to find any matching object by name or alt text.
+                try
+                {
+                    var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                    if (sheet != null)
+                    {
+                        var oleObjects = sheet.OLEObjects() as Microsoft.Office.Interop.Excel.OLEObjects;
+                        if (oleObjects != null)
+                        {
+                            foreach (Microsoft.Office.Interop.Excel.OLEObject oleObj in oleObjects)
+                            {
+                                if (oleObj == null) continue;
+                                string? name = oleObj.Name as string;
+                                if (string.IsNullOrEmpty(name) || !name.StartsWith("LSNO_"))
+                                    continue;
+
+                                string? altText = oleObj.AlternativeText as string;
+                                string? extractedId = ExtractFormulaIdFromShapeName(name);
+
+                                // Try reading payload via COM automation
+                                try
+                                {
+                                    var automation = oleObj.Object;
+                                    if (automation != null)
+                                    {
+                                        var json = OleFormulaInterop.GetPayloadJson(automation);
+                                        if (!string.IsNullOrEmpty(json))
+                                        {
+                                            var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                                                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                            if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
+                                                return payload;
+                                        }
+                                    }
+                                }
+                                catch { }
+
+                                // Fallback: alt text with formula ID
+                                if (!string.IsNullOrEmpty(extractedId))
+                                {
+                                    return new FormulaPayload
+                                    {
+                                        FormulaId = extractedId,
+                                        Latex = "",
+                                        Display = "inline",
+                                        StorageMode = "ole"
+                                    };
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+
                 // Layer 2: read cell text
                 var range = _application.Selection as Microsoft.Office.Interop.Excel.Range;
                 if (range != null && range.Value != null)
@@ -258,43 +317,56 @@ namespace LaTeXSnipper.Excel.Host
                 // P0-A: Write pending payload BEFORE creating OLE object,
                 // so the C++ constructor can read it immediately.
                 OleFormulaPendingPayloadStore.Save(payload);
-
-                var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
-                var ole = oleObjects.Add(
-                    ClassType: "LaTeXSnipper.Formula.1",
-                    Filename: Type.Missing,
-                    Link: false,
-                    DisplayAsIcon: false,
-                    Left: (float)cellLeft,
-                    Top: (float)cellTop,
-                    Width: width,
-                    Height: height
-                );
-
-                ole.Name = $"LSNO_{payload.FormulaId}";
-                ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
-
-                // Initialize with formula payload via OLE automation
-                if (!OleFormulaInterop.Initialize(ole.Object, payload))
+                try
                 {
-                    ole.Delete();
-                    return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
-                }
+                    var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
+                    var ole = oleObjects.Add(
+                        ClassType: "LaTeXSnipper.Formula.1",
+                        Filename: Type.Missing,
+                        Link: false,
+                        DisplayAsIcon: false,
+                        Left: (float)cellLeft,
+                        Top: (float)cellTop,
+                        Width: width,
+                        Height: height
+                    );
 
-                // Verify round-trip
-                if (!OleFormulaInterop.VerifyRoundTrip(ole.Object, payload))
+                    ole.Name = $"LSNO_{payload.FormulaId}";
+                    ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
+
+                    // Initialize with formula payload via OLE automation
+                    if (!OleFormulaInterop.Initialize(ole.Object, payload))
+                    {
+                        ole.Delete();
+                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                    }
+
+                    // Verify round-trip
+                    if (!OleFormulaInterop.VerifyRoundTrip(ole.Object, payload))
+                    {
+                        ole.Delete();
+                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                }
+                finally
                 {
-                    ole.Delete();
-                    return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                    // Safety net: clean up stale registry payload if C++ constructor failed to consume it.
+                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
-                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE insert failed (will fall back): {ex.Message}");
-                return null;
+                // P1-3: Preserve the real error instead of returning null.
+                // The caller can now display the specific COM/DLL/validation error.
+                System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE insert failed: {ex.Message}");
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = $"OLE activation failed: {ex.GetType().Name}: {ex.Message}"
+                };
             }
         }
 

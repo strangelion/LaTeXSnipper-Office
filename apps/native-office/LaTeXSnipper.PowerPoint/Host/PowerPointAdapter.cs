@@ -41,14 +41,18 @@ namespace LaTeXSnipper.PowerPoint.Host
                 if (storageMode == "ole")
                 {
                     var oleResult = TryInsertOle(slide, payload);
-                    if (oleResult != null) return oleResult;
-                    return new InsertResult { Success = false, Error = "OLE not available. Switch to Auto or Image mode, or enable OLE in LaTeXSnipper settings." };
+                    if (oleResult != null && oleResult.Success)
+                        return oleResult;
+                    // P1-3: Return the actual error from TryInsertOle, not a generic message.
+                    string error = oleResult?.Error ?? "OLE activation failed: unknown error";
+                    return new InsertResult { Success = false, Error = error };
                 }
 
                 if (storageMode == "auto")
                 {
                     var oleResult = TryInsertOle(slide, payload);
                     if (oleResult?.Success == true) return oleResult;
+                    // Auto mode: fall through to image/text fallback below
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")
@@ -242,42 +246,54 @@ namespace LaTeXSnipper.PowerPoint.Host
                 // P0-A: Write pending payload BEFORE creating OLE object,
                 // so the C++ constructor can read it immediately.
                 OleFormulaPendingPayloadStore.Save(payload);
-
-                // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
-                var shape = slide.Shapes.AddOLEObject(
-                    Left: left,
-                    Top: top,
-                    Width: width,
-                    Height: height,
-                    ClassName: "LaTeXSnipper.Formula.1",
-                    DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse,
-                    Link: Microsoft.Office.Core.MsoTriState.msoFalse
-                );
-
-                shape.Name = $"LSNO_{payload.FormulaId}";
-                shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
-
-                // Initialize with formula payload via OLE automation
-                if (!OleFormulaInterop.Initialize(shape.OLEFormat.Object, payload))
+                try
                 {
-                    shape.Delete();
-                    return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
-                }
+                    // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
+                    var shape = slide.Shapes.AddOLEObject(
+                        Left: left,
+                        Top: top,
+                        Width: width,
+                        Height: height,
+                        ClassName: "LaTeXSnipper.Formula.1",
+                        DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse,
+                        Link: Microsoft.Office.Core.MsoTriState.msoFalse
+                    );
 
-                // Verify round-trip
-                if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload))
+                    shape.Name = $"LSNO_{payload.FormulaId}";
+                    shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
+
+                    // Initialize with formula payload via OLE automation
+                    if (!OleFormulaInterop.Initialize(shape.OLEFormat.Object, payload))
+                    {
+                        shape.Delete();
+                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
+                    }
+
+                    // Verify round-trip
+                    if (!OleFormulaInterop.VerifyRoundTrip(shape.OLEFormat.Object, payload))
+                    {
+                        shape.Delete();
+                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                }
+                finally
                 {
-                    shape.Delete();
-                    return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                    // Safety net: clean up stale registry payload if C++ constructor failed to consume it.
+                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
-                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE insert failed (will fall back): {ex.Message}");
-                return null;
+                // P1-3: Preserve the real error instead of returning null.
+                System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE insert failed: {ex.Message}");
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = $"OLE activation failed: {ex.GetType().Name}: {ex.Message}"
+                };
             }
         }
 

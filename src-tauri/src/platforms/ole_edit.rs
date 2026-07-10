@@ -122,8 +122,13 @@ pub async fn start_ole_edit_dispatcher(app_handle: tauri::AppHandle) {
 
             let mut bytes = vec![0u8; size];
             server.read_exact(&mut bytes).await?;
-            let units = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u16, bytes.len() / 2) };
-            let pipe_name = String::from_utf16(units)
+            // P0-8: Safe UTF-16 decoding — Vec<u8> only guarantees 1-byte alignment,
+            // so casting to *const u16 is UB. Use chunks_exact for safe conversion.
+            let units: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|b| u16::from_le_bytes([b[0], b[1]]))
+                .collect();
+            let pipe_name = String::from_utf16(&units)
                 .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid OLE edit pipe name"))?;
             if !pipe_name.starts_with(OLE_EDIT_PIPE_PREFIX) {
                 return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unexpected OLE edit pipe name"));
@@ -162,8 +167,10 @@ pub async fn handle_ole_edit_session_with_app(
     let envelope = read_envelope(handle)?;
     log::info!("[OleEdit] Received formula: formulaId={}", envelope.formula_id);
 
-    // Use formula_id as session token for matching results
-    let session_token = envelope.formula_id.clone();
+    // P0-5: Extract UUID from pipe name as session token instead of using formula_id.
+    // formula_id is NOT unique per session — the same formula can have concurrent edits
+    // (e.g. copy-paste creates two objects with the same formula_id).
+    let session_token = extract_session_token_from_pipe_name(pipe_name)?;
 
     // Show/focus the main window
     if let Some(window) = app_handle.get_webview_window("main") {
@@ -177,7 +184,7 @@ pub async fn handle_ole_edit_session_with_app(
     let (tx, rx) = mpsc::sync_channel::<OleEditResult>(1);
     let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
 
-    // Listen for the editor result from frontend
+    // Listen for the editor result from frontend — keyed by session token
     let tx_clone = tx.clone();
     let token_clone = session_token.clone();
     let _listener = app_handle.listen(format!("ole-edit-result-{}", token_clone), move |event| {
@@ -288,6 +295,18 @@ pub async fn handle_ole_edit_session_with_app(
             Ok(())
         }
     }
+}
+
+/// Extract the session token (UUID) from a pipe name like
+/// `\\.\pipe\LaTeXSnipper.OleEditSession.{uuid}`
+fn extract_session_token_from_pipe_name(pipe_name: &str) -> Result<String, String> {
+    let token = pipe_name
+        .strip_prefix(OLE_EDIT_PIPE_PREFIX)
+        .ok_or_else(|| format!("Cannot extract session token from pipe name: {}", pipe_name))?;
+    if token.is_empty() {
+        return Err(format!("Empty session token in pipe name: {}", pipe_name));
+    }
+    Ok(token.to_string())
 }
 
 /// Open editor and produce a response. Legacy fallback — should not be called
@@ -401,8 +420,8 @@ fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
     }
     let payload_size = u32::from_le_bytes(size_buf) as usize;
     const MAX_PAYLOAD: usize = 4 * 1024 * 1024; // 4 MiB for full FormulaPayload
-    if payload_size == 0 || payload_size > MAX_PAYLOAD {
-        return Err(format!("Invalid envelope size: {} (max {})", payload_size, MAX_PAYLOAD));
+    if payload_size == 0 || payload_size > MAX_PAYLOAD || payload_size % 2 != 0 {
+        return Err(format!("Invalid envelope size: {} (max {}, must be even)", payload_size, MAX_PAYLOAD));
     }
 
     let mut payload_buf = vec![0u8; payload_size];
@@ -412,10 +431,12 @@ fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
         return Err(format!("Failed to read envelope payload: read={} err={}", read_bytes, err));
     }
 
-    let u16_slice: &[u16] = unsafe {
-        std::slice::from_raw_parts(payload_buf.as_ptr() as *const u16, payload_buf.len() / 2)
-    };
-    let json_wide: Vec<u16> = u16_slice.iter().copied().take_while(|&c| c != 0).collect();
+    // P0-8: Safe UTF-16 decoding — avoid unsafe pointer cast that violates alignment requirements.
+    let units: Vec<u16> = payload_buf
+        .chunks_exact(2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .collect();
+    let json_wide: Vec<u16> = units.iter().copied().take_while(|&c| c != 0).collect();
     let json = String::from_utf16(&json_wide).map_err(|e| format!("Invalid UTF-16: {}", e))?;
     serde_json::from_str(&json).map_err(|e| format!("JSON parse: {}", e))
 }

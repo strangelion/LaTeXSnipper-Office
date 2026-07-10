@@ -54,8 +54,8 @@ public static class OleFormulaInterop
     }
 
     /// <summary>
-    /// Verify round-trip: payload.FormulaId matches what the OLE object reports,
-    /// and key fields (latex, schemaVersion, storageMode) are consistent.
+    /// Verify round-trip: all key fields survive the OLE object's InitializeFromJson
+    /// and GetPayloadJson cycle without corruption.
     /// </summary>
     public static bool VerifyRoundTrip(dynamic oleAutomationObject, FormulaPayload expectedPayload)
     {
@@ -91,6 +91,27 @@ public static class OleFormulaInterop
                 expectedMode = "ole";
             if (actual.StorageMode != expectedMode)
                 return false;
+
+            // P1-1: Verify content fields survived the round-trip
+            if (!string.Equals(actual.Latex, expectedPayload.Latex, StringComparison.Ordinal))
+                return false;
+            if (!string.Equals(actual.Display, expectedPayload.Display, StringComparison.Ordinal))
+                return false;
+
+            // Compare Omml only if both sides have it (may be null in some paths)
+            if (!string.IsNullOrEmpty(expectedPayload.Omml) && !string.IsNullOrEmpty(actual.Omml))
+            {
+                if (!string.Equals(actual.Omml, expectedPayload.Omml, StringComparison.Ordinal))
+                    return false;
+            }
+
+            // P1-1: Verify the OLE object still has valid preview data
+            bool hasPreview = (actual.Render?.Png != null) || (actual.Presentation?.EmfBase64 != null);
+            if (!hasPreview)
+            {
+                System.Diagnostics.Debug.WriteLine("[OleFormulaInterop] VerifyRoundTrip failed: OLE object lost preview data");
+                return false;
+            }
 
             return true;
         }

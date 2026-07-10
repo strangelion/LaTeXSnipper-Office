@@ -76,7 +76,7 @@ jobs:
 
       - name: Install WiX Toolset
         run: |
-          dotnet tool install wix --tool-path .wix --version 7.0.0
+          dotnet tool install wix --tool-path .wix --version 5.0.2
           (Resolve-Path .wix).Path | Out-File $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Restore NuGet packages

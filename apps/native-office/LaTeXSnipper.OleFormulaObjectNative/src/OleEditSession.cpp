@@ -637,28 +637,43 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 
         if (!newLatex.empty())
         {
-            presentation->latex = newLatex;
+            // P0-6: All-or-nothing update — do NOT commit new LaTeX without valid preview.
+            // If the new payload has no EMF, we must keep the entire old presentation
+            // to prevent "new LaTeX + old preview" inconsistency.
+            bool hasValidPreview = false;
+            std::wstring updatedPayloadJson;
 
-            // If we have a full payload JSON, rebuild the entire presentation
             if (!newPayloadJson.empty())
             {
                 FormulaPresentation fresh = CreatePresentationFromPayload(newPayloadJson);
                 if (!fresh.enhancedMetafile.empty())
                 {
+                    hasValidPreview = true;
+                    presentation->latex = newLatex;
                     presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
                     presentation->himetricSize = fresh.himetricSize;
+                    presentation->payloadJson = newPayloadJson;
                 }
-                presentation->payloadJson = newPayloadJson;
             }
             else
             {
-                // Fallback: placeholder renderer
                 FormulaPresentation fresh = CreatePlaceholderPresentation(newLatex);
                 if (!fresh.enhancedMetafile.empty())
                 {
+                    hasValidPreview = true;
+                    presentation->latex = newLatex;
                     presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
                     presentation->himetricSize = fresh.himetricSize;
                 }
+            }
+
+            if (!hasValidPreview)
+            {
+                // P0-6: Preview generation failed — reject the save entirely.
+                // Return the old presentation unchanged.
+                WriteNativeOleLog(L"OleEditSession: Save rejected — new formula has no valid EMF preview.");
+                // Signal error back to caller by returning empty response
+                return HResultFromWin32LastError();
             }
 
             WriteNativeOleLog(L"OleEditSession: Formula updated from Desktop.");
