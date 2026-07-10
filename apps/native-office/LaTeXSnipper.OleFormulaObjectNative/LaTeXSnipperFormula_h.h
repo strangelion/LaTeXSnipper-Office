@@ -109,6 +109,9 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
         
         virtual /* [id] */ HRESULT STDMETHODCALLTYPE OpenEditor( void) = 0;
         
+        virtual /* [id] */ HRESULT STDMETHODCALLTYPE IsInitialized( 
+            /* [retval][out] */ VARIANT_BOOL *result) = 0;
+        
     };
     
     
@@ -198,6 +201,11 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
         /* [id] */ HRESULT ( STDMETHODCALLTYPE *OpenEditor )( 
             ILatexSnipperFormula * This);
         
+        DECLSPEC_XFGVIRT(ILatexSnipperFormula, IsInitialized)
+        /* [id] */ HRESULT ( STDMETHODCALLTYPE *IsInitialized )( 
+            ILatexSnipperFormula * This,
+            /* [retval][out] */ VARIANT_BOOL *result);
+        
         END_INTERFACE
     } ILatexSnipperFormulaVtbl;
 
@@ -248,6 +256,9 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
 
 #define ILatexSnipperFormula_OpenEditor(This)	\
     ( (This)->lpVtbl -> OpenEditor(This) ) 
+
+#define ILatexSnipperFormula_IsInitialized(This,result)	\
+    ( (This)->lpVtbl -> IsInitialized(This,result) ) 
 
 #endif /* COBJMACROS */
 

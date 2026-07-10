@@ -26,6 +26,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE ReplacePayloadJson(BSTR payloadJson) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetFormulaId(BSTR* formulaId) = 0;
     virtual HRESULT STDMETHODCALLTYPE OpenEditor() = 0;
+    virtual HRESULT STDMETHODCALLTYPE IsInitialized(VARIANT_BOOL* result) = 0;
 };
 
 #endif
