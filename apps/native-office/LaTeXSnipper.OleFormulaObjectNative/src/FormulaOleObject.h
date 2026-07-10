@@ -130,6 +130,7 @@ private:
     FormulaPresentation presentation_;
     std::wstring canonicalPayloadJson_;
     bool dirty_ = false;
+    bool initializedFromRealPayload_ = false;
     std::wstring formulaId_;
 
     // Async edit session: DoVerb spawns a thread so Office UI is not blocked.

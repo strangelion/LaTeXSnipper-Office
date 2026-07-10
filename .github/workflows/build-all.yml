@@ -42,7 +42,8 @@ jobs:
           elif [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             VER="${BASH_REMATCH[1]}"
           else
-            VER="3.0.0"
+            # Read version from package.json as fallback (never hardcode)
+            VER=$(node -p "require('./package.json').version")
           fi
           echo "version=$VER" >> $GITHUB_OUTPUT
           echo "Version: $VER"
@@ -425,6 +426,10 @@ jobs:
         shell: pwsh
         run: .\apps\native-office\LaTeXSnipper.OleFormulaObjectNative\vendor\nlohmann\fetch_json.ps1
 
+      - name: Generate OLE version header from package.json
+        shell: pwsh
+        run: .\scripts\build-ole-version.ps1
+
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
@@ -577,10 +582,15 @@ jobs:
         working-directory: apps/vscode-extension
         run: npm run package
 
+      - name: Clean old VSIX packages
+        working-directory: apps/vscode-extension
+        run: Remove-Item *.vsix -Force -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         with:
           name: vscode-extension
-          path: apps/vscode-extension/*.vsix
+          if-no-files-found: error
+          path: apps/vscode-extension/latexsnipper-vscode-${{ env.VERSION }}.vsix
 
   # ─────────── Browser Extension ───────────
   browser-extension:
@@ -656,9 +666,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: browser-extension
+          if-no-files-found: error
           path: |
-            apps/browser-extension/latexsnipper-browser-chrome_*.zip
-            apps/browser-extension/latexsnipper-browser-firefox_*.zip
+            apps/browser-extension/latexsnipper-browser-chrome_${{ env.VERSION }}.zip
+            apps/browser-extension/latexsnipper-browser-firefox_${{ env.VERSION }}.zip
 
   # ─────────── Package + Release ───────────
   package:
@@ -707,17 +718,18 @@ jobs:
 
           # VS Code
           $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
-          Copy-Item "artifacts/vscode-extension/*.vsix" "$release/plugins/" -Force
+          Copy-Item "artifacts/vscode-extension/latexsnipper-vscode-$ver.vsix" "$release/plugins/" -Force
 
           # Browser
-          Copy-Item "artifacts/browser-extension/*.zip" "$release/plugins/" -Force
+          Copy-Item "artifacts/browser-extension/latexsnipper-browser-chrome_$ver.zip" "$release/plugins/" -Force
+          Copy-Item "artifacts/browser-extension/latexsnipper-browser-firefox_$ver.zip" "$release/plugins/" -Force
 
           # WPS
           $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
-          Copy-Item "artifacts/wps/*.zip" "$release/plugins/" -Force
+          Copy-Item "artifacts/wps/latexsnipper-wps_$ver.zip" "$release/plugins/" -Force
 
           # Obsidian
-          Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
+          Copy-Item "artifacts/obsidian/latexsnipper-obsidian_$ver.zip" "$release/plugins/" -Force
 
           # macOS
           $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
@@ -780,12 +792,12 @@ jobs:
           files: |
             release/LaTeXSnipper-${{ env.VERSION }}/windows/*.msi
             release/LaTeXSnipper-${{ env.VERSION }}/windows/*.exe
-            release/LaTeXSnipper-${{ env.VERSION }}/LaTeXSnipper-Office-VSTO_*.zip
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/*.vsix
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-chrome_*.zip
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-firefox_*.zip
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-wps_*.zip
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-obsidian_*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/LaTeXSnipper-Office-VSTO_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-vscode-${{ env.VERSION }}.vsix
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-chrome_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-firefox_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-wps_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip
             release/LaTeXSnipper-${{ env.VERSION }}/macos/*.dmg
             release/LaTeXSnipper-${{ env.VERSION }}/linux/*.deb
             release/LaTeXSnipper-${{ env.VERSION }}/linux/*.rpm

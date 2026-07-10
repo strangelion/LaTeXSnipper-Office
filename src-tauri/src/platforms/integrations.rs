@@ -4060,7 +4060,10 @@ pub fn uninstall_ole_component() -> OleComponentResult {
         for key in &[
             format!(r"HKCU\Software\Classes\CLSID\{}", clsid),
             format!(r"HKCU\Software\Classes\{}", prog_id),
+            format!(r"HKCU\Software\Classes\{}\CLSID", prog_id),
+            format!(r"HKCU\Software\Classes\{}\CurVer", prog_id),
             format!(r"HKCU\Software\Classes\{}", prog_id_vi),
+            format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi),
         ] {
             let result = run_windows_tool(
                 super::process::background_command("reg.exe")
@@ -4073,7 +4076,10 @@ pub fn uninstall_ole_component() -> OleComponentResult {
                 }
                 Ok(out) => {
                     let stderr = String::from_utf8_lossy(&out.stderr);
-                    log::warn!("[OLE] Failed to delete {}: {}", key, stderr);
+                    // "The system was unable to find the specified registry key" is OK (already deleted)
+                    if !stderr.contains("unable to find") {
+                        log::warn!("[OLE] Failed to delete {}: {}", key, stderr);
+                    }
                 }
                 Err(e) => {
                     log::warn!("[OLE] Failed to delete {}: {}", key, e);

@@ -1,8 +1,9 @@
 #include <windows.h>
+#include "OleVersion.h"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 2,4,0,0
- PRODUCTVERSION 2,4,0,0
+ FILEVERSION OLE_FILEVERSION_RAW
+ PRODUCTVERSION OLE_PRODUCTVERSION_RAW
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS 0x1L
@@ -19,11 +20,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "LaTeXSnipper"
             VALUE "FileDescription", "LaTeXSnipper Formula Object Handler"
-            VALUE "FileVersion", "2.4.0.0"
+            VALUE "FileVersion", OLE_VERSION_STRING
             VALUE "InternalName", "LaTeXSnipper.OleFormulaObject.Handler"
             VALUE "OriginalFilename", "LaTeXSnipper.OleFormulaObject.Handler.dll"
             VALUE "ProductName", "LaTeXSnipper"
-            VALUE "ProductVersion", "2.4.0.0"
+            VALUE "ProductVersion", OLE_VERSION_STRING
         END
     END
     BLOCK "VarFileInfo"

@@ -47,4 +47,8 @@ src-tauri/resources/NativeOffice/**/System.*.dll
 src-tauri/resources/NativeOffice/**/Microsoft.Bcl.*.dll
 src-tauri/resources/NativeOffice/**/office.dll
 src-tauri/resources/NativeOffice/**/office.xml
+
+# Generated extension packages (build artifacts, not source)
+/apps/browser-extension/*.zip
+/apps/vscode-extension/*.vsix
 src-tauri/resources/NativeOffice/**/stdole.dll

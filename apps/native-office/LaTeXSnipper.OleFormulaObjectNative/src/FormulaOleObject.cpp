@@ -168,11 +168,12 @@ LONG GetNativeOleLockCount()
 
 FormulaOleObject::FormulaOleObject()
 {
-    // Check registry for a pending payload from the VSTO add-in (P0-3)
-    std::wstring pendingJson = ConsumePendingPayload();
+    const std::wstring pendingJson = ConsumePendingPayload();
+
     if (!pendingJson.empty())
     {
         FormulaPresentation loaded = CreatePresentationFromPayload(pendingJson);
+
         if (!loaded.latex.empty() && !loaded.enhancedMetafile.empty())
         {
             presentation_ = std::move(loaded);
@@ -180,21 +181,26 @@ FormulaOleObject::FormulaOleObject()
             formulaId_ = ExtractJsonString(pendingJson, L"formulaId");
             if (formulaId_.empty())
                 formulaId_.resize(32, L'0');
+            initializedFromRealPayload_ = true;
             dirty_ = true;
-            WriteNativeOleLog(L"FormulaOleObject constructed with REAL payload from PendingPayload.");
+            WriteNativeOleLog(L"FormulaOleObject constructed with REAL payload.");
         }
         else
         {
-            presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
-            formulaId_.resize(32, L'0');
-            WriteNativeOleLog(L"FormulaOleObject constructed with PLACEHOLDER (PendingPayload had no valid EMF).");
+            WriteNativeOleLog(L"FormulaOleObject: PendingPayload had no valid EMF — entering invalid state.");
         }
     }
-    else
+
+    if (!initializedFromRealPayload_)
     {
-        presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
-        formulaId_.resize(32, L'0');
-        WriteNativeOleLog(L"FormulaOleObject constructed with PLACEHOLDER (no PendingPayload found).");
+        // P0: Do NOT create a placeholder formula. The object enters an invalid
+        // state and waits for InitializeFromJson() to补救. If that never happens,
+        // GetData/Draw will refuse to serve data, and VSTO will detect the failure.
+        presentation_ = {};
+        canonicalPayloadJson_.clear();
+        formulaId_.clear();
+        dirty_ = false;
+        WriteNativeOleLog(L"FormulaOleObject constructed in INVALID state (no real payload).");
     }
 
     InterlockedIncrement(&g_objectCount);
@@ -647,6 +653,15 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
     WriteNativeOleLog(L"FormulaOleObject GetData.");
     // Apply any pending async edit result before serving data
     ApplyPendingEditResult();
+
+    // P0: Refuse to serve data if the object was never initialized with real payload.
+    // This prevents displaying a placeholder formula as if it were user content.
+    if (!initializedFromRealPayload_ || presentation_.enhancedMetafile.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject GetData: rejecting — not initialized with real payload.");
+        return DV_E_FORMATETC;
+    }
+
     if (format == nullptr || medium == nullptr)
     {
         return E_POINTER;
@@ -695,6 +710,12 @@ STDMETHODIMP FormulaOleObject::GetDataHere(FORMATETC*, STGMEDIUM*)
 
 STDMETHODIMP FormulaOleObject::QueryGetData(FORMATETC* format)
 {
+    // P0: Refuse to report data availability if not initialized with real payload.
+    if (!initializedFromRealPayload_ || presentation_.enhancedMetafile.empty())
+    {
+        return DV_E_FORMATETC;
+    }
+
     if (format == nullptr)
     {
         return E_POINTER;
@@ -848,6 +869,14 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
     WriteNativeOleLog(L"FormulaOleObject Draw.");
     // Apply any pending async edit result before rendering
     ApplyPendingEditResult();
+
+    // P0: Refuse to draw if the object was never initialized with real payload.
+    if (!initializedFromRealPayload_ || presentation_.enhancedMetafile.empty())
+    {
+        WriteNativeOleLog(L"FormulaOleObject Draw: rejecting — not initialized with real payload.");
+        return DV_E_FORMATETC;
+    }
+
     HRESULT aspectResult = ValidateContentAspect(drawAspect);
     if (FAILED(aspectResult))
     {
@@ -1111,6 +1140,7 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
     {
         storage_ = storage;
         presentation_ = std::move(loaded);
+        initializedFromRealPayload_ = true;
         dirty_ = false;
     }
 
@@ -1250,6 +1280,7 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     presentation_ = std::move(loaded);
     canonicalPayloadJson_ = wsJson;
     formulaId_ = formulaId;
+    initializedFromRealPayload_ = true;
     dirty_ = true;
 
     NotifyPresentationChanged();
@@ -1529,6 +1560,7 @@ void FormulaOleObject::ApplyPendingEditResult()
         std::lock_guard<std::mutex> lock(editResultMutex_);
         presentation_ = std::move(pendingEditResult_);
     }
+    initializedFromRealPayload_ = true;
     dirty_ = true;
 
     if (!presentation_.payloadJson.empty())

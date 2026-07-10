@@ -59,7 +59,7 @@
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <PreprocessorDefinitions>WIN32_LEAN_AND_MEAN;UNICODE;_UNICODE;_ATL_NO_AUTOMATIC_NAMESPACE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)src;$(MSBuildThisFileDirectory)vendor;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)src;$(MSBuildThisFileDirectory)vendor;$(MSBuildThisFileDirectory)res;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -102,6 +102,7 @@
     <ClInclude Include="src\JsonHelper.h" />
     <ClInclude Include="src\Win32Check.h" />
     <ClInclude Include="src\LaTeXSnipperFormula.h" />
+    <ClInclude Include="res\OleVersion.h" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="src\LaTeXSnipperFormula.idl" />
@@ -111,6 +112,13 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="src\OleFormulaObjectHandler.def" />
+    <None Include="..\..\..\..\scripts\build-ole-version.ps1" />
   </ItemGroup>
+  <PropertyGroup>
+    <PreBuildEvent>
+      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\..\scripts\build-ole-version.ps1"</Command>
+      <Message>Generating OleVersion.h from package.json...</Message>
+    </PreBuildEvent>
+  </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

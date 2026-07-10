@@ -167,16 +167,53 @@ public static class OleFormulaInterop
         if (payload.Revision < 0)
             payload.Revision = 0;
 
-        // Check for preview data
-        bool hasPng = payload.Render?.Png != null;
-        bool hasEmf = payload.Presentation?.EmfBase64 != null;
+        // Check for preview data — must be valid, not just non-null.
+        bool hasPng = !string.IsNullOrWhiteSpace(payload.Render?.Png) && IsValidPngBase64(payload.Render!.Png!);
+        bool hasEmf = !string.IsNullOrWhiteSpace(payload.Presentation?.EmfBase64);
         if (!hasPng && !hasEmf)
         {
             throw new InvalidOperationException(
-                "OLE formula requires preview data (Render.Png or Presentation.EmfBase64). " +
+                "OLE formula requires valid preview data (Render.Png with valid Base64+PNG magic, or Presentation.EmfBase64). " +
                 "Ensure the formula is rendered before OLE insertion.");
         }
 
         return payload;
+    }
+
+    /// <summary>
+    /// Validate that a string is a valid Base64-encoded PNG image.
+    /// Checks: non-empty, valid Base64, and PNG magic bytes (0x89 PNG ...).
+    /// Handles optional "data:image/png;base64," prefix.
+    /// </summary>
+    private static bool IsValidPngBase64(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        // Strip optional data URI prefix
+        const string prefix = "data:image/png;base64,";
+        if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            value = value.Substring(prefix.Length);
+
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(value);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        // PNG magic: 89 50 4E 47 0D 0A 1A 0A
+        return bytes.Length >= 8 &&
+               bytes[0] == 0x89 &&
+               bytes[1] == 0x50 &&
+               bytes[2] == 0x4E &&
+               bytes[3] == 0x47 &&
+               bytes[4] == 0x0D &&
+               bytes[5] == 0x0A &&
+               bytes[6] == 0x1A &&
+               bytes[7] == 0x0A;
     }
 }
