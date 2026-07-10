@@ -45,15 +45,16 @@ namespace LaTeXSnipper.Excel.Host
                     // P1-3: Return the actual error from TryInsertOle, not a generic message.
                     // Auto mode callers can decide to fall back; explicit OLE mode surfaces the error.
                     string error = oleResult?.Error ?? "OLE activation failed: unknown error";
-                    return new InsertResult { Success = false, Error = error };
+                    return new InsertResult { Success = false, ErrorCode = oleResult?.ErrorCode, Error = error };
                 }
 
+                string? oleFallbackReason = null;
                 if (storageMode == "auto")
                 {
                     var oleResult = TryInsertOle(sheet, cell, payload);
                     if (oleResult?.Success == true)
                         return oleResult;
-                    // Auto mode: fall through to image/text fallback below
+                    oleFallbackReason = $"{oleResult?.ErrorCode ?? "OLE_AUTOMATION_UNAVAILABLE"}: {oleResult?.Error ?? "unknown OLE failure"}";
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")
@@ -62,28 +63,32 @@ namespace LaTeXSnipper.Excel.Host
                 }
 
                 // Image / text fallback
+                if (payload.Render?.Svg != null)
+                {
+                    try
+                    {
+                        var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
+                        imageResult.ActualStorageMode = "image";
+                        imageResult.FallbackReason = oleFallbackReason;
+                        return imageResult;
+                    }
+                    catch (Exception svgError) when (payload.Render?.Png != null)
+                    {
+                        oleFallbackReason = string.IsNullOrEmpty(oleFallbackReason)
+                            ? $"SVG insertion failed: {svgError.Message}"
+                            : $"{oleFallbackReason}; SVG insertion failed: {svgError.Message}";
+                    }
+                }
+
                 if (payload.Render?.Png != null)
                 {
                     var imageResult = InsertImage(sheet, cell, payload, payload.Render.Png, ".png");
-                    string? fallbackReason = storageMode == "auto" ? "OLE unavailable, fell back to PNG" : null;
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = fallbackReason };
+                    imageResult.ActualStorageMode = "image";
+                    imageResult.FallbackReason = oleFallbackReason ?? "SVG unavailable; used high-DPI PNG";
+                    return imageResult;
                 }
 
-                if (payload.Render?.Svg != null)
-                {
-                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
-                    string? fallbackReason = storageMode == "auto" ? "OLE unavailable, fell back to SVG" : null;
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = fallbackReason };
-                }
-
-                if (!string.IsNullOrEmpty(payload.Latex))
-                {
-                    cell.Value = payload.Latex;
-                    string? fallbackReason = storageMode == "auto" ? "No render data, fell back to text" : null;
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "text", FallbackReason = fallbackReason };
-                }
-
-                return new InsertResult { Success = false, Error = "No render data or LaTeX content" };
+                return new InsertResult { Success = false, ErrorCode = "OLE_RASTER_FALLBACK_FAILED", Error = "No SVG or PNG render data is available." };
             }
             catch (Exception ex)
             {
@@ -123,6 +128,8 @@ namespace LaTeXSnipper.Excel.Host
                 width, height
             );
             shape.Name = $"LSNO_{payload.FormulaId}";
+            shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+            shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
             shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
 
             // Clean up temp file after successful insertion
@@ -313,10 +320,7 @@ namespace LaTeXSnipper.Excel.Host
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
-                // P0-A: Write pending payload BEFORE creating OLE object,
-                // so the C++ constructor can read it immediately.
-                OleFormulaPendingPayloadStore.Save(payload);
-                try
+                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
                     var ole = oleObjects.Add(
@@ -333,28 +337,17 @@ namespace LaTeXSnipper.Excel.Host
                     ole.Name = $"LSNO_{payload.FormulaId}";
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
 
-                    // Initialize with formula payload via OLE automation
-                    var oleAutomation = ole.Object;
-                    if (oleAutomation == null || !OleFormulaInterop.Initialize(oleAutomation, payload))
+                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                        () => ole.Object,
+                        payload,
+                        () => ole.Delete());
+                    if (!activation.Success)
                     {
-                        ole.Delete();
-                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
-                    }
-
-                    // Verify round-trip
-                    if (!OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload))
-                    {
-                        ole.Delete();
-                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                        return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
 
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
-                }
-                finally
-                {
-                    // Safety net: clean up stale registry payload if C++ constructor failed to consume it.
-                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
             }
             catch (Exception ex)
@@ -466,22 +459,34 @@ namespace LaTeXSnipper.Excel.Host
                         int oldPlacement = -1;
                         try { oldPlacement = (int)shape.Placement; } catch { }
 
-                        shape.Delete();
-
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        if (payload.Render?.Png != null)
-                        {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
-                        }
-                        else
+                        bool replacingWithSvg = payload.Render?.Svg != null;
+                        if (replacingWithSvg)
                         {
                             File.WriteAllText(tempPath, payload.Render!.Svg!);
                         }
+                        else
+                        {
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render!.Png!));
+                        }
                         float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
                         float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                        var newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                            Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        Microsoft.Office.Interop.Excel.Shape newShape;
+                        try
+                        {
+                            newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        }
+                        catch when (replacingWithSvg && payload.Render?.Png != null)
+                        {
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                            newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        }
+                        shape.Delete();
+                        newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                         newShape.Name = $"LSNO_{formulaId}";
                         newShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{formulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
 
@@ -499,6 +504,7 @@ namespace LaTeXSnipper.Excel.Host
                         {
                             try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch { }
                         }
+                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
                         return true;
                     }
                 }
@@ -579,5 +585,6 @@ namespace LaTeXSnipper.Excel.Host
         public string? ActualStorageMode { get; set; }
         public string? FallbackReason { get; set; }
         public string Error { get; set; } = "";
+        public string? ErrorCode { get; set; }
     }
 }

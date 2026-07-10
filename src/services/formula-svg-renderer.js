@@ -112,9 +112,9 @@ export class FormulaSvgRenderer {
     const maxWidthPt = options.maxWidthPt ?? 480;
     const maxHeightPt = options.maxHeightPt ?? 240;
 
-    const parseLength = (value, fallback) => {
+    const parseLength = (value) => {
       const s = String(value || '').trim();
-      if (!s) return fallback;
+      if (!s) return NaN;
 
       let m = s.match(/^([\d.]+)ex$/);
       if (m) return parseFloat(m[1]) * 4.30554;
@@ -131,26 +131,42 @@ export class FormulaSvgRenderer {
       m = s.match(/^([\d.]+)/);
       if (m) return parseFloat(m[1]) * 0.75;
 
-      return fallback;
+      return NaN;
     };
 
     const widthAttr = svg.getAttribute('width') || '';
     const heightAttr = svg.getAttribute('height') || '';
 
-    let widthPt = parseLength(widthAttr, 120);
-    let heightPt = parseLength(heightAttr, 36);
+    let widthPt = parseLength(widthAttr);
+    let heightPt = parseLength(heightAttr);
+    const viewBoxValues = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+    const validViewBox = viewBoxValues.length === 4 && viewBoxValues.every(Number.isFinite) && viewBoxValues[2] > 0 && viewBoxValues[3] > 0;
 
-    // Use viewBox as fallback when width/height are missing
-    if ((!widthPt || !heightPt) && svg.getAttribute('viewBox')) {
-      const viewBox = svg.getAttribute('viewBox').split(/\s+/);
-      widthPt = (parseFloat(viewBox[2]) || 1200) / 10;
-      heightPt = (parseFloat(viewBox[3]) || 300) / 10;
+    if (!Number.isFinite(widthPt) && !Number.isFinite(heightPt) && validViewBox) {
+      widthPt = viewBoxValues[2] / 10;
+      heightPt = viewBoxValues[3] / 10;
+    } else if (!Number.isFinite(widthPt) && Number.isFinite(heightPt) && validViewBox) {
+      widthPt = heightPt * viewBoxValues[2] / viewBoxValues[3];
+    } else if (Number.isFinite(widthPt) && !Number.isFinite(heightPt) && validViewBox) {
+      heightPt = widthPt * viewBoxValues[3] / viewBoxValues[2];
     }
+    if (!Number.isFinite(widthPt) || widthPt <= 0) widthPt = 120;
+    if (!Number.isFinite(heightPt) || heightPt <= 0) heightPt = validViewBox ? widthPt * viewBoxValues[3] / viewBoxValues[2] : 36;
 
-    widthPt = Math.min(maxWidthPt, Math.max(minWidthPt, widthPt));
-    heightPt = Math.min(maxHeightPt, Math.max(minHeightPt, heightPt));
+    const minimumScale = Math.max(minWidthPt / widthPt, minHeightPt / heightPt);
+    const maximumScale = Math.min(maxWidthPt / widthPt, maxHeightPt / heightPt);
+    const uniformScale = minimumScale <= maximumScale
+      ? Math.min(maximumScale, Math.max(minimumScale, 1))
+      : maximumScale;
+    widthPt *= uniformScale;
+    heightPt *= uniformScale;
 
-    return { widthPt, heightPt };
+    return {
+      widthPt,
+      heightPt,
+      viewBox: validViewBox ? viewBoxValues.join(' ') : '',
+      aspectRatio: widthPt / heightPt,
+    };
   }
 
   /**

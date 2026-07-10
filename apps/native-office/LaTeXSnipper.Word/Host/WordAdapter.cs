@@ -597,12 +597,8 @@ namespace LaTeXSnipper.Word.Host
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
-                // Save payload to registry BEFORE creating OLE object.
-                // The C++ OLE DLL reads this during construction to render the correct formula
-                // immediately, avoiding a race between InitializeFromJson and Office's render request.
-                OleFormulaPendingPayloadStore.Save(payload);
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
-                try
+                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     oleShape = (Microsoft.Office.Interop.Word.InlineShape)
                         doc.InlineShapes.AddOLEObject(
@@ -615,66 +611,14 @@ namespace LaTeXSnipper.Word.Host
                     oleShape.Width = width;
                     oleShape.Height = height;
 
-                    // P0-T31: Retry OLE automation activation with longer delays.
-                    // Word may not expose OLEFormat.Object immediately after insertion.
-                    // After retries, check IsInitialized() before deleting.
-                    dynamic oleAutomation = null;
-                    for (int attempt = 0; attempt < 10; attempt++)
+                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                        () => oleShape.OLEFormat?.Object,
+                        payload,
+                        () => oleShape.Delete());
+                    if (!activation.Success)
                     {
-                        try
-                        {
-                            oleAutomation = oleShape.OLEFormat?.Object;
-                            if (oleAutomation != null)
-                                break;
-                        }
-                        catch
-                        {
-                            // COM not ready yet
-                        }
-                        System.Threading.Thread.Sleep(100);
+                        return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
-
-                    if (oleAutomation != null)
-                    {
-                        // P0-T31: Check if C++ constructor initialized with real payload.
-                        bool isInitialized = OleFormulaInterop.IsInitialized(oleAutomation);
-
-                        // Verify the round-trip
-                        bool verified = OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
-                        if (!verified && isInitialized)
-                        {
-                            // Constructor initialized but verification failed — re-init as fallback
-                            bool initialized = OleFormulaInterop.Initialize(oleAutomation, payload);
-                            verified = initialized && OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload);
-                        }
-
-                        if (!verified && isInitialized)
-                        {
-                            oleShape.Delete();
-                            return new InsertResult { Success = false, Error = "OLE payload verification failed -- rollback" };
-                        }
-
-                        if (!isInitialized && !verified)
-                        {
-                            // Constructor did NOT initialize AND verification failed — object is invalid
-                            oleShape.Delete();
-                            return new InsertResult { Success = false, Error = "OLE object was not initialized with real payload -- rollback" };
-                        }
-                    }
-                    else
-                    {
-                        // Automation still unavailable after 10 retries (1s total).
-                        // Check via IsInitialized if possible, otherwise delete.
-                        oleShape.Delete();
-                        return new InsertResult { Success = false, Error = "Word could not activate the OLE automation object after retries." };
-                    }
-                }
-                finally
-                {
-                    // Safety net: if the C++ constructor failed to consume the payload
-                    // (e.g. DLL crash), clean up the registry value so stale data does not
-                    // leak into the next OLE object construction.
-                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
@@ -747,25 +691,38 @@ namespace LaTeXSnipper.Word.Host
 
         private InsertResult InsertImageObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
         {
+            string tempPath = "";
             try
             {
                 if (payload.Render?.Png == null && payload.Render?.Svg == null)
                     return new InsertResult { Success = false, Error = "No render data for image insertion" };
 
-                // Word prefers PNG for inline images
-                string tempPath = "";
-                if (payload.Render?.Png != null)
+                Microsoft.Office.Interop.Word.InlineShape image;
+                string? fallbackReason = null;
+                if (payload.Render?.Svg != null)
                 {
-                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                    System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
-                    range.InlineShapes.AddPicture(tempPath);
+                    try
+                    {
+                        tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                        System.IO.File.WriteAllText(tempPath, payload.Render.Svg);
+                        image = range.InlineShapes.AddPicture(tempPath);
+                    }
+                    catch (Exception svgError) when (payload.Render?.Png != null)
+                    {
+                        fallbackReason = $"SVG insertion failed: {svgError.Message}";
+                        tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                        System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                        image = range.InlineShapes.AddPicture(tempPath);
+                    }
                 }
                 else
                 {
-                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                    System.IO.File.WriteAllText(tempPath, payload.Render!.Svg!);
-                    range.InlineShapes.AddPicture(tempPath);
+                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                    System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render!.Png!));
+                    image = range.InlineShapes.AddPicture(tempPath);
                 }
+                image.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                if (payload.Render!.WidthPt > 0) image.Width = payload.Render.WidthPt;
 
                 // Wrap the image in a ContentControl with tag so Delete/Replace/Convert can find it.
                 // Without this tag, image formulas cannot be read, replaced, deleted, or converted.
@@ -788,21 +745,24 @@ namespace LaTeXSnipper.Word.Host
                 // Write to manifest for reliable read/replace/delete/convert
                 FormulaDocumentManifest.Write(doc, payload);
 
-                // Clean up temp file after successful insertion
-                try { if (!string.IsNullOrEmpty(tempPath) && System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); }
-                catch { /* temp file cleanup is best-effort */ }
-
                 return new InsertResult
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
                     RangeStart = (uint)(cc?.Range.Start ?? range.Start),
-                    RangeEnd = (uint)(cc?.Range.End ?? range.End)
+                    RangeEnd = (uint)(cc?.Range.End ?? range.End),
+                    StorageMode = "image",
+                    FallbackReason = fallbackReason
                 };
             }
             catch (Exception ex)
             {
                 return new InsertResult { Success = false, Error = $"Image insert failed: {ex.Message}" };
+            }
+            finally
+            {
+                try { if (!string.IsNullOrEmpty(tempPath) && System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); }
+                catch { }
             }
         }
 
@@ -1167,5 +1127,6 @@ namespace LaTeXSnipper.Word.Host
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }
         public string Error { get; set; } = "";
+        public string? ErrorCode { get; set; }
     }
 }

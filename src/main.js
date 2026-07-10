@@ -2021,7 +2021,7 @@ class UIController {
           omml: omml,
           display: 'block',
           mode: 'display',
-          svg: integrationMode === 'image' ? null : (shouldRenderPreview ? svg : null),
+          svg: shouldRenderPreview ? svg : null,
           png: pngBase64,
           widthPt: widthPt,
           heightPt: heightPt,
@@ -2125,17 +2125,31 @@ class UIController {
 
       // Office insert result
       listen('native-office-insert-result', async (event) => {
-        const { success, formulaId, error, sessionId } = event.payload;
+        const { success, formulaId, error, errorCode, sessionId, requestedStorageMode, actualStorageMode, fallbackReason } = event.payload;
         if (success) {
-          Logger.info(`Native Office: formula inserted (id=${formulaId})`);
-          this.showToast('公式插入成功');
+          Logger.info(`Native Office: formula inserted (id=${formulaId}, requested=${requestedStorageMode}, actual=${actualStorageMode}, fallback=${fallbackReason || 'none'})`);
+          this.showToast(fallbackReason ? `公式已通过兼容图像插入：${fallbackReason}` : '公式插入成功');
         } else {
-          Logger.error(`Native Office: insert failed: ${error}`);
-          // Translate OLE errors to user-friendly messages
-          const friendlyMsg = error && error.includes('OLE')
-            ? 'OLE 插入失败。当前是强制 OLE 模式，因此不会自动降级为兼容图像。请检查 OLE 高级对象是否已启用，或切换为自动/兼容图像模式。'
-            : '插入失败: ' + (error || '未知错误');
-          this.showToast(friendlyMsg);
+          Logger.error(`Native Office: insert failed code=${errorCode || 'UNKNOWN'} session=${sessionId} detail=${error || 'none'}`);
+          const messages = {
+            OLE_NOT_REGISTERED: 'OLE 组件未注册，请在设置中修复 Native Office 安装。',
+            OLE_BITNESS_MISMATCH: 'OLE 组件位数与当前 Office 不匹配。',
+            OLE_ACTIVATION_TIMEOUT: 'OLE 对象激活超时，请关闭占用的 Office 对话框后重试。',
+            OLE_AUTOMATION_UNAVAILABLE: 'Office 未能提供 OLE 自动化对象。',
+            OLE_INITIALIZE_FAILED: 'OLE 公式初始化失败。',
+            OLE_VECTOR_PREVIEW_FAILED: 'SVG 矢量预览生成失败。',
+            OLE_RASTER_FALLBACK_FAILED: '兼容 PNG 预览生成失败。',
+            OLE_ROUNDTRIP_FAILED: 'OLE 公式写入后的完整性校验失败。',
+            OLE_STORAGE_INVALID: '文档中的 OLE 公式存储已损坏。',
+            OLE_COM_CALL_REJECTED: 'Office 暂时拒绝了 COM 调用，请稍后重试。',
+          };
+          const friendlyMsg = messages[errorCode] || '插入失败';
+          const status = document.getElementById('officeOleStatus');
+          if (status) {
+            status.dataset.lastErrorCode = errorCode || 'UNKNOWN';
+            status.title = error || '';
+          }
+          this.showToast(`${friendlyMsg}${error ? ` 详情：${error}` : ''}`);
         }
       });
 
@@ -3508,7 +3522,7 @@ class UIController {
         omml: omml,
         display: isDisplay ? 'block' : 'inline',
         mode: isDisplay ? 'display' : 'inline',
-        svg: integrationMode === 'image' ? null : (shouldRenderPreview ? svg : null),
+        svg: shouldRenderPreview ? svg : null,
         png: pngBase64,
         widthPt: widthPt,
         heightPt: heightPt,
@@ -3672,10 +3686,14 @@ class UIController {
 
   /** @deprecated Use this.formulaSvgRenderer.renderFormulaPng() instead. */
   async _svgToPngBase64(svg, widthPt, heightPt) {
-    const MAX_CANVAS = 4800;
-    const scale = 2;
-    const drawWidth = Math.max(36, Math.min(MAX_CANVAS, Math.round(widthPt / 0.75 * scale)));
-    const drawHeight = Math.max(24, Math.min(MAX_CANVAS, Math.round(heightPt / 0.75 * scale)));
+    const targetDpi = 300;
+    const maxEdge = 8192;
+    const maxPixels = 32 * 1024 * 1024;
+    const rawWidth = Math.max(1, widthPt / 72 * targetDpi);
+    const rawHeight = Math.max(1, heightPt / 72 * targetDpi);
+    const scale = Math.min(1, maxEdge / rawWidth, maxEdge / rawHeight, Math.sqrt(maxPixels / (rawWidth * rawHeight)));
+    const drawWidth = Math.max(1, Math.round(rawWidth * scale));
+    const drawHeight = Math.max(1, Math.round(rawHeight * scale));
 
     const canvas = document.createElement('canvas');
     canvas.width = drawWidth;

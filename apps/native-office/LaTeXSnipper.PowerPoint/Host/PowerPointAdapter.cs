@@ -45,14 +45,15 @@ namespace LaTeXSnipper.PowerPoint.Host
                         return oleResult;
                     // P1-3: Return the actual error from TryInsertOle, not a generic message.
                     string error = oleResult?.Error ?? "OLE activation failed: unknown error";
-                    return new InsertResult { Success = false, Error = error };
+                    return new InsertResult { Success = false, ErrorCode = oleResult?.ErrorCode, Error = error };
                 }
 
+                string? oleFallbackReason = null;
                 if (storageMode == "auto")
                 {
                     var oleResult = TryInsertOle(slide, payload);
                     if (oleResult?.Success == true) return oleResult;
-                    // Auto mode: fall through to image/text fallback below
+                    oleFallbackReason = $"{oleResult?.ErrorCode ?? "OLE_AUTOMATION_UNAVAILABLE"}: {oleResult?.Error ?? "unknown OLE failure"}";
                 }
 
                 if (storageMode == "native" || storageMode == "native-omml")
@@ -60,18 +61,17 @@ namespace LaTeXSnipper.PowerPoint.Host
                     return new InsertResult { Success = false, Error = "Native OMML insertion in PowerPoint is not yet implemented. Use OLE or Image mode instead." };
                 }
 
-                // Prefer PNG over SVG (Office renders PNG more reliably)
                 string? imageExt = null;
                 string? imageData = null;
-                if (payload.Render?.Png != null)
-                {
-                    imageExt = ".png";
-                    imageData = "PNG";
-                }
-                else if (payload.Render?.Svg != null)
+                if (payload.Render?.Svg != null)
                 {
                     imageExt = ".svg";
                     imageData = "SVG";
+                }
+                else if (payload.Render?.Png != null)
+                {
+                    imageExt = ".png";
+                    imageData = "PNG";
                 }
 
                 if (imageExt != null && imageData != null)
@@ -90,12 +90,24 @@ namespace LaTeXSnipper.PowerPoint.Host
                     float left = (slideWidth - width) / 2f;
                     float top = 100f;
 
-                    var shape = slide.Shapes.AddPicture(
-                        tempPath,
-                        Microsoft.Office.Core.MsoTriState.msoFalse,
-                        Microsoft.Office.Core.MsoTriState.msoTrue,
-                        left, top, width, height
-                    );
+                    Microsoft.Office.Interop.PowerPoint.Shape shape;
+                    try
+                    {
+                        shape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, left, top, width, height);
+                    }
+                    catch (Exception svgError) when (imageExt == ".svg" && payload.Render?.Png != null)
+                    {
+                        oleFallbackReason = string.IsNullOrEmpty(oleFallbackReason)
+                            ? $"SVG insertion failed: {svgError.Message}"
+                            : $"{oleFallbackReason}; SVG insertion failed: {svgError.Message}";
+                        tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                        File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                        imageData = "PNG";
+                        shape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, left, top, width, height);
+                    }
+                    shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     var meta = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
                     shape.AlternativeText = meta;
@@ -106,19 +118,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                     // Clean up temp file after successful insertion
                     try { if (File.Exists(tempPath)) File.Delete(tempPath); }
                     catch { /* best-effort */ }
+                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = oleFallbackReason };
                 }
-                else if (!string.IsNullOrEmpty(payload.Latex))
-                {
-                    var textShape = slide.Shapes.AddTextbox(
-                        Microsoft.Office.Core.MsoTextOrientation.msoTextOrientationHorizontal,
-                        50f, 100f, 200f, 40f
-                    );
-                    textShape.TextFrame.TextRange.Text = payload.Latex;
-                    textShape.Name = $"LSNO_{payload.FormulaId}";
-                    textShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"text\"}}";
-                }
-
-                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                return new InsertResult { Success = false, ErrorCode = "OLE_RASTER_FALLBACK_FAILED", Error = "No SVG or PNG render data is available." };
             }
             catch (Exception ex)
             {
@@ -243,10 +245,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 float left = (slideWidth - width) / 2f;
                 float top = 100f;
 
-                // P0-A: Write pending payload BEFORE creating OLE object,
-                // so the C++ constructor can read it immediately.
-                OleFormulaPendingPayloadStore.Save(payload);
-                try
+                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
                     var shape = slide.Shapes.AddOLEObject(
@@ -262,28 +261,17 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
-                    // Initialize with formula payload via OLE automation
-                    var oleAutomation = shape.OLEFormat?.Object;
-                    if (oleAutomation == null || !OleFormulaInterop.Initialize(oleAutomation, payload))
+                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                        () => shape.OLEFormat?.Object,
+                        payload,
+                        () => shape.Delete());
+                    if (!activation.Success)
                     {
-                        shape.Delete();
-                        return new InsertResult { Success = false, Error = "OLE initialization failed — rollback" };
-                    }
-
-                    // Verify round-trip
-                    if (!OleFormulaInterop.VerifyRoundTrip(oleAutomation, payload))
-                    {
-                        shape.Delete();
-                        return new InsertResult { Success = false, Error = "OLE round-trip verification failed — rollback" };
+                        return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
 
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
-                }
-                finally
-                {
-                    // Safety net: clean up stale registry payload if C++ constructor failed to consume it.
-                    try { OleFormulaPendingPayloadStore.Consume(); } catch { /* best-effort cleanup */ }
                 }
             }
             catch (Exception ex)
@@ -402,22 +390,34 @@ namespace LaTeXSnipper.PowerPoint.Host
                         string oldAltText = shape.AlternativeText ?? "";
                         int oldZOrder = 0;
                         try { oldZOrder = shape.ZOrderPosition; } catch { }
-                        shape.Delete();
-
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        if (payload.Render?.Png != null)
-                        {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
-                        }
-                        else
+                        bool replacingWithSvg = payload.Render?.Svg != null;
+                        if (replacingWithSvg)
                         {
                             File.WriteAllText(tempPath, payload.Render!.Svg!);
                         }
+                        else
+                        {
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render!.Png!));
+                        }
                         float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
                         float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                        var newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                            Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        Microsoft.Office.Interop.PowerPoint.Shape newShape;
+                        try
+                        {
+                            newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        }
+                        catch when (replacingWithSvg && payload.Render?.Png != null)
+                        {
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
+                            File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                            newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                        }
+                        shape.Delete();
+                        newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                         newShape.Name = $"LSNO_{formulaId}";
                         newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
 
@@ -522,5 +522,6 @@ namespace LaTeXSnipper.PowerPoint.Host
         public string? ActualStorageMode { get; set; }
         public string? FallbackReason { get; set; }
         public string Error { get; set; } = "";
+        public string? ErrorCode { get; set; }
     }
 }

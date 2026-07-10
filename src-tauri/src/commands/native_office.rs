@@ -65,6 +65,7 @@ pub async fn native_office_insert_formula(
             }
         }),
         revision: 0,
+        created_utc_ticks: 0,
     };
 
     let insert_mode = match mode.as_str() {
@@ -181,6 +182,7 @@ pub async fn native_office_replace_formula(
         source: None,
         storage_mode,
         revision: 0,
+        created_utc_ticks: 0,
     };
 
     crate::platforms::pipe_server::send_replace_formula(
@@ -418,6 +420,8 @@ pub async fn native_office_status() -> Result<NativeOfficeStatus, String> {
                 x86_dll_exists: false,
                 health: "NotSupported".to_string(),
                 detail: "Office integration is only available on Windows.".to_string(),
+                error_code: Some("OLE_NOT_SUPPORTED".to_string()),
+                ..Default::default()
             },
         })
     }

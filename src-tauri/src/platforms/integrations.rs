@@ -105,7 +105,7 @@ pub struct PlatformIntegrationResult {
     pub restart_required: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OleStatus {
     pub available: bool,
     pub bitness_mismatch: bool,
@@ -121,6 +121,14 @@ pub struct OleStatus {
     pub health: String,
     /// Human-readable detail message
     pub detail: String,
+    pub x64_registry_path: Option<String>,
+    pub x86_registry_path: Option<String>,
+    pub x64_architecture_correct: bool,
+    pub x86_architecture_correct: bool,
+    pub current_office_bitness: Option<String>,
+    pub matching_view_healthy: bool,
+    pub activation_result: bool,
+    pub error_code: Option<String>,
 }
 
 impl PlatformIntegrationResult {
@@ -266,9 +274,9 @@ pub(crate) fn install_platform_integration_sync(platform_id: String) -> Platform
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         match platform_id.as_str() {
         // Office install modes
-        "office" => install_native_office_vsto(),
+        "office" => install_native_office_stack(),
         "office-web" => install_office_js_addin(),
-        "office-native" => install_native_office_vsto(),
+        "office-native" => install_native_office_stack(),
         "office-hybrid" => {
             let vsto = install_native_office_vsto();
             let web = install_office_js_addin();
@@ -314,6 +322,43 @@ pub(crate) fn install_platform_integration_sync(platform_id: String) -> Platform
         PlatformIntegrationResult::fail("office", "panic", format!("内部错误: {}", msg))
     }
 }
+}
+
+pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
+    let vsto = install_native_office_vsto();
+    if !vsto.success {
+        return vsto;
+    }
+    let ole = install_ole_component();
+    if !ole.success {
+        let cleanup = uninstall_ole_component();
+        return PlatformIntegrationResult::fail(
+            "office",
+            "native-stack",
+            format!(
+                "VSTO installation completed, but OLE installation failed: {} Cleanup: {}",
+                ole.message, cleanup.message
+            ),
+        );
+    }
+    let status = check_ole_status();
+    if !status.available {
+        let cleanup = uninstall_ole_component();
+        return PlatformIntegrationResult::fail(
+            "office",
+            "native-stack",
+            format!(
+                "VSTO installation completed, but OLE verification failed: {} Cleanup: {}",
+                status.detail, cleanup.message
+            ),
+        );
+    }
+    PlatformIntegrationResult::ok(
+        "office",
+        "native-stack",
+        format!("VSTO and dual-bitness OLE installed and verified. {}", status.detail),
+        true,
+    )
 }
 
 #[tauri::command]
@@ -3405,6 +3450,64 @@ fn uuid_simple() -> String {
 ///
 /// Returns a detailed health level rather than a boolean-only answer.
 #[cfg(target_os = "windows")]
+fn query_registry_value_view(key: &str, value_name: Option<&str>, view: RegistryView) -> Option<String> {
+    let full_key = if key.starts_with("HK") { key.to_string() } else { format!(r"HKCU\{}", key) };
+    let mut command = super::process::background_command("reg.exe");
+    command.args(["query", &full_key]);
+    match value_name {
+        Some(name) => { command.args(["/v", name]); }
+        None => { command.arg("/ve"); }
+    }
+    command.arg(view.as_reg_arg());
+    let output = super::process::run_with_timeout(&mut command, Duration::from_secs(10)).ok()?;
+    if !output.status.success() { return None; }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines().find_map(|line| {
+        line.find("REG_SZ").map(|position| line[position + "REG_SZ".len()..].trim().to_string())
+    }).filter(|value| !value.is_empty())
+}
+
+#[cfg(target_os = "windows")]
+fn query_registry_default_view(key: &str, view: RegistryView) -> Option<String> {
+    query_registry_value_view(key, None, view)
+}
+
+#[cfg(target_os = "windows")]
+fn detect_office_bitness() -> Option<String> {
+    let key = r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration";
+    for view in [RegistryView::X64, RegistryView::X86] {
+        if let Some(value) = query_registry_value_view(key, Some("Platform"), view) {
+            let lower = value.to_ascii_lowercase();
+            if lower.contains("x86") { return Some("x86".to_string()); }
+            if lower.contains("x64") { return Some("x64".to_string()); }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn probe_ole_activation(bitness: &str) -> (bool, Option<String>) {
+    let system_root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let host = if bitness == "x86" {
+        system_root.join("SysWOW64").join("WindowsPowerShell").join("v1.0").join("powershell.exe")
+    } else {
+        system_root.join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe")
+    };
+    if !host.exists() { return (false, Some(format!("{} activation host is missing.", bitness))); }
+    let host_text = host.to_string_lossy().to_string();
+    let script = "$ErrorActionPreference='Stop';$t=[type]::GetTypeFromProgID('LaTeXSnipper.Formula.1');if($null -eq $t){exit 2};$o=[Activator]::CreateInstance($t);if($o.IsInitialized()){exit 3};[Runtime.InteropServices.Marshal]::FinalReleaseComObject($o)|Out-Null;Write-Output 'OLE_ACTIVATION_OK'";
+    let mut command = super::process::background_command(&host_text);
+    command.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+    match super::process::run_with_timeout(&mut command, Duration::from_secs(8)) {
+        Ok(output) if output.status.success() && String::from_utf8_lossy(&output.stdout).contains("OLE_ACTIVATION_OK") =>
+            (true, Some(format!("{} COM activation passed.", bitness))),
+        Ok(output) => (false, Some(format!("{} COM activation failed: {}{}", bitness,
+            String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)))),
+        Err(error) => (false, Some(format!("{} COM activation timed out or failed to start: {}", bitness, error))),
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
@@ -3455,6 +3558,8 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
                 x86_dll_exists: false,
                 health: "NotInstalled".to_string(),
                 detail: "OLE CLSID not found in any registry view. Run OLE installation.".to_string(),
+                error_code: Some("OLE_NOT_REGISTERED".to_string()),
+                ..Default::default()
             };
         }
     }
@@ -3567,15 +3672,58 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         }
     };
 
+    let x64_registry_path = query_registry_default_view(&inproc_key, RegistryView::X64);
+    let x86_registry_path = query_registry_default_view(&inproc_key, RegistryView::X86);
+    let x64_path_exists = x64_registry_path.as_ref().map(|path| Path::new(path).is_file()).unwrap_or(false);
+    let x86_path_exists = x86_registry_path.as_ref().map(|path| Path::new(path).is_file()).unwrap_or(false);
+    let x64_architecture_correct = x64_registry_path.as_ref()
+        .map(|path| read_pe_machine(Path::new(path)) == Some(0x8664)).unwrap_or(false);
+    let x86_architecture_correct = x86_registry_path.as_ref()
+        .map(|path| read_pe_machine(Path::new(path)) == Some(0x014c)).unwrap_or(false);
+    let current_office_bitness = detect_office_bitness();
+    let matching_view_healthy = match current_office_bitness.as_deref() {
+        Some("x86") => registry_32 && x86_architecture_correct,
+        Some("x64") => registry_64 && x64_architecture_correct,
+        _ => registry_64 && registry_32 && x64_architecture_correct && x86_architecture_correct,
+    };
+    let (activation_result, activation_detail) = if matching_view_healthy {
+        if let Some(bitness) = current_office_bitness.as_deref() {
+            probe_ole_activation(bitness)
+        } else {
+            let x64_activation = probe_ole_activation("x64");
+            let x86_activation = probe_ole_activation("x86");
+            (x64_activation.0 && x86_activation.0, Some(format!("{} {}",
+                x64_activation.1.unwrap_or_default(), x86_activation.1.unwrap_or_default())))
+        }
+    } else {
+        (false, Some("Matching registry view or PE architecture is unhealthy.".to_string()))
+    };
+    let final_available = available && matching_view_healthy && activation_result;
+    let final_health = if activation_result { "Activatable".to_string() } else if matching_view_healthy { health } else { "BitnessMismatch".to_string() };
+    let final_detail = activation_detail.map(|value| format!("{} {}", detail, value)).unwrap_or(detail);
+    let error_code = if final_available { None } else if !matching_view_healthy {
+        Some("OLE_BITNESS_MISMATCH".to_string())
+    } else {
+        Some("OLE_ACTIVATION_TIMEOUT".to_string())
+    };
+
     crate::commands::native_office::OleStatus {
-        available,
-        bitness_mismatch: !(x64_dll_found && x86_dll_found),
+        available: final_available,
+        bitness_mismatch: !matching_view_healthy,
         x64_registered: registry_64,
         x86_registered: registry_32,
-        x64_dll_exists: x64_dll_found,
-        x86_dll_exists: x86_dll_found,
-        health,
-        detail,
+        x64_dll_exists: x64_path_exists,
+        x86_dll_exists: x86_path_exists,
+        health: final_health,
+        detail: final_detail,
+        x64_registry_path,
+        x86_registry_path,
+        x64_architecture_correct,
+        x86_architecture_correct,
+        current_office_bitness,
+        matching_view_healthy,
+        activation_result,
+        error_code,
     }
 }
 
@@ -3590,6 +3738,8 @@ pub fn check_ole_status() -> OleStatus {
         x86_dll_exists: false,
         health: "NotSupported".to_string(),
         detail: "OLE is only available on Windows.".to_string(),
+        error_code: Some("OLE_NOT_SUPPORTED".to_string()),
+        ..Default::default()
     }
 }
 
@@ -3893,8 +4043,8 @@ pub fn register_install_path() {
 pub fn install_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
 
-    let x64_dll = match find_ole_dll_path(ole_constants::DLL_NAME_X64) {
-        Some(p) => p.to_string_lossy().replace('/', "\\"),
+    let x64_path = match find_ole_dll_path(ole_constants::DLL_NAME_X64) {
+        Some(p) => p,
         None => {
             return OleComponentResult {
                 success: false,
@@ -3904,8 +4054,8 @@ pub fn install_ole_component() -> OleComponentResult {
         }
     };
 
-    let x86_dll = match find_ole_dll_path(ole_constants::DLL_NAME_X86) {
-        Some(p) => p.to_string_lossy().replace('/', "\\"),
+    let x86_path = match find_ole_dll_path(ole_constants::DLL_NAME_X86) {
+        Some(p) => p,
         None => {
             return OleComponentResult {
                 success: false,
@@ -3914,6 +4064,14 @@ pub fn install_ole_component() -> OleComponentResult {
             };
         }
     };
+    if read_pe_machine(&x64_path) != Some(0x8664) {
+        return OleComponentResult { success: false, message: "x64 OLE DLL PE Machine is not AMD64.".into(), entries_modified: entries };
+    }
+    if read_pe_machine(&x86_path) != Some(0x014c) {
+        return OleComponentResult { success: false, message: "x86 OLE DLL PE Machine is not I386.".into(), entries_modified: entries };
+    }
+    let x64_dll = x64_path.canonicalize().unwrap_or(x64_path).to_string_lossy().replace('/', "\\");
+    let x86_dll = x86_path.canonicalize().unwrap_or(x86_path).to_string_lossy().replace('/', "\\");
 
     let clsid = ole_constants::CLSID;
     let prog_id = ole_constants::PROG_ID;
@@ -3924,6 +4082,7 @@ pub fn install_ole_component() -> OleComponentResult {
     match register_ole_view(&x64_dll, clsid, prog_id, prog_id_vi, friendly, RegistryView::X64) {
         Ok(log) => entries.extend(log),
         Err(e) => {
+            let _ = uninstall_ole_component();
             return OleComponentResult {
                 success: false,
                 message: format!("OLE x64 registration failed: {e}"),
@@ -3982,6 +4141,15 @@ pub fn install_ole_component() -> OleComponentResult {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn read_pe_machine(path: &Path) -> Option<u16> {
+    let bytes = fs::read(path).ok()?;
+    if bytes.len() < 0x40 || &bytes[0..2] != b"MZ" { return None; }
+    let pe_offset = u32::from_le_bytes(bytes[0x3c..0x40].try_into().ok()?) as usize;
+    if pe_offset + 6 > bytes.len() || &bytes[pe_offset..pe_offset + 4] != b"PE\0\0" { return None; }
+    Some(u16::from_le_bytes(bytes[pe_offset + 4..pe_offset + 6].try_into().ok()?))
+}
+
 /// Register OLE COM entries for a specific registry view.
 /// Returns `Ok(entries_log)` on success or `Err(failure_reason)` if any
 /// critical key could not be written.
@@ -4023,7 +4191,6 @@ fn register_ole_view(
         // ProgID (versioned: LaTeXSnipper.Formula.1)
         (&format!(r"HKCU\Software\Classes\{}", prog_id), "", friendly),
         (&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id), "", clsid),
-        (&format!(r"HKCU\Software\Classes\{}\CurVer", prog_id), "", prog_id),
         // VersionIndependentProgID
         (&format!(r"HKCU\Software\Classes\{}", prog_id_vi), "", friendly),
         (&format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi), "", clsid),
@@ -4032,7 +4199,11 @@ fn register_ole_view(
         (&clsid_key, "", friendly),
         (&clsid_key, "ProgID", prog_id),
         (&clsid_key, "VersionIndependentProgID", prog_id_vi),
-        (&clsid_key, "Insertable", ""),
+        (&format!(r"{}\Insertable", clsid_key), "", ""),
+        (&format!(r"{}\Verb\0", clsid_key), "", "Edit Formula, 0, 2"),
+        (&format!(r"{}\Verb\1", clsid_key), "", "Open in LaTeXSnipper, 0, 2"),
+        (&format!(r"{}\Verb\2", clsid_key), "", "Copy LaTeX, 0, 0"),
+        (&format!(r"{}\Verb\3", clsid_key), "", "Refresh Preview, 0, 0"),
         // InprocServer32
         (&format!(r"{}\InprocServer32", clsid_key), "", dll_path),
         (&format!(r"{}\InprocServer32", clsid_key), "ThreadingModel", "Apartment"),
@@ -4094,6 +4265,48 @@ pub fn uninstall_ole_component() -> OleComponentResult {
             if matches!(verification, Ok(ref out) if out.status.success()) {
                 remaining.push(format!("{} ({})", key, view.label()));
             }
+        }
+
+        let pending_key = r"HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
+        let pending_delete = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["delete", pending_key, "/f", view.as_reg_arg()]),
+            15,
+        );
+        if matches!(pending_delete, Ok(ref out) if out.status.success()) {
+            entries.push(format!("Deleted {} ({})", pending_key, view.label()));
+        }
+        let pending_verification = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", pending_key, view.as_reg_arg()]),
+            15,
+        );
+        if matches!(pending_verification, Ok(ref out) if out.status.success()) {
+            remaining.push(format!("{} ({})", pending_key, view.label()));
+        }
+
+        let install_key = r"HKCU\Software\LaTeXSnipper";
+        let install_delete = run_windows_tool(
+            super::process::background_command("reg.exe").args([
+                "delete",
+                install_key,
+                "/v",
+                "InstallPath",
+                "/f",
+                view.as_reg_arg(),
+            ]),
+            15,
+        );
+        if matches!(install_delete, Ok(ref out) if out.status.success()) {
+            entries.push(format!("Deleted {}\\InstallPath ({})", install_key, view.label()));
+        }
+        let install_verification = run_windows_tool(
+            super::process::background_command("reg.exe")
+                .args(["query", install_key, "/v", "InstallPath", view.as_reg_arg()]),
+            15,
+        );
+        if matches!(install_verification, Ok(ref out) if out.status.success()) {
+            remaining.push(format!("{}\\InstallPath ({})", install_key, view.label()));
         }
     }
 

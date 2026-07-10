@@ -132,6 +132,14 @@ pub enum VstoMessage {
         rangeStart: Option<u32>,
         #[serde(rename = "rangeEnd", skip_serializing_if = "Option::is_none")]
         rangeEnd: Option<u32>,
+        #[serde(rename = "requestedStorageMode", skip_serializing_if = "Option::is_none")]
+        requestedStorageMode: Option<String>,
+        #[serde(rename = "actualStorageMode", skip_serializing_if = "Option::is_none")]
+        actualStorageMode: Option<String>,
+        #[serde(rename = "fallbackReason", skip_serializing_if = "Option::is_none")]
+        fallbackReason: Option<String>,
+        #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+        errorCode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -340,6 +348,8 @@ pub struct FormulaPayload {
     pub storage_mode: Option<String>,
     #[serde(rename = "revision")]
     pub revision: i32,
+    #[serde(rename = "createdUtcTicks", default)]
+    pub created_utc_ticks: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -350,6 +360,8 @@ pub struct Presentation {
     pub color: String,
     #[serde(rename = "emfBase64", skip_serializing_if = "Option::is_none")]
     pub emf_base64: Option<String>,
+    #[serde(rename = "emfKind", skip_serializing_if = "Option::is_none")]
+    pub emf_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

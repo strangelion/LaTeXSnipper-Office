@@ -68,7 +68,7 @@ pub struct OleEditResult {
     pub formula: Option<FormulaPayload>,
 }
 
-type Handle = isize;
+type Handle = *mut std::ffi::c_void;
 
 /// Keep one user-scoped dispatcher in the primary Desktop process. The native
 /// OLE server uses it to forward double-clicks to the existing window instead
@@ -243,6 +243,7 @@ pub async fn handle_ole_edit_session_with_app(
                         source: src.and_then(|v| serde_json::from_value(v).ok()),
                         storage_mode: Some(storage),
                         revision: envelope.revision as i32,
+                        created_utc_ticks: 0,
                     });
                     OleResponse {
                         protocol_version: 2,
@@ -345,6 +346,7 @@ fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse,
         source: src.and_then(|v| serde_json::from_value(v).ok()),
         storage_mode: Some(storage),
         revision: envelope.revision as i32,
+        created_utc_ticks: 0,
     };
     Ok(OleResponse {
         protocol_version: 2,
@@ -449,7 +451,7 @@ fn close_handle(handle: Handle) {
 
 // ── Raw Win32 FFI ──
 
-const INVALID_HANDLE_VALUE: isize = -1;
+const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
 const GENERIC_READ: u32 = 0x80000000;
 const GENERIC_WRITE: u32 = 0x40000000;
 const OPEN_EXISTING: u32 = 3;
@@ -464,10 +466,10 @@ extern "system" {
         dwCreationDisposition: u32,
         dwFlagsAndAttributes: u32,
         hTemplateFile: *mut std::ffi::c_void,
-    ) -> isize;
+    ) -> Handle;
 
     fn ReadFile(
-        hFile: isize,
+        hFile: Handle,
         lpBuffer: *mut u8,
         nNumberOfBytesToRead: u32,
         lpNumberOfBytesRead: *mut u32,
@@ -475,14 +477,14 @@ extern "system" {
     ) -> i32;
 
     fn WriteFile(
-        hFile: isize,
+        hFile: Handle,
         lpBuffer: *const u8,
         nNumberOfBytesToWrite: u32,
         lpNumberOfBytesWritten: *mut u32,
         lpOverlapped: *mut std::ffi::c_void,
     ) -> i32;
 
-    fn CloseHandle(hObject: isize) -> i32;
+    fn CloseHandle(hObject: Handle) -> i32;
 
     fn GetLastError() -> u32;
 }

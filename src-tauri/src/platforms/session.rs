@@ -383,15 +383,23 @@ impl SessionManager {
                 sessionId,
                 success,
                 formulaId,
+                requestedStorageMode,
+                actualStorageMode,
+                fallbackReason,
+                errorCode,
                 error,
                 ..
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!(
-                    "[Session] INSERT_RESULT success={} formulaId={:?} error={:?}",
+                    "[Session] INSERT_RESULT success={} formulaId={:?} requested={:?} actual={:?} errorCode={:?} fallback={:?} error={:?}",
                     success,
                     formulaId,
+                    requestedStorageMode,
+                    actualStorageMode,
+                    errorCode,
+                    fallbackReason,
                     error
                 );
                 let _ = self.app_handle.emit(
@@ -399,6 +407,10 @@ impl SessionManager {
                     serde_json::json!({
                         "success": success,
                         "formulaId": formulaId,
+                        "requestedStorageMode": requestedStorageMode,
+                        "actualStorageMode": actualStorageMode,
+                        "fallbackReason": fallbackReason,
+                        "errorCode": errorCode,
                         "error": error,
                         "sessionId": sid,
                     }),
