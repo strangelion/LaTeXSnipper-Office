@@ -52,6 +52,10 @@ jobs:
         shell: bash
         run: node core-protocol/schema-validate.mjs
 
+      - name: Test frontend SVG sizing
+        shell: bash
+        run: npm run test:frontend
+
   # ─────────── Office Web Add-in ────────────────────────────────────
   office-addin:
     needs: prepare
@@ -191,6 +195,13 @@ jobs:
 
           & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $dst
 
+          foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
+            $artifactHash = (Get-FileHash -Algorithm SHA256 (Join-Path $src $name)).Hash
+            $stagingHash = (Get-FileHash -Algorithm SHA256 (Join-Path $dst $name)).Hash
+            if ($artifactHash -ne $stagingHash) { throw "$name artifact/staging hash mismatch" }
+            Write-Host "$name artifact hash: $artifactHash"
+          }
+
       - uses: actions/setup-node@v4
         with: { node-version: 24, cache: npm }
       - run: npm ci
@@ -228,6 +239,24 @@ jobs:
           perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
           perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
           echo "Injected version $VERSION into manifests"
+
+      - name: Stage Native Office resources and verify hash chain
+        shell: pwsh
+        run: |
+          npm run stage:resources
+          $artifact = "_vsto_artifact"
+          if (Test-Path "$artifact\staging\OleFormulaObject.x64.dll") { $artifact = "$artifact\staging" }
+          $staging = "apps\native-office\Installer\output\staging"
+          $resources = "src-tauri\resources\NativeOffice"
+          foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
+            $hashes = @(
+              (Get-FileHash -Algorithm SHA256 (Join-Path $artifact $name)).Hash,
+              (Get-FileHash -Algorithm SHA256 (Join-Path $staging $name)).Hash,
+              (Get-FileHash -Algorithm SHA256 (Join-Path $resources $name)).Hash
+            )
+            if (($hashes | Select-Object -Unique).Count -ne 1) { throw "$name hash chain mismatch: $($hashes -join ', ')" }
+            Write-Host "$name verified hash chain: $($hashes[0])"
+          }
 
       - run: npx tauri build --bundles msi,nsis
 
@@ -433,6 +462,31 @@ jobs:
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
+      - name: Build dual-bitness OLE DLLs
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=Win32 /p:LaTeXSnipperVersion=$env:VERSION /m
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=x64 /p:LaTeXSnipperVersion=$env:VERSION /m
+
+      - name: Build and run dual-bitness vector EMF tests
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\LaTeXSnipper.OleFormulaObjectNative.Tests.vcxproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=Win32 /m
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=x64 /m
+          & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\Win32\Release\NativeVectorTests.exe" `
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll"
+          & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\x64\Release\NativeVectorTests.exe" `
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll"
+
+      - name: Build and run pending payload tests
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.Shared.Tests\LaTeXSnipper.Shared.Tests.csproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
+          & "apps\native-office\LaTeXSnipper.Shared.Tests\bin\Release\LaTeXSnipper.Shared.Tests.exe"
+
       - name: Build VSTO payload and installers
         shell: pwsh
         run: |
@@ -462,6 +516,12 @@ jobs:
             }
             Write-Host "  OLE DLL found: $file" -ForegroundColor Green
           }
+          Get-FileHash -Algorithm SHA256 (Join-Path $staging "OleFormulaObject.x86.dll") | Format-List
+          Get-FileHash -Algorithm SHA256 (Join-Path $staging "OleFormulaObject.x64.dll") | Format-List
+
+      - name: Smoke-test dual-bitness OLE activation
+        shell: pwsh
+        run: .\scripts\smoke-ole-activation.ps1 -StagingRoot .\apps\native-office\Installer\output\staging
 
       - uses: actions/upload-artifact@v4
         with:
