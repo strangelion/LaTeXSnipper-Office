@@ -613,19 +613,29 @@ if (-not (Test-Path $WixPath)) { throw "WiX executable does not exist: $WixPath"
 $wixVersion = (& $WixPath --version | Out-String).Trim()
 Write-Host "  WiX: $WixPath ($wixVersion)" -ForegroundColor Gray
 if ($wixVersion -notmatch '^[457]\.') { throw "Native Office installer requires WiX 4.x/5.x/7.x. Resolved: $wixVersion" }
+$wixPackageVersion = ($wixVersion -split '[+-]')[0]
+$uiExtension = "WixToolset.UI.wixext/$wixPackageVersion"
+$iisExtension = "WixToolset.Iis.wixext/$wixPackageVersion"
+$bootstrapperExtension = "WixToolset.BootstrapperApplications.wixext/$wixPackageVersion"
+$utilExtension = "WixToolset.Util.wixext/$wixPackageVersion"
 
 # Install WiX extensions
 Write-Host "  Restoring WiX UI extension..." -ForegroundColor Gray
-& $WixPath extension add WixToolset.UI.wixext 2>$null
+& $WixPath extension add -g $uiExtension 2>$null
 if ($LASTEXITCODE -ne 0) { throw "WiX UI extension install failed" }
+Write-Host "  Restoring WiX IIS extension for certificate deployment..." -ForegroundColor Gray
+& $WixPath extension add -g $iisExtension 2>$null
+if ($LASTEXITCODE -ne 0) { throw "WiX IIS extension install failed" }
 
 # Set WiX variables (absolute paths — WiX resolves relative to .wxs file, not CWD)
 $env:SharedBinDir = $sharedDst
 $env:WordBinDir = $stagingAbs + "\Word"
 $env:ExcelBinDir = $stagingAbs + "\Excel"
 $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
+$env:CertificateDir = $stagingAbs + "\certificates"
 
 & $WixPath build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
+    -arch x64 `
     -o $msiOutput `
     -d Version=$Version `
     -d SharedBinDir=$env:SharedBinDir `
@@ -633,36 +643,56 @@ $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
     -d ExcelBinDir=$env:ExcelBinDir `
     -d PowerPointBinDir=$env:PowerPointBinDir `
     -d OleBinDir=$env:OleBinDir `
-    -ext WixToolset.UI.wixext
+    -d CertificateDir=$env:CertificateDir `
+    -ext $uiExtension `
+    -ext $iisExtension
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed" }
 
 # ─── Build Bundle (Bootstrapper) ───────────────────────────────────
 Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
 $bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"
 
-Write-Host "  Restoring WiX Bal extension..." -ForegroundColor Gray
-& $WixPath extension add WixToolset.Bal.wixext 2>$null
+Write-Host "  Restoring WiX Bootstrapper Applications and Util extensions..." -ForegroundColor Gray
+& $WixPath extension add -g $bootstrapperExtension 2>$null
+if ($LASTEXITCODE -ne 0) { throw "WiX Bootstrapper Applications extension install failed" }
+& $WixPath extension add -g $utilExtension 2>$null
+if ($LASTEXITCODE -ne 0) { throw "WiX Util extension install failed" }
 
 $env:NetFx48Url = "https://go.microsoft.com/fwlink/?LinkId=2085329"
 $env:VstoRuntimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
 $env:MsiDir = $OutputDir
+$prerequisiteDir = Join-Path $OutputDir "prerequisites"
+New-Item -ItemType Directory -Path $prerequisiteDir -Force | Out-Null
+$netFx48Exe = Join-Path $prerequisiteDir "NetFx48.exe"
+$vstoRuntimeExe = Join-Path $prerequisiteDir "VstoRuntime.exe"
+
+foreach ($download in @(
+    @{ Name = ".NET Framework 4.8"; Url = $env:NetFx48Url; Path = $netFx48Exe },
+    @{ Name = "VSTO Runtime"; Url = $env:VstoRuntimeUrl; Path = $vstoRuntimeExe }
+)) {
+    if (-not (Test-Path -LiteralPath $download.Path -PathType Leaf)) {
+        Write-Host "  Downloading $($download.Name) prerequisite..." -ForegroundColor Gray
+        Invoke-WebRequest -Uri $download.Url -OutFile $download.Path -UseBasicParsing
+    }
+    if ((Get-Item -LiteralPath $download.Path).Length -lt 1024) {
+        throw "$($download.Name) prerequisite download is invalid: $($download.Path)"
+    }
+}
 
 & $WixPath build "$wixSrc\Bundle.wxs" `
+    -arch x64 `
     -o $bundleOutput `
     -d Version=$Version `
-    -d NetFx48Url=$env:NetFx48Url `
-    -d VstoRuntimeUrl=$env:VstoRuntimeUrl `
+    -d NetFx48Exe=$netFx48Exe `
+    -d VstoRuntimeExe=$vstoRuntimeExe `
     -d MsiDir=$env:MsiDir `
-    -ext WixToolset.Bal.wixext
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Bundle build failed (WiX Bal extension compatibility issue). MSI was built successfully."
-    Write-Warning "Bootstrapper EXE will be generated in a future WiX update."
-}
+    -ext $bootstrapperExtension `
+    -ext $utilExtension
+if ($LASTEXITCODE -ne 0) { throw "WiX Bootstrapper build failed" }
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "MSI: $msiOutput" -ForegroundColor Yellow
-if (Test-Path $bundleOutput) {
-    Write-Host "Bootstrapper: $bundleOutput" -ForegroundColor Yellow
-} else {
-    Write-Host "Bootstrapper: SKIPPED (WiX Bal extension issue)" -ForegroundColor DarkYellow
+if (-not (Test-Path -LiteralPath $bundleOutput -PathType Leaf)) {
+    throw "Bootstrapper output is missing: $bundleOutput"
 }
+Write-Host "Bootstrapper: $bundleOutput" -ForegroundColor Yellow

@@ -9,8 +9,8 @@
 /* at Tue Jan 19 11:14:07 2038
  */
 /* Compiler settings for src\LaTeXSnipperFormula.idl:
-    Oicf, W1, Zp8, env=Win64 (32b run), target_arch=AMD64 8.01.0628 
-    protocol : all , ms_ext, c_ext, robust
+    Oicf, W1, Zp8, env=Win32 (32b run), target_arch=X86 8.01.0628
+    protocol : dce , ms_ext, c_ext, robust
     error checks: allocation ref bounds_check enum stub_data 
     VC __declspec() decoration level: 
          __declspec(uuid()), __declspec(selectany), __declspec(novtable)
@@ -69,10 +69,10 @@ typedef IID CLSID;
 MIDL_DEFINE_GUID(IID, IID_ILatexSnipperFormula,0x3A8E5C4B,0xD1F2,0x4E6F,0x8A,0x7B,0x9C,0x0D,0x1E,0x2F,0x3A,0x4B);
 
 
-MIDL_DEFINE_GUID(IID, LIBID_LaTeXSnipperFormulaLib,0xB7F5B4AB,0x5F94,0x4D87,0xA2,0x9F,0x9A,0x41,0xD4,0x1B,0x3B,0x9F);
+MIDL_DEFINE_GUID(IID, LIBID_LaTeXSnipperFormulaLib,0x4E4BEA0B,0xFA9E,0x4D10,0x9A,0xB0,0x7E,0x5A,0x90,0x29,0x4E,0x11);
 
 
-MIDL_DEFINE_GUID(CLSID, CLSID_LaTeXSnipperFormula,0xC8F6C5BC,0x6A05,0x4E98,0xB3,0xA0,0xAB,0x52,0xE5,0x2C,0x4C,0xA0);
+MIDL_DEFINE_GUID(CLSID, CLSID_LaTeXSnipperFormula,0xB7F5B4AB,0x5F94,0x4D87,0xA2,0x9F,0x9A,0x41,0xD4,0x1B,0x3B,0x9F);
 
 #undef MIDL_DEFINE_GUID
 

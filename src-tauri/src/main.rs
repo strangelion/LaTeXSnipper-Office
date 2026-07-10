@@ -129,6 +129,11 @@ fn main() {
                     platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
                 });
 
+                let dispatcher_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    platforms::ole_edit::start_ole_edit_dispatcher(dispatcher_handle).await;
+                });
+
                 // Write InstallPath so OLE DLL can find the Desktop exe
                 platforms::integrations::register_install_path();
             }

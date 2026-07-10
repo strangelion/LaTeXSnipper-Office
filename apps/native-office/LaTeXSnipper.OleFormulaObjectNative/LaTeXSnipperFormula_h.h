@@ -7,8 +7,8 @@
 /* at Tue Jan 19 11:14:07 2038
  */
 /* Compiler settings for src\LaTeXSnipperFormula.idl:
-    Oicf, W1, Zp8, env=Win64 (32b run), target_arch=AMD64 8.01.0628 
-    protocol : all , ms_ext, c_ext, robust
+    Oicf, W1, Zp8, env=Win32 (32b run), target_arch=X86 8.01.0628
+    protocol : dce , ms_ext, c_ext, robust
     error checks: allocation ref bounds_check enum stub_data 
     VC __declspec() decoration level: 
          __declspec(uuid()), __declspec(selectany), __declspec(novtable)
@@ -274,7 +274,7 @@ EXTERN_C const CLSID CLSID_LaTeXSnipperFormula;
 
 #ifdef __cplusplus
 
-class DECLSPEC_UUID("C8F6C5BC-6A05-4E98-B3A0-AB52E52C4CA0")
+class DECLSPEC_UUID("B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F")
 LaTeXSnipperFormula;
 #endif
 #endif /* __LaTeXSnipperFormulaLib_LIBRARY_DEFINED__ */

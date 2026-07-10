@@ -4051,6 +4051,7 @@ fn register_ole_view(
 #[cfg(target_os = "windows")]
 pub fn uninstall_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
+    let mut remaining = Vec::new();
     let clsid = ole_constants::CLSID;
     let prog_id = ole_constants::PROG_ID;
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
@@ -4078,68 +4079,35 @@ pub fn uninstall_ole_component() -> OleComponentResult {
                     log::warn!("[OLE] Failed to delete {}: {}", key, e);
                 }
             }
+
+            let verification = run_windows_tool(
+                super::process::background_command("reg.exe")
+                    .args(["query", key, view.as_reg_arg()]),
+                15,
+            );
+            if matches!(verification, Ok(ref out) if out.status.success()) {
+                remaining.push(format!("{} ({})", key, view.label()));
+            }
         }
     }
 
-    // Update ledger: mark OLE as uninstalled
-    let mut ledger = IntegrationLedger::load();
-    ledger.native_office.ole = None;
-    if let Err(e) = ledger.save() {
-        log::warn!("[OLE] Failed to update ledger: {}", e);
+    let success = remaining.is_empty();
+    if success {
+        let mut ledger = IntegrationLedger::load();
+        ledger.native_office.ole = None;
+        if let Err(e) = ledger.save() {
+            log::warn!("[OLE] Failed to update ledger: {}", e);
+        }
     }
 
     OleComponentResult {
-        success: true,
-        message: "OLE component unregistered from both 32-bit and 64-bit views.".into(),
+        success,
+        message: if success {
+            "OLE component unregistered from both 32-bit and 64-bit views.".into()
+        } else {
+            format!("OLE unregistration incomplete; registry entries remain: {}", remaining.join(", "))
+        },
         entries_modified: entries,
-    }
-}
-
-/// Detect whether the installed Office is 64-bit.
-/// Checks HKCU\Software\Microsoft\Office\Common\KnownDLLs64 existence,
-/// or falls back to native arch.
-#[cfg(target_os = "windows")]
-fn detect_office_64bit() -> bool {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    let path = OsStr::new(r"Software\Microsoft\Office\Common");
-    let wide: Vec<u16> = path.encode_wide().chain(std::iter::once(0)).collect();
-    let mut hkey: isize = 0;
-
-    let result = unsafe {
-        RegOpenKeyExW(
-            0x80000001isize as *mut _,
-            wide.as_ptr(),
-            0,
-            0x20019, // KEY_READ
-            &mut hkey,
-        )
-    };
-    if result != 0 {
-        // If Office key not found, default to native architecture
-        return cfg!(target_arch = "x86_64");
-    }
-
-    // Check if KnownDLLs64 exists (64-bit Office marker)
-    let kdll_path = OsStr::new(r"KnownDLLs64");
-    let kdll_wide: Vec<u16> = kdll_path.encode_wide().chain(std::iter::once(0)).collect();
-    let mut kdll_key: isize = 0;
-    let kdll_result = unsafe {
-        RegOpenKeyExW(
-            hkey as *mut _,
-            kdll_wide.as_ptr(),
-            0,
-            0x20019,
-            &mut kdll_key,
-        )
-    };
-    unsafe { RegCloseKey(hkey); }
-    if kdll_result == 0 {
-        unsafe { RegCloseKey(kdll_key); }
-        true
-    } else {
-        false
     }
 }
 

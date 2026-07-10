@@ -2,7 +2,8 @@
 # OfficeJS and WPS are bundled on every desktop target; VSTO is required only on Windows.
 
 param(
-    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$NativeOfficeStaging = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -155,7 +156,11 @@ Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Gree
 # NativeOffice VSTO. It is a Windows-only payload.
 $vstoDest = Join-Path $resourcesDir "NativeOffice"
 if ($runningOnWindows) {
-    $vstoStaging = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
+    $vstoStaging = if ([string]::IsNullOrWhiteSpace($NativeOfficeStaging)) {
+        Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
+    } else {
+        (Resolve-Path -LiteralPath $NativeOfficeStaging -ErrorAction Stop).Path
+    }
     foreach ($nativeHost in @("Word", "Excel", "PowerPoint")) {
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll.manifest") "NativeOffice $nativeHost DLL manifest"

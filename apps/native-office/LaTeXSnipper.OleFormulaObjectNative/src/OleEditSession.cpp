@@ -26,6 +26,51 @@ namespace
 // Forward declarations
 std::wstring FindDesktopPath();
 
+constexpr wchar_t kOleEditDispatcherPipe[] = L"\\\\.\\pipe\\LaTeXSnipper.OleEditDispatcher.v1";
+
+// Forward an edit request to the already-running desktop process. The desktop
+// acknowledges only after it has accepted responsibility for connecting to the
+// one-shot OLE session pipe. Returning false lets the caller start Desktop when
+// no existing instance is available.
+bool TryDispatchToRunningDesktop(const std::wstring& sessionPipeName)
+{
+    HANDLE dispatcher = CreateFileW(
+        kOleEditDispatcherPipe,
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (dispatcher == INVALID_HANDLE_VALUE)
+    {
+        return false;
+    }
+
+    const DWORD payloadSize = static_cast<DWORD>(sessionPipeName.size() * sizeof(wchar_t));
+    DWORD transferred = 0;
+    bool ok = WriteFile(dispatcher, &payloadSize, sizeof(payloadSize), &transferred, nullptr)
+        && transferred == sizeof(payloadSize);
+    if (ok && payloadSize > 0)
+    {
+        transferred = 0;
+        ok = WriteFile(dispatcher, sessionPipeName.data(), payloadSize, &transferred, nullptr)
+            && transferred == payloadSize;
+    }
+
+    DWORD acknowledgement = 0;
+    if (ok)
+    {
+        transferred = 0;
+        ok = ReadFile(dispatcher, &acknowledgement, sizeof(acknowledgement), &transferred, nullptr)
+            && transferred == sizeof(acknowledgement)
+            && acknowledgement == 1;
+    }
+
+    CloseHandle(dispatcher);
+    return ok;
+}
+
 // ConnectNamedPipe with timeout (milliseconds).
 // Returns true if connected, false on timeout/error.
 bool ConnectNamedPipeWithTimeout(HANDLE pipe, DWORD timeoutMs)
@@ -453,23 +498,34 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 
     // WriteNativeOleLog(L"OleEditSession: Pipe created, launching Desktop...");
 
-    // 4. Launch Desktop app with pipe name as argument
-    std::wstring desktopPath = FindDesktopPath();
-    std::wstring args = L"--ole-edit \"" + pipeName + L"\"";
-
-    SHELLEXECUTEINFOW sei = {sizeof(sei)};
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.hwnd = parentWindow;
-    sei.lpVerb = L"open";
-    sei.lpFile = desktopPath.c_str();
-    sei.lpParameters = args.c_str();
-    sei.nShow = SW_SHOWNORMAL;
-
-    if (!ShellExecuteExW(&sei))
+    // 4. Reuse the running Desktop instance whenever possible. Starting a
+    // second process here creates a second editor window and loses the user's
+    // current UI state. If no dispatcher exists, launch Desktop once as the
+    // fallback for a cold start.
+    if (TryDispatchToRunningDesktop(pipeName))
     {
-        WriteNativeOleLog(L"OleEditSession: Failed to launch Desktop.");
-        CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        WriteNativeOleLog(L"OleEditSession: Dispatched to running Desktop.");
+    }
+    else
+    {
+        std::wstring desktopPath = FindDesktopPath();
+        std::wstring args = L"--ole-edit \"" + pipeName + L"\"";
+
+        SHELLEXECUTEINFOW sei = {sizeof(sei)};
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+        sei.hwnd = parentWindow;
+        sei.lpVerb = L"open";
+        sei.lpFile = desktopPath.c_str();
+        sei.lpParameters = args.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+
+        if (!ShellExecuteExW(&sei))
+        {
+            WriteNativeOleLog(L"OleEditSession: Failed to launch Desktop.");
+            CloseHandle(pipe);
+            return HResultFromWin32LastError();
+        }
+        WriteNativeOleLog(L"OleEditSession: Started Desktop for a cold edit session.");
     }
 
     // 5. Wait for Desktop to connect with 60-second timeout

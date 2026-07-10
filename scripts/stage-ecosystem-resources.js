@@ -83,24 +83,16 @@ function stageBrowser() {
   const distDir = path.join(appDir, "dist");
   const dstDir = path.join(ECO_ROOT, "browser");
 
-  ensureDir(dstDir);
-
-  // Copy built JS files from dist
-  const jsFiles = ["background.js", "content.js", "popup.js"];
-  let copied = 0;
-  for (const f of jsFiles) {
-    const src = path.join(distDir, f);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(dstDir, f));
-      copied++;
-    }
+  fs.rmSync(dstDir, { recursive: true, force: true });
+  if (!fs.existsSync(distDir)) {
+    throw new Error("[Browser] Build output is missing. Run the browser extension build first.");
   }
+  fs.cpSync(distDir, dstDir, { recursive: true });
 
   // Copy popup.html from app root
   const popupSrc = path.join(appDir, "popup.html");
   if (fs.existsSync(popupSrc)) {
     fs.copyFileSync(popupSrc, path.join(dstDir, "popup.html"));
-    copied++;
   }
 
   // Copy both manifests
@@ -111,7 +103,7 @@ function stageBrowser() {
     }
   }
 
-  console.log(`  [Browser] Staged ${copied} files`);
+  console.log("  [Browser] Staged complete Vite output, popup, and manifests");
 }
 
 // ─── WPS ───────────────────────────────────────────────────────────────

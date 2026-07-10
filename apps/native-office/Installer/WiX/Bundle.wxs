@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:bal="http://wixtoolset.org/schemas/v4/bal">
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
 
   <Bundle Name="LaTeXSnipper Native Office"
            Manufacturer="LaTeXSnipper"
@@ -8,19 +9,48 @@
            UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
            Copyright="Copyright (c) LaTeXSnipper 2026">
 
-    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.RtfLicense" />
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        Theme="hyperlinkLicense"
+        LicenseUrl="" />
+    </BootstrapperApplication>
+
+    <util:RegistrySearch
+      Id="FindNetFx48"
+      Variable="NetFx48Release"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      Value="Release"
+      Result="value"
+      Bitness="always64" />
+    <util:RegistrySearch
+      Id="FindVstoRuntime64"
+      Variable="VstoRuntime64Installed"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\VSTO Runtime Setup\v4R"
+      Value="Version"
+      Result="exists"
+      Bitness="always64" />
+    <util:RegistrySearch
+      Id="FindVstoRuntime32"
+      Variable="VstoRuntime32Installed"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\VSTO Runtime Setup\v4R"
+      Value="Version"
+      Result="exists"
+      Bitness="always32" />
 
     <Chain>
       <!-- .NET Framework 4.8 -->
       <ExePackage Id="NetFx48"
-                  Name="NetFx48.exe"
+                  SourceFile="$(var.NetFx48Exe)"
+                  Compressed="yes"
                   Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
-                  DownloadUrl="$(var.NetFx48Url)"
                   InstallArguments="/q /norestart"
-                  DetectCondition="NetFx48Installed">
+                  DetectCondition="NetFx48Release &gt;= 528040">
         <ExitCode Value="0" Behavior="success" />
         <ExitCode Value="1641" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
@@ -29,14 +59,14 @@
 
       <!-- VSTO Runtime -->
       <ExePackage Id="VstoRuntime"
-                  Name="VstoRuntime.exe"
+                  SourceFile="$(var.VstoRuntimeExe)"
+                  Compressed="yes"
                   Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
-                  DownloadUrl="$(var.VstoRuntimeUrl)"
                   InstallArguments="/quiet /norestart"
-                  DetectCondition="VstoRuntimeInstalled">
+                  DetectCondition="VstoRuntime64Installed OR VstoRuntime32Installed">
         <ExitCode Value="0" Behavior="success" />
         <ExitCode Value="1641" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
@@ -46,10 +76,7 @@
       <MsiPackage Id="MainMsi"
                   Cache="keep"
                   Vital="yes"
-                  SourceFile="$(var.MsiDir)\LaTeXSnipper.NativeOffice.msi"
-                  InstallCondition="NOT Installed">
-        <MsiProperty Name="INSTALLLOCATION" Value="[InstallFolder]" />
-      </MsiPackage>
+                  SourceFile="$(var.MsiDir)\LaTeXSnipper.NativeOffice.msi" />
     </Chain>
 
   </Bundle>

@@ -370,8 +370,14 @@ jobs:
           VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_BASE64)) {
-            Write-Host "  No VSTO_CERT_BASE64 secret — release will use dev cert" -ForegroundColor Yellow
+            if ($env:GITHUB_REF -like "refs/tags/*") {
+              throw "VSTO_CERT_BASE64 is required for tagged releases"
+            }
+            Write-Host "  No VSTO_CERT_BASE64 secret — non-release build will use a dev certificate" -ForegroundColor Yellow
             exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_PASSWORD)) {
+            throw "VSTO_CERT_PASSWORD is required when VSTO_CERT_BASE64 is provided"
           }
 
           $certPath = Join-Path $env:RUNNER_TEMP "LaTeXSnipper-Office-Release.pfx"
@@ -409,6 +415,12 @@ jobs:
         shell: pwsh
         run: .\scripts\ensure-vsto-runtime.ps1
 
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          dotnet tool install wix --tool-path .wix --version 7.0.0
+          (Resolve-Path .wix).Path | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+
       - name: Fetch nlohmann/json for OLE DLL
         shell: pwsh
         run: .\apps\native-office\LaTeXSnipper.OleFormulaObjectNative\vendor\nlohmann\fetch_json.ps1
@@ -416,14 +428,13 @@ jobs:
       - name: Restore NuGet
         run: nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
 
-      - name: Build and stage VSTO payload
+      - name: Build VSTO payload and installers
         shell: pwsh
         run: |
           & .\apps\native-office\Installer\build.ps1 `
             -Configuration Release `
             -OutputDir .\apps\native-office\Installer\output `
-            -Version $env:VERSION `
-            -StageOnly
+            -Version $env:VERSION
 
       - name: Remove ephemeral PFX
         if: always()
@@ -456,6 +467,15 @@ jobs:
           #   _vsto_artifact/OleFormulaObject.x64.dll
           #   _vsto_artifact/certificates/LaTeXSnipperOffice.cer
           path: apps/native-office/Installer/output/staging/**
+
+      - name: Upload Native Office installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-installer
+          if-no-files-found: error
+          path: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
               
   # ─────────── WPS Plugin ───────────
   wps:
@@ -591,6 +611,10 @@ jobs:
         working-directory: apps/browser-extension
         run: npm ci
 
+      - name: Typecheck Browser extension
+        working-directory: apps/browser-extension
+        run: npm run typecheck
+
       - name: Build Chrome
         working-directory: apps/browser-extension
         run: npm run build:chrome
@@ -599,10 +623,15 @@ jobs:
         shell: bash
         working-directory: apps/browser-extension
         run: |
+          rm -rf dist-chrome
           mkdir -p dist-chrome
-          cp dist/*.js dist-chrome/
+          cp -R dist/. dist-chrome/
           cp manifest.chrome.json dist-chrome/manifest.json
           cp popup.html dist-chrome/
+          test -f dist-chrome/background.js
+          test -f dist-chrome/content.js
+          test -f dist-chrome/popup.js
+          test -f dist-chrome/manifest.json
           cd dist-chrome && zip -r "../latexsnipper-browser-chrome_$VERSION.zip" .
 
       - name: Build Firefox
@@ -613,10 +642,15 @@ jobs:
         shell: bash
         working-directory: apps/browser-extension
         run: |
+          rm -rf dist-firefox
           mkdir -p dist-firefox
-          cp dist/*.js dist-firefox/
+          cp -R dist/. dist-firefox/
           cp manifest.firefox.json dist-firefox/manifest.json
           cp popup.html dist-firefox/
+          test -f dist-firefox/background.js
+          test -f dist-firefox/content.js
+          test -f dist-firefox/popup.js
+          test -f dist-firefox/manifest.json
           cd dist-firefox && zip -r "../latexsnipper-browser-firefox_$VERSION.zip" .
 
       - uses: actions/upload-artifact@v4
@@ -651,6 +685,13 @@ jobs:
           $null = New-Item -ItemType Directory -Path "$release/windows" -Force
           $tw | Copy-Item -Destination "$release/windows/" -Force
 
+          # Standalone Native Office installers
+          $nativeOfficeInstallers = Get-ChildItem "artifacts/native-office-installer" -Recurse -File
+          if (-not $nativeOfficeInstallers) {
+            throw "Native Office MSI/EXE artifacts are missing"
+          }
+          $nativeOfficeInstallers | Copy-Item -Destination "$release/windows/" -Force
+
           # VSTO: preserve the host-directory layout in one archive. Uploading the
           # individual files flattens Word/Excel/PowerPoint dependencies and makes
           # the release page unusable as a standalone VSTO package.
@@ -675,13 +716,6 @@ jobs:
 
           # Obsidian
           Copy-Item "artifacts/obsidian/*.zip" "$release/plugins/" -Force
-
-          # VS Code
-          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
-          Copy-Item "artifacts/vscode/*.vsix" "$release/plugins/" -Force
-
-          # Browser
-          Copy-Item "artifacts/browser/*.zip" "$release/plugins/" -Force
 
           # macOS
           $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File

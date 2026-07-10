@@ -18,7 +18,9 @@ interface ILatexSnipperFormula : IDispatch {
 };
 
 [
-    uuid(B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F),
+    // The type library GUID must be distinct from the coclass CLSID below.
+    // Reusing the CLSID makes MIDL reject a clean native OLE rebuild.
+    uuid(4E4BEA0B-FA9E-4D10-9AB0-7E5A90294E11),
     version(1.0),
     helpstring("LaTeXSnipper Formula Object 1.0")
 ]

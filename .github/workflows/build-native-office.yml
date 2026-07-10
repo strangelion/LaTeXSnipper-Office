@@ -42,24 +42,68 @@ jobs:
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
 
+      - name: Import release certificate from Secrets
+        env:
+          VSTO_CERT_BASE64: ${{ secrets.VSTO_CERT_BASE64 }}
+          VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_BASE64)) {
+            if ($env:GITHUB_REF -like "refs/tags/native-office-v*") {
+              throw "VSTO_CERT_BASE64 is required for tagged Native Office releases"
+            }
+            Write-Host "  No VSTO_CERT_BASE64 secret — non-release build will use a dev certificate" -ForegroundColor Yellow
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_PASSWORD)) {
+            throw "VSTO_CERT_PASSWORD is required when VSTO_CERT_BASE64 is provided"
+          }
+
+          $certPath = Join-Path $env:RUNNER_TEMP "LaTeXSnipper-Office-Release.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:VSTO_CERT_BASE64))
+          $securePassword = ConvertTo-SecureString $env:VSTO_CERT_PASSWORD -AsPlainText -Force
+          $cert = Get-PfxCertificate -FilePath $certPath -Password $securePassword
+          if ($null -eq $cert) {
+            throw "Unable to load the VSTO release certificate"
+          }
+
+          "VstoManifestKeyFile=$certPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VstoManifestKeyPassword=$env:VSTO_CERT_PASSWORD" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VstoManifestThumbprint=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "  Release signing certificate loaded: $($cert.Thumbprint)" -ForegroundColor Green
+
       - name: Install VSTO runtime for manifest generation
         run: .\scripts\ensure-vsto-runtime.ps1
+
+      - name: Install WiX Toolset
+        run: |
+          dotnet tool install wix --tool-path .wix --version 7.0.0
+          (Resolve-Path .wix).Path | Out-File $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Restore NuGet packages
         run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
 
-      - name: Build and validate VSTO staging payload
+      - name: Build and validate VSTO installers
         run: |
           & .\apps\native-office\Installer\build.ps1 `
             -Configuration $env:CONFIGURATION `
-            -OutputDir .\apps\native-office\Installer\output `
-            -StageOnly
+            -OutputDir .\apps\native-office\Installer\output
+
+      - name: Remove ephemeral PFX
+        if: always()
+        run: |
+          if ($env:VstoManifestKeyFile -and (Test-Path -LiteralPath $env:VstoManifestKeyFile)) {
+            Remove-Item -LiteralPath $env:VstoManifestKeyFile -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
-          path: apps/native-office/Installer/output/staging/**
+          if-no-files-found: error
+          path: |
+            apps/native-office/Installer/output/staging/**
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/native-office-v')
@@ -67,7 +111,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          files: apps/native-office/Installer/output/staging/**/*
+          files: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
+            apps/native-office/Installer/output/staging/**/*
           generate_release_notes: true
           body: |
             ## LaTeXSnipper Native Office VSTO ${{ github.ref_name }}

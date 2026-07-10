@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use super::pipe_protocol::FormulaPayload;
 
+const OLE_EDIT_DISPATCHER_PIPE: &str = r"\\.\pipe\LaTeXSnipper.OleEditDispatcher.v1";
+const MAX_DISPATCHER_PIPE_NAME_BYTES: usize = 4096;
+const OLE_EDIT_PIPE_PREFIX: &str = r"\\.\pipe\LaTeXSnipper.OleEditSession.";
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OleEnvelope {
     #[serde(rename = "protocolVersion")]
@@ -65,6 +69,85 @@ pub struct OleEditResult {
 }
 
 type Handle = isize;
+
+/// Keep one user-scoped dispatcher in the primary Desktop process. The native
+/// OLE server uses it to forward double-clicks to the existing window instead
+/// of launching a second Tauri process for every edit session.
+pub async fn start_ole_edit_dispatcher(app_handle: tauri::AppHandle) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::windows::named_pipe::ServerOptions;
+
+    let mut first = true;
+    loop {
+        let mut security = match super::pipe_security::PipeSecurityDescriptor::current_user_and_system() {
+            Ok(security) => security,
+            Err(error) => {
+                log::error!("[OleEdit] Cannot create dispatcher security descriptor: {}", error);
+                return;
+            }
+        };
+
+        let server = unsafe {
+            ServerOptions::new()
+                .first_pipe_instance(first)
+                .reject_remote_clients(true)
+                .create_with_security_attributes_raw(
+                    OLE_EDIT_DISPATCHER_PIPE,
+                    security.as_raw_security_attributes(),
+                )
+        };
+        first = false;
+
+        let mut server = match server {
+            Ok(server) => server,
+            Err(error) => {
+                log::error!("[OleEdit] Cannot create dispatcher pipe: {}; retrying", error);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+
+        if let Err(error) = server.connect().await {
+            log::warn!("[OleEdit] Dispatcher connection failed: {}", error);
+            continue;
+        }
+
+        let mut size = [0u8; 4];
+        let request = async {
+            server.read_exact(&mut size).await?;
+            let size = u32::from_le_bytes(size) as usize;
+            if size == 0 || size > MAX_DISPATCHER_PIPE_NAME_BYTES || size % 2 != 0 {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid OLE edit pipe name size"));
+            }
+
+            let mut bytes = vec![0u8; size];
+            server.read_exact(&mut bytes).await?;
+            let units = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const u16, bytes.len() / 2) };
+            let pipe_name = String::from_utf16(units)
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid OLE edit pipe name"))?;
+            if !pipe_name.starts_with(OLE_EDIT_PIPE_PREFIX) {
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unexpected OLE edit pipe name"));
+            }
+            Ok(pipe_name)
+        }.await;
+
+        match request {
+            Ok(pipe_name) => {
+                if let Err(error) = server.write_all(&1u32.to_le_bytes()).await {
+                    log::warn!("[OleEdit] Dispatcher acknowledgement failed: {}", error);
+                    continue;
+                }
+                let handler = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = handle_ole_edit_session_with_app(handler, &pipe_name).await {
+                        log::error!("[OleEdit] Dispatched edit session failed: {}", error);
+                    }
+                });
+            }
+            Err(error) => log::warn!("[OleEdit] Dispatcher rejected request: {}", error),
+        }
+    }
+}
 
 /// Handle an OLE edit session WITHIN the Tauri runtime.
 /// Shows/focuses the editor, waits for user to save/cancel, writes result back to pipe.

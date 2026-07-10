@@ -3,6 +3,7 @@
 *.snk
 *.cer
 node_modules/
+.wix/
 dist/
 apps/obsidian-plugin/main.js
 apps/obsidian-plugin/node_modules/

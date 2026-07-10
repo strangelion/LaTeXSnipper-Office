@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+  xmlns:iis="http://wixtoolset.org/schemas/v4/wxs/iis">
 
   <Package Name="LaTeXSnipper.NativeOffice"
            Manufacturer="LaTeXSnipper"
@@ -20,18 +21,12 @@
           <Directory Id="WordDir" Name="Word" />
           <Directory Id="ExcelDir" Name="Excel" />
           <Directory Id="PowerPointDir" Name="PowerPoint" />
+          <Directory Id="CertificateDir" Name="certificates" />
         </Directory>
       </Directory>
     </StandardDirectory>
 
-    <!-- Registry search: detect Office bitness -->
-    <Property Id="OFFICE64BIT">
-      <RegistrySearch Id="OfficeBitnessC2R"
-        Root="HKLM"
-        Key="SOFTWARE\Microsoft\Office\ClickToRun\Configuration"
-        Name="Platform"
-        Type="raw" />
-    </Property>
+    <Binary Id="VstoSigningCertificate" SourceFile="$(var.CertificateDir)\LaTeXSnipperOffice.cer" />
 
     <!-- Components -->
     <ComponentGroup Id="ProductComponents" Directory="NativeOfficeDir">
@@ -95,10 +90,24 @@
         </RegistryKey>
       </Component>
 
-      <!-- OLE Formula Object (both DLLs installed, only matching bitness registered) -->
-      <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA">
+      <!-- Trust the manifest-signing publisher for the current user. -->
+      <Component Id="CertificateComponent" Directory="CertificateDir" Guid="E5F6A7B8-5555-6666-7777-88889999AAAC">
+        <File Id="VstoCertificateFile" Source="$(var.CertificateDir)\LaTeXSnipperOffice.cer" />
+        <File Id="VstoSigningMetadata" Source="$(var.CertificateDir)\native-office-signing.json" />
+        <iis:Certificate
+          Id="VstoTrustedPublisher"
+          Name="LaTeXSnipper Office VSTO Publisher"
+          BinaryRef="VstoSigningCertificate"
+          Request="no"
+          StoreLocation="currentUser"
+          StoreName="trustedPublisher"
+          Vital="yes" />
+      </Component>
+
+      <!-- Install both OLE bitnesses so either 32-bit or 64-bit Office can activate it. -->
+      <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA"
+                 Bitness="always32">
         <File Id="OleDllX86" Source="$(var.OleBinDir)\OleFormulaObject.x86.dll" Name="OleFormulaObject.x86.dll" />
-        <Condition>OFFICE64BIT ~= "x86" OR OFFICE64BIT = ""</Condition>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />
@@ -136,10 +145,9 @@
         </RegistryKey>
       </Component>
 
-      <!-- OLE Formula Object (x64) — installed only when Office is 64-bit -->
-      <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB">
+      <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB"
+                 Bitness="always64">
         <File Id="OleDllX64" Source="$(var.OleBinDir)\OleFormulaObject.x64.dll" Name="OleFormulaObject.x64.dll" />
-        <Condition>OFFICE64BIT ~= "x64"</Condition>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="Insertable" Value="" />
@@ -185,6 +193,7 @@
       <ComponentRef Id="WordComponent" />
       <ComponentRef Id="ExcelComponent" />
       <ComponentRef Id="PowerPointComponent" />
+      <ComponentRef Id="CertificateComponent" />
       <ComponentRef Id="OleComponentX86" />
       <ComponentRef Id="OleComponentX64" />
     </Feature>

@@ -7,6 +7,7 @@
     "build": "vite build",
     "build:chrome": "vite build --mode chrome",
     "build:firefox": "vite build --mode firefox",
+    "typecheck": "tsc --noEmit",
     "dev": "vite build --watch"
   },
   "devDependencies": {
