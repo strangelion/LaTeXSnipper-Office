@@ -685,12 +685,14 @@ jobs:
           $null = New-Item -ItemType Directory -Path "$release/windows" -Force
           $tw | Copy-Item -Destination "$release/windows/" -Force
 
-          # Standalone Native Office installers
+          # Standalone Native Office installers — artifact only, NOT copied to release.
+          # These are already included in the desktop installer; standalone packages are
+          # only for manual deployment and remain accessible via Actions artifacts.
           $nativeOfficeInstallers = Get-ChildItem "artifacts/native-office-installer" -Recurse -File
-          if (-not $nativeOfficeInstallers) {
-            throw "Native Office MSI/EXE artifacts are missing"
+          if ($nativeOfficeInstallers) {
+            Write-Host "Native Office installers (artifact only, not in release):"
+            $nativeOfficeInstallers | ForEach-Object { Write-Host "  $($_.Name)" }
           }
-          $nativeOfficeInstallers | Copy-Item -Destination "$release/windows/" -Force
 
           # VSTO: preserve the host-directory layout in one archive. Uploading the
           # individual files flattens Word/Excel/PowerPoint dependencies and makes
@@ -780,8 +782,10 @@ jobs:
             release/LaTeXSnipper-${{ env.VERSION }}/windows/*.exe
             release/LaTeXSnipper-${{ env.VERSION }}/LaTeXSnipper-Office-VSTO_*.zip
             release/LaTeXSnipper-${{ env.VERSION }}/plugins/*.vsix
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-*.zip
-            release/LaTeXSnipper-${{ env.VERSION }}/plugins/*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-chrome_*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-firefox_*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-wps_*.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-obsidian_*.zip
             release/LaTeXSnipper-${{ env.VERSION }}/macos/*.dmg
             release/LaTeXSnipper-${{ env.VERSION }}/linux/*.deb
             release/LaTeXSnipper-${{ env.VERSION }}/linux/*.rpm
