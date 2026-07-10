@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 using System.Diagnostics;
-using System.Threading;
+using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
@@ -17,22 +17,28 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 ///
 /// Uses per-PID.TID isolation to prevent concurrent insertions (e.g. Word +
 /// PowerPoint simultaneously) from overwriting each other's payloads.
+/// TID uses the Win32 native thread ID (GetCurrentThreadId), NOT the .NET
+/// ManagedThreadId, so that C# and C++ always agree on the registry key name.
 ///
 /// Registry path: HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject
-/// Value name:    PendingPayload.{ProcessId}.{ThreadId}
+/// Value name:    PendingPayload.{ProcessId}.{NativeThreadId}
 /// </summary>
 public static class OleFormulaPendingPayloadStore
 {
     private const string KeyPath = @"Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
     private const string PendingPayloadPrefix = "PendingPayload.";
 
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
     /// <summary>
     /// Build the per-PID.TID value name for registry isolation.
+    /// Uses Win32 native thread ID to match the C++ side's GetCurrentThreadId().
     /// </summary>
     private static string GetValueName()
     {
         int pid = Process.GetCurrentProcess().Id;
-        int tid = Thread.CurrentThread.ManagedThreadId;
+        uint tid = GetCurrentThreadId();
         return $"{PendingPayloadPrefix}{pid}.{tid}";
     }
 
@@ -52,9 +58,13 @@ public static class OleFormulaPendingPayloadStore
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         });
 
+        string valueName = GetValueName();
         using RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath)
             ?? throw new InvalidOperationException("Cannot open OLE formula payload registry key.");
-        key.SetValue(GetValueName(), json, RegistryValueKind.String);
+        key.SetValue(valueName, json, RegistryValueKind.String);
+
+        System.Diagnostics.Debug.WriteLine(
+            $"[OlePayloadStore] Saved: {valueName} formulaId={payload.FormulaId}");
     }
 
     /// <summary>
@@ -72,6 +82,13 @@ public static class OleFormulaPendingPayloadStore
         if (value != null)
         {
             key.DeleteValue(valueName);
+            System.Diagnostics.Debug.WriteLine(
+                $"[OlePayloadStore] Consumed: {valueName}");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"[OlePayloadStore] Not found: {valueName}");
         }
         return value;
     }

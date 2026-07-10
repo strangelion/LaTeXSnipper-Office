@@ -35,7 +35,10 @@ std::wstring ConsumePendingPayload()
 
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS)
+    {
+        WriteNativeOleLog(L"ConsumePendingPayload: Cannot open registry key.");
         return L"";
+    }
 
     DWORD type = 0;
     DWORD byteCount = 0;
@@ -48,6 +51,14 @@ std::wstring ConsumePendingPayload()
             reinterpret_cast<BYTE*>(&payload[0]), &byteCount);
         while (!payload.empty() && payload.back() == L'\0')
             payload.pop_back();
+
+        WriteNativeOleLog(L"ConsumePendingPayload: Found and consumed payload.");
+    }
+    else
+    {
+        wchar_t msg[128]{};
+        swprintf_s(msg, L"ConsumePendingPayload: NOT found for %lu.%lu", pid, tid);
+        WriteNativeOleLog(msg);
     }
 
     RegDeleteValueW(key, valueName);
@@ -170,20 +181,22 @@ FormulaOleObject::FormulaOleObject()
             if (formulaId_.empty())
                 formulaId_.resize(32, L'0');
             dirty_ = true;
+            WriteNativeOleLog(L"FormulaOleObject constructed with REAL payload from PendingPayload.");
         }
         else
         {
             presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
             formulaId_.resize(32, L'0');
+            WriteNativeOleLog(L"FormulaOleObject constructed with PLACEHOLDER (PendingPayload had no valid EMF).");
         }
     }
     else
     {
         presentation_ = CreatePlaceholderPresentation(kFormulaDefaultLatex);
         formulaId_.resize(32, L'0');
+        WriteNativeOleLog(L"FormulaOleObject constructed with PLACEHOLDER (no PendingPayload found).");
     }
 
-    WriteNativeOleLog(L"FormulaOleObject constructed.");
     InterlockedIncrement(&g_objectCount);
 }
 
@@ -433,19 +446,34 @@ STDMETHODIMP FormulaOleObject::GetClipboardData(DWORD, IDataObject** dataObject)
 
 STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, HWND, LPCRECT)
 {
-    WriteNativeOleLog(L"FormulaOleObject DoVerb.");
+    wchar_t message[96]{};
+    swprintf_s(message, L"FormulaOleObject DoVerb verb=%ld", verb);
+    WriteNativeOleLog(message);
 
-    // User double-click / primary action: open editor
-    if (verb == OLEIVERB_PRIMARY || verb == 0 || verb == 1)
+    // All user-initiated activation verbs open the LaTeXSnipper editor.
+    // Different Office hosts send different verbs for double-click:
+    //   Word/Excel: OLEIVERB_PRIMARY (0) or custom verb 1
+    //   PowerPoint: may send OLEIVERB_OPEN, OLEIVERB_UIACTIVATE, or OLEIVERB_INPLACEACTIVATE
+    if (verb == OLEIVERB_PRIMARY ||
+        verb == OLEIVERB_OPEN ||
+        verb == OLEIVERB_UIACTIVATE ||
+        verb == OLEIVERB_INPLACEACTIVATE ||
+        verb == 0 ||
+        verb == 1)
     {
         return StartEditSession();
     }
 
-    // OLEIVERB_SHOW: Office requests display (e.g. open doc, activate, refresh).
-    // Do NOT open editor — only refresh the preview.
-    if (verb == OLEIVERB_SHOW || verb == OLEIVERB_OPEN)
+    // Office requests display/refresh (e.g. open doc, activate, re-render).
+    if (verb == OLEIVERB_SHOW)
     {
         NotifyPresentationChanged();
+        return S_OK;
+    }
+
+    if (verb == OLEIVERB_HIDE ||
+        verb == OLEIVERB_DISCARDUNDOSTATE)
+    {
         return S_OK;
     }
 
@@ -457,8 +485,7 @@ STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, H
 
     if (verb == 3)
     {
-        // Verb 3: Refresh Preview — re-render and update the preview.
-        // Do NOT open the editor (the previous implementation started EditSession).
+        // Verb 3: Refresh Preview
         NotifyPresentationChanged();
         return S_OK;
     }
