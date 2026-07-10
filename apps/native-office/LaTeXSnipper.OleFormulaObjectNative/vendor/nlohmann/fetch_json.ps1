@@ -1,12 +1,21 @@
-# Download nlohmann/json single-header library
-# Run this once before building the OLE DLL
-$url = "https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp"
+$ErrorActionPreference = "Stop"
+$url = "https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp"
+$expectedSha256 = "9BEA4C8066EF4A1C206B2BE5A36302F8926F7FDC6087AF5D20B417D0CF103EA6"
 $output = Join-Path $PSScriptRoot "json.hpp"
-Write-Host "Downloading nlohmann/json.hpp from $url ..."
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Invoke-WebRequest -Uri $url -OutFile $output -UseBasicParsing
-if (Test-Path $output) {
-    Write-Host "Downloaded $((Get-Item $output).Length) bytes to $output" -ForegroundColor Green
-} else {
-    Write-Error "Download failed"
+$temporary = "$output.download"
+
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $url -OutFile $temporary -UseBasicParsing
+    $actualSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $temporary).Hash.ToUpperInvariant()
+    if ($actualSha256 -ne $expectedSha256) {
+        throw "nlohmann/json v3.11.3 SHA256 mismatch. Expected $expectedSha256, got $actualSha256."
+    }
+    Move-Item -LiteralPath $temporary -Destination $output -Force
+    Write-Host "Verified nlohmann/json v3.11.3: $actualSha256"
+}
+finally {
+    if (Test-Path -LiteralPath $temporary) {
+        Remove-Item -LiteralPath $temporary -Force
+    }
 }

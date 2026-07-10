@@ -1,6 +1,7 @@
 #include "StorageUtil.h"
 
 #include "OleFormulaIds.h"
+#include "SvgToEmf.h"
 
 #include <vector>
 
@@ -83,6 +84,12 @@ HRESULT SavePresentationToStorage(IStorage* storage, const FormulaPresentation& 
         return E_POINTER;
     }
 
+    if (presentation.latex.empty() || presentation.himetricSize.cx <= 0 || presentation.himetricSize.cy <= 0 ||
+        !HasValidEmf(presentation.enhancedMetafile))
+    {
+        return STG_E_INVALIDHEADER;
+    }
+
     HRESULT result = WriteClassStg(storage, CLSID_LaTeXSnipperFormula);
     if (FAILED(result))
     {
@@ -126,9 +133,29 @@ HRESULT LoadPresentationFromStorage(IStorage* storage, FormulaPresentation* pres
 
     FormulaPresentation loaded = CreatePresentationFromPayloadWithoutRendering(payload);
     std::vector<BYTE> emfBytes;
-    if (SUCCEEDED(ReadStream(storage, kEmfStream, &emfBytes)) && !emfBytes.empty())
+    HRESULT emfResult = ReadStream(storage, kEmfStream, &emfBytes);
+    if (FAILED(emfResult) && emfResult != STG_E_FILENOTFOUND)
     {
+        return emfResult;
+    }
+    if (SUCCEEDED(emfResult) && !emfBytes.empty())
+    {
+        if (!HasValidEmf(emfBytes))
+        {
+            return STG_E_DOCFILECORRUPT;
+        }
+        std::wstring reason;
+        const bool raster = ContainsRasterEmfRecords(emfBytes, &reason);
         loaded.enhancedMetafile = std::move(emfBytes);
+        loaded.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
+        loaded.isVector = !raster;
+    }
+
+    const std::wstring formulaId = ExtractJsonString(payload, L"formulaId");
+    if (formulaId.empty() || loaded.latex.empty() || loaded.enhancedMetafile.empty() ||
+        !HasValidEmf(loaded.enhancedMetafile) || loaded.himetricSize.cx <= 0 || loaded.himetricSize.cy <= 0)
+    {
+        return STG_E_DOCFILECORRUPT;
     }
 
     *presentation = std::move(loaded);
