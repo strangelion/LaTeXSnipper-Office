@@ -14,13 +14,23 @@
 #include <string>
 #include <vector>
 
-// Presentation data: holds the LaTeX formula, JSON payload, EMF bytes, and logical size.
+enum class PreviewKind
+{
+    None,
+    EmbeddedVectorEmf,
+    GeneratedVectorEmf,
+    RasterEmfFallback
+};
+
 struct FormulaPresentation
 {
     std::wstring latex;
     std::wstring payloadJson;
     SIZE himetricSize = {};
     std::vector<BYTE> enhancedMetafile;
+    PreviewKind previewKind = PreviewKind::None;
+    std::wstring diagnostic;
+    bool isVector = false;
 };
 
 // --- JSON helpers (defined in Presentation.cpp) ---
@@ -32,7 +42,6 @@ HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes);
 bool HasValidEmf(const std::vector<BYTE>& bytes);
 
 // --- Factory functions (defined in Presentation.cpp) ---
-FormulaPresentation CreatePlaceholderPresentation(const std::wstring& latex);
 FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJson);
 FormulaPresentation CreatePresentationFromPayloadWithoutRendering(const std::wstring& payloadJson);
 FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payloadJson);

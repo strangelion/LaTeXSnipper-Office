@@ -16,3 +16,18 @@ export type Command =
 export type CommandResult =
   | { ok: true; data?: string }
   | { ok: false; error: string };
+
+export interface VstoInsertResult {
+  type: "INSERT_RESULT";
+  requestId: string;
+  sessionId: string;
+  success: boolean;
+  formulaId?: string;
+  rangeStart?: number;
+  rangeEnd?: number;
+  requestedStorageMode?: string;
+  actualStorageMode?: string;
+  fallbackReason?: string;
+  error?: string;
+  errorCode?: string;
+}

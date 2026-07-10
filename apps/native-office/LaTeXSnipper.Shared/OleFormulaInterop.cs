@@ -123,7 +123,7 @@ public static class OleFormulaInterop
             }
 
             // P1-1: Verify the OLE object still has valid preview data
-            bool hasPreview = (actual.Render?.Png != null) || (actual.Presentation?.EmfBase64 != null);
+            bool hasPreview = (actual.Render?.Svg != null) || (actual.Render?.Png != null) || (actual.Presentation?.EmfBase64 != null);
             if (!hasPreview)
             {
                 System.Diagnostics.Debug.WriteLine("[OleFormulaInterop] VerifyRoundTrip failed: OLE object lost preview data");
@@ -186,11 +186,12 @@ public static class OleFormulaInterop
 
         // Check for preview data — must be valid, not just non-null.
         bool hasPng = !string.IsNullOrWhiteSpace(payload.Render?.Png) && IsValidPngBase64(payload.Render!.Png!);
+        bool hasSvg = !string.IsNullOrWhiteSpace(payload.Render?.Svg) && payload.Render!.Svg!.IndexOf("<svg", StringComparison.OrdinalIgnoreCase) >= 0;
         bool hasEmf = !string.IsNullOrWhiteSpace(payload.Presentation?.EmfBase64);
-        if (!hasPng && !hasEmf)
+        if (!hasSvg && !hasPng && !hasEmf)
         {
             throw new InvalidOperationException(
-                "OLE formula requires valid preview data (Render.Png with valid Base64+PNG magic, or Presentation.EmfBase64). " +
+                "OLE formula requires valid preview data (Render.Svg, Render.Png with valid Base64+PNG magic, or Presentation.EmfBase64). " +
                 "Ensure the formula is rendered before OLE insertion.");
         }
 

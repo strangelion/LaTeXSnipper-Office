@@ -655,18 +655,6 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                     presentation->payloadJson = newPayloadJson;
                 }
             }
-            else
-            {
-                FormulaPresentation fresh = CreatePlaceholderPresentation(newLatex);
-                if (!fresh.enhancedMetafile.empty())
-                {
-                    hasValidPreview = true;
-                    presentation->latex = newLatex;
-                    presentation->enhancedMetafile = std::move(fresh.enhancedMetafile);
-                    presentation->himetricSize = fresh.himetricSize;
-                }
-            }
-
             if (!hasValidPreview)
             {
                 // P0-6: Preview generation failed — reject the save entirely.

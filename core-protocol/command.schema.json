@@ -155,6 +155,25 @@
         }
       ]
     },
+    "VstoInsertResult": {
+      "type": "object",
+      "description": "Backward-compatible protocol v3 result emitted by Native Office hosts.",
+      "properties": {
+        "type": { "const": "INSERT_RESULT" },
+        "requestId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "success": { "type": "boolean" },
+        "formulaId": { "type": "string" },
+        "rangeStart": { "type": "integer", "minimum": 0 },
+        "rangeEnd": { "type": "integer", "minimum": 0 },
+        "requestedStorageMode": { "type": "string" },
+        "actualStorageMode": { "type": "string" },
+        "fallbackReason": { "type": "string" },
+        "error": { "type": "string" },
+        "errorCode": { "type": "string" }
+      },
+      "required": ["type", "requestId", "sessionId", "success"]
+    },
     "Capability": {
       "type": "object",
       "description": "Per-host capability declaration. Each host declares which commands it supports and which fallback it uses.",

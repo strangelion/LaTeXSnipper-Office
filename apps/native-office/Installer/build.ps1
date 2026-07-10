@@ -659,25 +659,80 @@ if ($LASTEXITCODE -ne 0) { throw "WiX Bootstrapper Applications extension instal
 & $WixPath extension add -g $utilExtension 2>$null
 if ($LASTEXITCODE -ne 0) { throw "WiX Util extension install failed" }
 
-$env:NetFx48Url = "https://go.microsoft.com/fwlink/?LinkId=2085329"
-$env:VstoRuntimeUrl = "https://go.microsoft.com/fwlink/?LinkId=261103"
+$env:NetFx48Url = "https://go.microsoft.com/fwlink/?linkid=2088631"
+$env:VstoRuntimeUrl = "https://download.microsoft.com/download/c/0/e/c0e39fdf-68c9-4332-b745-5268ed69cb54/vstor_redist.exe"
 $env:MsiDir = $OutputDir
 $prerequisiteDir = Join-Path $OutputDir "prerequisites"
 New-Item -ItemType Directory -Path $prerequisiteDir -Force | Out-Null
 $netFx48Exe = Join-Path $prerequisiteDir "NetFx48.exe"
 $vstoRuntimeExe = Join-Path $prerequisiteDir "VstoRuntime.exe"
 
+function Test-PrerequisiteExecutable {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $false
+    }
+    $file = Get-Item -LiteralPath $Path
+    if ($file.Length -lt 65536) {
+        return $false
+    }
+
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        if ($stream.ReadByte() -ne 0x4D -or $stream.ReadByte() -ne 0x5A) {
+            return $false
+        }
+    }
+    finally {
+        if ($stream) { $stream.Dispose() }
+    }
+
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    return $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid -and
+        $signature.SignerCertificate.Subject -match 'Microsoft'
+}
+
+function Get-PrerequisiteExecutable {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [string]$Path
+    )
+
+    if (Test-PrerequisiteExecutable -Path $Path) {
+        return
+    }
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $temporaryPath = "$Path.download"
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+        try {
+            Write-Host "  Downloading $Name prerequisite (attempt $attempt/3)..." -ForegroundColor Gray
+            Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -UseBasicParsing
+            if (-not (Test-PrerequisiteExecutable -Path $temporaryPath)) {
+                throw "$Name download is not a valid Microsoft-signed executable."
+            }
+            Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
+            return
+        }
+        catch {
+            Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            if ($attempt -eq 3) {
+                throw "$Name prerequisite download failed after 3 attempts: $($_.Exception.Message)"
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
 foreach ($download in @(
     @{ Name = ".NET Framework 4.8"; Url = $env:NetFx48Url; Path = $netFx48Exe },
     @{ Name = "VSTO Runtime"; Url = $env:VstoRuntimeUrl; Path = $vstoRuntimeExe }
 )) {
-    if (-not (Test-Path -LiteralPath $download.Path -PathType Leaf)) {
-        Write-Host "  Downloading $($download.Name) prerequisite..." -ForegroundColor Gray
-        Invoke-WebRequest -Uri $download.Url -OutFile $download.Path -UseBasicParsing
-    }
-    if ((Get-Item -LiteralPath $download.Path).Length -lt 1024) {
-        throw "$($download.Name) prerequisite download is invalid: $($download.Path)"
-    }
+    Get-PrerequisiteExecutable -Name $download.Name -Url $download.Url -Path $download.Path
 }
 
 & $WixPath build "$wixSrc\Bundle.wxs" `

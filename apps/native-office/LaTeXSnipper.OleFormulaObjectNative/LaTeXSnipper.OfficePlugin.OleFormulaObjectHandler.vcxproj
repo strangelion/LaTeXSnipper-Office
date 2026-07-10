@@ -64,7 +64,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>ole32.lib;oleaut32.lib;uuid.lib;gdi32.lib;advapi32.lib;shlwapi.lib;rpcrt4.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>ole32.lib;oleaut32.lib;uuid.lib;gdi32.lib;advapi32.lib;shlwapi.lib;rpcrt4.lib;xmllite.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <ModuleDefinitionFile>src\OleFormulaObjectHandler.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
@@ -90,6 +90,8 @@
     <ClCompile Include="src\OleEditSession.cpp" />
     <ClCompile Include="src\OleFormulaHandlerModule.cpp" />
     <ClCompile Include="src\Presentation.cpp" />
+    <ClCompile Include="src\SvgPathParser.cpp" />
+    <ClCompile Include="src\SvgToEmf.cpp" />
     <ClCompile Include="src\StorageUtil.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -98,6 +100,8 @@
     <ClInclude Include="src\OleEditSession.h" />
     <ClInclude Include="src\OleFormulaIds.h" />
     <ClInclude Include="src\Presentation.h" />
+    <ClInclude Include="src\SvgPathParser.h" />
+    <ClInclude Include="src\SvgToEmf.h" />
     <ClInclude Include="src\StorageUtil.h" />
     <ClInclude Include="src\JsonHelper.h" />
     <ClInclude Include="src\Win32Check.h" />

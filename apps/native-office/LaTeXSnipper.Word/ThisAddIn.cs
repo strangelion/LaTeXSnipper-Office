@@ -241,7 +241,8 @@ namespace LaTeXSnipper.Word
                         FallbackReason = result.FallbackReason,
                         RangeStart = result.RangeStart,
                         RangeEnd = result.RangeEnd,
-                        Error = result.Error
+                        Error = result.Error,
+                        ErrorCode = result.ErrorCode
                     });
                     break;
                 }

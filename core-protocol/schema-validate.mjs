@@ -84,6 +84,8 @@ try {
   check(ts.includes("OpenEditor"), "TS defines OpenEditor");
   check(ts.includes("OpenSettings"), "TS defines OpenSettings");
   check(ts.includes("formulaId"), "TS InsertFormula has formulaId field");
+  check(ts.includes("interface VstoInsertResult"), "TS defines VstoInsertResult");
+  check(ts.includes("errorCode?: string"), "TS VstoInsertResult has optional errorCode");
 } catch (e) {
   check(false, `Failed to read TS types: ${e.message}`);
 }
@@ -106,6 +108,12 @@ try {
   check(cs.includes("OpenEditor"), "C# defines OpenEditor");
   check(cs.includes("OpenSettings"), "C# defines OpenSettings");
   check(cs.includes("FormulaId"), "C# InsertFormula has FormulaId field");
+  const protocol = readFileSync(
+    resolve(ROOT, "apps/native-office/LaTeXSnipper.Shared/Protocol.cs"),
+    "utf-8"
+  );
+  check(protocol.includes("class VstoInsertResult"), "C# defines VstoInsertResult");
+  check(protocol.includes('JsonPropertyName("errorCode")'), "C# protocol includes errorCode");
 } catch (e) {
   check(false, `Failed to read C# types: ${e.message}`);
 }
@@ -137,6 +145,13 @@ try {
   // Check CommandResult has ok
   const result = schema.definitions.CommandResult;
   check(result.oneOf.length === 2, "CommandResult has success and failure variants");
+
+  const insertResult = schema.definitions.VstoInsertResult;
+  check(insertResult !== undefined, "Schema defines VstoInsertResult");
+  check(insertResult.properties.errorCode !== undefined, "VstoInsertResult includes errorCode");
+  check(insertResult.properties.requestedStorageMode !== undefined, "VstoInsertResult includes requestedStorageMode");
+  check(insertResult.properties.actualStorageMode !== undefined, "VstoInsertResult includes actualStorageMode");
+  check(insertResult.properties.fallbackReason !== undefined, "VstoInsertResult includes fallbackReason");
 
   // Validate fixture instances against schema structure
   const fixtures = [

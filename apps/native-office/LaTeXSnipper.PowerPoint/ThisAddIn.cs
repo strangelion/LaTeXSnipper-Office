@@ -202,7 +202,8 @@ namespace LaTeXSnipper.PowerPoint
                         RequestedStorageMode = cmd.IntegrationMode ?? "auto",
                         ActualStorageMode = result.ActualStorageMode,
                         FallbackReason = result.FallbackReason,
-                        Error = result.Error
+                        Error = result.Error,
+                        ErrorCode = result.ErrorCode
                     });
                     break;
                 }

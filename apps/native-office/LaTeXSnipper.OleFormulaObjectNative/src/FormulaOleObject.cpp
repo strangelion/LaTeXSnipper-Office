@@ -9,6 +9,7 @@
 
 #include <atlconv.h>
 #include <comdef.h>
+#include <chrono>
 #include <new>
 #include <thread>
 #include <vector>
@@ -18,20 +19,19 @@
 // Pending payload from registry — consumed during construction so the correct
 // formula renders immediately without waiting for InitializeFromJson.
 //
-// Uses per-PID.TID isolation: the VSTO add-in writes to
-// "PendingPayload.{pid}.{tid}" and the C++ DLL reads the same key,
-// preventing concurrent insertions from overwriting each other.
+// A named mutex serializes one insertion lease per Office process. The
+// registry value is keyed only by PID so a different COM/STA thread can
+// construct and consume the object safely.
 namespace
 {
 std::wstring ConsumePendingPayload()
 {
     constexpr wchar_t kPayloadKey[] = L"Software\\LaTeXSnipper\\OfficePlugin\\OleFormulaObject";
 
-    // Build isolated value name: "PendingPayload.{pid}.{tid}"
     DWORD pid = GetCurrentProcessId();
     DWORD tid = GetCurrentThreadId();
     wchar_t valueName[64]{};
-    swprintf_s(valueName, L"PendingPayload.%lu.%lu", pid, tid);
+    swprintf_s(valueName, L"PendingPayload.%lu", pid);
 
     HKEY key = nullptr;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS)
@@ -52,12 +52,28 @@ std::wstring ConsumePendingPayload()
         while (!payload.empty() && payload.back() == L'\0')
             payload.pop_back();
 
-        WriteNativeOleLog(L"ConsumePendingPayload: Found and consumed payload.");
+        const double createdTicks = JsonReadNumber(payload, L"createdUtcTicks");
+        const auto unixTicks = std::chrono::duration_cast<std::chrono::duration<long long, std::ratio<1, 10000000>>>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        constexpr long long kDotNetEpochTicks = 621355968000000000LL;
+        constexpr double kPayloadTtlTicks = 5.0 * 60.0 * 10000000.0;
+        const double ageTicks = static_cast<double>(unixTicks + kDotNetEpochTicks) - createdTicks;
+        if (createdTicks <= 0.0 || ageTicks < -600000000.0 || ageTicks > kPayloadTtlTicks)
+        {
+            payload.clear();
+            WriteNativeOleLog(L"ConsumePendingPayload: stale or invalid payload was discarded.");
+        }
+        else
+        {
+            wchar_t message[192]{};
+            swprintf_s(message, L"ConsumePendingPayload: pid=%lu tid=%lu ageMs=%.0f consumed.", pid, tid, ageTicks / 10000.0);
+            WriteNativeOleLog(message);
+        }
     }
     else
     {
         wchar_t msg[128]{};
-        swprintf_s(msg, L"ConsumePendingPayload: NOT found for %lu.%lu", pid, tid);
+        swprintf_s(msg, L"ConsumePendingPayload: NOT found for pid=%lu tid=%lu", pid, tid);
         WriteNativeOleLog(msg);
     }
 
@@ -174,13 +190,13 @@ FormulaOleObject::FormulaOleObject()
     {
         FormulaPresentation loaded = CreatePresentationFromPayload(pendingJson);
 
-        if (!loaded.latex.empty() && !loaded.enhancedMetafile.empty())
+        const std::wstring pendingFormulaId = JsonReadString(pendingJson, L"formulaId");
+        if (!pendingFormulaId.empty() && !loaded.latex.empty() && !loaded.enhancedMetafile.empty() &&
+            loaded.himetricSize.cx > 0 && loaded.himetricSize.cy > 0 && HasValidEmf(loaded.enhancedMetafile))
         {
             presentation_ = std::move(loaded);
             canonicalPayloadJson_ = pendingJson;
-            formulaId_ = ExtractJsonString(pendingJson, L"formulaId");
-            if (formulaId_.empty())
-                formulaId_.resize(32, L'0');
+            formulaId_ = pendingFormulaId;
             initializedFromRealPayload_ = true;
             dirty_ = true;
             WriteNativeOleLog(L"FormulaOleObject constructed with REAL payload.");
@@ -1140,6 +1156,7 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
     {
         storage_ = storage;
         presentation_ = std::move(loaded);
+        formulaId_ = JsonReadString(presentation_.payloadJson, L"formulaId");
         initializedFromRealPayload_ = true;
         dirty_ = false;
     }
@@ -1273,7 +1290,8 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
     // The VSTO side receives E_INVALIDARG and rolls back the OLE object.
     if (loaded.enhancedMetafile.empty())
     {
-        WriteNativeOleLog(L"FormulaOleObject: InitializeFromJson rejected — no valid EMF after payload conversion");
+        const std::wstring detail = L"FormulaOleObject: InitializeFromJson rejected: " + loaded.diagnostic;
+        WriteNativeOleLog(detail.c_str());
         return E_INVALIDARG;
     }
 
@@ -1591,7 +1609,8 @@ void FormulaOleObject::ApplyPendingEditResult()
     // and keep the current presentation intact.
     if (candidate.latex.empty() ||
         candidate.enhancedMetafile.empty() ||
-        !HasValidEmf(candidate.enhancedMetafile))
+        !HasValidEmf(candidate.enhancedMetafile) ||
+        candidate.himetricSize.cx <= 0 || candidate.himetricSize.cy <= 0)
     {
         WriteNativeOleLog(L"FormulaOleObject: ApplyPendingEditResult rejected -- result has no valid EMF.");
         return;

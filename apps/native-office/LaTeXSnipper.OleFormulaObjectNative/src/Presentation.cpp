@@ -1,12 +1,15 @@
 #include "Presentation.h"
 #include "JsonHelper.h"
+#include "NativeLog.h"
+#include "SvgToEmf.h"
 
-#include "OleFormulaIds.h"
 #include "Win32Check.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cwctype>
+#include <memory>
 #include <mutex>
 #include <objidl.h>
 #include <shlwapi.h>
@@ -18,11 +21,24 @@ extern ULONG_PTR g_gdiplusToken;
 
 namespace
 {
-constexpr int kDefaultWidthPoints = 180;
-constexpr int kDefaultHeightPoints = 42;
 constexpr int kPointsPerInch = 72;
 constexpr int kHimetricPerInch = 2540;
-constexpr int kEmfDpi = 144;
+
+std::wstring Lowercase(std::wstring value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return value;
+}
+
+struct StreamReleaser
+{
+    void operator()(IStream* stream) const
+    {
+        if (stream != nullptr) stream->Release();
+    }
+};
 
 // P1-8: Lazy GDI+ initialization — avoids calling GdiplusStartup inside DllMain
 // where the loader lock is held, which can cause Office startup deadlocks.
@@ -47,58 +63,6 @@ int PointsToHimetric(int points)
 int PointsToHimetric(double points)
 {
     return static_cast<int>(std::lround(points * kHimetricPerInch / kPointsPerInch));
-}
-
-int PointsToPixels(int points)
-{
-    return (std::max)(1, MulDiv(points, kEmfDpi, kPointsPerInch));
-}
-
-RECT BuildFrameRect(int widthPixels, int heightPixels)
-{
-    RECT rect{};
-    rect.left = 0;
-    rect.top = 0;
-    rect.right = widthPixels;
-    rect.bottom = heightPixels;
-    return rect;
-}
-
-RECT BuildFrameRectHimetric(int widthPoints, int heightPoints)
-{
-    RECT rect{};
-    rect.left = 0;
-    rect.top = 0;
-    rect.right = PointsToHimetric(widthPoints);
-    rect.bottom = PointsToHimetric(heightPoints);
-    return rect;
-}
-
-void DrawFormulaText(HDC hdc, RECT bounds, const std::wstring& latex)
-{
-    SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, RGB(0, 0, 0));
-
-    LOGFONTW logFont{};
-    logFont.lfHeight = -MulDiv(18, GetDeviceCaps(hdc, LOGPIXELSY), kPointsPerInch);
-    logFont.lfWeight = FW_NORMAL;
-    wcscpy_s(logFont.lfFaceName, L"Cambria Math");
-
-    HFONT font = CreateFontIndirectW(&logFont);
-    HFONT oldFont = font == nullptr ? nullptr : static_cast<HFONT>(SelectObject(hdc, font));
-
-    std::wstring text = latex.empty() ? L"e^{i\\pi}+1=0" : latex;
-    DrawTextW(hdc, text.c_str(), static_cast<int>(text.size()), &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    if (oldFont != nullptr)
-    {
-        SelectObject(hdc, oldFont);
-    }
-
-    if (font != nullptr)
-    {
-        DeleteObject(font);
-    }
 }
 
 } // anonymous namespace
@@ -294,120 +258,111 @@ void ApplyPayloadSize(const std::wstring& payloadJson, FormulaPresentation* pres
     }
 }
 
-FormulaPresentation CreatePlaceholderPresentation(const std::wstring& latex)
-{
-    FormulaPresentation presentation{};
-    presentation.latex = latex.empty() ? L"e^{i\\pi}+1=0" : latex;
-    presentation.payloadJson = L"";
-    presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
-
-    HDC screen = GetDC(nullptr);
-    RECT frameHimetric = BuildFrameRectHimetric(kDefaultWidthPoints, kDefaultHeightPoints);
-    HDC metafileDc = CreateEnhMetaFileW(screen, nullptr, &frameHimetric, L"LaTeXSnipper\0Formula\0");
-    ReleaseDC(nullptr, screen);
-    if (metafileDc == nullptr)
-    {
-        return presentation;
-    }
-
-    RECT bounds = BuildFrameRect(PointsToPixels(kDefaultWidthPoints), PointsToPixels(kDefaultHeightPoints));
-    DrawFormulaText(metafileDc, bounds, presentation.latex);
-
-    HENHMETAFILE metafile = CloseEnhMetaFile(metafileDc);
-    if (metafile == nullptr)
-    {
-        return presentation;
-    }
-
-    UINT byteCount = GetEnhMetaFileBits(metafile, 0, nullptr);
-    if (byteCount > 0)
-    {
-        presentation.enhancedMetafile.resize(byteCount);
-        GetEnhMetaFileBits(metafile, byteCount, presentation.enhancedMetafile.data());
-    }
-
-    DeleteEnhMetaFile(metafile);
-    return presentation;
-}
-
 FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJson)
 {
-    std::wstring latex = JsonReadString(payloadJson, L"latex");
     FormulaPresentation presentation{};
-    presentation.latex = latex.empty() ? kFormulaDefaultLatex : latex;
+    presentation.latex = JsonReadString(payloadJson, L"latex");
     presentation.payloadJson = payloadJson;
-    presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
     ApplyPayloadSize(payloadJson, &presentation);
-
-    // Try emfBase64 from presentation.emfBase64 (v3 canonical path)
-    std::wstring emfBase64 = JsonReadNestedString(payloadJson, L"presentation", L"emfBase64");
-    if (emfBase64.empty())
+    if (presentation.latex.empty())
     {
-        // Fallback: flat search for emfBase64
-        emfBase64 = ExtractJsonString(payloadJson, L"emfBase64");
+        presentation.diagnostic = L"OLE_PRESENTATION_INVALID: latex is empty";
+        return presentation;
     }
+    if (presentation.himetricSize.cx <= 0 || presentation.himetricSize.cy <= 0)
+    {
+        presentation.diagnostic = L"OLE_PRESENTATION_INVALID: widthPt and heightPt must be positive";
+        return presentation;
+    }
+
+    std::wstring emfBase64 = JsonReadNestedString(payloadJson, L"presentation", L"emfBase64");
+    if (emfBase64.empty()) emfBase64 = ExtractJsonString(payloadJson, L"emfBase64");
     std::vector<BYTE> emfFromPresentation = DecodeBase64(emfBase64);
     if (!emfFromPresentation.empty() && HasValidEmf(emfFromPresentation))
     {
-        presentation.enhancedMetafile = std::move(emfFromPresentation);
-        return presentation;
-    }
-
-    // Legacy: presentationPayloadBase64
-    std::vector<BYTE> payloadPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"presentationPayloadBase64"));
-    if (!payloadPresentation.empty())
-    {
-        if (HasValidEmf(payloadPresentation))
+        const std::wstring emfKind = JsonReadNestedString(payloadJson, L"presentation", L"emfKind");
+        std::wstring reason;
+        const bool raster = ContainsRasterEmfRecords(emfFromPresentation, &reason);
+        if (Lowercase(emfKind) == L"vector" && (raster || !HasVectorDrawingEmfRecords(emfFromPresentation, &reason)))
         {
-            presentation.enhancedMetafile = std::move(payloadPresentation);
+            presentation.diagnostic = L"OLE_VECTOR_PREVIEW_FAILED: " + reason;
+        }
+        else
+        {
+            presentation.enhancedMetafile = std::move(emfFromPresentation);
+            presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
+            presentation.isVector = !raster;
+            presentation.diagnostic = raster ? L"Embedded EMF contains raster records" : L"Embedded vector EMF validated";
+            WriteNativeOleLog(raster ? L"Presentation route: EMBEDDED_RASTER_EMF" : L"Presentation route: EMBEDDED_VECTOR_EMF");
             return presentation;
         }
     }
 
-    // No valid EMF found — try to generate EMF from render.png
+    const std::wstring svg = JsonReadNestedString(payloadJson, L"render", L"svg");
+    if (!svg.empty())
+    {
+        const double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
+        const double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
+        const std::wstring color = JsonReadNestedString(payloadJson, L"presentation", L"color");
+        SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, widthPoints, heightPoints, color);
+        if (vectorResult.success)
+        {
+            presentation.enhancedMetafile = std::move(vectorResult.emfBytes);
+            presentation.himetricSize = vectorResult.himetricSize;
+            presentation.previewKind = PreviewKind::GeneratedVectorEmf;
+            presentation.isVector = true;
+            presentation.diagnostic = L"SVG vector EMF generated and validated";
+            WriteNativeOleLog(L"Presentation route: SVG_VECTOR_EMF");
+            return presentation;
+        }
+        presentation.diagnostic = vectorResult.error;
+    }
+
     FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);
     if (!pngPres.enhancedMetafile.empty())
     {
+        WriteNativeOleLog(L"Presentation route: PNG_RASTER_EMF_FALLBACK");
+        if (!presentation.diagnostic.empty()) pngPres.diagnostic = presentation.diagnostic + L"; fallback: " + pngPres.diagnostic;
         return pngPres;
     }
 
-    // No EMF and no PNG — return empty presentation (no raw LaTeX fallback).
-    // The caller should check enhancedMetafile.empty() and reject OLE insertion.
+    if (presentation.diagnostic.empty()) presentation.diagnostic = pngPres.diagnostic.empty()
+        ? L"OLE_PRESENTATION_INVALID: payload has no valid EMF, SVG, or PNG"
+        : pngPres.diagnostic;
     return presentation;
 }
 
 FormulaPresentation CreatePresentationFromPayloadWithoutRendering(const std::wstring& payloadJson)
 {
-    std::wstring latex = ExtractJsonString(payloadJson, L"latex");
     FormulaPresentation presentation{};
-    presentation.latex = latex.empty() ? kFormulaDefaultLatex : latex;
+    presentation.latex = JsonReadString(payloadJson, L"latex");
     presentation.payloadJson = payloadJson;
-    presentation.himetricSize = {PointsToHimetric(kDefaultWidthPoints), PointsToHimetric(kDefaultHeightPoints)};
     ApplyPayloadSize(payloadJson, &presentation);
 
-    // Try emfBase64 (new v3 field)
-    std::vector<BYTE> emfFromPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"emfBase64"));
-    if (!emfFromPresentation.empty())
+    std::wstring emfBase64 = JsonReadNestedString(payloadJson, L"presentation", L"emfBase64");
+    if (emfBase64.empty()) emfBase64 = ExtractJsonString(payloadJson, L"emfBase64");
+    std::vector<BYTE> emfFromPresentation = DecodeBase64(emfBase64);
+    if (!emfFromPresentation.empty() && HasValidEmf(emfFromPresentation))
     {
+        std::wstring reason;
+        const bool raster = ContainsRasterEmfRecords(emfFromPresentation, &reason);
         presentation.enhancedMetafile = std::move(emfFromPresentation);
+        presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
+        presentation.isVector = !raster;
         return presentation;
     }
 
-    // Legacy: presentationPayloadBase64
     std::vector<BYTE> payloadPresentation = DecodeBase64(ExtractJsonString(payloadJson, L"presentationPayloadBase64"));
-    if (!payloadPresentation.empty())
+    if (!payloadPresentation.empty() && HasValidEmf(payloadPresentation))
     {
+        std::wstring reason;
+        const bool raster = ContainsRasterEmfRecords(payloadPresentation, &reason);
         presentation.enhancedMetafile = std::move(payloadPresentation);
+        presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
+        presentation.isVector = !raster;
         return presentation;
     }
-
-    // Try PNG fallback
-    FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);
-    if (!pngPres.enhancedMetafile.empty())
-    {
-        return pngPres;
-    }
-
+    presentation.diagnostic = L"OLE_STORAGE_INVALID: payload does not contain a valid embedded EMF";
     return presentation;
 }
 
@@ -434,9 +389,13 @@ bool HasValidEmf(const std::vector<BYTE>& bytes)
         return false;
     }
 
-    // Validate EMF header
     ENHMETAHEADER header{};
-    bool valid = GetEnhMetaFileHeader(emf, sizeof(header), &header) != 0;
+    bool valid = GetEnhMetaFileHeader(emf, sizeof(header), &header) != 0 &&
+        header.dSignature == ENHMETA_SIGNATURE &&
+        header.nBytes == bytes.size() &&
+        header.nRecords >= 2 &&
+        header.rclFrame.right > header.rclFrame.left &&
+        header.rclFrame.bottom > header.rclFrame.top;
     DeleteEnhMetaFile(emf);
     return valid;
 }
@@ -444,18 +403,15 @@ bool HasValidEmf(const std::vector<BYTE>& bytes)
 FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payloadJson)
 {
     FormulaPresentation presentation{};
+    presentation.latex = JsonReadString(payloadJson, L"latex");
     presentation.payloadJson = payloadJson;
 
     // P1-8: Ensure GDI+ is initialized before any GDI+ calls
     EnsureGdiplusInitialized();
 
     // Get size from payload (try nested render.widthPt first, then flat widthPt)
-    double widthPoints = JsonReadNestedString(payloadJson, L"render", L"widthPt").empty()
-        ? ExtractJsonNumber(payloadJson, L"widthPt")
-        : std::stod(JsonReadNestedString(payloadJson, L"render", L"widthPt"));
-    double heightPoints = JsonReadNestedString(payloadJson, L"render", L"heightPt").empty()
-        ? ExtractJsonNumber(payloadJson, L"heightPt")
-        : std::stod(JsonReadNestedString(payloadJson, L"render", L"heightPt"));
+    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
+    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
     if (widthPoints <= 0) widthPoints = 180;
     if (heightPoints <= 0) heightPoints = 42;
 
@@ -479,14 +435,17 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     CopyMemory(locked, pngBytes.data(), pngBytes.size());
     GlobalUnlock(hGlobal);
 
-    IStream* stream = nullptr;
-    HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &stream);
+    IStream* rawStream = nullptr;
+    HRESULT hr = CreateStreamOnHGlobal(hGlobal, TRUE, &rawStream);
     if (FAILED(hr)) { GlobalFree(hGlobal); return presentation; }
+    std::unique_ptr<IStream, StreamReleaser> stream(rawStream);
 
-    // Decode PNG via GDI+
-    Gdiplus::Bitmap bitmap(stream);
-    stream->Release();  // HGLOBAL now owned by GDI+ bitmap
-    if (bitmap.GetLastStatus() != Gdiplus::Ok) return presentation;
+    std::unique_ptr<Gdiplus::Bitmap> bitmap(new Gdiplus::Bitmap(stream.get()));
+    if (bitmap->GetLastStatus() != Gdiplus::Ok)
+    {
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: PNG decode failed";
+        return presentation;
+    }
 
     // Create a metafile DC to render the bitmap into
     HDC screenDc = GetDC(nullptr);
@@ -508,15 +467,25 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
 
     if (metaDc == nullptr) return presentation;
 
-    // Draw the PNG bitmap onto the metafile
-    Gdiplus::Graphics graphics(metaDc);
-    graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
-    graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-    graphics.DrawImage(&bitmap,
-                       Gdiplus::Rect(0, 0, widthPx, heightPx),
-                       0, 0,
-                       bitmap.GetWidth(), bitmap.GetHeight(),
-                       Gdiplus::UnitPixel);
+    Gdiplus::Status drawStatus = Gdiplus::GenericError;
+    {
+        Gdiplus::Graphics graphics(metaDc);
+        graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        drawStatus = graphics.DrawImage(bitmap.get(),
+                                        Gdiplus::Rect(0, 0, widthPx, heightPx),
+                                        0, 0,
+                                        bitmap->GetWidth(), bitmap->GetHeight(),
+                                        Gdiplus::UnitPixel);
+        graphics.Flush(Gdiplus::FlushIntentionSync);
+    }
+    if (drawStatus != Gdiplus::Ok)
+    {
+        HENHMETAFILE failedMetafile = CloseEnhMetaFile(metaDc);
+        if (failedMetafile != nullptr) DeleteEnhMetaFile(failedMetafile);
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: DrawImage failed";
+        return presentation;
+    }
 
     HENHMETAFILE emf = CloseEnhMetaFile(metaDc);
     if (emf == nullptr) return presentation;
@@ -530,5 +499,16 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     DeleteEnhMetaFile(emf);
 
     presentation.himetricSize = {PointsToHimetric(widthPoints), PointsToHimetric(heightPoints)};
+    presentation.previewKind = PreviewKind::RasterEmfFallback;
+    presentation.isVector = false;
+    std::wstring rasterReason;
+    if (!ContainsRasterEmfRecords(presentation.enhancedMetafile, &rasterReason))
+    {
+        presentation.enhancedMetafile.clear();
+        presentation.previewKind = PreviewKind::None;
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: generated EMF did not contain a bitmap record";
+        return presentation;
+    }
+    presentation.diagnostic = L"PNG compatibility fallback embedded as raster EMF";
     return presentation;
 }

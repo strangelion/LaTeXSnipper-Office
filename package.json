@@ -21,6 +21,7 @@
     "prepare:native-office": "node scripts/prepare-native-office.js",
     "check:office-package": "node scripts/check-native-office-package.mjs",
     "check:frontend": "node --check src/main.js",
+    "test:frontend": "node --test tests/formula-svg-renderer.test.mjs",
     "check:office-payload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-native-office-payload.ps1 -PayloadRoot apps/native-office/Installer/output/staging",
     "build:obsidian": "npm --prefix apps/obsidian-plugin ci && npm --prefix apps/obsidian-plugin run build -- --production",
     "build:vscode": "npm --prefix apps/vscode-extension ci && npm --prefix apps/vscode-extension run build",

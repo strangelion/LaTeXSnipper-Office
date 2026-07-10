@@ -67,40 +67,38 @@ function Test-OleActivation {
 $ErrorActionPreference = 'Stop'
 $type = [Type]::GetTypeFromProgID('LaTeXSnipper.Formula.1', $true)
 $object = [Activator]::CreateInstance($type)
-$formulaId = $object.GetFormulaId()
-if ([string]::IsNullOrWhiteSpace($formulaId)) {
-    throw 'GetFormulaId returned an empty value'
+if ($object.IsInitialized() -ne $false) {
+    throw 'A newly activated empty object must not be initialized'
 }
 [Console]::Out.WriteLine('OLE_ACTIVATION_OK')
 [Console]::Out.Flush()
-# The probe process is deliberately terminated by its parent after the marker.
-# This avoids PowerShell's COM finalizer affecting the test result while still
-# proving CoCreateInstance and IDispatch both completed in the target bitness.
-Start-Sleep -Seconds 120
 '@
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($activationScript))
-    $stdoutPath = Join-Path $env:TEMP ("latexsnipper-ole-probe-$View-$([guid]::NewGuid().ToString('N')).out")
-    $process = Start-Process -FilePath $PowerShellExe `
-        -ArgumentList @("-NoProfile", "-NonInteractive", "-EncodedCommand", $encoded) `
-        -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    $passed = $false
-    while ([DateTime]::UtcNow -lt $deadline -and -not $process.HasExited) {
-        if ((Test-Path -LiteralPath $stdoutPath) -and (Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) -match 'OLE_ACTIVATION_OK') {
-            $passed = $true
-            break
-        }
-        Start-Sleep -Milliseconds 100
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $PowerShellExe
+    $startInfo.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        Write-Host "FAIL [$View] Cannot start activation probe" -ForegroundColor Red
+        return $false
     }
-    if (-not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    if (-not $process.WaitForExit(10000)) {
+        $process.Kill()
         [void]$process.WaitForExit(5000)
+        Write-Host "FAIL [$View] COM activation / IDispatch probe timed out" -ForegroundColor Red
+        return $false
     }
-    $output = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue } else { "" }
-    Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
-    if (-not $passed) {
+    $output = $process.StandardOutput.ReadToEnd()
+    $errorOutput = $process.StandardError.ReadToEnd()
+    if ($process.ExitCode -ne 0 -or $output -notmatch 'OLE_ACTIVATION_OK') {
         Write-Host "FAIL [$View] COM activation / IDispatch probe failed" -ForegroundColor Red
         if ($output) { Write-Host $output }
+        if ($errorOutput) { Write-Host $errorOutput }
         return $false
     }
 

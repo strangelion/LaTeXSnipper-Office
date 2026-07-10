@@ -179,6 +179,9 @@ public class VstoInsertResult : VstoMessage
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? FallbackReason { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("errorCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
 }
 
 public class VstoReplaceResult : VstoMessage
@@ -327,6 +330,7 @@ public class FormulaPayload
     [JsonPropertyName("source")] public SourceInfo? Source { get; set; }
     [JsonPropertyName("storageMode")] public string? StorageMode { get; set; }
     [JsonPropertyName("revision")] public int Revision { get; set; }
+    [JsonPropertyName("createdUtcTicks")] public long CreatedUtcTicks { get; set; }
 }
 
 public class PresentationData
@@ -337,6 +341,9 @@ public class PresentationData
     [JsonPropertyName("emfBase64")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? EmfBase64 { get; set; }
+    [JsonPropertyName("emfKind")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? EmfKind { get; set; }
 }
 
 public class RenderData

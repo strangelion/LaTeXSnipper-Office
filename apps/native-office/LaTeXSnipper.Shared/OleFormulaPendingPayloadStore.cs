@@ -2,94 +2,110 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Win32;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
-/// <summary>
-/// Registry-based pending payload store for OLE formula objects.
-///
-/// The VSTO add-in writes the FormulaPayload JSON to HKCU before calling
-/// AddOLEObject. The C++ OLE DLL reads (and deletes) this value during
-/// construction, allowing it to render the correct formula immediately
-/// without waiting for InitializeFromJson (which is called after AddOLEObject
-/// returns and may race with Office's rendering requests).
-///
-/// Uses per-PID.TID isolation to prevent concurrent insertions (e.g. Word +
-/// PowerPoint simultaneously) from overwriting each other's payloads.
-/// TID uses the Win32 native thread ID (GetCurrentThreadId), NOT the .NET
-/// ManagedThreadId, so that C# and C++ always agree on the registry key name.
-///
-/// Registry path: HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject
-/// Value name:    PendingPayload.{ProcessId}.{NativeThreadId}
-/// </summary>
 public static class OleFormulaPendingPayloadStore
 {
     private const string KeyPath = @"Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
     private const string PendingPayloadPrefix = "PendingPayload.";
+    private static readonly TimeSpan LeaseTimeout = TimeSpan.FromSeconds(10);
 
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
 
-    /// <summary>
-    /// Build the per-PID.TID value name for registry isolation.
-    /// Uses Win32 native thread ID to match the C++ side's GetCurrentThreadId().
-    /// </summary>
-    private static string GetValueName()
+    private static string GetValueName(int pid) => $"{PendingPayloadPrefix}{pid}";
+
+    public static PendingPayloadLease Save(FormulaPayload payload)
     {
+        if (payload == null) throw new ArgumentNullException(nameof(payload));
         int pid = Process.GetCurrentProcess().Id;
         uint tid = GetCurrentThreadId();
-        return $"{PendingPayloadPrefix}{pid}.{tid}";
-    }
-
-    /// <summary>
-    /// Save a FormulaPayload JSON to the registry for the OLE DLL to consume.
-    /// Must be called BEFORE InlineShapes.AddOLEObject().
-    /// Uses current PID.TID as the value name so concurrent insertions
-    /// in different processes or threads do not collide.
-    /// </summary>
-    public static void Save(FormulaPayload payload)
-    {
-        if (payload == null)
-            throw new ArgumentNullException(nameof(payload));
-
-        string json = System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+        var mutex = new Mutex(false, $@"Local\LaTeXSnipper.OlePayload.{pid}");
+        bool ownsMutex = false;
+        try
         {
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        });
+            try
+            {
+                ownsMutex = mutex.WaitOne(LeaseTimeout);
+            }
+            catch (AbandonedMutexException)
+            {
+                ownsMutex = true;
+            }
+            if (!ownsMutex)
+                throw new TimeoutException($"OLE payload lease timed out for process {pid}.");
 
-        string valueName = GetValueName();
-        using RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath)
-            ?? throw new InvalidOperationException("Cannot open OLE formula payload registry key.");
-        key.SetValue(valueName, json, RegistryValueKind.String);
-
-        System.Diagnostics.Debug.WriteLine(
-            $"[OlePayloadStore] Saved: {valueName} formulaId={payload.FormulaId}");
+            payload.CreatedUtcTicks = DateTime.UtcNow.Ticks;
+            string json = System.Text.Json.JsonSerializer.Serialize(payload, new System.Text.Json.JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            });
+            string valueName = GetValueName(pid);
+            using RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath)
+                ?? throw new InvalidOperationException("Cannot open OLE formula payload registry key.");
+            key.SetValue(valueName, json, RegistryValueKind.String);
+            Debug.WriteLine($"[OlePayloadStore] Saved pid={pid} tid={tid} formulaId={payload.FormulaId}");
+            return new PendingPayloadLease(mutex, valueName, pid, tid, payload.FormulaId);
+        }
+        catch
+        {
+            if (ownsMutex) mutex.ReleaseMutex();
+            mutex.Dispose();
+            throw;
+        }
     }
 
-    /// <summary>
-    /// Read and delete the pending payload from the registry for the current PID.TID.
-    /// Called by the OLE DLL during construction.
-    /// Returns null if no pending payload exists for the current thread.
-    /// </summary>
     public static string? Consume()
     {
+        int pid = Process.GetCurrentProcess().Id;
+        string valueName = GetValueName(pid);
         using RegistryKey? key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true);
         if (key == null) return null;
-
-        string valueName = GetValueName();
         string? value = key.GetValue(valueName) as string;
-        if (value != null)
-        {
-            key.DeleteValue(valueName);
-            System.Diagnostics.Debug.WriteLine(
-                $"[OlePayloadStore] Consumed: {valueName}");
-        }
-        else
-        {
-            System.Diagnostics.Debug.WriteLine(
-                $"[OlePayloadStore] Not found: {valueName}");
-        }
+        if (value != null) key.DeleteValue(valueName, throwOnMissingValue: false);
         return value;
+    }
+
+    internal static void DeleteValue(string valueName)
+    {
+        using RegistryKey? key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true);
+        key?.DeleteValue(valueName, throwOnMissingValue: false);
+    }
+}
+
+public sealed class PendingPayloadLease : IDisposable
+{
+    private Mutex? mutex;
+    private readonly string valueName;
+    private readonly int pid;
+    private readonly uint tid;
+    private readonly string formulaId;
+
+    internal PendingPayloadLease(Mutex mutex, string valueName, int pid, uint tid, string formulaId)
+    {
+        this.mutex = mutex;
+        this.valueName = valueName;
+        this.pid = pid;
+        this.tid = tid;
+        this.formulaId = formulaId;
+    }
+
+    public void Dispose()
+    {
+        Mutex? owned = Interlocked.Exchange(ref mutex, null);
+        if (owned == null) return;
+        try
+        {
+            OleFormulaPendingPayloadStore.DeleteValue(valueName);
+            Debug.WriteLine($"[OlePayloadStore] Released pid={pid} tid={tid} formulaId={formulaId}");
+        }
+        finally
+        {
+            owned.ReleaseMutex();
+            owned.Dispose();
+        }
     }
 }
