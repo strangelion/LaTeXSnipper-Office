@@ -352,12 +352,26 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
     let ole = install_ole_component();
     if !ole.success {
         let cleanup = uninstall_ole_component();
+        if ole.message.contains("OLE_REGISTRATION_OWNED_BY_OTHER")
+            && ole.message.contains("legacy-unowned")
+            && status.available
+        {
+            return PlatformIntegrationResult::ok(
+                "office",
+                "native-stack-partial",
+                format!(
+                    "VSTO installation completed。Find existing LaTeXSnipper OLE registration and continue using: {}",
+                    status.detail
+                ),
+                true,
+            );
+        }
         return PlatformIntegrationResult::fail(
             "office",
             "native-stack",
             format!(
-                "VSTO installation completed, but OLE installation failed: {} Cleanup: {}",
-                ole.message, cleanup.message
+                "VSTO installation completed, but OLE installation failed: {}",
+                ole.message
             ),
         );
     }
