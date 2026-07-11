@@ -3,6 +3,7 @@
 *.snk
 *.cer
 node_modules/
+/output/ci-diagnostics/
 .wix/
 dist/
 apps/obsidian-plugin/main.js

@@ -36,11 +36,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
+      - name: Set up Windows Native Office CI dependencies
+        uses: ./.github/actions/setup-native-office
+        with:
+          diagnostics-directory: native-office-diagnostics
 
       - name: Import release certificate from Secrets
         env:
@@ -71,17 +70,6 @@ jobs:
           "VstoManifestThumbprint=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "  Release signing certificate loaded: $($cert.Thumbprint)" -ForegroundColor Green
 
-      - name: Install VSTO runtime for manifest generation
-        run: .\scripts\ensure-vsto-runtime.ps1
-
-      - name: Install WiX Toolset
-        run: |
-          dotnet tool install wix --tool-path .wix --version 5.0.2
-          (Resolve-Path .wix).Path | Out-File $env:GITHUB_PATH -Append -Encoding utf8
-
-      - name: Restore NuGet packages
-        run: nuget restore $env:SOLUTION_DIR\LaTeXSnipper.NativeOffice.sln
-
       - name: Build and validate VSTO installers
         run: |
           & .\apps\native-office\Installer\build.ps1 `
@@ -96,6 +84,7 @@ jobs:
           }
 
       - name: Upload build output
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
@@ -104,6 +93,15 @@ jobs:
             apps/native-office/Installer/output/staging/**
             apps/native-office/Installer/output/*.msi
             apps/native-office/Installer/output/*.exe
+
+      - name: Upload Native Office diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-diagnostics-${{ github.sha }}
+          path: native-office-diagnostics/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Create Release
         if: startsWith(github.ref, 'refs/tags/native-office-v')

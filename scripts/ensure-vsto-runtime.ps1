@@ -27,14 +27,16 @@ function Test-VstoHostingAssembly {
             Select-Object -First 1
 
         if ($assembly) {
-            return $true
+            Write-Host "VSTO GAC assembly: $($assembly.FullName)"
+            return $assembly
         }
     }
 
-    return $false
+    return $null
 }
 
-if (Test-VstoHostingAssembly) {
+$existingAssembly = Test-VstoHostingAssembly
+if ($existingAssembly) {
     Write-Host "VSTO runtime hosting assembly: already installed" -ForegroundColor Green
     exit 0
 }
@@ -53,6 +55,21 @@ $runtimeUrl = "https://download.microsoft.com/download/c/0/e/c0e39fdf-68c9-4332-
 Write-Host "Downloading VSTO runtime redistributable..." -ForegroundColor Cyan
 Invoke-WebRequest -Uri $runtimeUrl -OutFile $installer
 
+$installerFile = Get-Item -LiteralPath $installer
+if ($installerFile.Length -lt 5MB -or $installerFile.Length -gt 100MB) {
+    throw "VSTO runtime installer size is outside the accepted range: $($installerFile.Length) bytes."
+}
+$installerHash = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash
+Write-Host "VSTO runtime installer SHA256: $installerHash"
+$signature = Get-AuthenticodeSignature -LiteralPath $installer
+if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    throw "VSTO runtime installer Authenticode validation failed: status=$($signature.Status) message=$($signature.StatusMessage)"
+}
+if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Subject -notmatch '(?i)Microsoft') {
+    throw "VSTO runtime installer signer is not Microsoft: $($signature.SignerCertificate.Subject)"
+}
+Write-Host "VSTO runtime installer signer: $($signature.SignerCertificate.Subject)"
+
 Write-Host "Installing VSTO runtime..." -ForegroundColor Cyan
 $process = Start-Process -FilePath $installer `
     -ArgumentList "/quiet", "/norestart" `
@@ -62,7 +79,8 @@ if ($process.ExitCode -notin @(0, 3010)) {
     throw "VSTO runtime installer failed with exit code $($process.ExitCode)."
 }
 
-if (-not (Test-VstoHostingAssembly)) {
+$installedAssembly = Test-VstoHostingAssembly
+if (-not $installedAssembly) {
     throw "VSTO runtime installation completed but Microsoft.VisualStudio.Tools.Applications.Hosting.dll is still unavailable."
 }
 

@@ -72,16 +72,13 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-      - uses: nuget/setup-nuget@v2
-      - name: Ensure VSTO build runtime
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\ensure-vsto-runtime.ps1
-      - name: Restore and build C# VSTO projects
+      - name: Set up Windows Native Office CI dependencies
+        uses: ./.github/actions/setup-native-office
+        with:
+          diagnostics-directory: native-office-setup-diagnostics
+      - name: Build C# VSTO projects
         shell: pwsh
         run: |
-          nuget restore apps\native-office\LaTeXSnipper.NativeOffice.sln
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           msbuild apps\native-office\LaTeXSnipper.NativeOffice.sln /m /t:Build /p:Configuration=Release "/p:Platform=Any CPU" /p:WarningLevel=4 /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -90,16 +87,16 @@ jobs:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-      - name: Build dual-bitness Release activation inputs
+      - name: Set up Windows Native Office CI dependencies
+        uses: ./.github/actions/setup-native-office
+        with:
+          diagnostics-directory: vsto-diagnostics
+      - name: Build dual-bitness Release handlers
         shell: pwsh
         run: |
           $handler = 'apps\native-office\LaTeXSnipper.OleFormulaObjectNative\LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj'
-          $probe = 'apps\native-office\OleActivationProbe\OleActivationProbe.vcxproj'
           foreach ($platform in @('Win32', 'x64')) {
             msbuild $handler /m /t:Build /p:Configuration=Release /p:Platform=$platform /p:WarningLevel=Level4 /p:TreatWarningAsError=true /v:minimal
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            msbuild $probe /m /t:Build /p:Configuration=Release /p:Platform=$platform /v:minimal
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           New-Item -ItemType Directory -Force native-staging, vsto-diagnostics | Out-Null
@@ -108,14 +105,10 @@ jobs:
       - name: Native dual-bitness COM activation gate
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Continue'
-          & powershell -NoProfile -ExecutionPolicy Bypass -File scripts\smoke-ole-activation.ps1 -StagingRoot native-staging -ProbeConfiguration Release *>&1 |
-            Tee-Object -FilePath vsto-diagnostics\activation.log
-          $code = $LASTEXITCODE
-          reg.exe query HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F} /s /reg:64 *> vsto-diagnostics\registry-x64.txt
-          reg.exe query HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F} /s /reg:32 *> vsto-diagnostics\registry-x86.txt
-          Get-FileHash native-staging\*.dll -Algorithm SHA256 | Format-List | Out-File vsto-diagnostics\sha256.txt
-          exit $code
+          & scripts\invoke-native-office-activation-gate.ps1 `
+            -StagingRoot native-staging `
+            -ProbeConfiguration Release `
+            -DiagnosticsDirectory vsto-diagnostics
       - name: Upload VSTO activation diagnostics
         if: always()
         uses: actions/upload-artifact@v4
