@@ -3,7 +3,8 @@ param(
     [string]$StagingRoot,
     [int]$TimeoutSeconds = 15,
     [ValidateSet("Debug", "Release")]
-    [string]$ProbeConfiguration = "Release"
+    [string]$ProbeConfiguration = "Release",
+    [string]$DiagnosticsDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -135,6 +136,10 @@ function Invoke-NativeActivationProbe([string]$ProbePath, [string]$DllPath, [str
         $probeExitCode = $process.ExitCode
         $stdout = $stdoutTask.GetAwaiter().GetResult()
         $stderr = $stderrTask.GetAwaiter().GetResult()
+        if (-not [string]::IsNullOrWhiteSpace($DiagnosticsDirectory)) {
+            $stdout | Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "probe-x$View-stdout.json") -Encoding UTF8
+            $stderr | Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "probe-x$View-stderr.txt") -Encoding UTF8
+        }
         $diagnostic = $null
         try {
             $diagnostic = $stdout | ConvertFrom-Json -ErrorAction Stop
@@ -158,6 +163,9 @@ function Invoke-NativeActivationProbe([string]$ProbePath, [string]$DllPath, [str
 $repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $probe64 = Join-Path $repositoryRoot "apps\native-office\OleActivationProbe\bin\x64\$ProbeConfiguration\OleActivationProbe.exe"
 $probe32 = Join-Path $repositoryRoot "apps\native-office\OleActivationProbe\bin\Win32\$ProbeConfiguration\OleActivationProbe.exe"
+if (-not [string]::IsNullOrWhiteSpace($DiagnosticsDirectory)) {
+    New-Item -ItemType Directory -Force -Path $DiagnosticsDirectory | Out-Null
+}
 
 try {
     Backup-View "64"
@@ -168,6 +176,12 @@ try {
     Register-View "32" $dll32
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "smoke-ole-registration.ps1")
     if ($LASTEXITCODE -ne 0) { throw "OLE registration smoke failed." }
+    if (-not [string]::IsNullOrWhiteSpace($DiagnosticsDirectory)) {
+        foreach ($view in @("64", "32")) {
+            & reg.exe query "HKCU\Software\Classes\CLSID\$clsid" /s "/reg:$view" *>&1 |
+                Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "registry-x$view.txt") -Encoding UTF8
+        }
+    }
     Invoke-NativeActivationProbe $probe64 $dll64 "64"
     Invoke-NativeActivationProbe $probe32 $dll32 "32"
 }
