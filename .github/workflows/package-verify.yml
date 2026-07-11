@@ -22,6 +22,12 @@ jobs:
       - uses: nuget/setup-nuget@v2
       - run: npm ci
       - run: npm --prefix apps/office-addin ci
+
+      - name: Ensure VSTO build runtime
+        shell: pwsh
+        run: |
+          .\scripts\ensure-vsto-runtime.ps1
+      
       - name: Build prior-version NativeOffice MSI
         shell: pwsh
         run: |
