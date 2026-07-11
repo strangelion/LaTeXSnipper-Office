@@ -1,0 +1,19 @@
+name: Setup Native Office CI
+description: Configure the pinned Windows toolchain and VSTO build prerequisites.
+inputs:
+  diagnostics-directory:
+    description: Directory that receives environment diagnostics.
+    required: false
+    default: package-diagnostics
+runs:
+  using: composite
+  steps:
+    - uses: microsoft/setup-msbuild@v2
+    - uses: nuget/setup-nuget@v2
+      with:
+        nuget-version: 6.11.1
+    - name: Prepare pinned Native Office dependencies
+      shell: pwsh
+      run: >-
+        & "$env:GITHUB_WORKSPACE\scripts\initialize-native-office-ci.ps1"
+        -DiagnosticsDirectory "${{ inputs.diagnostics-directory }}"

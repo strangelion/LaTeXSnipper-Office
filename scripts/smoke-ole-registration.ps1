@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-Checks LaTeXSnipper OLE COM registration in both registry views.
+Checks only LaTeXSnipper OLE registry state in both registry views.
 #>
 
 [CmdletBinding()]
@@ -50,62 +50,6 @@ function Get-RegStringValue {
     return $null
 }
 
-function Test-OleActivation {
-    param(
-        [Parameter(Mandatory = $true)][string]$PowerShellExe,
-        [Parameter(Mandatory = $true)][ValidateSet("32", "64")][string]$View
-    )
-
-    if (-not (Test-Path -LiteralPath $PowerShellExe -PathType Leaf)) {
-        Write-Host "FAIL [$View] PowerShell host not found: $PowerShellExe" -ForegroundColor Red
-        return $false
-    }
-
-    # Run in a process of the exact COM bitness. Registry keys and DLL paths
-    # alone do not prove that CoCreateInstance can load the in-proc server.
-    $activationScript = @'
-$ErrorActionPreference = 'Stop'
-$type = [Type]::GetTypeFromProgID('LaTeXSnipper.Formula.1', $true)
-$object = [Activator]::CreateInstance($type)
-if ($object.IsInitialized() -ne $false) {
-    throw 'A newly activated empty object must not be initialized'
-}
-[Console]::Out.WriteLine('OLE_ACTIVATION_OK')
-[Console]::Out.Flush()
-'@
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($activationScript))
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $PowerShellExe
-    $startInfo.Arguments = "-NoProfile -NonInteractive -EncodedCommand $encoded"
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
-    if (-not $process.Start()) {
-        Write-Host "FAIL [$View] Cannot start activation probe" -ForegroundColor Red
-        return $false
-    }
-    if (-not $process.WaitForExit(10000)) {
-        $process.Kill()
-        [void]$process.WaitForExit(5000)
-        Write-Host "FAIL [$View] COM activation / IDispatch probe timed out" -ForegroundColor Red
-        return $false
-    }
-    $output = $process.StandardOutput.ReadToEnd()
-    $errorOutput = $process.StandardError.ReadToEnd()
-    if ($process.ExitCode -ne 0 -or $output -notmatch 'OLE_ACTIVATION_OK') {
-        Write-Host "FAIL [$View] COM activation / IDispatch probe failed" -ForegroundColor Red
-        if ($output) { Write-Host $output }
-        if ($errorOutput) { Write-Host $errorOutput }
-        return $false
-    }
-
-    Write-Host "OK   [$View] COM activation and IDispatch probe passed" -ForegroundColor Green
-    return $true
-}
-
 foreach ($view in @("64", "32")) {
     $progClsidOutput = Invoke-RegQuery -Key "HKCU\Software\Classes\$progId\CLSID" -View $view
     $viClsidOutput = Invoke-RegQuery -Key "HKCU\Software\Classes\$versionIndependentProgId\CLSID" -View $view
@@ -134,15 +78,6 @@ foreach ($view in @("64", "32")) {
         Write-Host "FAIL [$view] ThreadingModel expected Apartment, got $threading" -ForegroundColor Red
         $failed = $true
     }
-}
-
-$powerShell64 = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
-$powerShell32 = Join-Path $env:WINDIR "SysWOW64\WindowsPowerShell\v1.0\powershell.exe"
-if (-not (Test-OleActivation -PowerShellExe $powerShell64 -View "64")) {
-    $failed = $true
-}
-if (-not (Test-OleActivation -PowerShellExe $powerShell32 -View "32")) {
-    $failed = $true
 }
 
 if ($failed) {

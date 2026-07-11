@@ -575,13 +575,13 @@ if (Test-Path $oleDllX86) {
         Write-Host "  .cer copied to staging" -ForegroundColor Gray
     }
 } else {
-    throw "OLE x86 DLL not found after build at $oleDllX86 — OLE will not be available on 32-bit Office"
+    throw "OLE x86 DLL not found after build at $oleDllX86; OLE will not be available on 32-bit Office"
 }
 if (Test-Path $oleDllX64) {
     Copy-Item $oleDllX64 (Join-Path $staging "OleFormulaObject.x64.dll") -Force
     Write-Host "  OLE x64 : OK (SHA256: $((Get-FileHash $oleDllX64 -Algorithm SHA256).Hash))" -ForegroundColor Green
 } else {
-    throw "OLE x64 DLL not found after build at $oleDllX64 — OLE will not be available on 64-bit Office"
+    throw "OLE x64 DLL not found after build at $oleDllX64; OLE will not be available on 64-bit Office"
 }
 $env:OleBinDir = $stagingAbs
 $oleDllX86Sha256 = (Get-FileHash -LiteralPath (Join-Path $env:OleBinDir "OleFormulaObject.x86.dll") -Algorithm SHA256).Hash
