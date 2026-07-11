@@ -45,6 +45,7 @@ const document = mathjax.document("", {
   InputJax: new TeX({ packages: AllPackages }),
   OutputJax: new SVG({ fontCache: "none" }),
 });
+const normalizeLineEndings = (value) => value.replace(/\r\n?/g, "\n");
 
 mkdirSync(fixtureDir, { recursive: true });
 let changed = false;
@@ -55,13 +56,13 @@ for (const fixture of fixtures) {
   const end = html.lastIndexOf("</svg>");
   if (start < 0 || end < start)
     throw new Error(`MathJax did not emit SVG for ${fixture.name}`);
-  const svg = `${html.slice(start, end + 6)}\n`;
+  const svg = normalizeLineEndings(`${html.slice(start, end + 6)}\n`);
   if (!svg.includes("viewBox=") || svg.includes("<image"))
     throw new Error(`Fixture ${fixture.name} is not self-contained vector SVG`);
   const path = join(fixtureDir, `${fixture.name}.svg`);
   let current = null;
   try {
-    current = readFileSync(path, "utf8");
+    current = normalizeLineEndings(readFileSync(path, "utf8"));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }

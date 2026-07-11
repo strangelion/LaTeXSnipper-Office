@@ -60,7 +60,8 @@ jobs:
         shell: pwsh
         run: >-
           msbuild apps\native-office\LaTeXSnipper.Shared.Tests\LaTeXSnipper.Shared.Tests.csproj
-          /m /t:Build /p:Configuration=Release /p:Platform=AnyCPU /p:WarningLevel=4 /v:minimal
+          /m /t:Restore,Build /p:RestorePackagesConfig=true
+          /p:Configuration=Release /p:Platform=AnyCPU /p:WarningLevel=4 /v:minimal
       - name: Run PendingPayload ACL/transport and strict Base64 tests
         shell: pwsh
         run: |

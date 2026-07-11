@@ -122,11 +122,12 @@
     <None Include="src\OleFormulaObjectHandler.def" />
     <None Include="..\..\..\scripts\build-ole-version.ps1" />
   </ItemGroup>
-  <PropertyGroup>
-    <PreBuildEvent>
-      <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1" -Version "$(LaTeXSnipperVersion)"</Command>
-      <Message>Generating OleVersion.h from package.json...</Message>
-    </PreBuildEvent>
-  </PropertyGroup>
+  <Target Name="GenerateOleVersionHeader"
+          BeforeTargets="PrepareForBuild"
+          Inputs="$(MSBuildThisFileDirectory)..\..\..\package.json;$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1"
+          Outputs="$(MSBuildThisFileDirectory)res\OleVersion.h">
+    <Message Text="Generating OleVersion.h from package.json..." Importance="high" />
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\..\..\scripts\build-ole-version.ps1&quot;" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
