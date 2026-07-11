@@ -3998,6 +3998,7 @@ pub struct OleComponentResult {
 }
 
 /// Result of a VSTO trust verification.
+#[cfg(target_os = "windows")]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VstoTrustStatus {
     pub runtime_installed: bool,
@@ -4269,6 +4270,7 @@ fn find_ole_dll_path(dll_name: &str) -> Option<std::path::PathBuf> {
 
 /// Write the Desktop exe path to the registry so the OLE DLL's FindDesktopPathRegistry()
 /// can locate the exe. Called during app startup (not just during OLE install).
+#[cfg(target_os = "windows")]
 pub fn register_install_path() {
     #[cfg(target_os = "windows")]
     if let Ok(exe_path) = std::env::current_exe() {

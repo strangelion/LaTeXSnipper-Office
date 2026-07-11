@@ -6,6 +6,7 @@ mod engine;
 mod math;
 mod platforms;
 
+#[cfg(target_os = "windows")]
 use std::sync::Arc;
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -39,6 +40,7 @@ fn main() {
     }));
 
     // Collect args before Tauri consumes them
+    #[cfg(target_os = "windows")]
     let args: Vec<String> = std::env::args().collect();
 
     // Extract OLE edit pipe name early so closure can own it
