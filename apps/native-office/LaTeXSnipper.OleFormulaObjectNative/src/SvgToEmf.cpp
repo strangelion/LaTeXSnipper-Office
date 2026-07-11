@@ -1073,18 +1073,57 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     if (!ParseXml(svg, &root, &result.error)) return result;
     RenderContext context{};
     if (!IndexIds(root.get(), &context.ids, &result.error)) return result;
+    // MathJax's layout width can be slightly tighter than the actual glyph
+    // outlines (italic overhangs, integral signs, accents, rule endpoints, etc.).
+    // Add a small transparent safety margin so Office does not clip those paths.
+    const double paddingXPt = std::clamp(widthPt * 0.02, 1.5, 4.0);
+    const double paddingYPt = std::clamp(heightPt * 0.08, 1.0, 3.0);
+    const double canvasWidthPt = widthPt + paddingXPt * 2.0;
+    const double canvasHeightPt = heightPt + paddingYPt * 2.0;
 
-    const int widthPixels = (std::max)(1, static_cast<int>(std::lround(widthPt * kRenderDpi / kPointsPerInch)));
-    const int heightPixels = (std::max)(1, static_cast<int>(std::lround(heightPt * kRenderDpi / kPointsPerInch)));
-    const int widthLogical = (std::max)(1, static_cast<int>(std::lround(widthPt * kLogicalUnitsPerInch / kPointsPerInch)));
-    const int heightLogical = (std::max)(1, static_cast<int>(std::lround(heightPt * kLogicalUnitsPerInch / kPointsPerInch)));
+    const int contentWidthLogical = (std::max)(
+        1,
+        static_cast<int>(std::lround(widthPt * kLogicalUnitsPerInch / kPointsPerInch)));
+    const int contentHeightLogical = (std::max)(
+        1,
+        static_cast<int>(std::lround(heightPt * kLogicalUnitsPerInch / kPointsPerInch)));
+    const int paddingXLogical = static_cast<int>(
+        std::lround(paddingXPt * kLogicalUnitsPerInch / kPointsPerInch));
+    const int paddingYLogical = static_cast<int>(
+        std::lround(paddingYPt * kLogicalUnitsPerInch / kPointsPerInch));
+    const int canvasWidthLogical = contentWidthLogical + paddingXLogical * 2;
+    const int canvasHeightLogical = contentHeightLogical + paddingYLogical * 2;
+
+    const int canvasWidthPixels = (std::max)(
+        1,
+        static_cast<int>(std::lround(canvasWidthPt * kRenderDpi / kPointsPerInch)));
+    const int canvasHeightPixels = (std::max)(
+        1,
+        static_cast<int>(std::lround(canvasHeightPt * kRenderDpi / kPointsPerInch)));
+
     Matrix rootMatrix{};
     bool requiresClip = false;
-    if (!BuildRootMatrix(*root, widthLogical, heightLogical, &rootMatrix, &requiresClip, &result.error)) return result;
+    if (!BuildRootMatrix(
+            *root,
+            contentWidthLogical,
+            contentHeightLogical,
+            &rootMatrix,
+            &requiresClip,
+            &result.error))
+    {
+        return result;
+    }
+
+    // Keep the original SVG scaling, then translate the whole formula into the
+    // padded canvas. No background rectangle is drawn, so the margin stays transparent.
+    rootMatrix.e += paddingXLogical;
+    rootMatrix.f += paddingYLogical;
 
     RECT frame{};
-    frame.right = static_cast<LONG>(std::lround(widthPt * kHimetricPerInch / kPointsPerInch));
-    frame.bottom = static_cast<LONG>(std::lround(heightPt * kHimetricPerInch / kPointsPerInch));
+    frame.right = static_cast<LONG>(
+        std::lround(canvasWidthPt * kHimetricPerInch / kPointsPerInch));
+    frame.bottom = static_cast<LONG>(
+        std::lround(canvasHeightPt * kHimetricPerInch / kPointsPerInch));
     HDC reference = GetDC(nullptr);
     if (reference == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: GetDC failed"; return result; }
     HDC metafileDc = CreateEnhMetaFileW(reference, nullptr, &frame, L"LaTeXSnipper\0MathJax SVG vector formula\0");
@@ -1092,8 +1131,8 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     if (metafileDc == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: CreateEnhMetaFile failed"; return result; }
     context.dc = metafileDc;
     if (SetMapMode(metafileDc, MM_ANISOTROPIC) == 0 ||
-        !SetWindowExtEx(metafileDc, widthLogical, heightLogical, nullptr) ||
-        !SetViewportExtEx(metafileDc, widthPixels, heightPixels, nullptr) ||
+        !SetWindowExtEx(metafileDc, canvasWidthLogical, canvasHeightLogical, nullptr) ||
+        !SetViewportExtEx(metafileDc, canvasWidthPixels, canvasHeightPixels, nullptr) ||
         SetBkMode(metafileDc, TRANSPARENT) == 0)
     {
         HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);
@@ -1101,7 +1140,13 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
         result.error = L"SVG_VECTOR_GDI_ERROR: anisotropic mapping setup failed";
         return result;
     }
-    if (requiresClip && IntersectClipRect(metafileDc, 0, 0, widthLogical, heightLogical) == ERROR)
+    if (requiresClip &&
+        IntersectClipRect(
+            metafileDc,
+            paddingXLogical,
+            paddingYLogical,
+            paddingXLogical + contentWidthLogical,
+            paddingYLogical + contentHeightLogical) == ERROR)
     {
         HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);
         if (failed != nullptr) DeleteEnhMetaFile(failed);
