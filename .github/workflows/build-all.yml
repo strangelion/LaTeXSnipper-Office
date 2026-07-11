@@ -112,7 +112,7 @@ jobs:
 
   # ─────────── Tauri Desktop (Windows) ───────────
   tauri-windows:
-    needs: [prepare, office-addin, vsto]
+    needs: [prepare, office-addin, vsto, wps]
     runs-on: windows-latest
     env:
       VERSION: ${{ needs.prepare.outputs.version }}
@@ -231,6 +231,63 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with: { workspaces: src-tauri -> target }
+
+      - name: Download WPS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wps
+          path: _wps_artifact
+
+      - name: Stage downloaded WPS artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = '${{ needs.prepare.outputs.version }}'
+          $zip = Get-ChildItem `
+            -LiteralPath '_wps_artifact' `
+            -Filter "latexsnipper-wps_$version.zip" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $zip) {
+            throw "WPS artifact ZIP is missing for version $version"
+          }
+        
+          $distRoot = 'apps\wps\dist'
+          $destination = Join-Path $distRoot "latexsnipper-wps_$version"
+        
+          if (Test-Path -LiteralPath $destination) {
+            Remove-Item -LiteralPath $destination -Recurse -Force
+          }
+        
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Expand-Archive `
+            -LiteralPath $zip.FullName `
+            -DestinationPath $destination `
+            -Force
+        
+          $required = @(
+            'index.html',
+            'main.js',
+            'manifest.xml',
+            'ribbon.xml',
+            'proxy.js',
+            'server.js',
+            'js\command-layer.js',
+            'js\ribbon.js',
+            'js\util.js',
+            'ui\taskpane.html'
+          )
+        
+          foreach ($relative in $required) {
+            $path = Join-Path $destination $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Extracted WPS artifact is incomplete: $relative"
+            }
+          }
+        
+          Write-Host "WPS artifact staged: $destination"
 
       # Inject version into Cargo.toml and tauri.conf.json
       - name: Inject version
