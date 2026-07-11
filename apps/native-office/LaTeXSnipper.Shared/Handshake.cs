@@ -64,8 +64,9 @@ public static class Handshake
                         return _cachedSecret;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    OfficeOperationLog.Failure("migrate-handshake-secret", "shared", null, ex);
                     // Not DPAPI encrypted, try as plain JSON (migration from old format)
                     var json = Encoding.UTF8.GetString(encryptedData);
                     var stored = JsonSerializer.Deserialize<StoredSecret>(json);
@@ -78,7 +79,7 @@ public static class Handshake
                     }
                 }
             }
-            catch { /* Fall through to create new */ }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-handshake-secret", "shared", null, ex); }
         }
 
         // Generate new secret using CSPRNG
@@ -124,8 +125,9 @@ public static class Handshake
         {
             return GetOrCreateSecret() == clientSecret;
         }
-        catch
+        catch (Exception ex)
         {
+            OfficeOperationLog.Failure("verify-handshake-secret", "shared", null, ex);
             return false;
         }
     }

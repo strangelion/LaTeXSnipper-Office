@@ -4,25 +4,28 @@
  */
 
 const OFFICE_API = {
-  BASE_URL: 'http://localhost:19876',
+  BASE_URL: "http://localhost:19876",
 
   async init() {
     // Check if running inside Office
-    if (typeof Office !== 'undefined') {
+    if (typeof Office !== "undefined") {
       Office.onReady((info) => {
         Logger.info(`Office.js ready: ${info.host} ${info.platform}`);
         this.registerFunctions();
       });
     } else {
-      Logger.info('Not running inside Office - Office.js features disabled');
+      Logger.info("Not running inside Office - Office.js features disabled");
     }
   },
 
   registerFunctions() {
     // Register custom functions for ribbon buttons
-    Office.context.document.addHandlerAsync(Office.EventType.DocumentSelectionChanged, () => {
-      Logger.debug('Selection changed in Word');
-    });
+    Office.context.document.addHandlerAsync(
+      Office.EventType.DocumentSelectionChanged,
+      () => {
+        Logger.debug("Selection changed in Word");
+      },
+    );
   },
 
   // Called by ribbon button "Insert Formula"
@@ -30,32 +33,31 @@ const OFFICE_API = {
     try {
       // Get current formula from app (Tauri invoke or global state)
       const app = window.__app;
-      let latex = '';
+      let latex = "";
       if (app && app.editor) {
         latex = app.editor.getLatex();
       }
       if (!latex) {
-        latex = 'E=mc^2';
+        latex = "E=mc^2";
       }
 
       // Convert LaTeX to OMML via bridge
       const resp = await fetch(`${this.BASE_URL}/api/office/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latex })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latex }),
       });
       const data = await resp.json();
 
       if (!data.success || !data.omml) {
-        Logger.error('Formula conversion failed');
+        Logger.error("Formula conversion failed");
         return;
       }
 
       // Insert OMML at cursor using Office.js
       await this.insertOMML(data.omml, latex);
-
     } catch (e) {
-      Logger.error('insertFormula error:', e);
+      Logger.error("insertFormula error:", e);
     }
   },
 
@@ -63,16 +65,16 @@ const OFFICE_API = {
     return new Promise((resolve, reject) => {
       Office.context.document.setSelectedDataAsync(
         { omml: ommlXml },
-        { coercionType: 'omml' },
+        { coercionType: "omml" },
         (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
-            Logger.info('OMML inserted successfully');
+            Logger.info("OMML inserted successfully");
             resolve();
           } else {
-            Logger.error('OMML insert failed:', result.error);
+            Logger.error("OMML insert failed:", result.error);
             reject(result.error);
           }
-        }
+        },
       );
     });
   },
@@ -85,7 +87,7 @@ const OFFICE_API = {
         (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
             const omml = result.value;
-            Logger.info('Selection OMML:', omml);
+            Logger.info("Selection OMML:", omml);
 
             // Try to extract LaTeX from OMML (basic reverse)
             const latex = this.ommlToLatex(omml);
@@ -93,9 +95,9 @@ const OFFICE_API = {
             // Send to Tauri app
             const app = window.__app;
             if (app) {
-              app.switchSection('editor');
+              app.switchSection("editor");
               app.editor.setLatex(latex);
-              app.showToast('已加载选中文本');
+              app.showToast("已加载选中文本");
             }
 
             resolve(latex);
@@ -106,33 +108,33 @@ const OFFICE_API = {
               (textResult) => {
                 if (textResult.status === Office.AsyncResultStatus.Succeeded) {
                   const text = textResult.value;
-                  Logger.info('Selection text:', text);
+                  Logger.info("Selection text:", text);
                   const app = window.__app;
                   if (app) {
-                    app.switchSection('editor');
+                    app.switchSection("editor");
                     app.editor.setLatex(text);
-                    app.showToast('已加载选中文本');
+                    app.showToast("已加载选中文本");
                   }
                   resolve(text);
                 } else {
                   reject(textResult.error);
                 }
-              }
+              },
             );
           }
-        }
+        },
       );
     });
   },
 
   ommlToLatex(omml) {
     // Basic OMML to LaTeX conversion
-    if (!omml) return '';
+    if (!omml) return "";
     let latex = omml;
 
     // Extract text content from OMML tags
-    latex = latex.replace(/<[^>]+>/g, ' ');
-    latex = latex.replace(/\s+/g, ' ').trim();
+    latex = latex.replace(/<[^>]+>/g, " ");
+    latex = latex.replace(/\s+/g, " ").trim();
 
     return latex;
   },
@@ -141,14 +143,14 @@ const OFFICE_API = {
   async deleteSelection() {
     return new Promise((resolve) => {
       Office.context.document.setSelectedDataAsync(
-        '',
-        { coercionType: 'text' },
+        "",
+        { coercionType: "text" },
         (result) => {
           if (result.status === Office.AsyncResultStatus.Succeeded) {
-            Logger.info('Selection deleted');
+            Logger.info("Selection deleted");
           }
           resolve();
-        }
+        },
       );
     });
   },
@@ -157,9 +159,9 @@ const OFFICE_API = {
   async renderAndInsert(latex, display = false) {
     try {
       const resp = await fetch(`${this.BASE_URL}/api/office/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ latex, display })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latex, display }),
       });
       const data = await resp.json();
 
@@ -169,10 +171,10 @@ const OFFICE_API = {
       }
       return false;
     } catch (e) {
-      Logger.error('renderAndInsert error:', e);
+      Logger.error("renderAndInsert error:", e);
       return false;
     }
-  }
+  },
 };
 
 // Register global functions for Office.js ExecuteFunction

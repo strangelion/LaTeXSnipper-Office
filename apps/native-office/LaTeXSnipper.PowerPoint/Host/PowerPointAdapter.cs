@@ -117,7 +117,7 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                     // Clean up temp file after successful insertion
                     try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-                    catch { /* best-effort */ }
+                    catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "powerpoint", payload.FormulaId, ex); }
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = oleFallbackReason };
                 }
                 return new InsertResult { Success = false, ErrorCode = "OLE_RASTER_FALLBACK_FAILED", Error = "No SVG or PNG render data is available." };
@@ -156,12 +156,13 @@ namespace LaTeXSnipper.PowerPoint.Host
                                 var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
                                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                 if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
-                                    return payload;
+                                    return ReconcileCopiedFormulaIdentity(shape, payload, oleObj);
                             }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        OfficeOperationLog.Failure("read-ole-selection", "powerpoint", formulaId, ex);
                         // Not an OLE object, continue
                     }
 
@@ -171,7 +172,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
+                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
                             Display = "inline"
                         };
@@ -182,7 +183,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
+                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
                             Latex = "",
                             Display = "inline",
                             StorageMode = "ole"
@@ -197,9 +198,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                             var jsonPayload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(altText,
                                 new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
-                                return jsonPayload;
+                                return ReconcileCopiedFormulaIdentity(shape, jsonPayload, null);
                         }
-                        catch { }
+                        catch (Exception ex) { OfficeOperationLog.Failure("read-ole-payload", "powerpoint", formulaId, ex); }
                     }
                 }
             }
@@ -295,6 +296,44 @@ namespace LaTeXSnipper.PowerPoint.Host
             return null;
         }
 
+        private string EnsureShapeFormulaId(dynamic shape, string? formulaId)
+        {
+            if (!string.IsNullOrEmpty(formulaId) && FormulaIdHelper.IsCanonical(formulaId))
+                return formulaId;
+            string newId = FormulaIdHelper.NewId();
+            shape.Name = $"LSNO_{newId}";
+            OfficeOperationLog.Event("reassign-copied-formula-id", "powerpoint", newId);
+            return newId;
+        }
+
+        private FormulaPayload ReconcileCopiedFormulaIdentity(dynamic shape, FormulaPayload payload, dynamic? automation)
+        {
+            string expectedName = $"LSNO_{payload.FormulaId}";
+            string actualName = shape.Name as string ?? "";
+            int exactMatches = 0;
+            var slide = _application.ActiveWindow?.View?.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
+            if (slide != null)
+            {
+                foreach (Microsoft.Office.Core.Shape candidate in slide.Shapes)
+                    if (string.Equals(candidate.Name, expectedName, StringComparison.Ordinal)) exactMatches++;
+            }
+            if (string.Equals(actualName, expectedName, StringComparison.Ordinal) && exactMatches <= 1)
+                return payload;
+
+            string previousId = payload.FormulaId;
+            payload.FormulaId = FormulaIdHelper.NewId();
+            payload.Revision = 0;
+            if (automation != null && !OleFormulaInterop.ReplacePayloadJson(automation, payload))
+            {
+                payload.FormulaId = previousId;
+                throw new InvalidOperationException("Failed to persist a reassigned formulaId to the copied OLE object.");
+            }
+            shape.Name = $"LSNO_{payload.FormulaId}";
+            shape.AlternativeText = System.Text.Json.JsonSerializer.Serialize(payload);
+            OfficeOperationLog.Event("reassign-copied-formula-id", "powerpoint", payload.FormulaId);
+            return payload;
+        }
+
         public bool DeleteCurrent()
         {
             try
@@ -323,7 +362,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 // The user must explicitly select the formula shape first.
                 return false;
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-selected-formula", "powerpoint", null, ex); }
             return false;
         }
 
@@ -347,7 +386,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "powerpoint", formulaId, ex); }
             return false;
         }
 
@@ -371,8 +410,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                                 return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            OfficeOperationLog.Failure("replace-ole-fallback-image", "powerpoint", formulaId, ex);
                             // Not an OLE object, fall through to image path
                         }
 
@@ -389,7 +429,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                         float oldRotation = shape.Rotation;
                         string oldAltText = shape.AlternativeText ?? "";
                         int oldZOrder = 0;
-                        try { oldZOrder = shape.ZOrderPosition; } catch { }
+                        try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "powerpoint", formulaId, ex); }
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
                         bool replacingWithSvg = payload.Render?.Svg != null;
                         if (replacingWithSvg)
@@ -409,8 +449,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
-                        catch when (replacingWithSvg && payload.Render?.Png != null)
+                        catch (Exception ex) when (replacingWithSvg && payload.Render?.Png != null)
                         {
+                            OfficeOperationLog.Failure("replace-svg-fallback-png", "powerpoint", formulaId, ex);
                             tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
                             File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
@@ -424,27 +465,27 @@ namespace LaTeXSnipper.PowerPoint.Host
                         // Restore preserved properties
                         if (Math.Abs(oldRotation) > 0.01f)
                         {
-                            try { newShape.Rotation = oldRotation; } catch { }
+                            try { newShape.Rotation = oldRotation; } catch (Exception ex) { OfficeOperationLog.Failure("restore-rotation", "powerpoint", formulaId, ex); }
                         }
                         if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
                         {
-                            try { newShape.AlternativeText = oldAltText; } catch { }
+                            try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "powerpoint", formulaId, ex); }
                         }
                         // Restore z-order
                         if (oldZOrder > 1)
                         {
-                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch { }
+                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "powerpoint", formulaId, ex); }
                         }
 
                         // Clean up temp file
                         try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-                        catch { /* best-effort */ }
+                        catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "powerpoint", formulaId, ex); }
 
                         return true;
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("replace-formula", "powerpoint", formulaId, ex); }
             return false;
         }
 

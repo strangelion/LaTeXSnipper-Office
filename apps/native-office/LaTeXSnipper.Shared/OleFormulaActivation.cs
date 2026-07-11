@@ -1,7 +1,6 @@
 #nullable enable
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
@@ -30,32 +29,24 @@ public static class OleFormulaActivation
         if (payload == null) throw new ArgumentNullException(nameof(payload));
         if (rollback == null) throw new ArgumentNullException(nameof(rollback));
 
-        dynamic? automation = null;
-        Exception? lastException = null;
-        for (int attempt = 0; attempt < 10; attempt++)
+        dynamic? automation;
+        try
         {
-            try
-            {
-                automation = getAutomation();
-                if (automation != null) break;
-            }
-            catch (COMException ex) when (IsRetryable(ex.ErrorCode))
-            {
-                lastException = ex;
-            }
-            catch (Exception ex)
-            {
-                return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
-            }
-            Thread.Sleep(40 + attempt * 20);
+            automation = getAutomation();
+        }
+        catch (COMException ex) when (IsRetryable(ex.ErrorCode))
+        {
+            return FailWithRollback("OLE_COM_CALL_REJECTED", ex.ErrorCode, ex.Message, rollback);
+        }
+        catch (Exception ex)
+        {
+            return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
         }
 
         if (automation == null)
         {
-            int hresult = lastException?.HResult ?? 0;
-            string code = hresult == RegdbEClassNotReg ? "OLE_NOT_REGISTERED" :
-                IsRetryable(hresult) ? "OLE_COM_CALL_REJECTED" : "OLE_ACTIVATION_TIMEOUT";
-            return FailWithRollback(code, hresult, lastException?.Message ?? "OLE automation object was not available before the retry limit.", rollback);
+            return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", 0,
+                "OLE automation object was not available.", rollback);
         }
 
         try

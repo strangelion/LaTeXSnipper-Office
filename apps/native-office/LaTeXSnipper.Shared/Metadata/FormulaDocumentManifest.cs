@@ -192,10 +192,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                         if ((string?)part.NamespaceURI == NamespaceUri)
                             return part;
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-word-custom-xml-part", "word", null, ex); }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("find-word-manifest", "word", null, ex); }
             return null;
         }
 
@@ -214,7 +214,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         private static string? GetPartXml(object part)
         {
             try { return (string?)part.GetType().GetProperty("XML")?.GetValue(part); }
-            catch { return null; }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-manifest-xml", "shared", null, ex); return null; }
         }
 
         private static XDocument ParseOrCreate(string? xml)
@@ -222,7 +222,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             if (!string.IsNullOrEmpty(xml))
             {
                 try { return XDocument.Parse(xml); }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("parse-manifest", "shared", null, ex); }
             }
             return XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
         }
@@ -248,7 +248,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             {
                 return Encoding.UTF8.GetString(Convert.FromBase64String(ommlEl.Value));
             }
-            catch { return ""; }
+            catch (Exception ex) { OfficeOperationLog.Failure("decode-manifest-omml", "shared", null, ex); return ""; }
         }
 
         /// <summary>
@@ -295,10 +295,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                         if ((string?)part.NamespaceURI == NamespaceUri)
                             return part;
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-excel-custom-xml-part", "excel", null, ex); }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("find-excel-manifest", "excel", null, ex); }
             return null;
         }
 
@@ -318,10 +318,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                         if ((string?)part.NamespaceURI == NamespaceUri)
                             return part;
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-powerpoint-custom-xml-part", "powerpoint", null, ex); }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("find-powerpoint-manifest", "powerpoint", null, ex); }
             return null;
         }
 
@@ -344,7 +344,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                             break;
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-custom-xml-part", host, payload.FormulaId, ex); }
                 }
 
                 string xml;
@@ -353,7 +353,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 {
                     string existingXml;
                     try { existingXml = (string)existing.GetType().GetProperty("XML")?.GetValue(existing); }
-                    catch { existingXml = ""; }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-existing-manifest", host, payload.FormulaId, ex); existingXml = ""; }
 
                     var xdoc = ParseOrCreate(existingXml);
                     var root = xdoc.Root!;
@@ -368,7 +368,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
                     // Add new Part first, then delete old Part (avoid orphan on failure)
                     customXmlParts.Add(xml);
-                    try { existing.Delete(); } catch { }
+                    try { existing.Delete(); } catch (Exception ex) { OfficeOperationLog.Failure("delete-old-manifest", host, payload.FormulaId, ex); }
                 }
                 else
                 {
@@ -401,7 +401,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
                         string existingXml;
                         try { existingXml = (string)part.GetType().GetProperty("XML")?.GetValue(part); }
-                        catch { existingXml = ""; }
+                        catch (Exception ex) { OfficeOperationLog.Failure("read-existing-manifest", "shared", formulaId, ex); existingXml = ""; }
 
                         if (string.IsNullOrEmpty(existingXml))
                             continue;
@@ -414,11 +414,11 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
                         entry.Remove();
 
-                        try { part.Delete(); } catch { }
+                        try { part.Delete(); } catch (Exception ex) { OfficeOperationLog.Failure("delete-old-manifest", "shared", formulaId, ex); }
                         customXmlParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
                         return;
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("remove-manifest-entry", "shared", formulaId, ex); }
                 }
             }
             catch (Exception ex)

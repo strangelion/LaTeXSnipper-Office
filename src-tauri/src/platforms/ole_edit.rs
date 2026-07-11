@@ -1,23 +1,22 @@
-//! OLE Edit Session — Handles inbound Named Pipe connections from OLE Formula DLL.
+//! Windows OLE edit transport.
 //!
-//! Windows-only. Raw Win32 FFI is used to avoid feature-flag issues.
-//!
-//! When a user double-clicks an OLE formula object in Office, the OLE DLL:
-//!   1. Creates a Named Pipe Server (single duplex instance)
-//!   2. Launches LaTeXSnipper Desktop with `--ole-edit \\.\pipe\LaTeXSnipper.OleEditSession.{token}`
-//!   3. Waits for this module to connect and send an envelope
-//!   4. Desktop opens the editor; on save, sends updated envelope back on the SAME pipe handle
-//!
-//! Architecture: single full-duplex connection — read envelope, then write response.
-//! No second pipe connection (the server is single-instance).
+//! One full-duplex pipe carries request, response, and native commit ACK. The
+//! desktop accepts one active editor session; later requests receive
+//! `OLE_EDIT_BUSY` instead of replacing the current frontend state.
 
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::pipe_protocol::FormulaPayload;
 
+pub const OLE_EDIT_PROTOCOL_VERSION: u32 = 3;
 const OLE_EDIT_DISPATCHER_PIPE: &str = r"\\.\pipe\LaTeXSnipper.OleEditDispatcher.v1";
-const MAX_DISPATCHER_PIPE_NAME_BYTES: usize = 4096;
 const OLE_EDIT_PIPE_PREFIX: &str = r"\\.\pipe\LaTeXSnipper.OleEditSession.";
+const MAX_DISPATCHER_PIPE_NAME_BYTES: usize = 4096;
+const MAX_OLE_EDIT_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
+const MAX_ACK_BYTES: usize = 64 * 1024;
+const EDIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+static OLE_EDIT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OleEnvelope {
@@ -31,8 +30,6 @@ pub struct OleEnvelope {
     #[serde(rename = "schemaVersion")]
     pub schema_version: u32,
     pub revision: u32,
-    /// Full canonical FormulaPayload JSON, if sent by the OLE DLL.
-    /// Carries omml, render, presentation, source, storageMode etc.
     #[serde(rename = "payloadJson", default)]
     pub payload_json: Option<serde_json::Value>,
 }
@@ -42,51 +39,96 @@ pub struct OleResponse {
     #[serde(rename = "protocolVersion")]
     pub protocol_version: u32,
     pub action: String,
+    #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formula: Option<FormulaPayload>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "formulaId", skip_serializing_if = "Option::is_none")]
     pub formula_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latex: Option<String>,
 }
 
-/// Event payload sent to frontend when OLE double-click triggers editing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OleCommitAck {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: u32,
+    success: bool,
+    #[serde(rename = "errorCode", default)]
+    error_code: String,
+    hresult: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OleEditRequest {
     pub formula_id: String,
     pub latex: String,
     pub session_token: String,
+    pub revision: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload_json: Option<serde_json::Value>,
 }
 
-/// Event payload returned by frontend when user saves or cancels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OleEditResult {
-    pub action: String, // "save" or "cancel"
+    pub action: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub formula: Option<FormulaPayload>,
 }
 
 type Handle = *mut std::ffi::c_void;
 
-/// Keep one user-scoped dispatcher in the primary Desktop process. The native
-/// OLE server uses it to forward double-clicks to the existing window instead
-/// of launching a second Tauri process for every edit session.
+struct OwnedHandle(Handle);
+
+unsafe impl Send for OwnedHandle {}
+
+impl OwnedHandle {
+    fn raw(&self) -> Handle {
+        self.0
+    }
+}
+
+impl Drop for OwnedHandle {
+    fn drop(&mut self) {
+        if self.0 != INVALID_HANDLE_VALUE && !self.0.is_null() {
+            unsafe {
+                CloseHandle(self.0);
+            }
+        }
+    }
+}
+
+struct ActiveSessionGuard;
+
+impl ActiveSessionGuard {
+    fn acquire() -> Option<Self> {
+        OLE_EDIT_ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for ActiveSessionGuard {
+    fn drop(&mut self) {
+        OLE_EDIT_ACTIVE.store(false, Ordering::Release);
+    }
+}
+
 pub async fn start_ole_edit_dispatcher(app_handle: tauri::AppHandle) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::windows::named_pipe::ServerOptions;
 
     let mut first = true;
     loop {
-        let mut security = match super::pipe_security::PipeSecurityDescriptor::current_user_and_system() {
-            Ok(security) => security,
-            Err(error) => {
-                log::error!("[OleEdit] Cannot create dispatcher security descriptor: {}", error);
-                return;
-            }
-        };
-
+        let mut security =
+            match super::pipe_security::PipeSecurityDescriptor::current_user_and_system() {
+                Ok(security) => security,
+                Err(error) => {
+                    log::error!("[OleEdit] Cannot create dispatcher security descriptor: {error}");
+                    return;
+                }
+            };
         let server = unsafe {
             ServerOptions::new()
                 .first_pipe_instance(first)
@@ -97,394 +139,414 @@ pub async fn start_ole_edit_dispatcher(app_handle: tauri::AppHandle) {
                 )
         };
         first = false;
-
         let mut server = match server {
             Ok(server) => server,
             Err(error) => {
-                log::error!("[OleEdit] Cannot create dispatcher pipe: {}; retrying", error);
+                log::error!("[OleEdit] Cannot create dispatcher pipe: {error}; retrying");
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 continue;
             }
         };
-
         if let Err(error) = server.connect().await {
-            log::warn!("[OleEdit] Dispatcher connection failed: {}", error);
+            log::warn!("[OleEdit] Dispatcher connection failed: {error}");
             continue;
         }
 
-        let mut size = [0u8; 4];
         let request = async {
+            let mut size = [0u8; 4];
             server.read_exact(&mut size).await?;
             let size = u32::from_le_bytes(size) as usize;
-            if size == 0 || size > MAX_DISPATCHER_PIPE_NAME_BYTES || size % 2 != 0 {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid OLE edit pipe name size"));
+            if size == 0 || size > MAX_DISPATCHER_PIPE_NAME_BYTES || !size.is_multiple_of(2) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid OLE edit pipe name size",
+                ));
             }
-
             let mut bytes = vec![0u8; size];
             server.read_exact(&mut bytes).await?;
-            // P0-8: Safe UTF-16 decoding — Vec<u8> only guarantees 1-byte alignment,
-            // so casting to *const u16 is UB. Use chunks_exact for safe conversion.
             let units: Vec<u16> = bytes
                 .chunks_exact(2)
                 .map(|b| u16::from_le_bytes([b[0], b[1]]))
                 .collect();
-            let pipe_name = String::from_utf16(&units)
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid OLE edit pipe name"))?;
+            let pipe_name = String::from_utf16(&units).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid OLE edit pipe name",
+                )
+            })?;
             if !pipe_name.starts_with(OLE_EDIT_PIPE_PREFIX) {
-                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unexpected OLE edit pipe name"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "unexpected OLE edit pipe name",
+                ));
             }
             Ok(pipe_name)
-        }.await;
+        }
+        .await;
 
         match request {
             Ok(pipe_name) => {
                 if let Err(error) = server.write_all(&1u32.to_le_bytes()).await {
-                    log::warn!("[OleEdit] Dispatcher acknowledgement failed: {}", error);
+                    log::warn!("[OleEdit] Dispatcher acknowledgement failed: {error}");
                     continue;
                 }
                 let handler = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(error) = handle_ole_edit_session_with_app(handler, &pipe_name).await {
-                        log::error!("[OleEdit] Dispatched edit session failed: {}", error);
+                    if let Err(error) = handle_ole_edit_session_with_app(handler, &pipe_name).await
+                    {
+                        log::error!("[OleEdit] Dispatched edit session failed: {error}");
                     }
                 });
             }
-            Err(error) => log::warn!("[OleEdit] Dispatcher rejected request: {}", error),
+            Err(error) => log::warn!("[OleEdit] Dispatcher rejected request: {error}"),
         }
     }
 }
 
-/// Handle an OLE edit session WITHIN the Tauri runtime.
-/// Shows/focuses the editor, waits for user to save/cancel, writes result back to pipe.
 pub async fn handle_ole_edit_session_with_app(
     app_handle: tauri::AppHandle,
     pipe_name: &str,
 ) -> Result<(), String> {
-    use std::sync::mpsc;
     use tauri::{Emitter, Listener, Manager};
 
     let handle = connect_to_pipe(pipe_name)?;
-    let envelope = read_envelope(handle)?;
-    log::info!("[OleEdit] Received formula: formulaId={}", envelope.formula_id);
+    let envelope = read_envelope(&handle)?;
+    if envelope.protocol_version != OLE_EDIT_PROTOCOL_VERSION {
+        write_response(&handle, &error_response("OLE_EDIT_PROTOCOL_ERROR"))?;
+        return Err(format!(
+            "OLE edit protocol mismatch: expected {}, received {}",
+            OLE_EDIT_PROTOCOL_VERSION, envelope.protocol_version
+        ));
+    }
 
-    // P0-5: Extract UUID from pipe name as session token instead of using formula_id.
-    // formula_id is NOT unique per session — the same formula can have concurrent edits
-    // (e.g. copy-paste creates two objects with the same formula_id).
+    let Some(_active_guard) = ActiveSessionGuard::acquire() else {
+        write_response(&handle, &error_response("OLE_EDIT_BUSY"))?;
+        return Ok(());
+    };
     let session_token = extract_session_token_from_pipe_name(pipe_name)?;
+    log::info!(
+        "[OleEdit] Received formula: formulaId={} revision={}",
+        envelope.formula_id,
+        envelope.revision
+    );
 
-    // Show/focus the main window
     if let Some(window) = app_handle.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.set_focus();
+        if let Err(error) = window.show() {
+            log::warn!("[OleEdit] Cannot show main window: {error}");
+        }
+        if let Err(error) = window.set_focus() {
+            log::warn!("[OleEdit] Cannot focus main window: {error}");
+        }
     } else {
         log::warn!("[OleEdit] Main window not found");
     }
 
-    // Create a oneshot channel to receive the editor result
-    let (tx, rx) = mpsc::sync_channel::<OleEditResult>(1);
-    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
-
-    // Listen for the editor result from frontend — keyed by session token
-    let tx_clone = tx.clone();
-    let token_clone = session_token.clone();
-    let _listener = app_handle.listen(format!("ole-edit-result-{}", token_clone), move |event| {
-        if let Ok(result) = serde_json::from_str::<OleEditResult>(&event.payload()) {
-            if let Some(sender) = tx_clone.lock().unwrap().take() {
-                let _ = sender.send(result);
+    let (sender, receiver) = tokio::sync::oneshot::channel::<OleEditResult>();
+    let sender = std::sync::Arc::new(std::sync::Mutex::new(Some(sender)));
+    let listener_sender = sender.clone();
+    let listener_id = app_handle.listen(format!("ole-edit-result-{session_token}"), move |event| {
+        match serde_json::from_str::<OleEditResult>(event.payload()) {
+            Ok(result) => {
+                if let Ok(mut slot) = listener_sender.lock() {
+                    if let Some(sender) = slot.take() {
+                        let _ = sender.send(result);
+                    }
+                }
             }
+            Err(error) => log::warn!("[OleEdit] Invalid frontend result: {error}"),
         }
     });
 
-    // Send edit request to frontend with full payload if available
     let request = OleEditRequest {
         formula_id: envelope.formula_id.clone(),
         latex: envelope.latex.clone(),
         session_token: session_token.clone(),
+        revision: envelope.revision,
         payload_json: envelope.payload_json.clone(),
     };
+    if let Err(error) = app_handle.emit("ole-edit-open", &request) {
+        app_handle.unlisten(listener_id);
+        write_response(&handle, &error_response("OLE_EDIT_FRONTEND_UNAVAILABLE"))?;
+        return Err(format!("Failed to emit OLE edit request: {error}"));
+    }
 
-    app_handle.emit("ole-edit-open", &request).map_err(|e| format!("Failed to emit: {}", e))?;
+    let result = tokio::time::timeout(EDIT_TIMEOUT, receiver).await;
+    app_handle.unlisten(listener_id);
 
-    // Wait for result with timeout (10 minutes)
-    let timeout = std::time::Duration::from_secs(600);
-    match rx.recv_timeout(timeout) {
-        Ok(result) => {
-            let response = match result.action.as_str() {
-                "save" => {
-                    // Extract full FormulaPayload fields from payload_json if available
-                    let payload = envelope.payload_json.as_ref();
-                    let omml = payload
-                        .and_then(|v| v.get("omml"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let display_val = payload
-                        .and_then(|v| v.get("display"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("inline")
-                        .to_string();
-                    let present = payload.and_then(|v| v.get("presentation")).cloned();
-                    let render = payload.and_then(|v| v.get("render")).cloned();
-                    let src = payload.and_then(|v| v.get("source")).cloned();
-                    let storage = payload
-                        .and_then(|v| v.get("storageMode"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("ole")
-                        .to_string();
+    let response = match result {
+        Ok(Ok(result)) if result.action == "save" => validate_save_result(&envelope, result)?,
+        Ok(Ok(_)) => cancel_response(None),
+        Ok(Err(_)) => cancel_response(Some("OLE_EDIT_CHANNEL_CLOSED")),
+        Err(_) => cancel_response(Some("OLE_EDIT_TIMEOUT")),
+    };
+    let is_save = response.action == "save";
+    let response_error = response.error_code.clone();
+    write_response(&handle, &response)?;
 
-                    let formula = result.formula.unwrap_or_else(|| FormulaPayload {
-                        schema_version: Some(envelope.schema_version as i32),
-                        formula_id: envelope.formula_id.clone(),
-                        latex: envelope.latex.clone(),
-                        omml,
-                        display: display_val,
-                        presentation: present.and_then(|v| serde_json::from_value(v).ok()),
-                        render: render.and_then(|v| serde_json::from_value(v).ok()),
-                        source: src.and_then(|v| serde_json::from_value(v).ok()),
-                        storage_mode: Some(storage),
-                        revision: envelope.revision as i32,
-                        created_utc_ticks: 0,
-                    });
-                    OleResponse {
-                        protocol_version: 2,
-                        action: "save".to_string(),
-                        formula: Some(formula),
-                        formula_id: Some(envelope.formula_id.clone()),
-                        latex: Some(envelope.latex.clone()),
-                    }
-                }
-                _ => {
-                    // Cancel
-                    OleResponse {
-                        protocol_version: 2,
-                        action: "cancel".to_string(),
-                        formula: None,
-                        formula_id: None,
-                        latex: None,
-                    }
-                }
-            };
+    if let Some(error_code) = response_error {
+        let event_name = format!("ole-edit-commit-{session_token}");
+        app_handle
+            .emit(
+                &event_name,
+                OleCommitAck {
+                    protocol_version: OLE_EDIT_PROTOCOL_VERSION,
+                    success: false,
+                    error_code,
+                    hresult: 0x8004_0203,
+                },
+            )
+            .map_err(|error| format!("Failed to emit OLE validation failure: {error}"))?;
+        return Ok(());
+    }
 
-            write_response_on_handle(handle, &response)?;
-            close_handle(handle);
-            log::info!("[OleEdit] Response sent: {}", response.action);
-            Ok(())
-        }
-        Err(mpsc::RecvTimeoutError::Timeout) => {
-            log::warn!("[OleEdit] Edit session timed out");
-            let response = OleResponse {
-                protocol_version: 2,
-                action: "timeout".to_string(),
-                formula: None,
-                formula_id: None,
-                latex: None,
-            };
-            write_response_on_handle(handle, &response)?;
-            close_handle(handle);
-            Ok(())
-        }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            log::error!("[OleEdit] Channel disconnected");
-            let _ = write_response_on_handle(handle, &OleResponse {
-                protocol_version: 2,
-                action: "cancel".to_string(),
-                formula: None,
-                formula_id: None,
-                latex: None,
-            });
-            close_handle(handle);
-            Ok(())
-        }
+    let ack = tokio::task::spawn_blocking(move || read_commit_ack(&handle))
+        .await
+        .map_err(|error| format!("OLE commit ACK task failed: {error}"))??;
+    if ack.protocol_version != OLE_EDIT_PROTOCOL_VERSION {
+        return Err(format!(
+            "OLE commit ACK version mismatch: {}",
+            ack.protocol_version
+        ));
+    }
+    if is_save {
+        let event_name = format!("ole-edit-commit-{session_token}");
+        app_handle
+            .emit(&event_name, &ack)
+            .map_err(|error| format!("Failed to emit OLE commit ACK: {error}"))?;
+    }
+    Ok(())
+}
+
+fn validate_save_result(
+    envelope: &OleEnvelope,
+    result: OleEditResult,
+) -> Result<OleResponse, String> {
+    let formula = result
+        .formula
+        .ok_or_else(|| "OLE save result is missing formula payload".to_string())?;
+    if formula.formula_id != envelope.formula_id {
+        return Ok(error_response("OLE_EDIT_FORMULA_ID_MISMATCH"));
+    }
+    let expected_revision = envelope.revision.saturating_add(1);
+    if formula.revision < 0 || formula.revision as u32 != expected_revision {
+        return Ok(error_response("OLE_EDIT_REVISION_CONFLICT"));
+    }
+    let latex = formula.latex.clone();
+    Ok(OleResponse {
+        protocol_version: OLE_EDIT_PROTOCOL_VERSION,
+        action: "save".to_string(),
+        error_code: None,
+        formula: Some(formula),
+        formula_id: Some(envelope.formula_id.clone()),
+        latex: Some(latex),
+    })
+}
+
+fn error_response(error_code: &str) -> OleResponse {
+    OleResponse {
+        protocol_version: OLE_EDIT_PROTOCOL_VERSION,
+        action: "error".to_string(),
+        error_code: Some(error_code.to_string()),
+        formula: None,
+        formula_id: None,
+        latex: None,
     }
 }
 
-/// Extract the session token (UUID) from a pipe name like
-/// `\\.\pipe\LaTeXSnipper.OleEditSession.{uuid}`
+fn cancel_response(error_code: Option<&str>) -> OleResponse {
+    OleResponse {
+        protocol_version: OLE_EDIT_PROTOCOL_VERSION,
+        action: "cancel".to_string(),
+        error_code: error_code.map(str::to_string),
+        formula: None,
+        formula_id: None,
+        latex: None,
+    }
+}
+
 fn extract_session_token_from_pipe_name(pipe_name: &str) -> Result<String, String> {
     let token = pipe_name
         .strip_prefix(OLE_EDIT_PIPE_PREFIX)
-        .ok_or_else(|| format!("Cannot extract session token from pipe name: {}", pipe_name))?;
+        .ok_or_else(|| format!("Cannot extract session token from pipe name: {pipe_name}"))?;
     if token.is_empty() {
-        return Err(format!("Empty session token in pipe name: {}", pipe_name));
+        return Err("Empty OLE edit session token".to_string());
     }
     Ok(token.to_string())
 }
 
-/// Open editor and produce a response. Legacy fallback — should not be called
-/// from the main path.
-fn open_editor_and_build_response(envelope: &OleEnvelope) -> Result<OleResponse, String> {
-    // This path should only be used if app_handle is not available.
-    // Extract fields from payload_json when possible
-    let payload = envelope.payload_json.as_ref();
-    let omml = payload
-        .and_then(|v| v.get("omml"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let display_val = payload
-        .and_then(|v| v.get("display"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("inline")
-        .to_string();
-    let present = payload.and_then(|v| v.get("presentation")).cloned();
-    let render = payload.and_then(|v| v.get("render")).cloned();
-    let src = payload.and_then(|v| v.get("source")).cloned();
-    let storage = payload
-        .and_then(|v| v.get("storageMode"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("ole")
-        .to_string();
-
-    let formula = FormulaPayload {
-        schema_version: Some(envelope.schema_version as i32),
-        formula_id: envelope.formula_id.clone(),
-        latex: envelope.latex.clone(),
-        omml,
-        display: display_val,
-        presentation: present.and_then(|v| serde_json::from_value(v).ok()),
-        render: render.and_then(|v| serde_json::from_value(v).ok()),
-        source: src.and_then(|v| serde_json::from_value(v).ok()),
-        storage_mode: Some(storage),
-        revision: envelope.revision as i32,
-        created_utc_ticks: 0,
-    };
-    Ok(OleResponse {
-        protocol_version: 2,
-        action: "save".to_string(),
-        formula: Some(formula),
-        formula_id: Some(envelope.formula_id.clone()),
-        latex: Some(envelope.latex.clone()),
-    })
-}
-
-/// Write response back on the SAME handle used for reading.
-fn write_response_on_handle(handle: Handle, response: &OleResponse) -> Result<(), String> {
-    let json = serde_json::to_string(response).map_err(|e| format!("Serialize: {}", e))?;
-    let json_u16: Vec<u16> = json.encode_utf16().collect();
-    let payload_size = (json_u16.len() * 2 + 2) as u32; // include null terminator
-
-    // Write size
-    let mut written: u32 = 0;
-    if unsafe { WriteFile(handle, &payload_size as *const u32 as *const u8, 4, &mut written, std::ptr::null_mut()) } == 0 || written != 4 {
-        return Err(format!("Failed to write response size: written={} err={}", written, unsafe { GetLastError() }));
-    }
-
-    // Write UTF-16 payload
-    if !json_u16.is_empty() {
-        let to_write = (json_u16.len() * 2) as u32;
-        written = 0;
-        if unsafe { WriteFile(handle, json_u16.as_ptr() as *const u8, to_write, &mut written, std::ptr::null_mut()) } == 0 || written != to_write {
-            return Err(format!("Failed to write response payload: written={} err={}", written, unsafe { GetLastError() }));
-        }
-    }
-
-    // Write null terminator
-    let null: u16 = 0;
-    written = 0;
-    if unsafe { WriteFile(handle, &null as *const u16 as *const u8, 2, &mut written, std::ptr::null_mut()) } == 0 || written != 2 {
-        return Err(format!("Failed to write null terminator: written={} err={}", written, unsafe { GetLastError() }));
-    }
-
-    Ok(())
-}
-
-fn connect_to_pipe(pipe_name: &str) -> Result<Handle, String> {
+fn connect_to_pipe(pipe_name: &str) -> Result<OwnedHandle, String> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = std::ffi::OsStr::new(pipe_name)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-
     let handle = unsafe {
         CreateFileW(
             wide.as_ptr(),
             GENERIC_READ | GENERIC_WRITE,
-            0, // no sharing — exclusive access
+            0,
             std::ptr::null_mut(),
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL, // synchronous I/O
+            FILE_ATTRIBUTE_NORMAL,
             std::ptr::null_mut(),
         )
     };
-
     if handle == INVALID_HANDLE_VALUE {
-        return Err(format!("Failed to connect to pipe: error={}", unsafe { GetLastError() }));
+        return Err(format!(
+            "Failed to connect to OLE edit pipe: error={}",
+            unsafe { GetLastError() }
+        ));
     }
-    Ok(handle)
+    Ok(OwnedHandle(handle))
 }
 
-fn read_envelope(handle: Handle) -> Result<OleEnvelope, String> {
-    let mut size_buf = [0u8; 4];
-    let mut read_bytes: u32 = 0;
-    if unsafe { ReadFile(handle, size_buf.as_mut_ptr(), 4, &mut read_bytes, std::ptr::null_mut()) } == 0 || read_bytes != 4 {
-        let err = unsafe { GetLastError() };
-        return Err(format!("Failed to read envelope size: read={} err={}", read_bytes, err));
-    }
-    let payload_size = u32::from_le_bytes(size_buf) as usize;
-    const MAX_PAYLOAD: usize = 4 * 1024 * 1024; // 4 MiB for full FormulaPayload
-    if payload_size == 0 || payload_size > MAX_PAYLOAD || payload_size % 2 != 0 {
-        return Err(format!("Invalid envelope size: {} (max {}, must be even)", payload_size, MAX_PAYLOAD));
-    }
+fn read_envelope(handle: &OwnedHandle) -> Result<OleEnvelope, String> {
+    let bytes = read_frame(handle, MAX_OLE_EDIT_PAYLOAD_BYTES, "envelope")?;
+    let json = decode_utf16_frame(&bytes, "envelope")?;
+    serde_json::from_str(&json).map_err(|error| format!("OLE envelope JSON parse failed: {error}"))
+}
 
-    let mut payload_buf = vec![0u8; payload_size];
-    read_bytes = 0;
-    if unsafe { ReadFile(handle, payload_buf.as_mut_ptr(), payload_size as u32, &mut read_bytes, std::ptr::null_mut()) } == 0 || read_bytes as usize != payload_size {
-        let err = unsafe { GetLastError() };
-        return Err(format!("Failed to read envelope payload: read={} err={}", read_bytes, err));
+fn write_response(handle: &OwnedHandle, response: &OleResponse) -> Result<(), String> {
+    let json = serde_json::to_string(response)
+        .map_err(|error| format!("OLE response serialization failed: {error}"))?;
+    let mut bytes = Vec::with_capacity(json.len() * 2 + 2);
+    for unit in json.encode_utf16().chain(std::iter::once(0)) {
+        bytes.extend_from_slice(&unit.to_le_bytes());
     }
+    if bytes.len() > MAX_OLE_EDIT_PAYLOAD_BYTES {
+        return Err(format!(
+            "OLE response exceeds {} bytes",
+            MAX_OLE_EDIT_PAYLOAD_BYTES
+        ));
+    }
+    write_exact(
+        handle.raw(),
+        &(bytes.len() as u32).to_le_bytes(),
+        "response size",
+    )?;
+    write_exact(handle.raw(), &bytes, "response body")
+}
 
-    // P0-8: Safe UTF-16 decoding — avoid unsafe pointer cast that violates alignment requirements.
-    let units: Vec<u16> = payload_buf
+fn read_commit_ack(handle: &OwnedHandle) -> Result<OleCommitAck, String> {
+    let bytes = read_frame(handle, MAX_ACK_BYTES, "commit ACK")?;
+    let json = decode_utf16_frame(&bytes, "commit ACK")?;
+    serde_json::from_str(&json)
+        .map_err(|error| format!("OLE commit ACK JSON parse failed: {error}"))
+}
+
+fn read_frame(handle: &OwnedHandle, max_size: usize, operation: &str) -> Result<Vec<u8>, String> {
+    let mut size = [0u8; 4];
+    read_exact(handle.raw(), &mut size, &format!("{operation} size"))?;
+    let size = u32::from_le_bytes(size) as usize;
+    if size < 2 || size > max_size || !size.is_multiple_of(2) {
+        return Err(format!("Invalid {operation} size: {size}"));
+    }
+    let mut bytes = vec![0u8; size];
+    read_exact(handle.raw(), &mut bytes, operation)?;
+    Ok(bytes)
+}
+
+fn decode_utf16_frame(bytes: &[u8], operation: &str) -> Result<String, String> {
+    let units: Vec<u16> = bytes
         .chunks_exact(2)
-        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
         .collect();
-    let json_wide: Vec<u16> = units.iter().copied().take_while(|&c| c != 0).collect();
-    let json = String::from_utf16(&json_wide).map_err(|e| format!("Invalid UTF-16: {}", e))?;
-    serde_json::from_str(&json).map_err(|e| format!("JSON parse: {}", e))
-}
-
-fn close_handle(handle: Handle) {
-    if handle != INVALID_HANDLE_VALUE {
-        unsafe { CloseHandle(handle); }
+    if units.last() != Some(&0) {
+        return Err(format!("{operation} is not null terminated"));
     }
+    String::from_utf16(&units[..units.len() - 1])
+        .map_err(|error| format!("Invalid UTF-16 in {operation}: {error}"))
 }
 
-// ── Raw Win32 FFI ──
+fn read_exact(handle: Handle, buffer: &mut [u8], operation: &str) -> Result<(), String> {
+    let mut offset = 0usize;
+    while offset < buffer.len() {
+        let mut transferred = 0u32;
+        let remaining = u32::try_from(buffer.len() - offset)
+            .map_err(|_| format!("{operation} is too large"))?;
+        let ok = unsafe {
+            ReadFile(
+                handle,
+                buffer[offset..].as_mut_ptr(),
+                remaining,
+                &mut transferred,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 && unsafe { GetLastError() } != ERROR_MORE_DATA {
+            return Err(format!(
+                "Failed to read {operation}: offset={offset} error={}",
+                unsafe { GetLastError() }
+            ));
+        }
+        if transferred == 0 {
+            return Err(format!("Unexpected EOF while reading {operation}"));
+        }
+        offset += transferred as usize;
+    }
+    Ok(())
+}
+
+fn write_exact(handle: Handle, buffer: &[u8], operation: &str) -> Result<(), String> {
+    let mut offset = 0usize;
+    while offset < buffer.len() {
+        let mut transferred = 0u32;
+        let remaining = u32::try_from(buffer.len() - offset)
+            .map_err(|_| format!("{operation} is too large"))?;
+        let ok = unsafe {
+            WriteFile(
+                handle,
+                buffer[offset..].as_ptr(),
+                remaining,
+                &mut transferred,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(format!(
+                "Failed to write {operation}: offset={offset} error={}",
+                unsafe { GetLastError() }
+            ));
+        }
+        if transferred == 0 {
+            return Err(format!("Zero-byte write while writing {operation}"));
+        }
+        offset += transferred as usize;
+    }
+    Ok(())
+}
 
 const INVALID_HANDLE_VALUE: Handle = -1isize as Handle;
 const GENERIC_READ: u32 = 0x80000000;
 const GENERIC_WRITE: u32 = 0x40000000;
 const OPEN_EXISTING: u32 = 3;
 const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+const ERROR_MORE_DATA: u32 = 234;
 
 extern "system" {
     fn CreateFileW(
-        lpFileName: *const u16,
-        dwDesiredAccess: u32,
-        dwShareMode: u32,
-        lpSecurityAttributes: *mut std::ffi::c_void,
-        dwCreationDisposition: u32,
-        dwFlagsAndAttributes: u32,
-        hTemplateFile: *mut std::ffi::c_void,
+        lp_file_name: *const u16,
+        desired_access: u32,
+        share_mode: u32,
+        security_attributes: *mut std::ffi::c_void,
+        creation_disposition: u32,
+        flags_and_attributes: u32,
+        template_file: *mut std::ffi::c_void,
     ) -> Handle;
-
     fn ReadFile(
-        hFile: Handle,
-        lpBuffer: *mut u8,
-        nNumberOfBytesToRead: u32,
-        lpNumberOfBytesRead: *mut u32,
-        lpOverlapped: *mut std::ffi::c_void,
+        file: Handle,
+        buffer: *mut u8,
+        bytes_to_read: u32,
+        bytes_read: *mut u32,
+        overlapped: *mut std::ffi::c_void,
     ) -> i32;
-
     fn WriteFile(
-        hFile: Handle,
-        lpBuffer: *const u8,
-        nNumberOfBytesToWrite: u32,
-        lpNumberOfBytesWritten: *mut u32,
-        lpOverlapped: *mut std::ffi::c_void,
+        file: Handle,
+        buffer: *const u8,
+        bytes_to_write: u32,
+        bytes_written: *mut u32,
+        overlapped: *mut std::ffi::c_void,
     ) -> i32;
-
-    fn CloseHandle(hObject: Handle) -> i32;
-
+    fn CloseHandle(object: Handle) -> i32;
     fn GetLastError() -> u32;
 }

@@ -150,11 +150,7 @@ impl EcosystemActionQueue {
     }
 
     /// Dequeue the next pending action for a client (by clientId or target).
-    pub async fn next(
-        &self,
-        client_id: &str,
-        target: &str,
-    ) -> Option<EcosystemActionEnvelope> {
+    pub async fn next(&self, client_id: &str, target: &str) -> Option<EcosystemActionEnvelope> {
         let mut inner = self.inner.lock().await;
 
         // Prefer client-specific queue

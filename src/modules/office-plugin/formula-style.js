@@ -1,6 +1,6 @@
 /**
  * FormulaStyle Module - 公式样式模块
- * 
+ *
  * 功能：格式化所选、格式化全文
  */
 
@@ -9,19 +9,19 @@ export class FormulaStyleModule {
     this.isInitialized = false;
     this.defaultStyle = {
       fontSize: 12,
-      fontFamily: 'Cambria Math',
-      fontStyle: 'italic',
-      color: '#000000'
+      fontFamily: "Cambria Math",
+      fontStyle: "italic",
+      color: "#000000",
     };
   }
 
   async initialize() {
-    console.log('[FormulaStyleModule] Initializing...');
+    console.log("[FormulaStyleModule] Initializing...");
     this.isInitialized = true;
   }
 
   dispose() {
-    console.log('[FormulaStyleModule] Disposed');
+    console.log("[FormulaStyleModule] Disposed");
   }
 
   /**
@@ -29,9 +29,9 @@ export class FormulaStyleModule {
    * 应用默认样式到选中的公式
    */
   async formatSelection() {
-    console.log('[FormulaStyleModule] Formatting selection...');
+    console.log("[FormulaStyleModule] Formatting selection...");
     // 实际实现会将默认样式应用到选中的公式
-    return { success: true, message: '所选公式已格式化' };
+    return { success: true, message: "所选公式已格式化" };
   }
 
   /**
@@ -39,9 +39,9 @@ export class FormulaStyleModule {
    * 应用默认样式到文档中的所有公式
    */
   async formatAll() {
-    console.log('[FormulaStyleModule] Formatting all formulas...');
+    console.log("[FormulaStyleModule] Formatting all formulas...");
     // 实际实现会将默认样式应用到文档中的所有公式
-    return { success: true, message: '所有公式已格式化' };
+    return { success: true, message: "所有公式已格式化" };
   }
 
   /**
@@ -50,7 +50,10 @@ export class FormulaStyleModule {
    */
   setDefaultStyle(style) {
     this.defaultStyle = { ...this.defaultStyle, ...style };
-    console.log('[FormulaStyleModule] Default style updated:', this.defaultStyle);
+    console.log(
+      "[FormulaStyleModule] Default style updated:",
+      this.defaultStyle,
+    );
   }
 
   /**
@@ -69,7 +72,7 @@ export class FormulaStyleModule {
     const mergedStyle = { ...this.defaultStyle, ...style };
     return {
       ...formula,
-      style: mergedStyle
+      style: mergedStyle,
     };
   }
 }

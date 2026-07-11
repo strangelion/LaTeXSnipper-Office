@@ -1,6 +1,6 @@
 /**
  * Numbering Module - 编号模块
- * 
+ *
  * 功能：添加编号、重编号、章分隔符、节分隔符
  */
 
@@ -11,17 +11,17 @@ export class NumberingModule {
       chapter: 0,
       section: 0,
       subsection: 0,
-      formula: 0
+      formula: 0,
     };
   }
 
   async initialize() {
-    console.log('[NumberingModule] Initializing...');
+    console.log("[NumberingModule] Initializing...");
     this.isInitialized = true;
   }
 
   dispose() {
-    console.log('[NumberingModule] Disposed');
+    console.log("[NumberingModule] Disposed");
   }
 
   /**
@@ -29,9 +29,9 @@ export class NumberingModule {
    * 为选中的公式添加编号
    */
   async addNumber() {
-    console.log('[NumberingModule] Adding number...');
+    console.log("[NumberingModule] Adding number...");
     // 实际实现会为选中的公式添加编号
-    return { success: true, message: '编号已添加' };
+    return { success: true, message: "编号已添加" };
   }
 
   /**
@@ -39,9 +39,9 @@ export class NumberingModule {
    * 重新编号文档中的所有公式
    */
   async renumber() {
-    console.log('[NumberingModule] Renumbering all formulas...');
+    console.log("[NumberingModule] Renumbering all formulas...");
     // 实际实现会重新编号文档中的所有公式
-    return { success: true, message: '已重新编号' };
+    return { success: true, message: "已重新编号" };
   }
 
   /**
@@ -49,13 +49,13 @@ export class NumberingModule {
    * 插入章分隔符，重置公式编号
    */
   async insertChapterSeparator() {
-    console.log('[NumberingModule] Inserting chapter separator...');
+    console.log("[NumberingModule] Inserting chapter separator...");
     // 实际实现会在文档中插入章分隔符
     this.numberingScheme.chapter++;
     this.numberingScheme.section = 0;
     this.numberingScheme.subsection = 0;
     this.numberingScheme.formula = 0;
-    return { success: true, message: '章分隔符已插入' };
+    return { success: true, message: "章分隔符已插入" };
   }
 
   /**
@@ -63,12 +63,12 @@ export class NumberingModule {
    * 插入节分隔符，重置公式编号
    */
   async insertSectionSeparator() {
-    console.log('[NumberingModule] Inserting section separator...');
+    console.log("[NumberingModule] Inserting section separator...");
     // 实际实现会在文档中插入节分隔符
     this.numberingScheme.section++;
     this.numberingScheme.subsection = 0;
     this.numberingScheme.formula = 0;
-    return { success: true, message: '节分隔符已插入' };
+    return { success: true, message: "节分隔符已插入" };
   }
 
   /**
@@ -88,6 +88,6 @@ export class NumberingModule {
    */
   incrementFormulaNumber() {
     this.numberingScheme.formula++;
-    return this.getCurrentNumber() + '.' + this.numberingScheme.formula;
+    return this.getCurrentNumber() + "." + this.numberingScheme.formula;
   }
 }

@@ -208,20 +208,8 @@ public static class OleFormulaInterop
         if (string.IsNullOrWhiteSpace(value))
             return false;
 
-        // Strip optional data URI prefix
-        const string prefix = "data:image/png;base64,";
-        if (value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            value = value.Substring(prefix.Length);
-
-        byte[] bytes;
-        try
-        {
-            bytes = Convert.FromBase64String(value);
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
+        if (!StrictBase64.TryDecode(value, out byte[] bytes, allowDataUrl: true,
+                expectedMediaType: "image/png")) return false;
 
         // PNG magic: 89 50 4E 47 0D 0A 1A 0A
         return bytes.Length >= 8 &&

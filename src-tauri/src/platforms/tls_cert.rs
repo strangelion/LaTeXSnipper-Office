@@ -161,11 +161,9 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
         &script_path.to_string_lossy(),
     ])
     .creation_flags(CREATE_NO_WINDOW);
-    let output = crate::platforms::process::run_with_timeout(
-        &mut cmd,
-        std::time::Duration::from_secs(30),
-    )
-    .map_err(|e| format!("Failed to run cert trust: {e}"))?;
+    let output =
+        crate::platforms::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(30))
+            .map_err(|e| format!("Failed to run cert trust: {e}"))?;
 
     if output.status.success() {
         let _ = fs::remove_file(script_path);
@@ -231,6 +229,7 @@ fn is_cert_trusted() -> Result<bool, String> {
     }
 }
 
+#[allow(dead_code, reason = "Public certificate diagnostic helper")]
 pub fn get_cert_path(app_handle: &tauri::AppHandle) -> PathBuf {
     get_cert_dir(app_handle).join("localhost.crt")
 }

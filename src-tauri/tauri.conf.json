@@ -39,7 +39,6 @@
     "resources": [
       "resources/OfficeJS/**/*",
       "resources/WPS/**/*",
-      "resources/NativeOffice/**/*",
       "resources/Obsidian/**/*",
       "resources/Ecosystem/**/*"
     ],

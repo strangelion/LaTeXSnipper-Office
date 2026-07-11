@@ -117,7 +117,7 @@ public static class ManifestDiagnostics
             // Read manifest entries (use a simpler manual parse since ReadAll only supports Word)
             string? xml;
             try { xml = (string?)part.GetType().GetProperty("XML")?.GetValue(part); }
-            catch { xml = null; }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-excel-manifest-xml", "excel", null, ex); xml = null; }
 
             if (string.IsNullOrEmpty(xml))
             {
@@ -156,13 +156,13 @@ public static class ManifestDiagnostics
                                     docFormulaIds.Add(name.Substring(5));
                                 }
                             }
-                            catch { }
+                            catch (Exception ex) { OfficeOperationLog.Failure("inspect-powerpoint-shape", "powerpoint", null, ex); }
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("inspect-powerpoint-slide", "powerpoint", null, ex); }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("inspect-powerpoint-manifest", "powerpoint", null, ex); }
 
             report.ObjectsFound = docFormulaIds.Count;
 

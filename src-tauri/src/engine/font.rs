@@ -50,6 +50,6 @@ impl FontHandler {
     #[allow(dead_code)]
     pub fn calculate_scale(base: f64, user: f64, context: f64) -> f64 {
         let scale = base * user * context;
-        scale.max(0.1).min(10.0)
+        scale.clamp(0.1, 10.0)
     }
 }

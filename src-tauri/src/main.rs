@@ -9,7 +9,7 @@ mod platforms;
 use std::sync::Arc;
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, State,
+    Manager,
 };
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
@@ -25,9 +25,15 @@ fn main() {
     let log_path = log_dir.join("crash.log");
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let msg = format!("[{}] PANIC: {}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), info);
+        let msg = format!(
+            "[{}] PANIC: {}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+            info
+        );
         let _ = std::fs::OpenOptions::new()
-            .create(true).append(true).open(&log_path)
+            .create(true)
+            .append(true)
+            .open(&log_path)
             .map(|mut f| std::io::Write::write_all(&mut f, msg.as_bytes()));
         prev_hook(info);
     }));
@@ -37,7 +43,8 @@ fn main() {
 
     // Extract OLE edit pipe name early so closure can own it
     #[cfg(target_os = "windows")]
-    let ole_pipe_name: Option<String> = args.iter()
+    let ole_pipe_name: Option<String> = args
+        .iter()
         .position(|a| a == "--ole-edit")
         .and_then(|i| args.get(i + 1).cloned());
 
@@ -82,7 +89,7 @@ fn main() {
                 // Exit app when main window is closed
                 let handle = app.handle().clone();
                 if let Some(window) = app.get_webview_window("main") {
-                    let h = handle.clone();
+                    let _h = handle.clone();
                     window.on_window_event(move |event| {
                         if let tauri::WindowEvent::CloseRequested { .. } = event {
                             std::process::exit(0);
@@ -109,7 +116,7 @@ fn main() {
                     })?;
             } else {
                 // In OLE edit mode, we still need a minimal window setup
-                let handle = app.handle().clone();
+                let _handle = app.handle().clone();
                 if let Some(window) = app.get_webview_window("main") {
                     window.on_window_event(move |event| {
                         if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -151,9 +158,10 @@ fn main() {
                     let app_handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {
                         match platforms::ole_edit::handle_ole_edit_session_with_app(
-                            app_handle,
-                            &pipe_name,
-                        ).await {
+                            app_handle, &pipe_name,
+                        )
+                        .await
+                        {
                             Ok(()) => std::process::exit(0),
                             Err(e) => {
                                 log::error!("OLE edit session failed: {}", e);

@@ -30,9 +30,9 @@ unsafe impl Send for PipeSecurityDescriptor {}
 #[cfg(target_os = "windows")]
 #[repr(C)]
 struct SECURITY_ATTRIBUTES {
-    nLength: u32,
-    lpSecurityDescriptor: *mut std::ffi::c_void,
-    bInheritHandle: i32, // BOOL
+    n_length: u32,
+    lp_security_descriptor: *mut std::ffi::c_void,
+    b_inherit_handle: i32, // BOOL
 }
 
 impl PipeSecurityDescriptor {
@@ -92,9 +92,9 @@ impl PipeSecurityDescriptor {
 
         // Create SECURITY_ATTRIBUTES
         let attrs = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: descriptor,
-            bInheritHandle: 0, // FALSE
+            n_length: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lp_security_descriptor: descriptor,
+            b_inherit_handle: 0, // FALSE
         };
 
         Ok(Self { descriptor, attrs })

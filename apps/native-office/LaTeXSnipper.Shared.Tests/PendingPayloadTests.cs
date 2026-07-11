@@ -1,5 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.IO;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text.RegularExpressions;
 using System.Threading;
 using LaTeXSnipper.NativeOffice.Shared;
 using Microsoft.Win32;
@@ -30,10 +34,39 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures++;
         }
 
-        private static object ReadValue(int pid)
+        private static string ReadReference(int pid)
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath))
-                return key?.GetValue("PendingPayload." + pid);
+                return key?.GetValue("PendingPayload." + pid) as string;
+        }
+
+        private static string TokenFromReference(string reference)
+        {
+            Match match = Regex.Match(reference ?? string.Empty, "\\\"token\\\":\\\"([0-9a-f]{64})\\\"");
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
+        private static string PayloadPath(string token)
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LaTeXSnipper", "OfficePlugin", "PendingPayloads", token + ".json");
+        }
+
+        private static void ExpectCurrentUserOnlyAcl(string path)
+        {
+            FileSecurity security = File.GetAccessControl(path);
+            SecurityIdentifier currentUser = WindowsIdentity.GetCurrent().User;
+            Expect(security.AreAccessRulesProtected, "payload file inherits ACL entries");
+            AuthorizationRuleCollection rules = security.GetAccessRules(true, false, typeof(SecurityIdentifier));
+            bool currentUserAllowed = false;
+            foreach (FileSystemAccessRule rule in rules)
+            {
+                if (rule.AccessControlType != AccessControlType.Allow) continue;
+                SecurityIdentifier identity = (SecurityIdentifier)rule.IdentityReference;
+                if (identity.Equals(currentUser)) currentUserAllowed = true;
+                else Expect(false, "payload file grants access to a non-owner SID: " + identity.Value);
+            }
+            Expect(currentUserAllowed, "payload file does not grant access to the current user");
         }
 
         private static void TestCrossThreadRead()
@@ -41,12 +74,20 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             string json = null;
             using (OleFormulaPendingPayloadStore.Save(Payload("cross-thread")))
             {
+                string reference = ReadReference(Process.GetCurrentProcess().Id);
+                string token = TokenFromReference(reference);
+                Expect(reference != null && reference.Length < 1024, "registry reference is missing or too large");
+                Expect(!reference.Contains("cross-thread") && !reference.Contains("<svg") && !reference.Contains("x^2"),
+                    "registry reference contains formula payload data");
+                Expect(token != null && File.Exists(PayloadPath(token)), "token payload file is missing");
+                if (token != null && File.Exists(PayloadPath(token))) ExpectCurrentUserOnlyAcl(PayloadPath(token));
                 var thread = new Thread(() => json = OleFormulaPendingPayloadStore.Consume());
                 thread.Start();
                 Expect(thread.Join(TimeSpan.FromSeconds(5)), "cross-thread consume timed out");
+                Expect(token == null || !File.Exists(PayloadPath(token)), "consume did not delete the token payload file");
             }
             Expect(json != null && json.Contains("cross-thread"), "same-PID different thread could not read the payload");
-            Expect(ReadValue(Process.GetCurrentProcess().Id) == null, "cross-thread consume did not remove the payload");
+            Expect(ReadReference(Process.GetCurrentProcess().Id) == null, "cross-thread consume did not remove the reference");
         }
 
         private static void TestMutexSerialization()
@@ -78,15 +119,16 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 using (OleFormulaPendingPayloadStore.Save(Payload("exception")))
                     throw new InvalidOperationException("test fixture");
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
+                Expect(ex.Message == "test fixture", "unexpected exception was caught in cleanup test");
             }
 
             int pid = Process.GetCurrentProcess().Id;
-            Expect(ReadValue(pid) == null, "exception path left a pending payload value");
+            Expect(ReadReference(pid) == null, "exception path left a pending payload reference");
             using (OleFormulaPendingPayloadStore.Save(Payload("after-exception")))
-                Expect(ReadValue(pid) != null, "mutex was not reusable after exception cleanup");
-            Expect(ReadValue(pid) == null, "post-exception lease did not clean up");
+                Expect(ReadReference(pid) != null, "mutex was not reusable after exception cleanup");
+            Expect(ReadReference(pid) == null, "post-exception lease did not clean up");
         }
 
         private static void TestDifferentPidIsolation()
@@ -111,16 +153,32 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 Expect(ready != null && int.TryParse(ready.Substring(6), out childPid), "child PID was invalid");
                 if (ready == null || !int.TryParse(ready.Substring(6), out childPid)) childPid = -1;
 
-                Expect(ReadValue(parentPid) != null, "parent payload was missing");
-                Expect(childPid > 0 && ReadValue(childPid) != null, "child payload was missing");
+                Expect(ReadReference(parentPid) != null, "parent payload reference was missing");
+                Expect(childPid > 0 && ReadReference(childPid) != null, "child payload reference was missing");
                 string parentJson = OleFormulaPendingPayloadStore.Consume();
                 Expect(parentJson != null && parentJson.Contains("parent"), "parent consumed a different PID payload");
-                Expect(childPid > 0 && ReadValue(childPid) != null, "parent consume removed the child payload");
+                Expect(childPid > 0 && ReadReference(childPid) != null, "parent consume removed the child payload reference");
 
                 child.StandardInput.WriteLine();
                 Expect(child.WaitForExit(5000), "child process did not exit");
                 Expect(child.ExitCode == 0, "child process reported failure");
-                Expect(childPid <= 0 || ReadValue(childPid) == null, "child lease did not clean up its payload");
+                Expect(childPid <= 0 || ReadReference(childPid) == null, "child lease did not clean up its payload reference");
+            }
+        }
+
+        private static void TestIntegrityFailureCleanup()
+        {
+            int pid = Process.GetCurrentProcess().Id;
+            using (OleFormulaPendingPayloadStore.Save(Payload("tampered")))
+            {
+                string token = TokenFromReference(ReadReference(pid));
+                Expect(token != null, "tamper fixture token is missing");
+                if (token == null) return;
+                string path = PayloadPath(token);
+                File.WriteAllText(path, "tampered");
+                Expect(OleFormulaPendingPayloadStore.Consume() == null, "tampered payload was accepted");
+                Expect(!File.Exists(path), "tampered payload file was not deleted");
+                Expect(ReadReference(pid) == null, "tampered payload reference was not deleted");
             }
         }
 
@@ -137,12 +195,39 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
 
         private static int Main(string[] args)
         {
+            try
+            {
+                return Run(args);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("FATAL type=" + ex.GetType().FullName + " message=" + ex.Message);
+                Console.Error.WriteLine(ex.StackTrace ?? "stack unavailable");
+                return 2;
+            }
+        }
+
+        private static int Run(string[] args)
+        {
             if (args.Length == 1 && args[0] == "--child") return ChildMain();
 
+            Console.WriteLine("RUN TestCrossThreadRead");
             TestCrossThreadRead();
+            Console.WriteLine("RUN TestMutexSerialization");
             TestMutexSerialization();
+            Console.WriteLine("RUN TestExceptionCleanup");
             TestExceptionCleanup();
+            Console.WriteLine("RUN TestDifferentPidIsolation");
             TestDifferentPidIsolation();
+            Console.WriteLine("RUN TestIntegrityFailureCleanup");
+            TestIntegrityFailureCleanup();
+            Console.WriteLine("RUN StrictBase64Tests");
+            failures += StrictBase64Tests.Run();
+            Console.WriteLine("RUN FormulaIdTests");
+            string formulaId = FormulaIdHelper.NewId();
+            Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");
+            Expect(!FormulaIdHelper.IsCanonical(formulaId + " 2"), "copy-renamed formulaId was accepted");
+            Expect(!FormulaIdHelper.IsCanonical(""), "empty formulaId was accepted");
 
             if (failures == 0)
             {

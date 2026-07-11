@@ -12,6 +12,8 @@
 #include <cerrno>
 #include <climits>
 #include <cmath>
+#include <cstddef>
+#include <cstring>
 #include <cwchar>
 #include <cwctype>
 #include <map>
@@ -27,10 +29,17 @@ constexpr size_t kMaxSvgBytes = 8 * 1024 * 1024;
 constexpr size_t kMaxNodes = 100000;
 constexpr UINT kMaxXmlDepth = 64;
 constexpr size_t kMaxUseDepth = 32;
+constexpr size_t kMaxUseExpansions = 100000;
+constexpr size_t kMaxPathOperations = 1000000;
+constexpr size_t kMaxDrawCalls = 100000;
+constexpr size_t kMaxEmfBytes = 128 * 1024 * 1024;
+constexpr size_t kMaxEmfRecords = 1000000;
+constexpr DWORD kMaxEmfRecordBytes = 64 * 1024 * 1024;
 constexpr double kMaxCoordinateMagnitude = 1.0e9;
 constexpr double kHimetricPerInch = 2540.0;
 constexpr double kPointsPerInch = 72.0;
 constexpr double kRenderDpi = 144.0;
+constexpr double kLogicalUnitsPerInch = 25400.0;
 constexpr double kPi = 3.1415926535897932384626433832795;
 
 struct ComReleaser
@@ -99,6 +108,8 @@ struct RenderContext
     HDC dc = nullptr;
     std::map<std::wstring, SvgNode*> ids;
     size_t vectorDrawCount = 0;
+    size_t pathOperationCount = 0;
+    size_t useExpansionCount = 0;
     std::wstring error;
 };
 
@@ -377,6 +388,15 @@ bool ApplyStyleProperty(const std::wstring& rawName, const std::wstring& rawValu
 {
     const std::wstring name = Lower(Trim(rawName));
     const std::wstring value = Trim(rawValue);
+    static const std::set<std::wstring> unsupportedVisualProperties = {
+        L"clip-path", L"mask", L"display", L"visibility", L"stroke-linecap",
+        L"stroke-linejoin", L"stroke-dasharray", L"stroke-dashoffset", L"vector-effect"
+    };
+    if (unsupportedVisualProperties.find(name) != unsupportedVisualProperties.end())
+    {
+        *error = L"SVG_VECTOR_UNSUPPORTED_FEATURE: " + name;
+        return false;
+    }
     if (name == L"fill" || name == L"stroke")
     {
         Paint parsed{};
@@ -421,6 +441,18 @@ bool ApplyStyleProperty(const std::wstring& rawName, const std::wstring& rawValu
 
 bool ResolveStyle(const SvgNode& node, const Style& inherited, Style* result, std::wstring* error)
 {
+    static const std::set<std::wstring> unsupportedVisualAttributes = {
+        L"clip-path", L"mask", L"display", L"visibility", L"stroke-linecap",
+        L"stroke-linejoin", L"stroke-dasharray", L"stroke-dashoffset", L"vector-effect"
+    };
+    for (const auto& attribute : node.attributes)
+    {
+        if (unsupportedVisualAttributes.find(attribute.first) != unsupportedVisualAttributes.end())
+        {
+            *error = L"SVG_VECTOR_UNSUPPORTED_FEATURE: " + attribute.first;
+            return false;
+        }
+    }
     Style style = inherited;
     const std::array<std::wstring, 8> properties = {
         L"fill", L"stroke", L"stroke-width", L"fill-rule", L"opacity", L"fill-opacity", L"stroke-opacity", L"color"
@@ -444,6 +476,12 @@ bool ResolveStyle(const SvgNode& node, const Style& inherited, Style* result, st
             start = end + 1;
         }
     }
+    if (style.opacity != 1.0 || style.fillOpacity != 1.0 || style.strokeOpacity != 1.0 ||
+        style.fill.color.alpha != 255 || style.stroke.color.alpha != 255 || style.currentColor.alpha != 255)
+    {
+        *error = L"SVG_VECTOR_UNSUPPORTED_FEATURE: alpha opacity requires raster fallback";
+        return false;
+    }
     *result = style;
     return true;
 }
@@ -457,11 +495,7 @@ Color ResolvePaint(const Paint& paint, const Style& style, double opacity)
 
 COLORREF ToColorRef(Color color)
 {
-    const double alpha = color.alpha / 255.0;
-    const BYTE red = static_cast<BYTE>(std::lround(color.red * alpha + 255.0 * (1.0 - alpha)));
-    const BYTE green = static_cast<BYTE>(std::lround(color.green * alpha + 255.0 * (1.0 - alpha)));
-    const BYTE blue = static_cast<BYTE>(std::lround(color.blue * alpha + 255.0 * (1.0 - alpha)));
-    return RGB(red, green, blue);
+    return RGB(color.red, color.green, color.blue);
 }
 
 POINT ToPoint(SvgPoint point, bool* success)
@@ -477,6 +511,17 @@ POINT ToPoint(SvgPoint point, bool* success)
 bool DrawOperations(RenderContext* context, const std::vector<SvgPathOperation>& operations, const Matrix& matrix, const Style& style)
 {
     if (operations.empty()) return true;
+    if (operations.size() > kMaxPathOperations - context->pathOperationCount)
+    {
+        context->error = L"SVG_VECTOR_LIMIT_EXCEEDED: too many path operations";
+        return false;
+    }
+    context->pathOperationCount += operations.size();
+    if (context->vectorDrawCount >= kMaxDrawCalls)
+    {
+        context->error = L"SVG_VECTOR_LIMIT_EXCEEDED: too many GDI draw calls";
+        return false;
+    }
     if (!BeginPath(context->dc))
     {
         context->error = L"SVG_VECTOR_GDI_ERROR: BeginPath failed";
@@ -691,6 +736,7 @@ bool RenderNode(RenderContext* context, const SvgNode& node, const Matrix& paren
     if (node.name == L"defs" && !referenced) return true;
     if (node.name == L"use")
     {
+        if (++context->useExpansionCount > kMaxUseExpansions) { context->error = L"SVG_VECTOR_USE_LIMIT_EXCEEDED: too many use expansions"; return false; }
         if (useDepth >= kMaxUseDepth) { context->error = L"SVG_VECTOR_USE_LIMIT_EXCEEDED: use nesting is too deep"; return false; }
         const std::wstring* href = Attribute(node, L"href");
         if (href == nullptr) href = Attribute(node, L"xlink:href");
@@ -848,7 +894,8 @@ bool IndexIds(SvgNode* node, std::map<std::wstring, SvgNode*>* ids, std::wstring
     return true;
 }
 
-bool BuildRootMatrix(const SvgNode& root, int widthPixels, int heightPixels, Matrix* matrix, std::wstring* error)
+bool BuildRootMatrix(const SvgNode& root, double outputWidth, double outputHeight,
+                     Matrix* matrix, bool* requiresClip, std::wstring* error)
 {
     const std::wstring* viewBoxText = Attribute(root, L"viewbox");
     if (viewBoxText == nullptr) { *error = L"SVG_VECTOR_INVALID_VIEWBOX: MathJax SVG requires viewBox"; return false; }
@@ -859,20 +906,27 @@ bool BuildRootMatrix(const SvgNode& root, int widthPixels, int heightPixels, Mat
         *error = L"SVG_VECTOR_INVALID_VIEWBOX: viewBox must contain four finite values and a positive size";
         return false;
     }
-    const double scaleX = widthPixels / values[2];
-    const double scaleY = heightPixels / values[3];
+    const double scaleX = outputWidth / values[2];
+    const double scaleY = outputHeight / values[3];
     const std::wstring preserve = Attribute(root, L"preserveaspectratio") == nullptr ? L"xmidymid meet" : Lower(*Attribute(root, L"preserveaspectratio"));
+    if (preserve == L"none")
+    {
+        *matrix = {scaleX, 0.0, 0.0, scaleY, -values[0] * scaleX, -values[1] * scaleY};
+        *requiresClip = false;
+        return true;
+    }
     const bool slice = preserve.find(L"slice") != std::wstring::npos;
     const double scale = slice ? (std::max)(scaleX, scaleY) : (std::min)(scaleX, scaleY);
     double offsetX = 0.0;
     double offsetY = 0.0;
-    const double spareX = widthPixels - values[2] * scale;
-    const double spareY = heightPixels - values[3] * scale;
+    const double spareX = outputWidth - values[2] * scale;
+    const double spareY = outputHeight - values[3] * scale;
     if (preserve.find(L"xmax") != std::wstring::npos) offsetX = spareX;
     else if (preserve.find(L"xmid") != std::wstring::npos || preserve.empty()) offsetX = spareX / 2.0;
     if (preserve.find(L"ymax") != std::wstring::npos) offsetY = spareY;
     else if (preserve.find(L"ymid") != std::wstring::npos || preserve.empty()) offsetY = spareY / 2.0;
     *matrix = {scale, 0.0, 0.0, scale, offsetX - values[0] * scale, offsetY - values[1] * scale};
+    *requiresClip = slice;
     return true;
 }
 
@@ -880,23 +934,44 @@ bool ReadEmfRecords(const std::vector<BYTE>& bytes, bool* raster, bool* vector, 
 {
     *raster = false;
     *vector = false;
-    if (bytes.size() < sizeof(ENHMETAHEADER)) { if (reason) *reason = L"EMF_INVALID: file is smaller than its header"; return false; }
+    if (bytes.size() < sizeof(ENHMETAHEADER) || bytes.size() > kMaxEmfBytes)
+    {
+        if (reason) *reason = L"EMF_INVALID: file size is outside safety limits";
+        return false;
+    }
+    ENHMETAHEADER header{};
+    std::memcpy(&header, bytes.data(), sizeof(header));
+    if (header.dSignature != ENHMETA_SIGNATURE || header.nBytes != bytes.size() ||
+        header.nRecords < 2 || header.nRecords > kMaxEmfRecords)
+    {
+        if (reason) *reason = L"EMF_INVALID: header size, signature, or record count is invalid";
+        return false;
+    }
     size_t offset = 0;
+    size_t recordCount = 0;
+    bool sawEof = false;
     while (offset + sizeof(EMR) <= bytes.size())
     {
-        const auto* record = reinterpret_cast<const EMR*>(bytes.data() + offset);
-        if (record->nSize < sizeof(EMR) || record->nSize % 4 != 0 || offset + record->nSize > bytes.size())
+        if (++recordCount > kMaxEmfRecords)
         {
-            if (reason) *reason = L"EMF_INVALID: malformed record at offset " + std::to_wstring(offset) +
-                L", type " + std::to_wstring(record->iType) + L", size " + std::to_wstring(record->nSize);
+            if (reason) *reason = L"EMF_INVALID: record count exceeds safety limit";
             return false;
         }
-        switch (record->iType)
+        EMR record{};
+        std::memcpy(&record, bytes.data() + offset, sizeof(record));
+        if (record.nSize < sizeof(EMR) || record.nSize > kMaxEmfRecordBytes ||
+            record.nSize % 4 != 0 || record.nSize > bytes.size() - offset)
+        {
+            if (reason) *reason = L"EMF_INVALID: malformed record at offset " + std::to_wstring(offset) +
+                L", type " + std::to_wstring(record.iType) + L", size " + std::to_wstring(record.nSize);
+            return false;
+        }
+        switch (record.iType)
         {
         case EMR_BITBLT: case EMR_STRETCHBLT: case EMR_MASKBLT: case EMR_PLGBLT:
         case EMR_SETDIBITSTODEVICE: case EMR_STRETCHDIBITS: case EMR_ALPHABLEND: case EMR_TRANSPARENTBLT:
             *raster = true;
-            if (reason) *reason = L"EMF_RASTER_RECORD: bitmap transfer record type " + std::to_wstring(record->iType);
+            if (reason) *reason = L"EMF_RASTER_RECORD: bitmap transfer record type " + std::to_wstring(record.iType);
             break;
         case EMR_STROKEPATH: case EMR_FILLPATH: case EMR_STROKEANDFILLPATH:
         case EMR_POLYBEZIER: case EMR_POLYBEZIERTO: case EMR_POLYGON: case EMR_POLYLINE:
@@ -905,17 +980,33 @@ bool ReadEmfRecords(const std::vector<BYTE>& bytes, bool* raster, bool* vector, 
             break;
         case EMR_GDICOMMENT:
         {
-            const auto* comment = reinterpret_cast<const EMRGDICOMMENT*>(record);
-            if (comment->cbData >= 4 && comment->Data[0] == 'E' && comment->Data[1] == 'M' && comment->Data[2] == 'F' && comment->Data[3] == '+')
+            DWORD commentBytes = 0;
+            constexpr size_t dataOffset = offsetof(EMRGDICOMMENT, Data);
+            if (record.nSize < dataOffset) return false;
+            std::memcpy(&commentBytes, bytes.data() + offset + offsetof(EMRGDICOMMENT, cbData), sizeof(commentBytes));
+            if (commentBytes > record.nSize - dataOffset)
+            {
+                if (reason) *reason = L"EMF_INVALID: GDI comment length exceeds record";
+                return false;
+            }
+            const BYTE* commentData = bytes.data() + offset + dataOffset;
+            if (commentBytes >= 4 && commentData[0] == 'E' && commentData[1] == 'M' && commentData[2] == 'F' && commentData[3] == '+')
             {
                 size_t commentOffset = 4;
-                while (commentOffset + 12 <= comment->cbData)
+                while (commentOffset + 12 <= commentBytes)
                 {
-                    const BYTE* data = comment->Data + commentOffset;
-                    const WORD type = *reinterpret_cast<const WORD*>(data);
-                    const WORD flags = *reinterpret_cast<const WORD*>(data + 2);
-                    const DWORD size = *reinterpret_cast<const DWORD*>(data + 4);
-                    if (size < 12 || commentOffset + size > comment->cbData) break;
+                    const BYTE* data = commentData + commentOffset;
+                    WORD type = 0;
+                    WORD flags = 0;
+                    DWORD size = 0;
+                    std::memcpy(&type, data, sizeof(type));
+                    std::memcpy(&flags, data + 2, sizeof(flags));
+                    std::memcpy(&size, data + 4, sizeof(size));
+                    if (size < 12 || size > commentBytes - commentOffset)
+                    {
+                        if (reason) *reason = L"EMF_INVALID: malformed EMF+ record";
+                        return false;
+                    }
                     if (type == 0x401A || type == 0x401B || (type == 0x4008 && ((flags >> 8) & 0x7F) == 5))
                     {
                         *raster = true;
@@ -930,8 +1021,17 @@ bool ReadEmfRecords(const std::vector<BYTE>& bytes, bool* raster, bool* vector, 
         default:
             break;
         }
-        offset += record->nSize;
-        if (record->iType == EMR_EOF) break;
+        offset += record.nSize;
+        if (record.iType == EMR_EOF)
+        {
+            sawEof = true;
+            break;
+        }
+    }
+    if (!sawEof || offset != bytes.size() || recordCount != header.nRecords)
+    {
+        if (reason) *reason = L"EMF_INVALID: missing EOF, trailing data, or record count mismatch";
+        return false;
     }
     return true;
 }
@@ -943,6 +1043,13 @@ bool ContainsRasterEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* r
     bool vector = false;
     if (!ReadEmfRecords(emfBytes, &raster, &vector, reason)) return true;
     return raster;
+}
+
+bool ValidateEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason)
+{
+    bool raster = false;
+    bool vector = false;
+    return ReadEmfRecords(emfBytes, &raster, &vector, reason);
 }
 
 bool HasVectorDrawingEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason)
@@ -969,19 +1076,38 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
 
     const int widthPixels = (std::max)(1, static_cast<int>(std::lround(widthPt * kRenderDpi / kPointsPerInch)));
     const int heightPixels = (std::max)(1, static_cast<int>(std::lround(heightPt * kRenderDpi / kPointsPerInch)));
+    const int widthLogical = (std::max)(1, static_cast<int>(std::lround(widthPt * kLogicalUnitsPerInch / kPointsPerInch)));
+    const int heightLogical = (std::max)(1, static_cast<int>(std::lround(heightPt * kLogicalUnitsPerInch / kPointsPerInch)));
     Matrix rootMatrix{};
-    if (!BuildRootMatrix(*root, widthPixels, heightPixels, &rootMatrix, &result.error)) return result;
+    bool requiresClip = false;
+    if (!BuildRootMatrix(*root, widthLogical, heightLogical, &rootMatrix, &requiresClip, &result.error)) return result;
 
     RECT frame{};
     frame.right = static_cast<LONG>(std::lround(widthPt * kHimetricPerInch / kPointsPerInch));
     frame.bottom = static_cast<LONG>(std::lround(heightPt * kHimetricPerInch / kPointsPerInch));
     HDC reference = GetDC(nullptr);
+    if (reference == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: GetDC failed"; return result; }
     HDC metafileDc = CreateEnhMetaFileW(reference, nullptr, &frame, L"LaTeXSnipper\0MathJax SVG vector formula\0");
     ReleaseDC(nullptr, reference);
     if (metafileDc == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: CreateEnhMetaFile failed"; return result; }
     context.dc = metafileDc;
-    SetMapMode(metafileDc, MM_TEXT);
-    SetBkMode(metafileDc, TRANSPARENT);
+    if (SetMapMode(metafileDc, MM_ANISOTROPIC) == 0 ||
+        !SetWindowExtEx(metafileDc, widthLogical, heightLogical, nullptr) ||
+        !SetViewportExtEx(metafileDc, widthPixels, heightPixels, nullptr) ||
+        SetBkMode(metafileDc, TRANSPARENT) == 0)
+    {
+        HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);
+        if (failed != nullptr) DeleteEnhMetaFile(failed);
+        result.error = L"SVG_VECTOR_GDI_ERROR: anisotropic mapping setup failed";
+        return result;
+    }
+    if (requiresClip && IntersectClipRect(metafileDc, 0, 0, widthLogical, heightLogical) == ERROR)
+    {
+        HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);
+        if (failed != nullptr) DeleteEnhMetaFile(failed);
+        result.error = L"SVG_VECTOR_GDI_ERROR: slice clip setup failed";
+        return result;
+    }
 
     Style style{};
     Paint fallback{};

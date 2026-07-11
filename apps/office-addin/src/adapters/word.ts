@@ -217,7 +217,9 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
           return { math: { type: 'latex' as const, content: data.latex }, display, numbered: false };
         }
       }
-    } catch {}
+    } catch (error) {
+      console.warn('[OfficeAddin] operation=convert-omml host=word formulaId=<unknown> hresult=0x00000000', error);
+    }
 
     // Fallback: return raw OMML
     return { math: { type: 'omml' as const, content: omml }, display, numbered: false };
@@ -379,7 +381,9 @@ export class WordOfficeAdapter implements OfficeDocumentAdapter {
         if (p === Office.PlatformType.PC) return 'windows';
         if (p === Office.PlatformType.Mac) return 'mac';
       }
-    } catch {}
+    } catch (error) {
+      console.warn('[OfficeAddin] operation=detect-platform host=word formulaId=<unknown> hresult=0x00000000', error);
+    }
     return 'web';
   }
 }

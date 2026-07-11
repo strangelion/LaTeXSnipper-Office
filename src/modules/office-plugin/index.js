@@ -1,17 +1,17 @@
 /**
  * Office Plugin Module
- * 
+ *
  * 复刻 LaTeXSnipper Office 插件的完整功能
  * 包含：公式、编辑、转换、交叉引用、编号、公式样式、工具
  */
 
-import { FormulaModule } from './formula.js';
-import { EditModule } from './edit.js';
-import { ConvertModule } from './convert.js';
-import { CrossRefModule } from './crossref.js';
-import { NumberingModule } from './numbering.js';
-import { FormulaStyleModule } from './formula-style.js';
-import { ToolsModule } from './tools.js';
+import { FormulaModule } from "./formula.js";
+import { EditModule } from "./edit.js";
+import { ConvertModule } from "./convert.js";
+import { CrossRefModule } from "./crossref.js";
+import { NumberingModule } from "./numbering.js";
+import { FormulaStyleModule } from "./formula-style.js";
+import { ToolsModule } from "./tools.js";
 
 export class OfficePlugin {
   constructor() {
@@ -25,7 +25,7 @@ export class OfficePlugin {
   }
 
   async initialize() {
-    console.log('[OfficePlugin] Initializing...');
+    console.log("[OfficePlugin] Initializing...");
     await Promise.all([
       this.formula.initialize(),
       this.edit.initialize(),
@@ -35,7 +35,7 @@ export class OfficePlugin {
       this.formulaStyle.initialize(),
       this.tools.initialize(),
     ]);
-    console.log('[OfficePlugin] Initialized successfully');
+    console.log("[OfficePlugin] Initialized successfully");
   }
 
   dispose() {
@@ -49,10 +49,10 @@ export class OfficePlugin {
   }
 }
 
-export { FormulaModule } from './formula.js';
-export { EditModule } from './edit.js';
-export { ConvertModule } from './convert.js';
-export { CrossRefModule } from './crossref.js';
-export { NumberingModule } from './numbering.js';
-export { FormulaStyleModule } from './formula-style.js';
-export { ToolsModule } from './tools.js';
+export { FormulaModule } from "./formula.js";
+export { EditModule } from "./edit.js";
+export { ConvertModule } from "./convert.js";
+export { CrossRefModule } from "./crossref.js";
+export { NumberingModule } from "./numbering.js";
+export { FormulaStyleModule } from "./formula-style.js";
+export { ToolsModule } from "./tools.js";

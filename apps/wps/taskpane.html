@@ -70,7 +70,7 @@
 
     <section class="panel">
       <label for="latexSource">LaTeX</label>
-      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: e^{i\pi}+1=0">e^{i\pi}+1=0</textarea>
+      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: \frac{a}{b}"></textarea>
       <div id="previewSection">
         <label>预览</label>
         <div id="previewHost" class="preview-host">
@@ -117,6 +117,12 @@
     let bridgeConnected = false;
     let bridgeToken = "";
 
+    function logWpsFailure(operation, formulaId, error) {
+      const hresult = error && (error.number || error.hresult || error.code) || 0;
+      console.error(`[WPS] operation=${operation} host=wps formulaId=${formulaId || "<unknown>"} hresult=${hresult}`,
+        error && (error.name || "Error"));
+    }
+
     function setStatus(kind, message) {
       els.statusBanner.className = "status-banner " + kind;
       els.statusText.textContent = message;
@@ -127,7 +133,7 @@
         window.parent.window.Application.PluginStorage.setItem("current_latex", els.latexSource.value);
         window.parent.window.Application.PluginStorage.setItem("current_display", els.displayMode.checked);
         window.parent.window.Application.PluginStorage.setItem("current_auto_number", els.autoNumber.checked);
-      } catch (e) {}
+      } catch (e) { logWpsFailure("sync-storage", null, e); }
     }
 
     async function checkBridge() {
@@ -138,7 +144,7 @@
         bridgeConnected = true;
         try {
           window.parent.window.Application.PluginStorage.setItem("bridge_token", bridgeToken);
-        } catch (e) {}
+        } catch (e) { logWpsFailure("store-bridge-token", null, e); }
         setStatus("success", "已连接到 LaTeXSnipper Bridge");
         els.connectButton.textContent = "已连接";
         els.connectButton.disabled = true;
@@ -210,8 +216,8 @@
 
         if (selection.OMaths.Count > 0) {
           const oMath = selection.OMaths.Item(1);
-          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) {} }
-          try { oMath.BuildUp(); } catch(e) {}
+          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) { logWpsFailure("set-display-justification", null, e); } }
+          try { oMath.BuildUp(); } catch(e) { logWpsFailure("build-up-formula", null, e); }
           selection.Range.Collapse(0);
 
           if (els.autoNumber.checked) {
@@ -282,7 +288,7 @@
           selection.InlineShapes.AddPicture(filePath, false, true);
         }
 
-        try { await wpsFetch(BRIDGE_URL + "/delete-temp?path=" + encodeURIComponent(filePath), { method: "DELETE" }); } catch(e) {}
+        try { await wpsFetch(BRIDGE_URL + "/delete-temp?path=" + encodeURIComponent(filePath), { method: "DELETE" }); } catch(e) { logWpsFailure("delete-temp", null, e); }
 
         setStatus("success", "图片插入成功");
       } catch (e) {
@@ -363,7 +369,7 @@
           let para = paragraphs.Item(i);
           let range = para.Range;
           let hasOMath = false;
-          try { hasOMath = range.OMaths.Count > 0; } catch(e) {}
+          try { hasOMath = range.OMaths.Count > 0; } catch(e) { logWpsFailure("inspect-omath", null, e); }
           if (!hasOMath) continue;
 
           let oMath = range.OMaths.Item(1);
@@ -376,7 +382,7 @@
             oFind.MatchWildcards = true;
             oFind.Forward = true;
             hasNumber = oFind.Execute();
-          } catch(e) {}
+          } catch(e) { logWpsFailure("find-equation-number", null, e); }
 
           if (!hasNumber) {
             try {
@@ -386,7 +392,7 @@
               pFind.MatchWildcards = true;
               pFind.Forward = true;
               hasNumber = pFind.Execute();
-            } catch(e) {}
+            } catch(e) { logWpsFailure("find-paragraph-number", null, e); }
           }
 
           if (!hasNumber) {

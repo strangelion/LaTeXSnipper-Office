@@ -169,7 +169,7 @@ function insertOmlToDocument(omml) {
     selection.OMaths.Add(selection.Range);
     if (selection.OMaths.Count > 0) {
         var oMath = selection.OMaths.Item(1);
-        try { oMath.BuildUp(); } catch(e) {}
+        try { oMath.BuildUp(); } catch(e) { console.error('[WPS] operation=build-up-formula host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
     }
 }
 
@@ -201,7 +201,7 @@ function insertImageToDocument(base64) {
     selection.InlineShapes.AddPicture(tempPath, false, true);
     
     // Clean up temp file
-    try { wps.FileSystem.Remove(tempPath); } catch(e) {}
+    try { wps.FileSystem.Remove(tempPath); } catch(e) { console.error('[WPS] operation=delete-temp host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
 }
 
 /**

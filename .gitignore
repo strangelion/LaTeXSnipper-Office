@@ -39,6 +39,13 @@ apps/native-office/**/LaTeXSnipper.NativeOffice.Excel/
 apps/native-office/**/LaTeXSnipper.NativeOffice.PowerPoint/
 apps/native-office/**/LaTeXSnipper.NativeOffice.Word/
 apps/native-office/Installer/output/
+/output/*.exe
+/output/*.log
+/output/prerequisites/
+/output/verify-*/
+/output/publish/*/Application Files/
+/output/staging/**/*.dll.config
+/output/staging/**/System.ValueTuple.dll
 src-tauri/resources/NativeOffice/**/*.pdb
 src-tauri/resources/NativeOffice/**/Microsoft.Vbe.Interop.dll
 src-tauri/resources/NativeOffice/**/Microsoft.Office.Interop.*.dll

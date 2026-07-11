@@ -138,6 +138,8 @@ private:
     // Uses atomics for thread-safe flag access and a mutex to protect
     // pendingEditResult_ which contains non-trivially-copyable types.
     std::atomic<bool> editThreadRunning_{false};
+    std::atomic<bool> runningLocked_{false};
+    volatile LONG externalConnectionCount_ = 0;
     std::atomic<bool> editCompleted_{false};
     std::mutex editResultMutex_;
     FormulaPresentation pendingEditResult_;

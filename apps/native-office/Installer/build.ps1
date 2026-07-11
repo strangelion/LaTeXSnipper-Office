@@ -16,6 +16,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $SolutionDir = Split-Path -Parent $PSScriptRoot
+if ($OutputDir -eq ".\output") {
+    $OutputDir = Join-Path $PSScriptRoot "output"
+}
+$OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
 Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor Green
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
@@ -580,6 +584,8 @@ if (Test-Path $oleDllX64) {
     throw "OLE x64 DLL not found after build at $oleDllX64 — OLE will not be available on 64-bit Office"
 }
 $env:OleBinDir = $stagingAbs
+$oleDllX86Sha256 = (Get-FileHash -LiteralPath (Join-Path $env:OleBinDir "OleFormulaObject.x86.dll") -Algorithm SHA256).Hash
+$oleDllX64Sha256 = (Get-FileHash -LiteralPath (Join-Path $env:OleBinDir "OleFormulaObject.x64.dll") -Algorithm SHA256).Hash
 
 # A VSTO deployment manifest hashes its application manifest and the application
 # manifest hashes every payload dependency. Verify the copied staging tree before
@@ -613,8 +619,11 @@ if (-not $WixPath) {
 if (-not (Test-Path $WixPath)) { throw "WiX executable does not exist: $WixPath" }
 $wixVersion = (& $WixPath --version | Out-String).Trim()
 Write-Host "  WiX: $WixPath ($wixVersion)" -ForegroundColor Gray
-if ($wixVersion -notmatch '^5\.') { throw "Native Office installer requires WiX 5.x. Resolved: $wixVersion" }
 $wixPackageVersion = ($wixVersion -split '[+-]')[0]
+$wixMajor = [int](($wixPackageVersion -split '\.')[0])
+if ($wixMajor -lt 5 -or $wixMajor -gt 7) {
+    throw "Native Office installer requires a tested WiX major version from 5 through 7. Resolved: $wixVersion"
+}
 $uiExtension = "WixToolset.UI.wixext/$wixPackageVersion"
 $iisExtension = "WixToolset.Iis.wixext/$wixPackageVersion"
 $bootstrapperExtension = "WixToolset.BootstrapperApplications.wixext/$wixPackageVersion"
@@ -644,6 +653,8 @@ $env:CertificateDir = $stagingAbs + "\certificates"
     -d ExcelBinDir=$env:ExcelBinDir `
     -d PowerPointBinDir=$env:PowerPointBinDir `
     -d OleBinDir=$env:OleBinDir `
+    -d OleDllX86Sha256=$oleDllX86Sha256 `
+    -d OleDllX64Sha256=$oleDllX64Sha256 `
     -d CertificateDir=$env:CertificateDir `
     -ext $uiExtension `
     -ext $iisExtension

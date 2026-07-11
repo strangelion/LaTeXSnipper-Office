@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$StagingRoot,
-    [int]$TimeoutSeconds = 15
+    [int]$TimeoutSeconds = 15,
+    [ValidateSet("Debug", "Release")]
+    [string]$ProbeConfiguration = "Release"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,18 +40,35 @@ function Register-View([string]$View, [string]$DllPath) {
 }
 
 function Remove-View([string]$View) {
-    foreach ($key in @(
-        "HKCU\Software\Classes\CLSID\$clsid",
-        "HKCU\Software\Classes\$progId",
-        "HKCU\Software\Classes\$versionIndependentProgId"
-    )) {
-        try {
-            & reg.exe delete $key /f "/reg:$View" 2>$null | Out-Null
-        }
-        catch {
-            # Missing keys are expected before registration and after partial cleanup.
+    $registryView = if ($View -eq "64") {
+        [Microsoft.Win32.RegistryView]::Registry64
+    }
+    else {
+        [Microsoft.Win32.RegistryView]::Registry32
+    }
+    $root = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $registryView)
+    try {
+        foreach ($key in @(
+            "Software\Classes\CLSID\$clsid",
+            "Software\Classes\$progId",
+            "Software\Classes\$versionIndependentProgId"
+        )) {
+            $existing = $root.OpenSubKey($key, $false)
+            if ($null -eq $existing) {
+                Write-Verbose "Registry cleanup skipped missing key: operation=delete view=$View key=HKCU\$key"
+                continue
+            }
+            $existing.Dispose()
+            $root.DeleteSubKeyTree($key, $false)
         }
     }
+    catch {
+        throw "Registry cleanup failed: operation=delete view=$View error=$($_.Exception.Message)"
+    }
+    finally {
+        $root.Dispose()
+    }
+    $global:LASTEXITCODE = 0
 }
 
 function Backup-View([string]$View) {
@@ -58,13 +77,13 @@ function Backup-View([string]$View) {
         "HKCU\Software\Classes\$progId",
         "HKCU\Software\Classes\$versionIndependentProgId"
     )) {
-        $exists = $false
         try {
             & reg.exe query $key "/reg:$View" 2>$null | Out-Null
             $exists = $LASTEXITCODE -eq 0
         }
         catch {
             $exists = $false
+            Write-Verbose "Registry backup skipped missing key: operation=query view=$View key=$key exitCode=$LASTEXITCODE error=$($_.Exception.Message)"
         }
         if (-not $exists) { continue }
         $backup = Join-Path $env:TEMP "latexsnipper-ole-reg-$View-$([guid]::NewGuid().ToString('N')).reg"
@@ -84,43 +103,61 @@ function Restore-RegistryBackups {
             Remove-Item -LiteralPath $backup.Path -Force -ErrorAction SilentlyContinue
         }
     }
+    $global:LASTEXITCODE = 0
 }
 
-function Invoke-Activation([string]$HostPath, [string]$View) {
-    if (-not (Test-Path -LiteralPath $HostPath -PathType Leaf)) {
-        throw "cscript host is missing for $View-bit activation: $HostPath"
+function Invoke-NativeActivationProbe([string]$ProbePath, [string]$DllPath, [string]$View) {
+    if (-not (Test-Path -LiteralPath $ProbePath -PathType Leaf)) {
+        throw "OleActivationProbe is missing for $View-bit activation: $ProbePath"
     }
-    $scriptPath = Join-Path $env:TEMP "latexsnipper-ole-activation-$View-$PID.js"
-    $stdoutPath = "$scriptPath.stdout"
-    $stderrPath = "$scriptPath.stderr"
+    $process = $null
     try {
-        @"
-var formula = new ActiveXObject("LaTeXSnipper.Formula.1");
-if (formula.IsInitialized() !== false) {
-  WScript.Echo("OLE_ACTIVATION_BAD_INITIAL_STATE");
-  WScript.Quit(3);
-}
-WScript.Echo("OLE_ACTIVATION_OK");
-"@ | Set-Content -LiteralPath $scriptPath -Encoding ASCII
-        $process = Start-Process -FilePath $HostPath -ArgumentList @("//Nologo", $scriptPath) -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $ProbePath
+        $startInfo.Arguments = '"' + $DllPath.Replace('"', '\"') + '"'
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw "$View-bit OleActivationProbe could not be started."
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            $process.Kill()
             [void]$process.WaitForExit(5000)
-            throw "$View-bit OLE activation timed out."
+            throw "$View-bit OleActivationProbe timed out."
         }
         $process.WaitForExit()
-        $process.Refresh()
-        $stdout = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw } else { "" }
-        $stderr = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw } else { "" }
-        if ($stdout -notmatch "OLE_ACTIVATION_OK") {
-            throw "$View-bit OLE activation failed: $stdout $stderr"
+        $probeExitCode = $process.ExitCode
+        $stdout = $stdoutTask.GetAwaiter().GetResult()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        $diagnostic = $null
+        try {
+            $diagnostic = $stdout | ConvertFrom-Json -ErrorAction Stop
         }
-        Write-Host "OLE activation passed for $View-bit host."
+        catch {
+            throw "$View-bit OleActivationProbe returned invalid JSON. stdout=$stdout stderr=$stderr"
+        }
+        Write-Host $stdout.Trim()
+        if ($probeExitCode -ne 0 -or $diagnostic.success -ne $true) {
+            throw "$View-bit OleActivationProbe failed with exit code $probeExitCode. stdout=$stdout stderr=$stderr"
+        }
+        Write-Host "OLE native activation probe passed for $View-bit host."
     }
     finally {
-        Remove-Item -LiteralPath $scriptPath,$stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
     }
 }
+
+$repositoryRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+$probe64 = Join-Path $repositoryRoot "apps\native-office\OleActivationProbe\bin\x64\$ProbeConfiguration\OleActivationProbe.exe"
+$probe32 = Join-Path $repositoryRoot "apps\native-office\OleActivationProbe\bin\Win32\$ProbeConfiguration\OleActivationProbe.exe"
 
 try {
     Backup-View "64"
@@ -131,11 +168,15 @@ try {
     Register-View "32" $dll32
     & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "smoke-ole-registration.ps1")
     if ($LASTEXITCODE -ne 0) { throw "OLE registration smoke failed." }
-    Invoke-Activation (Join-Path $env:SystemRoot "System32\cscript.exe") "64"
-    Invoke-Activation (Join-Path $env:SystemRoot "SysWOW64\cscript.exe") "32"
+    Invoke-NativeActivationProbe $probe64 $dll64 "64"
+    Invoke-NativeActivationProbe $probe32 $dll32 "32"
 }
 finally {
     Remove-View "64"
     Remove-View "32"
     Restore-RegistryBackups
+    $global:LASTEXITCODE = 0
 }
+
+Write-Host "OLE dual-bitness native activation smoke passed."
+exit 0

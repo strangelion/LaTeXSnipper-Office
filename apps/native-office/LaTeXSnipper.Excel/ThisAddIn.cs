@@ -67,7 +67,7 @@ namespace LaTeXSnipper.Excel
                     DocumentTitle = wb?.Name
                 });
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("startup-dispatch", "excel", null, ex); }
         }
 
         private async Task InitializePipeAsync()
@@ -285,7 +285,7 @@ namespace LaTeXSnipper.Excel
                         return name.Substring(5);
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-selected-formula-id", "excel", null, ex); }
             return null;
         }
 

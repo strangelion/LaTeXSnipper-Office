@@ -4,40 +4,48 @@
  * Run after `npm --prefix apps/office-addin run build`.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(__dirname, '..');
+const root = path.resolve(__dirname, "..");
 
-const distDir = path.resolve(root, 'apps', 'office-addin', 'dist');
-const manifestDir = path.resolve(root, 'apps', 'office-addin', 'manifests');
-const hosts = ['word', 'excel', 'powerpoint'];
-const localOfficeBase = 'https://localhost:19876';
-const websiteOfficeBase = 'https://latexsnipper.interknot.dpdns.org/office';
-const websiteAppDomain = 'https://latexsnipper.interknot.dpdns.org';
+const distDir = path.resolve(root, "apps", "office-addin", "dist");
+const manifestDir = path.resolve(root, "apps", "office-addin", "manifests");
+const hosts = ["word", "excel", "powerpoint"];
+const localOfficeBase = "https://localhost:19876";
+const websiteOfficeBase = "https://latexsnipper.interknot.dpdns.org/office";
+const websiteAppDomain = "https://latexsnipper.interknot.dpdns.org";
 
 const targets = [
   {
-    name: 'Tauri resources',
-    siteDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'site'),
-    manifestDir: path.resolve(root, 'src-tauri', 'resources', 'OfficeJS', 'manifest'),
+    name: "Tauri resources",
+    siteDir: path.resolve(root, "src-tauri", "resources", "OfficeJS", "site"),
+    manifestDir: path.resolve(
+      root,
+      "src-tauri",
+      "resources",
+      "OfficeJS",
+      "manifest",
+    ),
     manifestBase: localOfficeBase,
     localAssetBase: true,
   },
   {
-    name: 'Website deploy',
-    siteDir: path.resolve(root, 'office-deploy'),
-    manifestDir: path.resolve(root, 'office-deploy', 'manifest'),
+    name: "Website deploy",
+    siteDir: path.resolve(root, "office-deploy"),
+    manifestDir: path.resolve(root, "office-deploy", "manifest"),
     manifestBase: websiteOfficeBase,
     localAssetBase: false,
   },
 ];
 
 if (!fs.existsSync(distDir)) {
-  console.error('[stage] ERROR: Office add-in dist not found at:', distDir);
-  console.error('[stage] Build first: npm --prefix apps/office-addin run build');
+  console.error("[stage] ERROR: Office add-in dist not found at:", distDir);
+  console.error(
+    "[stage] Build first: npm --prefix apps/office-addin run build",
+  );
   process.exit(1);
 }
 
@@ -48,9 +56,10 @@ for (const target of targets) {
   fs.cpSync(distDir, target.siteDir, { recursive: true });
   fs.mkdirSync(target.manifestDir, { recursive: true });
 
-  const taskpane = path.resolve(target.siteDir, 'taskpane.html');
+  const taskpane = path.resolve(target.siteDir, "taskpane.html");
   if (target.localAssetBase && fs.existsSync(taskpane)) {
-    const html = fs.readFileSync(taskpane, 'utf8')
+    const html = fs
+      .readFileSync(taskpane, "utf8")
       .replaceAll('src="/office/assets/', 'src="./assets/')
       .replaceAll('href="/office/assets/', 'href="./assets/');
     fs.writeFileSync(taskpane, html);
@@ -59,7 +68,7 @@ for (const target of targets) {
   for (const host of hosts) {
     const source = path.resolve(manifestDir, `manifest.${host}.desktop.xml`);
     const output = path.resolve(target.manifestDir, `${host}.xml`);
-    let manifest = fs.readFileSync(source, 'utf8');
+    let manifest = fs.readFileSync(source, "utf8");
     if (target.manifestBase === websiteOfficeBase) {
       manifest = manifest
         .replace(
@@ -71,20 +80,28 @@ for (const target of targets) {
     fs.writeFileSync(output, manifest);
   }
 
-  const assetsDir = path.resolve(target.siteDir, 'assets');
+  const assetsDir = path.resolve(target.siteDir, "assets");
   const hasTaskpane = fs.existsSync(taskpane);
-  const hasBundle = fs.existsSync(assetsDir)
-    && fs.readdirSync(assetsDir).some((file) => file.startsWith('taskpane-') && file.endsWith('.js'));
-  const hasIcons = fs.existsSync(assetsDir)
-    && ['icon-16.png', 'icon-32.png', 'icon-80.png'].every((file) => fs.existsSync(path.join(assetsDir, file)));
+  const hasBundle =
+    fs.existsSync(assetsDir) &&
+    fs
+      .readdirSync(assetsDir)
+      .some((file) => file.startsWith("taskpane-") && file.endsWith(".js"));
+  const hasIcons =
+    fs.existsSync(assetsDir) &&
+    ["icon-16.png", "icon-32.png", "icon-80.png"].every((file) =>
+      fs.existsSync(path.join(assetsDir, file)),
+    );
 
   console.log(`[stage] ${target.name}: ${target.siteDir}`);
-  console.log(`[stage]   taskpane.html:        ${hasTaskpane ? 'ok' : 'missing'}`);
-  console.log(`[stage]   assets/taskpane-*.js:${hasBundle ? 'ok' : 'missing'}`);
-  console.log(`[stage]   assets/icon-*.png:   ${hasIcons ? 'ok' : 'missing'}`);
+  console.log(
+    `[stage]   taskpane.html:        ${hasTaskpane ? "ok" : "missing"}`,
+  );
+  console.log(`[stage]   assets/taskpane-*.js:${hasBundle ? "ok" : "missing"}`);
+  console.log(`[stage]   assets/icon-*.png:   ${hasIcons ? "ok" : "missing"}`);
   for (const host of hosts) {
     console.log(`[stage]   manifest/${host}.xml: ok`);
   }
 }
 
-console.log('[stage] Office.js add-in staged successfully');
+console.log("[stage] Office.js add-in staged successfully");

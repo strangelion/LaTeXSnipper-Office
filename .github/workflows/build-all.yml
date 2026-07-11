@@ -258,7 +258,7 @@ jobs:
             Write-Host "$name verified hash chain: $($hashes[0])"
           }
 
-      - run: npx tauri build --bundles msi,nsis
+      - run: npx tauri build --config src-tauri/tauri.windows.conf.json --bundles msi,nsis
 
       - uses: actions/upload-artifact@v4
         with:
@@ -476,9 +476,11 @@ jobs:
           msbuild $project /t:Build /p:Configuration=Release /p:Platform=Win32 /m
           msbuild $project /t:Build /p:Configuration=Release /p:Platform=x64 /m
           & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\Win32\Release\NativeVectorTests.exe" `
-            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll"
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
           & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\x64\Release\NativeVectorTests.exe" `
-            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll"
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
 
       - name: Build and run pending payload tests
         shell: pwsh

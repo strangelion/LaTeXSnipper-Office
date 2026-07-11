@@ -25,3 +25,4 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(
 
 bool ContainsRasterEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason);
 bool HasVectorDrawingEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason);
+bool ValidateEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason);

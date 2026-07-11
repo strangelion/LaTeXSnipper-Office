@@ -6,6 +6,10 @@ use std::sync::OnceLock;
 
 /// Error type for security operations.
 #[derive(Debug, Clone)]
+#[allow(
+    clippy::enum_variant_names,
+    reason = "Security error names are part of diagnostic output"
+)]
 pub enum NativeOfficeSecurityError {
     /// Failed to open process token.
     TokenOpenFailed,
@@ -13,8 +17,6 @@ pub enum NativeOfficeSecurityError {
     TokenQueryFailed,
     /// Failed to convert SID to string.
     SidConversionFailed,
-    /// Failed to free allocated memory.
-    MemoryFreeFailed,
 }
 
 impl std::fmt::Display for NativeOfficeSecurityError {
@@ -23,7 +25,6 @@ impl std::fmt::Display for NativeOfficeSecurityError {
             Self::TokenOpenFailed => write!(f, "failed to open process token"),
             Self::TokenQueryFailed => write!(f, "failed to query token information"),
             Self::SidConversionFailed => write!(f, "failed to convert SID to string"),
-            Self::MemoryFreeFailed => write!(f, "failed to free allocated memory"),
         }
     }
 }
@@ -37,15 +38,12 @@ impl std::error::Error for NativeOfficeSecurityError {}
 /// It will NOT fall back to username on failure.
 pub fn current_user_sid() -> Result<String, NativeOfficeSecurityError> {
     static SID: OnceLock<Result<String, NativeOfficeSecurityError>> = OnceLock::new();
-    SID.get_or_init(|| get_windows_user_sid()).clone()
+    SID.get_or_init(get_windows_user_sid).clone()
 }
 
 /// Get the real Windows SID using the current process token.
 #[cfg(target_os = "windows")]
 fn get_windows_user_sid() -> Result<String, NativeOfficeSecurityError> {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
     unsafe {
         // Open current process token
         let mut token_handle: *mut std::ffi::c_void = std::ptr::null_mut();
