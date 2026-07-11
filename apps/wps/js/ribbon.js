@@ -1,5 +1,12 @@
 // LaTeXSnipper WPS Ribbon v3.0
 // All actions route through CommandLayer.dispatch().
+
+function logWpsFailure(operation, formulaId, error) {
+    var hresult = error && (error.number || error.hresult || error.code) || 0
+    console.error('[WPS] operation=' + operation + ' host=wps formulaId=' +
+        (formulaId || '<unknown>') + ' hresult=' + hresult,
+        error && (error.name || 'Error'))
+}
 // No direct WPS API calls — see command-layer.js for adapter logic.
 
 function OnAddinLoad(ribbonUI) {
@@ -14,8 +21,8 @@ function OnAddinLoad(ribbonUI) {
             try {
                 var line = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z/, '') + ' ' + msg
                 console.log('[LaTeXSnipper] ' + line)
-                try { wps.OAAssist.HttpRequest('http://127.0.0.1:19876/log', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ msg: line })) } catch(e) {}
-            } catch(e) {}
+                try { wps.OAAssist.HttpRequest('http://127.0.0.1:19876/log', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ msg: line })) } catch(e) { logWpsFailure('send-bridge-log', null, e) }
+            } catch(e) { logWpsFailure('format-bridge-log', null, e) }
         }
 
         window.Application.bridgeRelay = function(url, method, headers, body, callbackId) {
@@ -30,7 +37,7 @@ function OnAddinLoad(ribbonUI) {
             }
         }
         window.bridgeLog('OnAddinLoad called')
-    } catch(e) {}
+    } catch(e) { logWpsFailure('addin-load', null, e) }
     return true
 }
 
@@ -134,7 +141,7 @@ function renumberAll() {
 
     var selection = window.Application.Selection
     var savedRange = null
-    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) {}
+    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) { logWpsFailure('save-selection', null, e) }
 
     var fullRange = doc.Range(0, doc.Range().End)
     var find = fullRange.Find
@@ -161,7 +168,7 @@ function renumberAll() {
         alert("重新编号完成，共 " + matches.length + " 个公式")
     }
 
-    if (savedRange) { try { savedRange.Select() } catch(e) {} }
+    if (savedRange) { try { savedRange.Select() } catch(e) { logWpsFailure('restore-selection', null, e) } }
 }
 
 function autoNumberFormulas() {
@@ -170,7 +177,7 @@ function autoNumberFormulas() {
 
     var selection = window.Application.Selection
     var savedRange = null
-    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) {}
+    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) { logWpsFailure('save-selection', null, e) }
 
     var paragraphs = doc.Paragraphs
     var equations = []
@@ -179,7 +186,7 @@ function autoNumberFormulas() {
         var para = paragraphs.Item(i)
         var range = para.Range
         var hasOMath = false
-        try { hasOMath = range.OMaths.Count > 0 } catch(e) {}
+        try { hasOMath = range.OMaths.Count > 0 } catch(e) { logWpsFailure('inspect-omath', null, e) }
         if (!hasOMath) continue
 
         var oMath = range.OMaths.Item(1)
@@ -193,7 +200,7 @@ function autoNumberFormulas() {
             oFind.MatchWildcards = true
             oFind.Forward = true
             hasNumber = oFind.Execute()
-        } catch(e) {}
+        } catch(e) { logWpsFailure('find-equation-number', null, e) }
 
         if (!hasNumber) {
             try {
@@ -203,7 +210,7 @@ function autoNumberFormulas() {
                 paraFind.MatchWildcards = true
                 paraFind.Forward = true
                 hasNumber = paraFind.Execute()
-            } catch(e) {}
+            } catch(e) { logWpsFailure('find-paragraph-number', null, e) }
         }
 
         equations.push({ paraIndex: i, hasNumber: hasNumber })
@@ -251,5 +258,5 @@ function autoNumberFormulas() {
         alert("自动编号完成，共 " + total + " 个公式（" + existingMatches.length + " 个已有编号，" + added + " 个新增编号）")
     }
 
-    if (savedRange) { try { savedRange.Select() } catch(e) {} }
+    if (savedRange) { try { savedRange.Select() } catch(e) { logWpsFailure('restore-selection', null, e) } }
 }

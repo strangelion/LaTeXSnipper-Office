@@ -9,7 +9,10 @@ use std::os::windows::process::CommandExt;
 /// Create a background command that hides the console window on Windows.
 /// Use this for all external processes (reg.exe, powershell.exe, etc.)
 pub fn background_command(program: impl AsRef<OsStr>) -> Command {
+    #[cfg(target_os = "windows")]
     let mut command = Command::new(program);
+    #[cfg(not(target_os = "windows"))]
+    let command = Command::new(program);
     #[cfg(target_os = "windows")]
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -23,10 +26,10 @@ pub fn background_command(program: impl AsRef<OsStr>) -> Command {
 /// This prevents reg.exe/certutil.exe from hanging the Office toggle forever.
 pub fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Output> {
     use std::process::Stdio;
-    use std::sync::mpsc;
     use std::thread;
+    use tokio::sync::oneshot;
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = oneshot::channel();
 
     // IMPORTANT:
     // Command::spawn() does not capture stdout/stderr by default. Several Office
@@ -48,16 +51,41 @@ pub fn run_with_timeout(cmd: &mut Command, timeout: Duration) -> io::Result<Outp
         let _ = tx.send(result);
     });
 
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(mpsc::RecvTimeoutError::Timeout) => {
+    // The public API is synchronous because registry and installer callers are
+    // synchronous. Run the Tokio timer on a dedicated thread so this function
+    // remains safe when called from inside an existing Tauri runtime.
+    let timer = thread::spawn(move || -> io::Result<Output> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .map_err(|error| {
+                io::Error::other(format!("failed to create timeout runtime: {error}"))
+            })?;
+
+        runtime.block_on(async move {
+            match tokio::time::timeout(timeout, rx).await {
+                Ok(Ok(result)) => result,
+                Ok(Err(_)) => Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "process channel disconnected",
+                )),
+                Err(_) => Err(io::Error::new(io::ErrorKind::TimedOut, "process timed out")),
+            }
+        })
+    });
+
+    match timer.join() {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) if error.kind() == io::ErrorKind::TimedOut => {
             // Kill the child process.
             let _ = kill_process(child_id);
             Err(io::Error::new(io::ErrorKind::TimedOut, "process timed out"))
         }
-        Err(mpsc::RecvTimeoutError::Disconnected) => {
-            Err(io::Error::new(io::ErrorKind::BrokenPipe, "process channel disconnected"))
-        }
+        Ok(Err(error)) => Err(error),
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "process timeout worker panicked",
+        )),
     }
 }
 
@@ -72,9 +100,7 @@ fn kill_process(pid: u32) -> io::Result<()> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .output();
+        let _ = Command::new("kill").args(["-9", &pid.to_string()]).output();
         Ok(())
     }
 }

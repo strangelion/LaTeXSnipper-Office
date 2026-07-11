@@ -36,6 +36,10 @@ pub fn pipe_name() -> Result<String, NativeOfficeSecurityError> {
 
 /// Get pipe leaf name (without \\\\.\\pipe\\ prefix).
 /// Used by C# NamedPipeClientStream.
+#[allow(
+    dead_code,
+    reason = "Used by protocol validation tests and external diagnostics"
+)]
 pub fn pipe_leaf_name() -> Result<String, NativeOfficeSecurityError> {
     let sid = pipe_sid()?;
     Ok(format!("{}.{}", super::pipe_protocol::PIPE_PREFIX, sid))

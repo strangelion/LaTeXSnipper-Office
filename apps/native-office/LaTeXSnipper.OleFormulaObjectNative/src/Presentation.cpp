@@ -43,16 +43,19 @@ struct StreamReleaser
 // P1-8: Lazy GDI+ initialization — avoids calling GdiplusStartup inside DllMain
 // where the loader lock is held, which can cause Office startup deadlocks.
 std::once_flag g_gdiplusInitFlag;
+bool g_gdiplusInitSucceeded = false;
 
-void EnsureGdiplusInitialized()
+bool EnsureGdiplusInitialized()
 {
     std::call_once(g_gdiplusInitFlag, []() {
         if (::g_gdiplusToken == 0)
         {
             Gdiplus::GdiplusStartupInput gdiInput;
-            Gdiplus::GdiplusStartup(&::g_gdiplusToken, &gdiInput, nullptr);
+            g_gdiplusInitSucceeded = Gdiplus::GdiplusStartup(&::g_gdiplusToken, &gdiInput, nullptr) == Gdiplus::Ok;
         }
+        else g_gdiplusInitSucceeded = true;
     });
+    return g_gdiplusInitSucceeded;
 }
 
 int PointsToHimetric(int points)
@@ -216,29 +219,54 @@ int DecodeBase64Char(wchar_t ch)
 
 std::vector<BYTE> DecodeBase64(const std::wstring& value)
 {
-    std::vector<BYTE> bytes;
-    int buffer = 0;
-    int bits = -8;
-    for (wchar_t ch : value)
+    constexpr size_t kMaxDecodedBytes = 64U * 1024U * 1024U;
+    std::wstring encoded = value;
+    if (encoded.rfind(L"data:", 0) == 0)
     {
+        const size_t comma = encoded.find(L',');
+        if (comma == std::wstring::npos || comma <= 5) return {};
+        std::wstring metadata = Lowercase(encoded.substr(5, comma - 5));
+        if (metadata.size() < 7 || metadata.compare(metadata.size() - 7, 7, L";base64") != 0) return {};
+        encoded.erase(0, comma + 1);
+    }
+
+    if (encoded.empty()) return {};
+    if (encoded.size() % 4 != 0) return {};
+    if (encoded.size() > ((kMaxDecodedBytes + 2) / 3) * 4 + 4) return {};
+
+    size_t padding = 0;
+    if (encoded.back() == L'=') padding++;
+    if (encoded.size() >= 2 && encoded[encoded.size() - 2] == L'=') padding++;
+    for (size_t index = 0; index < encoded.size(); ++index)
+    {
+        const wchar_t ch = encoded[index];
         if (ch == L'=')
         {
-            break;
-        }
-
-        int decoded = DecodeBase64Char(ch);
-        if (decoded < 0)
-        {
+            if (index < encoded.size() - padding) return {};
             continue;
         }
+        if (DecodeBase64Char(ch) < 0) return {};
+    }
+    if (padding == 1 && (DecodeBase64Char(encoded[encoded.size() - 2]) & 0x03) != 0) return {};
+    if (padding == 2 && (DecodeBase64Char(encoded[encoded.size() - 3]) & 0x0F) != 0) return {};
 
-        buffer = (buffer << 6) | decoded;
-        bits += 6;
-        if (bits >= 0)
-        {
-            bytes.push_back(static_cast<BYTE>((buffer >> bits) & 0xFF));
-            bits -= 8;
-        }
+    const size_t decodedSize = encoded.size() / 4 * 3 - padding;
+    if (decodedSize > kMaxDecodedBytes) return {};
+    std::vector<BYTE> bytes;
+    bytes.reserve(decodedSize);
+    for (size_t index = 0; index < encoded.size(); index += 4)
+    {
+        const int a = DecodeBase64Char(encoded[index]);
+        const int b = DecodeBase64Char(encoded[index + 1]);
+        const int c = encoded[index + 2] == L'=' ? 0 : DecodeBase64Char(encoded[index + 2]);
+        const int d = encoded[index + 3] == L'=' ? 0 : DecodeBase64Char(encoded[index + 3]);
+        const unsigned value24 = (static_cast<unsigned>(a) << 18)
+            | (static_cast<unsigned>(b) << 12)
+            | (static_cast<unsigned>(c) << 6)
+            | static_cast<unsigned>(d);
+        bytes.push_back(static_cast<BYTE>((value24 >> 16) & 0xFF));
+        if (encoded[index + 2] != L'=') bytes.push_back(static_cast<BYTE>((value24 >> 8) & 0xFF));
+        if (encoded[index + 3] != L'=') bytes.push_back(static_cast<BYTE>(value24 & 0xFF));
     }
 
     return bytes;
@@ -378,10 +406,13 @@ HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes)
 
 bool HasValidEmf(const std::vector<BYTE>& bytes)
 {
-    if (bytes.empty())
+    if (bytes.empty() || bytes.size() > 128U * 1024U * 1024U)
     {
         return false;
     }
+
+    std::wstring validationReason;
+    if (!ValidateEmfRecords(bytes, &validationReason)) return false;
 
     HENHMETAFILE emf = SetEnhMetaFileBits(static_cast<UINT>(bytes.size()), bytes.data());
     if (emf == nullptr)
@@ -407,7 +438,11 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     presentation.payloadJson = payloadJson;
 
     // P1-8: Ensure GDI+ is initialized before any GDI+ calls
-    EnsureGdiplusInitialized();
+    if (!EnsureGdiplusInitialized())
+    {
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: GDI+ startup failed";
+        return presentation;
+    }
 
     // Get size from payload (try nested render.widthPt first, then flat widthPt)
     double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
@@ -448,13 +483,24 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     }
 
     // Create a metafile DC to render the bitmap into
+    constexpr double kRasterFallbackDpi = 300.0;
     HDC screenDc = GetDC(nullptr);
-    int dpiX = GetDeviceCaps(screenDc, LOGPIXELSX);
-    int dpiY = GetDeviceCaps(screenDc, LOGPIXELSY);
-    int widthPx = static_cast<int>(widthPoints * dpiX / 72.0);
-    int heightPx = static_cast<int>(heightPoints * dpiY / 72.0);
+    if (screenDc == nullptr)
+    {
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: GetDC failed";
+        return presentation;
+    }
+    int widthPx = static_cast<int>(std::lround(widthPoints * kRasterFallbackDpi / 72.0));
+    int heightPx = static_cast<int>(std::lround(heightPoints * kRasterFallbackDpi / 72.0));
     if (widthPx < 1) widthPx = 1;
     if (heightPx < 1) heightPx = 1;
+    if (widthPx > 8192 || heightPx > 8192 ||
+        static_cast<unsigned long long>(widthPx) * static_cast<unsigned long long>(heightPx) > 32ULL * 1024ULL * 1024ULL)
+    {
+        ReleaseDC(nullptr, screenDc);
+        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: raster dimensions exceed safety limits";
+        return presentation;
+    }
 
     RECT frame01mm = {
         0, 0,

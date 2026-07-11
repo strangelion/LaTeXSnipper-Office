@@ -57,7 +57,7 @@ namespace LaTeXSnipper.Word.Host
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("read-inline-ole", "word", null, ex); }
 
                 // P1-5: Layer 0b: Cursor adjacency detection — if the cursor is immediately
                 // before or after an InlineShape, range.InlineShapes may not include it.
@@ -87,11 +87,11 @@ namespace LaTeXSnipper.Word.Host
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception ex) { OfficeOperationLog.Failure("read-adjacent-ole", "word", null, ex); }
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("read-adjacent-range", "word", null, ex); }
 
                 // P1-5: Layer 0c: Fallback — search the entire Selection.InlineShapes
                 // in case the selection object type differs from the range's shape collection.
@@ -116,11 +116,11 @@ namespace LaTeXSnipper.Word.Host
                                     }
                                 }
                             }
-                            catch { }
+                            catch (Exception ex) { OfficeOperationLog.Failure("read-selection-ole", "word", null, ex); }
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("scan-selection-ole", "word", null, ex); }
 
                 // Find formulaId from ContentControl tag first
                 var existingFormulaId = Metadata.FormulaMetadata.FindFormulaIdAtRange(range);
@@ -162,7 +162,7 @@ namespace LaTeXSnipper.Word.Host
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-content-control", "word", existingFormulaId, ex); }
                 }
 
                 // Layer 2: Range.WordOpenXML → find nearest <m:oMath>
@@ -184,7 +184,7 @@ namespace LaTeXSnipper.Word.Host
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("read-omml", "word", existingFormulaId, ex); }
 
                 // Layer 3: Clipboard fallback
                 if (_application.Selection.OMaths.Count > 0)
@@ -209,7 +209,7 @@ namespace LaTeXSnipper.Word.Host
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { OfficeOperationLog.Failure("read-selection-image", "word", existingFormulaId, ex); }
                 }
             }
             catch (Exception ex)
@@ -762,7 +762,7 @@ namespace LaTeXSnipper.Word.Host
             finally
             {
                 try { if (!string.IsNullOrEmpty(tempPath) && System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "word", payload?.FormulaId, ex); }
             }
         }
 

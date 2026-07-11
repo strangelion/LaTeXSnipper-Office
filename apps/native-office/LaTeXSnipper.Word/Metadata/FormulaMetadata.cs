@@ -90,7 +90,7 @@ namespace LaTeXSnipper.Word.Metadata
                     return ExtractFormulaIdFromTag(tag) ?? "";
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-formula-metadata", "word", null, ex); }
             return "";
         }
 

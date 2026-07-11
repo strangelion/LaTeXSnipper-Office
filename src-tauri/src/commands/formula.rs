@@ -30,9 +30,9 @@ pub async fn render_formula(
         .iter()
         .filter_map(|f| match f.as_str() {
             "mathml" => Some(RenderFormat::MathML),
-            "svg" => Some(RenderFormat::SVG),
-            "png" => Some(RenderFormat::PNG),
-            "omml" => Some(RenderFormat::OMML),
+            "svg" => Some(RenderFormat::Svg),
+            "png" => Some(RenderFormat::Png),
+            "omml" => Some(RenderFormat::Omml),
             _ => None,
         })
         .collect();

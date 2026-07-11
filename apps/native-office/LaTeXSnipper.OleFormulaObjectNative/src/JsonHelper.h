@@ -8,6 +8,17 @@
 #include <windows.h>
 #endif
 
+inline void JsonLogParseFailure(const wchar_t* operation)
+{
+#ifdef _WIN32
+    std::wstring message = L"[NativeOffice] operation=" + std::wstring(operation) +
+        L" host=OLE formulaId=<unknown> error=JSON_PARSE_FAILED\n";
+    OutputDebugStringW(message.c_str());
+#else
+    (void)operation;
+#endif
+}
+
 // -------------------------------------------------------------------
 // JSON Helper — wraps nlohmann/json when available, falls back to
 // manual string extraction when the library is not installed.
@@ -74,7 +85,7 @@ inline std::wstring JsonReadString(const std::wstring& payloadJson, const std::w
             return Utf8ToWide(val);
         }
     }
-    catch (...) {}
+    catch (...) { JsonLogParseFailure(L"JsonReadString"); }
     return L"";
 #else
     // Fallback to manual extraction
@@ -95,7 +106,7 @@ inline double JsonReadNumber(const std::wstring& payloadJson, const std::wstring
             return doc[key].get<double>();
         }
     }
-    catch (...) {}
+    catch (...) { JsonLogParseFailure(L"JsonReadNumber"); }
     return 0.0;
 #else
     return ExtractJsonNumber(payloadJson, propertyName);
@@ -117,7 +128,7 @@ inline std::wstring JsonReadNestedString(const std::wstring& payloadJson, const 
             return Utf8ToWide(val);
         }
     }
-    catch (...) {}
+    catch (...) { JsonLogParseFailure(L"JsonReadNestedString"); }
     return L"";
 #else
     // Fallback: flat search works for unique key names like "svg", "png"
@@ -131,10 +142,11 @@ inline bool JsonIsValid(const std::wstring& payloadJson)
 #if HAS_NLOHMANN_JSON
     try
     {
-        nlohmann::json::parse(payloadJson);
+        const auto parsed = nlohmann::json::parse(payloadJson);
+        (void)parsed;
         return true;
     }
-    catch (...) {}
+    catch (...) { JsonLogParseFailure(L"JsonIsValid"); }
     return false;
 #else
     // Basic check: starts with { and ends with }

@@ -13,9 +13,9 @@ pub struct RenderOptions {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RenderFormat {
     MathML,
-    SVG,
-    PNG,
-    OMML,
+    Svg,
+    Png,
+    Omml,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +30,12 @@ pub struct RenderResult {
 }
 
 pub struct FormulaRenderer;
+
+impl Default for FormulaRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FormulaRenderer {
     pub fn new() -> Self {
@@ -54,13 +60,13 @@ impl FormulaRenderer {
                             .map_err(|e| e.to_string())?,
                     );
                 }
-                RenderFormat::OMML => {
+                RenderFormat::Omml => {
                     omml = Some(
                         DocumentConverter::convert_latex_string(latex, OutputFormat::OMML)
                             .map_err(|e| e.to_string())?,
                     );
                 }
-                RenderFormat::SVG | RenderFormat::PNG => {
+                RenderFormat::Svg | RenderFormat::Png => {
                     // SVG/PNG via MathJax frontend, not core
                 }
             }

@@ -121,7 +121,6 @@ fn fix_omml(omml: &str) -> String {
         && !s.contains("<m:acc>")
     {
         s = s.replace("<m:r><m:t>", "<m:r><m:rPr><w:rPr><w:rFonts w:ascii=\"Cambria Math\" w:h-ansi=\"Cambria Math\"/><w:i/></w:rPr></m:rPr><m:t>");
-        s = s.replace("</m:t></m:r>", "</m:t></m:r>");
     }
 
     s.trim().to_string()
@@ -137,12 +136,12 @@ fn fix_double_encoded_utf8(s: &str) -> String {
     while i < chars.len() {
         let cp = chars[i] as u32;
         // Collect consecutive chars where codepoint is in Latin-1 range (0x80..0xFF)
-        if cp >= 0x80 && cp <= 0xFF {
+        if (0x80..=0xFF).contains(&cp) {
             let mut raw_bytes = Vec::new();
             let mut j = i;
             while j < chars.len() {
                 let c = chars[j] as u32;
-                if c >= 0x80 && c <= 0xFF {
+                if (0x80..=0xFF).contains(&c) {
                     raw_bytes.push(c as u8);
                     j += 1;
                 } else {
@@ -273,17 +272,44 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         )
         // ── Ecosystem Bridge API ──
         .route("/api/ecosystem/ping", get(handle_ecosystem_ping))
-        .route("/api/ecosystem/clients/register", post(handle_ecosystem_client_register))
-        .route("/api/ecosystem/clients/heartbeat", post(handle_ecosystem_client_heartbeat))
+        .route(
+            "/api/ecosystem/clients/register",
+            post(handle_ecosystem_client_register),
+        )
+        .route(
+            "/api/ecosystem/clients/heartbeat",
+            post(handle_ecosystem_client_heartbeat),
+        )
         .route("/api/ecosystem/clients", get(handle_ecosystem_clients))
-        .route("/api/ecosystem/actions/enqueue", post(handle_ecosystem_enqueue))
-        .route("/api/ecosystem/actions/next", get(handle_ecosystem_actions_next))
+        .route(
+            "/api/ecosystem/actions/enqueue",
+            post(handle_ecosystem_enqueue),
+        )
+        .route(
+            "/api/ecosystem/actions/next",
+            get(handle_ecosystem_actions_next),
+        )
         .route("/api/ecosystem/actions/ack", post(handle_ecosystem_ack))
-        .route("/api/ecosystem/actions/complete", post(handle_ecosystem_actions_complete))
-        .route("/api/ecosystem/actions/push", post(handle_ecosystem_actions_push))
-        .route("/api/ecosystem/actions/status/{action_id}", get(handle_ecosystem_action_status))
-        .route("/api/ecosystem/formula/edit", post(handle_ecosystem_formula_edit))
-        .route("/api/ecosystem/clipboard/write", post(handle_ecosystem_clipboard_write))
+        .route(
+            "/api/ecosystem/actions/complete",
+            post(handle_ecosystem_actions_complete),
+        )
+        .route(
+            "/api/ecosystem/actions/push",
+            post(handle_ecosystem_actions_push),
+        )
+        .route(
+            "/api/ecosystem/actions/status/{action_id}",
+            get(handle_ecosystem_action_status),
+        )
+        .route(
+            "/api/ecosystem/formula/edit",
+            post(handle_ecosystem_formula_edit),
+        )
+        .route(
+            "/api/ecosystem/clipboard/write",
+            post(handle_ecosystem_clipboard_write),
+        )
         // ── WPS / cross-platform compatibility ──
         .route("/config", get(handle_config))
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
@@ -478,7 +504,10 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
     };
     let http_app = app.clone();
     let http_server = tokio::spawn(async move {
-        println!("[Bridge] Also listening on http://{} (ecosystem API)", http_addr);
+        println!(
+            "[Bridge] Also listening on http://{} (ecosystem API)",
+            http_addr
+        );
         if let Err(e) = axum_server::bind(http_addr)
             .serve(http_app.into_make_service())
             .await
@@ -793,6 +822,10 @@ async fn handle_load_table(State(state): State<Arc<BridgeState>>) -> impl IntoRe
 }
 
 /// Parse TSV string from C# plugin into strongly-typed TableData.
+#[allow(
+    dead_code,
+    reason = "Public bridge helper covered by integration tests"
+)]
 pub fn parse_tsv_to_table_data(tsv: &str) -> Option<TableData> {
     let lines: Vec<&str> = tsv.lines().collect();
     if lines.is_empty() {
@@ -937,7 +970,7 @@ async fn handle_actions_complete(
 // ═══════════════════════════════════════════════════════════════
 
 use super::ecosystem::{
-    ActionError, EcosystemActionEnvelope, EcosystemClient, EcosystemActionQueue,
+    ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemClient,
 };
 
 fn _extract_queue(state: &BridgeState) -> &EcosystemActionQueue {
@@ -945,24 +978,30 @@ fn _extract_queue(state: &BridgeState) -> &EcosystemActionQueue {
 }
 
 #[derive(Serialize)]
+#[allow(dead_code, reason = "Kept as the typed ecosystem response contract")]
 struct EcoOkResponse {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     message: Option<String>,
 }
 
+#[allow(dead_code, reason = "Kept as the typed ecosystem response contract")]
 impl EcoOkResponse {
     fn ok() -> Self {
-        Self { ok: true, message: None }
+        Self {
+            ok: true,
+            message: None,
+        }
     }
     fn with_msg(msg: impl Into<String>) -> Self {
-        Self { ok: true, message: Some(msg.into()) }
+        Self {
+            ok: true,
+            message: Some(msg.into()),
+        }
     }
 }
 
-async fn handle_ecosystem_ping(
-    State(state): State<Arc<BridgeState>>,
-) -> Json<serde_json::Value> {
+async fn handle_ecosystem_ping(State(_state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true,
         "service": "latexsnipper-ecosystem-bridge",
@@ -1007,8 +1046,14 @@ async fn handle_ecosystem_enqueue(
 ) -> Json<serde_json::Value> {
     // Accept both full EcosystemActionEnvelope and simplified format from plugins.
     // If action_id is missing, treat as simplified and fill in defaults.
-    let has_action_id = payload.get("actionId").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty())
-        || payload.get("action_id").and_then(|v| v.as_str()).map_or(false, |s| !s.is_empty());
+    let has_action_id = payload
+        .get("actionId")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty())
+        || payload
+            .get("action_id")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty());
 
     let action = if has_action_id {
         // Full envelope — try to deserialize directly
@@ -1026,11 +1071,21 @@ async fn handle_ecosystem_enqueue(
         let action_id = format!("act_{}", uuid_simple());
         let now = chrono::Utc::now();
         let expires = now + chrono::Duration::seconds(300);
-        let action_type = payload["actionType"].as_str().or_else(|| payload["action_type"].as_str()).unwrap_or("unknown").to_string();
+        let action_type = payload["actionType"]
+            .as_str()
+            .or_else(|| payload["action_type"].as_str())
+            .unwrap_or("unknown")
+            .to_string();
         let origin = payload["origin"].as_str().unwrap_or("plugin").to_string();
         let target = payload["target"].as_str().unwrap_or("desktop").to_string();
-        let inner_payload = payload.get("payload").cloned().unwrap_or(serde_json::json!({}));
-        let timeout_ms = payload["timeoutMs"].as_u64().or_else(|| payload["timeout_ms"].as_u64()).unwrap_or(300_000);
+        let inner_payload = payload
+            .get("payload")
+            .cloned()
+            .unwrap_or(serde_json::json!({}));
+        let timeout_ms = payload["timeoutMs"]
+            .as_u64()
+            .or_else(|| payload["timeout_ms"].as_u64())
+            .unwrap_or(300_000);
 
         EcosystemActionEnvelope {
             action_id,
@@ -1105,7 +1160,11 @@ async fn handle_ecosystem_actions_complete(
         code: e["code"].as_str().unwrap_or("UNKNOWN").to_string(),
         message: e["message"].as_str().unwrap_or("").to_string(),
     });
-    match state.ecosystem_queue.complete(action_id, ok, result, error).await {
+    match state
+        .ecosystem_queue
+        .complete(action_id, ok, result, error)
+        .await
+    {
         Ok(()) => Json(serde_json::json!({ "ok": true })),
         Err(e) => Json(serde_json::json!({ "ok": false, "error": e })),
     }
@@ -1246,15 +1305,22 @@ async fn handle_ecosystem_formula_edit(
         protocol_version: 1,
     };
 
-    state.ecosystem_queue.enqueue(action).await.unwrap_or_default();
+    state
+        .ecosystem_queue
+        .enqueue(action)
+        .await
+        .unwrap_or_default();
 
     // Notify the desktop app via Tauri event
-    let _ = state.app_handle.emit("ecosystem-action-open", &serde_json::json!({
-        "actionId": action_id,
-        "origin": origin,
-        "latex": latex,
-        "display": display,
-    }));
+    let _ = state.app_handle.emit(
+        "ecosystem-action-open",
+        &serde_json::json!({
+            "actionId": action_id,
+            "origin": origin,
+            "latex": latex,
+            "display": display,
+        }),
+    );
 
     Json(serde_json::json!({
         "ok": true,
@@ -1283,7 +1349,7 @@ async fn handle_ecosystem_clipboard_write(
 
     // Write to clipboard via Tauri API
     if let Some(window) = state.app_handle.get_webview_window("main") {
-        let _ = window.eval(&format!("navigator.clipboard.writeText({:?})", text));
+        let _ = window.eval(format!("navigator.clipboard.writeText({:?})", text));
     }
 
     Json(serde_json::json!({ "ok": true }))

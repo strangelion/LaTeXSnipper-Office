@@ -115,7 +115,7 @@ namespace LaTeXSnipper.Excel.Host
             float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
             double cellLeft = 0, cellTop = 0;
-            try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
+            try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
 
             var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
             if (excelSheet == null)
@@ -134,7 +134,7 @@ namespace LaTeXSnipper.Excel.Host
 
             // Clean up temp file after successful insertion
             try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-            catch { /* best-effort */ }
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "excel", payload.FormulaId, ex); }
 
             return new InsertResult { Success = true, FormulaId = payload.FormulaId };
         }
@@ -164,12 +164,13 @@ namespace LaTeXSnipper.Excel.Host
                                 var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
                                     new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                 if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
-                                    return payload;
+                                    return ReconcileCopiedFormulaIdentity(shape, payload, oleObj);
                             }
                         }
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        OfficeOperationLog.Failure("read-ole-selection", "excel", formulaId, ex);
                         // Not an OLE object, continue to layer 1b
                     }
 
@@ -179,7 +180,7 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
+                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
                             Display = "inline"
                         };
@@ -190,7 +191,7 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         return new FormulaPayload
                         {
-                            FormulaId = formulaId ?? FormulaIdHelper.NewId(),
+                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
                             Latex = "",
                             Display = "inline",
                             StorageMode = "ole"
@@ -205,9 +206,9 @@ namespace LaTeXSnipper.Excel.Host
                             var jsonPayload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(altText,
                                 new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
-                                return jsonPayload;
+                                return ReconcileCopiedFormulaIdentity(shape, jsonPayload, null);
                         }
-                        catch { }
+                        catch (Exception ex) { OfficeOperationLog.Failure("read-ole-payload", "excel", formulaId, ex); }
                     }
                 }
 
@@ -246,7 +247,7 @@ namespace LaTeXSnipper.Excel.Host
                                         }
                                     }
                                 }
-                                catch { }
+                                catch (Exception ex) { OfficeOperationLog.Failure("read-shape-metadata", "excel", extractedId, ex); }
 
                                 // Fallback: alt text with formula ID
                                 if (!string.IsNullOrEmpty(extractedId))
@@ -263,7 +264,7 @@ namespace LaTeXSnipper.Excel.Host
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { OfficeOperationLog.Failure("read-selected-shape", "excel", null, ex); }
 
                 // Layer 2: read cell text
                 var range = _application.Selection as Microsoft.Office.Interop.Excel.Range;
@@ -281,7 +282,7 @@ namespace LaTeXSnipper.Excel.Host
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-selection", "excel", null, ex); }
             return null;
         }
 
@@ -292,6 +293,44 @@ namespace LaTeXSnipper.Excel.Host
             if (name.StartsWith(prefix) && name.Length > prefix.Length)
                 return name.Substring(prefix.Length);
             return null;
+        }
+
+        private string EnsureShapeFormulaId(dynamic shape, string? formulaId)
+        {
+            if (!string.IsNullOrEmpty(formulaId) && FormulaIdHelper.IsCanonical(formulaId))
+                return formulaId;
+            string newId = FormulaIdHelper.NewId();
+            shape.Name = $"LSNO_{newId}";
+            OfficeOperationLog.Event("reassign-copied-formula-id", "excel", newId);
+            return newId;
+        }
+
+        private FormulaPayload ReconcileCopiedFormulaIdentity(dynamic shape, FormulaPayload payload, dynamic? automation)
+        {
+            string expectedName = $"LSNO_{payload.FormulaId}";
+            string actualName = shape.Name as string ?? "";
+            int exactMatches = 0;
+            var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+            if (sheet != null)
+            {
+                foreach (Microsoft.Office.Core.Shape candidate in sheet.Shapes)
+                    if (string.Equals(candidate.Name, expectedName, StringComparison.Ordinal)) exactMatches++;
+            }
+            if (string.Equals(actualName, expectedName, StringComparison.Ordinal) && exactMatches <= 1)
+                return payload;
+
+            string previousId = payload.FormulaId;
+            payload.FormulaId = FormulaIdHelper.NewId();
+            payload.Revision = 0;
+            if (automation != null && !OleFormulaInterop.ReplacePayloadJson(automation, payload))
+            {
+                payload.FormulaId = previousId;
+                throw new InvalidOperationException("Failed to persist a reassigned formulaId to the copied OLE object.");
+            }
+            shape.Name = $"LSNO_{payload.FormulaId}";
+            shape.AlternativeText = System.Text.Json.JsonSerializer.Serialize(payload);
+            OfficeOperationLog.Event("reassign-copied-formula-id", "excel", payload.FormulaId);
+            return payload;
         }
 
         /// <summary>
@@ -315,7 +354,7 @@ namespace LaTeXSnipper.Excel.Host
                 }
 
                 double cellLeft = 0, cellTop = 0;
-                try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch { }
+                try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
 
                 float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                 float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
@@ -388,7 +427,7 @@ namespace LaTeXSnipper.Excel.Host
                 // didn't intend to delete. Require explicit shape selection.
                 return false;
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-selected-formula", "excel", null, ex); }
             return false;
         }
 
@@ -412,7 +451,7 @@ namespace LaTeXSnipper.Excel.Host
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "excel", formulaId, ex); }
             return false;
         }
 
@@ -436,8 +475,9 @@ namespace LaTeXSnipper.Excel.Host
                                 return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            OfficeOperationLog.Failure("replace-ole-fallback-image", "excel", formulaId, ex);
                             // Not an OLE object, fall through to image path
                         }
 
@@ -448,16 +488,16 @@ namespace LaTeXSnipper.Excel.Host
 
                         // Preserve properties before deleting
                         float oldLeft = 0, oldTop = 0, oldWidth = 120f, oldHeight = 30f;
-                        try { oldLeft = (float)Convert.ToDouble(shape.Left); } catch { }
-                        try { oldTop = (float)Convert.ToDouble(shape.Top); } catch { }
-                        try { oldWidth = (float)Convert.ToDouble(shape.Width); } catch { }
-                        try { oldHeight = (float)Convert.ToDouble(shape.Height); } catch { }
+                        try { oldLeft = (float)Convert.ToDouble(shape.Left); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-left", "excel", formulaId, ex); }
+                        try { oldTop = (float)Convert.ToDouble(shape.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-top", "excel", formulaId, ex); }
+                        try { oldWidth = (float)Convert.ToDouble(shape.Width); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-width", "excel", formulaId, ex); }
+                        try { oldHeight = (float)Convert.ToDouble(shape.Height); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-height", "excel", formulaId, ex); }
                         string oldAltText = "";
-                        try { oldAltText = shape.AlternativeText ?? ""; } catch { }
+                        try { oldAltText = shape.AlternativeText ?? ""; } catch (Exception ex) { OfficeOperationLog.Failure("read-alt-text", "excel", formulaId, ex); }
                         int oldZOrder = 0;
-                        try { oldZOrder = shape.ZOrderPosition; } catch { }
+                        try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "excel", formulaId, ex); }
                         int oldPlacement = -1;
-                        try { oldPlacement = (int)shape.Placement; } catch { }
+                        try { oldPlacement = (int)shape.Placement; } catch (Exception ex) { OfficeOperationLog.Failure("read-placement", "excel", formulaId, ex); }
 
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
                         bool replacingWithSvg = payload.Render?.Svg != null;
@@ -478,8 +518,9 @@ namespace LaTeXSnipper.Excel.Host
                             newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
-                        catch when (replacingWithSvg && payload.Render?.Png != null)
+                        catch (Exception ex) when (replacingWithSvg && payload.Render?.Png != null)
                         {
+                            OfficeOperationLog.Failure("replace-svg-fallback-png", "excel", formulaId, ex);
                             tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
                             File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
                             newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
@@ -493,23 +534,23 @@ namespace LaTeXSnipper.Excel.Host
                         // Restore preserved properties
                         if (oldPlacement >= 0)
                         {
-                            try { newShape.Placement = (Microsoft.Office.Interop.Excel.XlPlacement)oldPlacement; } catch { }
+                            try { newShape.Placement = (Microsoft.Office.Interop.Excel.XlPlacement)oldPlacement; } catch (Exception ex) { OfficeOperationLog.Failure("restore-placement", "excel", formulaId, ex); }
                         }
                         if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
                         {
-                            try { newShape.AlternativeText = oldAltText; } catch { }
+                            try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "excel", formulaId, ex); }
                         }
                         // Restore z-order (move behind shapes that were originally behind it)
                         if (oldZOrder > 1)
                         {
-                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch { }
+                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "excel", formulaId, ex); }
                         }
-                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, ex); }
                         return true;
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("replace-formula", "excel", formulaId, ex); }
             return false;
         }
 

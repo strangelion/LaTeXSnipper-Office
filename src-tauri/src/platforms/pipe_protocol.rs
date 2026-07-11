@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 3;
 pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v3";
+#[allow(
+    dead_code,
+    reason = "Shared constant consumed by non-Rust protocol clients"
+)]
 pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:office:objects:v3";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +19,11 @@ pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:office:objects:v3";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(
+    non_snake_case,
+    clippy::large_enum_variant,
+    reason = "Field names and enum layout are fixed by the VSTO wire protocol"
+)]
 pub enum VstoMessage {
     #[serde(rename = "HELLO")]
     Hello {
@@ -132,7 +141,10 @@ pub enum VstoMessage {
         rangeStart: Option<u32>,
         #[serde(rename = "rangeEnd", skip_serializing_if = "Option::is_none")]
         rangeEnd: Option<u32>,
-        #[serde(rename = "requestedStorageMode", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "requestedStorageMode",
+            skip_serializing_if = "Option::is_none"
+        )]
         requestedStorageMode: Option<String>,
         #[serde(rename = "actualStorageMode", skip_serializing_if = "Option::is_none")]
         actualStorageMode: Option<String>,
@@ -178,6 +190,10 @@ pub enum VstoMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(
+    non_snake_case,
+    reason = "Field names are fixed by the VSTO wire protocol"
+)]
 pub enum DesktopMessage {
     #[serde(rename = "HELLO_ACK")]
     HelloAck {
@@ -417,6 +433,10 @@ pub struct TableCell {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Inlining the formula payload keeps the versioned JSON schema stable"
+)]
 pub enum InlineContent {
     #[serde(rename = "text")]
     Text { text: String },
@@ -469,6 +489,10 @@ pub struct FormatOptions {
 
 /// A decoded protocol message envelope (either direction).
 #[derive(Debug, Clone)]
+#[allow(
+    dead_code,
+    reason = "Shared envelope consumed by protocol conformance tests"
+)]
 pub enum Message {
     Vsto(VstoMessage),
     Desktop(DesktopMessage),
@@ -500,6 +524,10 @@ pub fn decode_vsto_frame(bytes: &[u8]) -> Result<(VstoMessage, usize), ProtocolE
     Ok((msg, 4 + len))
 }
 
+#[allow(
+    dead_code,
+    reason = "Desktop-frame decoder is used by protocol conformance tests"
+)]
 pub fn decode_desktop_frame(bytes: &[u8]) -> Result<(DesktopMessage, usize), ProtocolError> {
     if bytes.len() < 4 {
         return Err(ProtocolError::InsufficientData);

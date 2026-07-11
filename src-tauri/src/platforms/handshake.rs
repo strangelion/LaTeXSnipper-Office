@@ -10,7 +10,8 @@
 //! - Only the same Windows user can decrypt the secret
 //! - VSTO reads and decrypts the secret during startup
 
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use rand::RngCore;
@@ -33,26 +34,36 @@ struct StoredSecret {
 
 /// Resolve the path where the DPAPI-encrypted secret is stored.
 fn secret_path() -> PathBuf {
-    let data_dir = dirs_next::data_local_dir()
+    dirs_next::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("LaTeXSnipper");
-    std::fs::create_dir_all(&data_dir).ok();
-    data_dir.join("native-office-secret.json")
+        .join("LaTeXSnipper")
+        .join("native-office-secret.json")
 }
 
 /// Get or create the shared secret. Returns base64-encoded bytes.
 pub fn get_or_create_secret() -> Result<String, String> {
-    let path = secret_path();
+    get_or_create_secret_at(&secret_path())
+}
+
+fn decode_secret(value: &str) -> bool {
+    base64::engine::general_purpose::STANDARD
+        .decode(value)
+        .is_ok_and(|decoded| decoded.len() == 32)
+}
+
+fn get_or_create_secret_at(path: &Path) -> Result<String, String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "secret path has no parent directory".to_string())?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("failed to create secret directory: {e}"))?;
 
     // Try to load existing
-    if let Ok(data) = std::fs::read(&path) {
+    if let Ok(data) = std::fs::read(path) {
         // Try to decrypt with DPAPI first
         if let Ok(decrypted) = dpapi_decrypt(&data) {
             if let Ok(stored) = serde_json::from_slice::<StoredSecret>(&decrypted) {
-                if base64::engine::general_purpose::STANDARD
-                    .decode(&stored.secret_b64)
-                    .is_ok()
-                {
+                if decode_secret(&stored.secret_b64) {
                     return Ok(stored.secret_b64);
                 }
             }
@@ -61,14 +72,11 @@ pub fn get_or_create_secret() -> Result<String, String> {
         // Fallback: try reading as plain JSON (for migration from old format)
         if let Ok(text) = std::str::from_utf8(&data) {
             if let Ok(stored) = serde_json::from_str::<StoredSecret>(text) {
-                if base64::engine::general_purpose::STANDARD
-                    .decode(&stored.secret_b64)
-                    .is_ok()
-                {
+                if decode_secret(&stored.secret_b64) {
                     // Re-encrypt with DPAPI
                     let json = serde_json::to_vec(&stored).map_err(|e| e.to_string())?;
                     if let Ok(encrypted) = dpapi_encrypt(&json) {
-                        let _ = std::fs::write(&path, encrypted);
+                        write_secret_atomic(path, &encrypted)?;
                     }
                     return Ok(stored.secret_b64);
                 }
@@ -88,9 +96,34 @@ pub fn get_or_create_secret() -> Result<String, String> {
 
     // Encrypt with DPAPI before writing
     let encrypted = dpapi_encrypt(&json).map_err(|e| e.to_string())?;
-    std::fs::write(&path, encrypted).map_err(|e| format!("failed to write secret: {}", e))?;
+    write_secret_atomic(path, &encrypted)?;
 
     Ok(secret_b64)
+}
+
+fn write_secret_atomic(path: &Path, encrypted: &[u8]) -> Result<(), String> {
+    let random_suffix = rand::random::<u64>();
+    let temporary = path.with_extension(format!("tmp-{}-{random_suffix:016x}", std::process::id()));
+    let result = (|| -> Result<(), String> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|e| format!("failed to create temporary secret: {e}"))?;
+        file.write_all(encrypted)
+            .map_err(|e| format!("failed to write temporary secret: {e}"))?;
+        file.sync_all()
+            .map_err(|e| format!("failed to flush temporary secret: {e}"))?;
+        if path.exists() {
+            std::fs::remove_file(path)
+                .map_err(|e| format!("failed to replace existing secret: {e}"))?;
+        }
+        std::fs::rename(&temporary, path).map_err(|e| format!("failed to commit secret: {e}"))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 /// Verify that a client-provided secret matches ours.
@@ -108,7 +141,7 @@ fn dpapi_encrypt(data: &[u8]) -> Result<Vec<u8>, String> {
 
     let mut input = data.to_vec();
 
-    let mut input_blob = CRYPT_INTEGER_BLOB {
+    let input_blob = CRYPT_INTEGER_BLOB {
         cbData: input.len() as u32,
         pbData: input.as_mut_ptr(),
     };
@@ -148,7 +181,7 @@ fn dpapi_decrypt(data: &[u8]) -> Result<Vec<u8>, String> {
 
     let mut input = data.to_vec();
 
-    let mut input_blob = CRYPT_INTEGER_BLOB {
+    let input_blob = CRYPT_INTEGER_BLOB {
         cbData: input.len() as u32,
         pbData: input.as_mut_ptr(),
     };
@@ -198,14 +231,19 @@ mod tests {
 
     #[test]
     fn test_secret_roundtrip() {
-        let _ = std::fs::remove_file(secret_path());
+        let test_dir = std::env::temp_dir().join(format!(
+            "latexsnipper-handshake-test-{}-{:016x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        let test_path = test_dir.join("secret.json");
 
-        let secret1 = get_or_create_secret().unwrap();
-        let secret2 = get_or_create_secret().unwrap();
+        let secret1 = get_or_create_secret_at(&test_path).unwrap();
+        let secret2 = get_or_create_secret_at(&test_path).unwrap();
         assert_eq!(secret1, secret2);
-        assert!(verify_secret(&secret1));
-        assert!(!verify_secret("wrong-secret"));
+        assert!(decode_secret(&secret1));
+        assert!(!decode_secret("wrong-secret"));
 
-        let _ = std::fs::remove_file(secret_path());
+        std::fs::remove_dir_all(test_dir).unwrap();
     }
 }

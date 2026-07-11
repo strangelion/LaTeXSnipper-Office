@@ -95,6 +95,8 @@ public class PipeClient : IDisposable
         {
             var json = JsonSerializer.Serialize<VstoMessage>(message, ProtocolJson.Options);
             var payload = System.Text.Encoding.UTF8.GetBytes(json);
+            if (payload.Length == 0 || payload.Length > NativeOfficeProtocol.MaximumMessageBytes)
+                throw new InvalidDataException($"Pipe payload length is outside the protocol limit: {payload.Length}.");
             var lenBytes = BitConverter.GetBytes(payload.Length);
 
             lock (_writeLock)
@@ -130,6 +132,8 @@ public class PipeClient : IDisposable
         {
             var json = JsonSerializer.Serialize<VstoMessage>(message, ProtocolJson.Options);
             var payload = Encoding.UTF8.GetBytes(json);
+            if (payload.Length == 0 || payload.Length > NativeOfficeProtocol.MaximumMessageBytes)
+                throw new InvalidDataException($"Pipe payload length is outside the protocol limit: {payload.Length}.");
             var lenBytes = BitConverter.GetBytes(payload.Length);
 
             lock (_writeLock)
@@ -201,7 +205,10 @@ public class PipeClient : IDisposable
                 }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException ex)
+        {
+            OfficeOperationLog.Failure("pipe-reader-cancel", "shared", null, ex);
+        }
         catch (EndOfStreamException)
         {
             System.Diagnostics.Debug.WriteLine("[PipeClient] Connection closed by server");
@@ -226,8 +233,8 @@ public class PipeClient : IDisposable
         await _pipe.ReadExactAsync(lenBuf, 0, 4, ct);
         var len = BitConverter.ToInt32(lenBuf, 0);
 
-        if (len <= 0 || len > 1024 * 1024) // 1MB max
-            return null;
+        if (len <= 0 || len > NativeOfficeProtocol.MaximumMessageBytes)
+            throw new InvalidDataException($"Pipe frame length is outside the protocol limit: {len}.");
 
         // Read payload
         var payload = new byte[len];
@@ -287,7 +294,11 @@ public class PipeClient : IDisposable
         }
         _pendingRequests.Clear();
 
-        try { _pipe?.Dispose(); } catch { }
+        try { _pipe?.Dispose(); }
+        catch (Exception ex)
+        {
+            OfficeOperationLog.Failure("pipe-dispose", "shared", null, ex);
+        }
         _pipe = null;
     }
 
@@ -305,6 +316,9 @@ public class PipeClient : IDisposable
 public static class FormulaIdHelper
 {
     public static string NewId() => Guid.NewGuid().ToString("N");
+
+    public static bool IsCanonical(string? value) =>
+        value != null && value.Length == 32 && Guid.TryParseExact(value, "N", out _);
 }
 
 /// <summary>

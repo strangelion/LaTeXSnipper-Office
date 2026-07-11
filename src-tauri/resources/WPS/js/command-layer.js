@@ -20,6 +20,13 @@
   // ─── Router ────────────────────────────────────────────────────────
   var adapters = {};
 
+  function logFailure(operation, formulaId, error) {
+    var hresult = error && (error.number || error.hresult || error.code) || 0;
+    console.error("[WPS] operation=" + operation + " host=wps formulaId=" +
+      (formulaId || "<unknown>") + " hresult=" + hresult,
+      error && (error.name || "Error"));
+  }
+
   function dispatch(host, cmd) {
     var adapter = adapters[host];
     if (!adapter) return Promise.resolve({ ok: false, error: "No adapter for host: " + host });
@@ -84,7 +91,7 @@
         case "ReplaceSelection": {
           var sel = getSelection();
           if (!sel) return { ok: false, error: "No selection" };
-          try { sel.Range.Delete(); } catch (e) {}
+          try { sel.Range.Delete(); } catch (e) { logFailure("delete-selection", cmd.payload.formulaId, e); }
           sel.TypeText(cmd.payload.content || "");
           return { ok: true };
         }
@@ -129,9 +136,9 @@
         if (sel.OMaths.Count > 0) {
           var oMath = sel.OMaths.Item(1);
           if (payload.display === "block" || payload.display === "numbered") {
-            try { oMath.Justification = 1; } catch (e) {}
+            try { oMath.Justification = 1; } catch (e) { logFailure("set-display-justification", fid, e); }
           }
-          try { oMath.BuildUp(); } catch (e) {}
+          try { oMath.BuildUp(); } catch (e) { logFailure("build-up-formula", fid, e); }
           sel.Range.Collapse(0);
           return { ok: true };
         }
@@ -175,5 +182,5 @@
   // ─── Notify ────────────────────────────────────────────────────────
   try {
     window.bridgeLog && window.bridgeLog("CommandLayer loaded");
-  } catch (e) {}
+  } catch (e) { logFailure("notify-command-layer-loaded", null, e); }
 })();

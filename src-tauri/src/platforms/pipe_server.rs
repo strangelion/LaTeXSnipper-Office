@@ -28,7 +28,10 @@ const MAX_FRAME_SIZE: usize = 1024 * 1024;
 const CHANNEL_BUFFER: usize = 64;
 
 /// Start the Named Pipe server. Runs forever, accepting connections.
-pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Arc<SessionManager>) {
+pub async fn start_pipe_server(
+    _app_handle: tauri::AppHandle,
+    session_manager: Arc<SessionManager>,
+) {
     let pipe_name = match acl::pipe_name() {
         Ok(name) => name,
         Err(e) => {
@@ -75,7 +78,7 @@ pub async fn start_pipe_server(app_handle: tauri::AppHandle, session_manager: Ar
 /// Create the first pipe instance (creates the named pipe object).
 async fn create_pipe_instance_first(pipe_name: &str) -> Result<NamedPipeServer, std::io::Error> {
     let mut security = PipeSecurityDescriptor::current_user_and_system()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let server = unsafe {
         ServerOptions::new()
@@ -95,7 +98,7 @@ async fn create_pipe_instance_additional(
     pipe_name: &str,
 ) -> Result<NamedPipeServer, std::io::Error> {
     let mut security = PipeSecurityDescriptor::current_user_and_system()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
 
     let server = unsafe {
         ServerOptions::new()

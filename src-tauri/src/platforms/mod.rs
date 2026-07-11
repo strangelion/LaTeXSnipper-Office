@@ -1,6 +1,7 @@
 #[cfg(target_os = "windows")]
 pub mod acl;
 pub mod ecosystem;
+#[cfg(target_os = "windows")]
 pub mod handshake;
 pub mod integrations;
 pub mod office;
@@ -20,5 +21,5 @@ pub mod tls_cert;
 #[cfg(target_os = "windows")]
 pub mod windows_identity;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "windows"))]
 mod tests;

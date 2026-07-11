@@ -4,12 +4,12 @@
 #include "NativeLog.h"
 #include "OleEditSession.h"
 #include "OleFormulaIds.h"
+#include "PendingPayloadTransport.h"
 #include "StorageUtil.h"
 #include "Win32Check.h"
 
 #include <atlconv.h>
 #include <comdef.h>
-#include <chrono>
 #include <new>
 #include <thread>
 #include <vector>
@@ -24,69 +24,34 @@
 // construct and consume the object safely.
 namespace
 {
-std::wstring ConsumePendingPayload()
-{
-    constexpr wchar_t kPayloadKey[] = L"Software\\LaTeXSnipper\\OfficePlugin\\OleFormulaObject";
-
-    DWORD pid = GetCurrentProcessId();
-    DWORD tid = GetCurrentThreadId();
-    wchar_t valueName[64]{};
-    swprintf_s(valueName, L"PendingPayload.%lu", pid);
-
-    HKEY key = nullptr;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_READ | KEY_WRITE, &key) != ERROR_SUCCESS)
-    {
-        WriteNativeOleLog(L"ConsumePendingPayload: Cannot open registry key.");
-        return L"";
-    }
-
-    DWORD type = 0;
-    DWORD byteCount = 0;
-    std::wstring payload;
-    if (RegQueryValueExW(key, valueName, nullptr, &type, nullptr, &byteCount) == ERROR_SUCCESS &&
-        type == REG_SZ && byteCount >= sizeof(wchar_t))
-    {
-        payload.resize(byteCount / sizeof(wchar_t));
-        RegQueryValueExW(key, valueName, nullptr, &type,
-            reinterpret_cast<BYTE*>(&payload[0]), &byteCount);
-        while (!payload.empty() && payload.back() == L'\0')
-            payload.pop_back();
-
-        const double createdTicks = JsonReadNumber(payload, L"createdUtcTicks");
-        const auto unixTicks = std::chrono::duration_cast<std::chrono::duration<long long, std::ratio<1, 10000000>>>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        constexpr long long kDotNetEpochTicks = 621355968000000000LL;
-        constexpr double kPayloadTtlTicks = 5.0 * 60.0 * 10000000.0;
-        const double ageTicks = static_cast<double>(unixTicks + kDotNetEpochTicks) - createdTicks;
-        if (createdTicks <= 0.0 || ageTicks < -600000000.0 || ageTicks > kPayloadTtlTicks)
-        {
-            payload.clear();
-            WriteNativeOleLog(L"ConsumePendingPayload: stale or invalid payload was discarded.");
-        }
-        else
-        {
-            wchar_t message[192]{};
-            swprintf_s(message, L"ConsumePendingPayload: pid=%lu tid=%lu ageMs=%.0f consumed.", pid, tid, ageTicks / 10000.0);
-            WriteNativeOleLog(message);
-        }
-    }
-    else
-    {
-        wchar_t msg[128]{};
-        swprintf_s(msg, L"ConsumePendingPayload: NOT found for pid=%lu tid=%lu", pid, tid);
-        WriteNativeOleLog(msg);
-    }
-
-    RegDeleteValueW(key, valueName);
-    RegCloseKey(key);
-    return payload;
-}
-}
-
-namespace
-{
 volatile LONG g_objectCount = 0;
-volatile LONG g_lockCount = 0;
+volatile LONG g_serverLockCount = 0;
+volatile LONG g_externalConnectionCount = 0;
+
+bool TryDecrementIfPositive(volatile LONG* value, LONG* remaining = nullptr)
+{
+    LONG current = InterlockedCompareExchange(value, 0, 0);
+    while (current > 0)
+    {
+        const LONG next = current - 1;
+        const LONG observed = InterlockedCompareExchange(value, next, current);
+        if (observed == current)
+        {
+            if (remaining != nullptr) *remaining = next;
+            return true;
+        }
+        current = observed;
+    }
+    if (remaining != nullptr) *remaining = 0;
+    return false;
+}
+
+LONG DecrementIfPositive(volatile LONG* value)
+{
+    LONG remaining = 0;
+    TryDecrementIfPositive(value, &remaining);
+    return remaining;
+}
 
 // P1-C: Helper to convert 0.01mm to pixels at given DPI
 inline int Himetric01MmToPixels(LONG value01mm, int dpi)
@@ -179,12 +144,13 @@ LONG GetNativeOleObjectCount()
 
 LONG GetNativeOleLockCount()
 {
-    return g_lockCount;
+    return InterlockedCompareExchange(&g_serverLockCount, 0, 0) +
+        InterlockedCompareExchange(&g_externalConnectionCount, 0, 0);
 }
 
 FormulaOleObject::FormulaOleObject()
 {
-    const std::wstring pendingJson = ConsumePendingPayload();
+    const std::wstring pendingJson = ConsumePendingPayloadReference();
 
     if (!pendingJson.empty())
     {
@@ -225,6 +191,10 @@ FormulaOleObject::FormulaOleObject()
 FormulaOleObject::~FormulaOleObject()
 {
     WriteNativeOleLog(L"FormulaOleObject destructed.");
+    if (runningLocked_.exchange(false, std::memory_order_acq_rel))
+        DecrementIfPositive(&g_serverLockCount);
+    while (TryDecrementIfPositive(&externalConnectionCount_))
+        DecrementIfPositive(&g_externalConnectionCount);
     InterlockedDecrement(&g_objectCount);
 }
 
@@ -437,7 +407,7 @@ STDMETHODIMP FormulaOleObject::Close(DWORD)
 
 STDMETHODIMP FormulaOleObject::SetMoniker(DWORD, IMoniker*)
 {
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 STDMETHODIMP FormulaOleObject::GetMoniker(DWORD, DWORD, IMoniker** moniker)
@@ -453,7 +423,7 @@ STDMETHODIMP FormulaOleObject::GetMoniker(DWORD, DWORD, IMoniker** moniker)
 
 STDMETHODIMP FormulaOleObject::InitFromData(IDataObject*, BOOL, DWORD)
 {
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 STDMETHODIMP FormulaOleObject::GetClipboardData(DWORD, IDataObject** dataObject)
@@ -791,12 +761,8 @@ STDMETHODIMP FormulaOleObject::SetData(FORMATETC* format, STGMEDIUM* medium, BOO
         return E_POINTER;
     }
 
-    if (release)
-    {
-        ReleaseStgMedium(medium);
-    }
-
-    return S_OK;
+    UNREFERENCED_PARAMETER(release);
+    return E_NOTIMPL;
 }
 
 STDMETHODIMP FormulaOleObject::EnumFormatEtc(DWORD direction, IEnumFORMATETC** enumFormatEtc)
@@ -1017,13 +983,14 @@ STDMETHODIMP_(BOOL) FormulaOleObject::IsRunning()
 STDMETHODIMP FormulaOleObject::LockRunning(BOOL lock, BOOL)
 {
     WriteNativeOleLog(L"FormulaOleObject LockRunning.");
-    if (lock)
+    const bool previous = runningLocked_.exchange(lock != FALSE, std::memory_order_acq_rel);
+    if (lock && !previous)
     {
-        InterlockedIncrement(&g_lockCount);
+        InterlockedIncrement(&g_serverLockCount);
     }
-    else
+    else if (!lock && previous)
     {
-        InterlockedDecrement(&g_lockCount);
+        DecrementIfPositive(&g_serverLockCount);
     }
 
     return S_OK;
@@ -1059,7 +1026,7 @@ STDMETHODIMP FormulaOleObject::Cache(FORMATETC* format, DWORD, DWORD* connection
 STDMETHODIMP FormulaOleObject::Uncache(DWORD)
 {
     WriteNativeOleLog(L"FormulaOleObject Uncache.");
-    return S_OK;
+    return OLE_E_NOCONNECTION;
 }
 
 STDMETHODIMP FormulaOleObject::EnumCache(IEnumSTATDATA** enumStatData)
@@ -1077,20 +1044,24 @@ STDMETHODIMP FormulaOleObject::EnumCache(IEnumSTATDATA** enumStatData)
 STDMETHODIMP FormulaOleObject::InitCache(IDataObject*)
 {
     WriteNativeOleLog(L"FormulaOleObject InitCache.");
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 STDMETHODIMP_(DWORD) FormulaOleObject::AddConnection(DWORD, DWORD)
 {
     WriteNativeOleLog(L"FormulaOleObject AddConnection.");
-    return static_cast<DWORD>(InterlockedIncrement(&g_lockCount));
+    const LONG local = InterlockedIncrement(&externalConnectionCount_);
+    InterlockedIncrement(&g_externalConnectionCount);
+    return static_cast<DWORD>(local);
 }
 
 STDMETHODIMP_(DWORD) FormulaOleObject::ReleaseConnection(DWORD, DWORD, BOOL)
 {
     WriteNativeOleLog(L"FormulaOleObject ReleaseConnection.");
-    LONG value = InterlockedDecrement(&g_lockCount);
-    return value < 0 ? 0 : static_cast<DWORD>(value);
+    LONG remaining = 0;
+    if (TryDecrementIfPositive(&externalConnectionCount_, &remaining))
+        DecrementIfPositive(&g_externalConnectionCount);
+    return static_cast<DWORD>(remaining);
 }
 
 STDMETHODIMP FormulaOleObject::GetClassID(CLSID* classId)
@@ -1418,6 +1389,8 @@ STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT c
 
 STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr)
 {
+    (void)pExcepInfo;
+    (void)puArgErr;
     if (pDispParams == nullptr) return E_POINTER;
 
     switch (dispIdMember)
@@ -1708,11 +1681,11 @@ STDMETHODIMP FormulaClassFactory::LockServer(BOOL lock)
 {
     if (lock)
     {
-        InterlockedIncrement(&g_lockCount);
+        InterlockedIncrement(&g_serverLockCount);
     }
     else
     {
-        InterlockedDecrement(&g_lockCount);
+        DecrementIfPositive(&g_serverLockCount);
     }
 
     return S_OK;

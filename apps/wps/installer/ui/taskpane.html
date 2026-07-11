@@ -69,7 +69,7 @@
 
     <section class="panel">
       <label for="latexSource">LaTeX</label>
-      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: e^{i\pi}+1=0">e^{i\pi}+1=0</textarea>
+      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: \frac{a}{b}"></textarea>
       <div id="previewSection">
         <label>预览</label>
         <div id="previewHost" class="preview-host">
@@ -112,7 +112,7 @@
       try {
         window.parent.window.Application.PluginStorage.setItem("current_latex", els.latexSource.value);
         window.parent.window.Application.PluginStorage.setItem("current_display", els.displayMode.checked);
-      } catch (e) {}
+      } catch (e) { console.error('[WPS] operation=sync-storage host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
     }
 
     async function checkBridge() {
@@ -123,7 +123,7 @@
         bridgeConnected = true;
         try {
           window.parent.window.Application.PluginStorage.setItem("bridge_token", bridgeToken);
-        } catch (e) {}
+        } catch (e) { console.error('[WPS] operation=store-bridge-token host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
         setStatus("success", "已连接到 LaTeXSnipper Bridge");
         els.connectButton.textContent = "已连接";
         els.connectButton.disabled = true;
@@ -187,8 +187,8 @@
 
         if (selection.OMaths.Count > 0) {
           const oMath = selection.OMaths.Item(1);
-          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) {} }
-          try { oMath.BuildUp(); } catch(e) {}
+          if (els.displayMode.checked) { try { oMath.Justification = 1; } catch(e) { console.error('[WPS] operation=set-display-justification host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); } }
+          try { oMath.BuildUp(); } catch(e) { console.error('[WPS] operation=build-up-formula host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
           selection.Range.Collapse(0);
           setStatus("success", "公式插入成功");
         } else {

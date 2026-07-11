@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <utility>
 #include <rpc.h>  // UuidCreate
 #include <aclapi.h>  // SetEntriesInAclW
 #include <shellapi.h>  // ShellExecuteExW
@@ -23,6 +24,45 @@ extern HMODULE g_dllModule;
 namespace
 {
 
+class ScopedHandle final
+{
+public:
+    explicit ScopedHandle(HANDLE value = INVALID_HANDLE_VALUE) noexcept : value_(value) {}
+    ~ScopedHandle() { reset(); }
+    ScopedHandle(const ScopedHandle&) = delete;
+    ScopedHandle& operator=(const ScopedHandle&) = delete;
+    ScopedHandle(ScopedHandle&& other) noexcept : value_(other.release()) {}
+    ScopedHandle& operator=(ScopedHandle&& other) noexcept
+    {
+        if (this != &other) reset(other.release());
+        return *this;
+    }
+    HANDLE get() const noexcept { return value_; }
+    explicit operator bool() const noexcept { return value_ != nullptr && value_ != INVALID_HANDLE_VALUE; }
+    HANDLE release() noexcept { return std::exchange(value_, INVALID_HANDLE_VALUE); }
+    void reset(HANDLE value = INVALID_HANDLE_VALUE) noexcept
+    {
+        if (*this) CloseHandle(value_);
+        value_ = value;
+    }
+private:
+    HANDLE value_;
+};
+
+class EditSessionGuard final
+{
+public:
+    explicit EditSessionGuard(std::atomic_bool& active) noexcept
+        : active_(active), acquired_(!active.exchange(true, std::memory_order_acq_rel)) {}
+    ~EditSessionGuard() { if (acquired_) active_.store(false, std::memory_order_release); }
+    bool acquired() const noexcept { return acquired_; }
+private:
+    std::atomic_bool& active_;
+    bool acquired_;
+};
+
+std::atomic_bool g_editSessionActive{false};
+
 // Forward declarations
 std::wstring FindDesktopPath();
 
@@ -34,27 +74,27 @@ constexpr wchar_t kOleEditDispatcherPipe[] = L"\\\\.\\pipe\\LaTeXSnipper.OleEdit
 // no existing instance is available.
 bool TryDispatchToRunningDesktop(const std::wstring& sessionPipeName)
 {
-    HANDLE dispatcher = CreateFileW(
+    ScopedHandle dispatcher(CreateFileW(
         kOleEditDispatcherPipe,
         GENERIC_READ | GENERIC_WRITE,
         0,
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (dispatcher == INVALID_HANDLE_VALUE)
+        nullptr));
+    if (!dispatcher)
     {
         return false;
     }
 
     const DWORD payloadSize = static_cast<DWORD>(sessionPipeName.size() * sizeof(wchar_t));
     DWORD transferred = 0;
-    bool ok = WriteFile(dispatcher, &payloadSize, sizeof(payloadSize), &transferred, nullptr)
+    bool ok = WriteFile(dispatcher.get(), &payloadSize, sizeof(payloadSize), &transferred, nullptr)
         && transferred == sizeof(payloadSize);
     if (ok && payloadSize > 0)
     {
         transferred = 0;
-        ok = WriteFile(dispatcher, sessionPipeName.data(), payloadSize, &transferred, nullptr)
+        ok = WriteFile(dispatcher.get(), sessionPipeName.data(), payloadSize, &transferred, nullptr)
             && transferred == payloadSize;
     }
 
@@ -62,12 +102,11 @@ bool TryDispatchToRunningDesktop(const std::wstring& sessionPipeName)
     if (ok)
     {
         transferred = 0;
-        ok = ReadFile(dispatcher, &acknowledgement, sizeof(acknowledgement), &transferred, nullptr)
+        ok = ReadFile(dispatcher.get(), &acknowledgement, sizeof(acknowledgement), &transferred, nullptr)
             && transferred == sizeof(acknowledgement)
             && acknowledgement == 1;
     }
 
-    CloseHandle(dispatcher);
     return ok;
 }
 
@@ -76,18 +115,17 @@ bool TryDispatchToRunningDesktop(const std::wstring& sessionPipeName)
 bool ConnectNamedPipeWithTimeout(HANDLE pipe, DWORD timeoutMs)
 {
     // Use overlapped ConnectNamedPipe with event for timeout support
-    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (event == nullptr)
+    ScopedHandle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!event)
         return false;
 
     OVERLAPPED overlapped{};
-    overlapped.hEvent = event;
+    overlapped.hEvent = event.get();
 
     BOOL connected = ConnectNamedPipe(pipe, &overlapped);
     if (connected)
     {
         // Connected synchronously (unlikely but possible with a pending connection)
-        CloseHandle(event);
         return true;
     }
 
@@ -95,31 +133,27 @@ bool ConnectNamedPipeWithTimeout(HANDLE pipe, DWORD timeoutMs)
     if (error == ERROR_PIPE_CONNECTED)
     {
         // Client already connected before we called ConnectNamedPipe
-        CloseHandle(event);
         return true;
     }
 
     if (error != ERROR_IO_PENDING)
     {
         // Real error
-        CloseHandle(event);
         return false;
     }
 
     // Wait for connection or timeout
-    DWORD waitResult = WaitForSingleObject(event, timeoutMs);
+    DWORD waitResult = WaitForSingleObject(event.get(), timeoutMs);
     if (waitResult == WAIT_OBJECT_0)
     {
         // Connected
         DWORD bytesTransferred = 0;
-        GetOverlappedResult(pipe, &overlapped, &bytesTransferred, FALSE);
-        CloseHandle(event);
+        if (!GetOverlappedResult(pipe, &overlapped, &bytesTransferred, FALSE)) return false;
         return true;
     }
 
     // Timeout — cancel the pending operation
     CancelIo(pipe);
-    CloseHandle(event);
     SetLastError(ERROR_TIMEOUT);
     return false;
 }
@@ -178,7 +212,7 @@ std::wstring BuildEnvelopeJson(const std::wstring& formulaId,
     if (heightPt <= 0) heightPt = 42;
 
     std::wstring json;
-    json += L"{\"protocolVersion\":2,";
+    json += L"{\"protocolVersion\":" + std::to_wstring(kOleEditProtocolVersion) + L",";
     json += L"\"sessionType\":\"ole_edit_request\",";
     json += L"\"formulaId\":\"" + JsonEscapeString(formulaId) + L"\",";
 
@@ -410,43 +444,139 @@ static void FreeSecurityAttributes(SECURITY_ATTRIBUTES* sa)
 
 // ReadFile with timeout (overlapped I/O).
 // Returns true if read completed, false on timeout/error.
-static bool ReadFileWithTimeout(HANDLE pipe, void* buffer, DWORD bytesToRead, DWORD* bytesRead, DWORD timeoutMs)
+static bool ReadChunkWithTimeout(HANDLE pipe, void* buffer, DWORD bytesToRead, DWORD* bytesRead, DWORD timeoutMs)
 {
-    HANDLE event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (event == nullptr)
+    ScopedHandle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (!event)
         return false;
 
     OVERLAPPED overlapped{};
-    overlapped.hEvent = event;
+    overlapped.hEvent = event.get();
 
     BOOL result = ReadFile(pipe, buffer, bytesToRead, bytesRead, &overlapped);
     if (result)
     {
         // Completed synchronously
-        CloseHandle(event);
         return true;
     }
 
-    if (GetLastError() != ERROR_IO_PENDING)
+    const DWORD initialError = GetLastError();
+    if (initialError == ERROR_MORE_DATA && *bytesRead > 0)
     {
-        CloseHandle(event);
-        return false;
+        return true;
     }
+    if (initialError != ERROR_IO_PENDING) return false;
 
     // Wait for completion or timeout
-    DWORD waitResult = WaitForSingleObject(event, timeoutMs);
+    DWORD waitResult = WaitForSingleObject(event.get(), timeoutMs);
     if (waitResult == WAIT_OBJECT_0)
     {
-        GetOverlappedResult(pipe, &overlapped, bytesRead, FALSE);
-        CloseHandle(event);
-        return true;
+        if (GetOverlappedResult(pipe, &overlapped, bytesRead, FALSE)) return true;
+        return GetLastError() == ERROR_MORE_DATA && *bytesRead > 0;
     }
 
     // Timeout — cancel pending operation
-    CancelIo(pipe);
-    CloseHandle(event);
+    CancelIoEx(pipe, &overlapped);
+    GetOverlappedResult(pipe, &overlapped, bytesRead, TRUE);
     SetLastError(ERROR_TIMEOUT);
     return false;
+}
+
+static bool TransferExactWithTimeout(HANDLE pipe,
+                                     void* buffer,
+                                     DWORD byteCount,
+                                     DWORD timeoutMs,
+                                     bool write,
+                                     DWORD* errorCode)
+{
+    auto* bytes = static_cast<unsigned char*>(buffer);
+    DWORD offset = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    while (offset < byteCount)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+        {
+            *errorCode = ERROR_TIMEOUT;
+            return false;
+        }
+
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+        const DWORD waitMs = remaining.count() > MAXDWORD ? MAXDWORD : static_cast<DWORD>(remaining.count());
+        DWORD transferred = 0;
+        bool completed = false;
+        if (write)
+        {
+            ScopedHandle event(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+            if (!event)
+            {
+                *errorCode = GetLastError();
+                return false;
+            }
+            OVERLAPPED overlapped{};
+            overlapped.hEvent = event.get();
+            BOOL result = WriteFile(pipe, bytes + offset, byteCount - offset, &transferred, &overlapped);
+            DWORD operationError = result ? ERROR_SUCCESS : GetLastError();
+            if (!result && operationError == ERROR_IO_PENDING)
+            {
+                if (WaitForSingleObject(event.get(), waitMs) != WAIT_OBJECT_0)
+                {
+                    CancelIoEx(pipe, &overlapped);
+                    GetOverlappedResult(pipe, &overlapped, &transferred, TRUE);
+                    *errorCode = ERROR_TIMEOUT;
+                    return false;
+                }
+                result = GetOverlappedResult(pipe, &overlapped, &transferred, FALSE);
+                operationError = result ? ERROR_SUCCESS : GetLastError();
+            }
+            if (!result)
+            {
+                *errorCode = operationError;
+                return false;
+            }
+            completed = true;
+        }
+        else
+        {
+            completed = ReadChunkWithTimeout(pipe, bytes + offset, byteCount - offset, &transferred, waitMs);
+            if (!completed)
+            {
+                *errorCode = GetLastError();
+                return false;
+            }
+        }
+
+        if (!completed || transferred == 0)
+        {
+            *errorCode = ERROR_BROKEN_PIPE;
+            return false;
+        }
+        offset += transferred;
+    }
+    *errorCode = ERROR_SUCCESS;
+    return true;
+}
+
+static bool ReadExactWithTimeout(HANDLE pipe, void* buffer, DWORD byteCount, DWORD timeoutMs, DWORD* errorCode)
+{
+    return TransferExactWithTimeout(pipe, buffer, byteCount, timeoutMs, false, errorCode);
+}
+
+static bool WriteExactWithTimeout(HANDLE pipe, const void* buffer, DWORD byteCount, DWORD timeoutMs, DWORD* errorCode)
+{
+    return TransferExactWithTimeout(pipe, const_cast<void*>(buffer), byteCount, timeoutMs, true, errorCode);
+}
+
+static bool SendCommitAck(HANDLE pipe, bool success, const wchar_t* errorCode, HRESULT result)
+{
+    std::wstring ack = L"{\"protocolVersion\":" + std::to_wstring(kOleEditProtocolVersion)
+        + L",\"success\":" + (success ? L"true" : L"false")
+        + L",\"errorCode\":\"" + JsonEscapeString(errorCode == nullptr ? L"" : errorCode)
+        + L"\",\"hresult\":" + std::to_wstring(static_cast<unsigned long>(result)) + L"}";
+    const DWORD size = static_cast<DWORD>((ack.size() + 1) * sizeof(wchar_t));
+    DWORD ioError = ERROR_SUCCESS;
+    return WriteExactWithTimeout(pipe, &size, sizeof(size), 30000, &ioError)
+        && WriteExactWithTimeout(pipe, ack.c_str(), size, 30000, &ioError);
 }
 
 HRESULT StartEditSessionPipe(const std::wstring& formulaId,
@@ -455,6 +585,13 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 {
     if (presentation == nullptr)
         return E_POINTER;
+
+    EditSessionGuard sessionGuard(g_editSessionActive);
+    if (!sessionGuard.acquired())
+    {
+        WriteNativeOleLog(L"OleEditSession: Rejected concurrent edit (OLE_EDIT_BUSY).");
+        return OLE_EDIT_BUSY;
+    }
 
     WriteNativeOleLog(L"OleEditSession: Starting pipe server...");
 
@@ -474,7 +611,7 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 
     // 3. Create Named Pipe Server (single instance, current user only, overlapped for timeout)
     SECURITY_ATTRIBUTES* pipeSa = CreateCurrentUserOnlySecurityAttributes();
-    HANDLE pipe = CreateNamedPipeW(
+    ScopedHandle pipe(CreateNamedPipeW(
         pipeName.c_str(),
         PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
         PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
@@ -482,18 +619,18 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
         65536,                // out buffer
         65536,                // in buffer
         5000,                 // default timeout ms
-        pipeSa                // security: current user only
-    );
+        pipeSa));             // security: current user only
 
     if (pipeSa != nullptr)
     {
         FreeSecurityAttributes(pipeSa);
     }
 
-    if (pipe == INVALID_HANDLE_VALUE)
+    if (!pipe)
     {
+        const DWORD error = GetLastError();
         WriteNativeOleLog(L"OleEditSession: CreateNamedPipe failed.");
-        return HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(error);
     }
 
     // WriteNativeOleLog(L"OleEditSession: Pipe created, launching Desktop...");
@@ -521,81 +658,80 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
 
         if (!ShellExecuteExW(&sei))
         {
+            const DWORD error = GetLastError();
             WriteNativeOleLog(L"OleEditSession: Failed to launch Desktop.");
-            CloseHandle(pipe);
-            return HResultFromWin32LastError();
+            return HRESULT_FROM_WIN32(error);
         }
         WriteNativeOleLog(L"OleEditSession: Started Desktop for a cold edit session.");
     }
 
     // 5. Wait for Desktop to connect with 60-second timeout
     // Use overlapped I/O for timeout support to avoid blocking Office UI thread
-    BOOL connected = ConnectNamedPipeWithTimeout(pipe, 60000);
+    BOOL connected = ConnectNamedPipeWithTimeout(pipe.get(), 60000);
     if (!connected)
     {
         DWORD err = GetLastError();
         WriteNativeOleLog(err == ERROR_TIMEOUT
             ? L"OleEditSession: Desktop did not connect within 60s timeout."
             : L"OleEditSession: Desktop connection failed.");
-        CloseHandle(pipe);
-        return err == ERROR_TIMEOUT ? HRESULT_FROM_WIN32(ERROR_TIMEOUT) : HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(err == ERROR_SUCCESS ? ERROR_GEN_FAILURE : err);
     }
 
     WriteNativeOleLog(L"OleEditSession: Desktop connected.");
 
     // 6. Send envelope to Desktop
-    DWORD written = 0;
-    // Send size first, then payload
-    if (!WriteFile(pipe, &envelopeSize, sizeof(envelopeSize), &written, nullptr))
+    DWORD ioError = ERROR_SUCCESS;
+    if (!WriteExactWithTimeout(pipe.get(), &envelopeSize, sizeof(envelopeSize), 30000, &ioError))
     {
         WriteNativeOleLog(L"OleEditSession: Failed to send size.");
-        CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(ioError);
     }
 
-    if (!WriteFile(pipe, envelope.c_str(), envelopeSize, &written, nullptr))
+    if (!WriteExactWithTimeout(pipe.get(), envelope.c_str(), envelopeSize, 30000, &ioError))
     {
         WriteNativeOleLog(L"OleEditSession: Failed to send envelope.");
-        CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(ioError);
     }
 
     // 7. Wait for response from Desktop (SAVE / CANCEL) with 10-minute total timeout
     // Response format: 4 bytes = response size, then response JSON (UTF-16)
     constexpr DWORD kEditTotalTimeoutMs = 600000; // 10 minutes
     DWORD responseSize = 0;
-    DWORD readBytes = 0;
-    if (!ReadFileWithTimeout(pipe, &responseSize, sizeof(responseSize), &readBytes, kEditTotalTimeoutMs))
+    if (!ReadExactWithTimeout(pipe.get(), &responseSize, sizeof(responseSize), kEditTotalTimeoutMs, &ioError))
     {
         WriteNativeOleLog(L"OleEditSession: Timed out waiting for response size.");
-        CloseHandle(pipe);
-        return HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+        return HRESULT_FROM_WIN32(ioError);
     }
 
     // Response body limit: support full FormulaPayload including PNG/SVG base64
-    if (responseSize == 0 || responseSize > 4 * 1024 * 1024)
+    if (responseSize < sizeof(wchar_t) || responseSize > kOleEditMaxPayloadBytes || responseSize % sizeof(wchar_t) != 0)
     {
-        // Empty response = cancel; oversized = protocol error
-        if (responseSize == 0)
-        {
-            WriteNativeOleLog(L"OleEditSession: Empty response (cancel).");
-            CloseHandle(pipe);
-            return S_FALSE;
-        }
-        WriteNativeOleLog(L"OleEditSession: Response too large.");
-        CloseHandle(pipe);
-        return E_FAIL;
+        WriteNativeOleLog(L"OleEditSession: Invalid response size.");
+        SendCommitAck(pipe.get(), false, L"OLE_EDIT_PROTOCOL_ERROR", OLE_EDIT_PROTOCOL_ERROR);
+        return OLE_EDIT_PROTOCOL_ERROR;
     }
 
     std::vector<wchar_t> responseBuffer(responseSize / sizeof(wchar_t) + 1, 0);
-    if (!ReadFileWithTimeout(pipe, responseBuffer.data(), responseSize, &readBytes, kEditTotalTimeoutMs))
+    if (!ReadExactWithTimeout(pipe.get(), responseBuffer.data(), responseSize, kEditTotalTimeoutMs, &ioError))
     {
         WriteNativeOleLog(L"OleEditSession: Failed to read response.");
-        CloseHandle(pipe);
-        return HResultFromWin32LastError();
+        return HRESULT_FROM_WIN32(ioError);
+    }
+
+    if (responseBuffer[responseSize / sizeof(wchar_t) - 1] != L'\0')
+    {
+        SendCommitAck(pipe.get(), false, L"OLE_EDIT_PROTOCOL_ERROR", OLE_EDIT_PROTOCOL_ERROR);
+        return OLE_EDIT_PROTOCOL_ERROR;
     }
 
     std::wstring response(responseBuffer.data());
+
+    if (static_cast<DWORD>(ExtractJsonNumber(response, L"protocolVersion")) != kOleEditProtocolVersion)
+    {
+        WriteNativeOleLog(L"OleEditSession: Protocol version mismatch.");
+        SendCommitAck(pipe.get(), false, L"OLE_EDIT_PROTOCOL_ERROR", OLE_EDIT_PROTOCOL_ERROR);
+        return OLE_EDIT_PROTOCOL_ERROR;
+    }
 
     // 8. Parse response using JsonHelper (nlohmann/json if available, else fallback)
     std::wstring action = JsonReadString(response, L"action");
@@ -618,7 +754,11 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                 MultiByteToWideChar(CP_UTF8, 0, narrow.data(), (int)narrow.size(), &newPayloadJson[0], wideLen);
             }
         }
-        catch (...) {}
+        catch (const std::exception& error)
+        {
+            UNREFERENCED_PARAMETER(error);
+            WriteNativeOleLog(L"OleEditSession: Failed to parse save response JSON.");
+        }
 #else
         // Fallback: ExtractJsonString handles JSON escape sequences correctly
         newPayloadJson = ExtractJsonString(response, L"formula");
@@ -635,14 +775,20 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
             newLatex = JsonReadString(response, L"latex");
         }
 
+        const int responseRevision = static_cast<int>(ExtractJsonNumber(newPayloadJson, L"revision"));
+        if (responseRevision != revision + 1)
+        {
+            WriteNativeOleLog(L"OleEditSession: Revision conflict.");
+            SendCommitAck(pipe.get(), false, L"OLE_EDIT_REVISION_CONFLICT", OLE_EDIT_REVISION_CONFLICT);
+            return OLE_EDIT_REVISION_CONFLICT;
+        }
+
         if (!newLatex.empty())
         {
             // P0-6: All-or-nothing update — do NOT commit new LaTeX without valid preview.
             // If the new payload has no EMF, we must keep the entire old presentation
             // to prevent "new LaTeX + old preview" inconsistency.
             bool hasValidPreview = false;
-            std::wstring updatedPayloadJson;
-
             if (!newPayloadJson.empty())
             {
                 FormulaPresentation fresh = CreatePresentationFromPayload(newPayloadJson);
@@ -660,25 +806,39 @@ HRESULT StartEditSessionPipe(const std::wstring& formulaId,
                 // P0-6: Preview generation failed — reject the save entirely.
                 // Return the old presentation unchanged.
                 WriteNativeOleLog(L"OleEditSession: Save rejected — new formula has no valid EMF preview.");
-                // Signal error back to caller by returning empty response
-                return HResultFromWin32LastError();
+                SendCommitAck(pipe.get(), false, L"OLE_EDIT_PREVIEW_FAILED", OLE_EDIT_PREVIEW_FAILED);
+                return OLE_EDIT_PREVIEW_FAILED;
             }
 
             WriteNativeOleLog(L"OleEditSession: Formula updated from Desktop.");
-            CloseHandle(pipe);
+            if (!SendCommitAck(pipe.get(), true, L"", S_OK))
+            {
+                WriteNativeOleLog(L"OleEditSession: Formula committed but commit ACK could not be delivered.");
+            }
             return S_OK;
         }
+
+        SendCommitAck(pipe.get(), false, L"OLE_EDIT_INVALID_FORMULA", E_INVALIDARG);
+        return E_INVALIDARG;
     }
 
     // Check for explicit cancel
     if (action == L"cancel")
     {
         WriteNativeOleLog(L"OleEditSession: Desktop cancelled editing.");
-        CloseHandle(pipe);
+        SendCommitAck(pipe.get(), true, L"", S_FALSE);
         return S_FALSE;
     }
 
+    if (action == L"error")
+    {
+        const std::wstring errorCode = JsonReadString(response, L"errorCode");
+        if (errorCode == L"OLE_EDIT_BUSY") return OLE_EDIT_BUSY;
+        if (errorCode == L"OLE_EDIT_REVISION_CONFLICT") return OLE_EDIT_REVISION_CONFLICT;
+        return OLE_EDIT_PROTOCOL_ERROR;
+    }
+
     WriteNativeOleLog(L"OleEditSession: Desktop cancelled or invalid response.");
-    CloseHandle(pipe);
-    return S_FALSE;
+    SendCommitAck(pipe.get(), false, L"OLE_EDIT_PROTOCOL_ERROR", OLE_EDIT_PROTOCOL_ERROR);
+    return OLE_EDIT_PROTOCOL_ERROR;
 }

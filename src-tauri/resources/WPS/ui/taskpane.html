@@ -70,7 +70,7 @@
 
     <section class="panel">
       <label for="latexSource">LaTeX</label>
-      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: e^{i\pi}+1=0">e^{i\pi}+1=0</textarea>
+      <textarea id="latexSource" spellcheck="false" placeholder="输入 LaTeX 公式，例如: \frac{a}{b}"></textarea>
       <div id="previewSection">
         <label>预览</label>
         <div id="previewHost" class="preview-host">
@@ -117,6 +117,12 @@
     let bridgeConnected = false;
     let bridgeToken = "";
 
+    function logWpsFailure(operation, formulaId, error) {
+      const hresult = error && (error.number || error.hresult || error.code) || 0;
+      console.error(`[WPS] operation=${operation} host=wps formulaId=${formulaId || "<unknown>"} hresult=${hresult}`,
+        error && (error.name || "Error"));
+    }
+
     function setStatus(kind, message) {
       els.statusBanner.className = "status-banner " + kind;
       els.statusText.textContent = message;
@@ -127,7 +133,7 @@
         window.parent.window.Application.PluginStorage.setItem("current_latex", els.latexSource.value);
         window.parent.window.Application.PluginStorage.setItem("current_display", els.displayMode.checked);
         window.parent.window.Application.PluginStorage.setItem("current_auto_number", els.autoNumber.checked);
-      } catch (e) {}
+      } catch (e) { logWpsFailure("sync-storage", null, e); }
     }
 
     async function checkBridge() {
@@ -138,7 +144,7 @@
         bridgeConnected = true;
         try {
           window.parent.window.Application.PluginStorage.setItem("bridge_token", bridgeToken);
-        } catch (e) {}
+        } catch (e) { logWpsFailure("store-bridge-token", null, e); }
         setStatus("success", "已连接到 LaTeXSnipper Bridge");
         els.connectButton.textContent = "已连接";
         els.connectButton.disabled = true;
@@ -182,7 +188,7 @@
 
     // ─── All commands route through parent.CommandLayer.dispatch ────
     var CL = function() {
-      try { return window.parent.window.CommandLayer; } catch(e) { return null; }
+      try { return window.parent.window.CommandLayer; } catch(e) { logWpsFailure("resolve-command-layer", null, e); return null; }
     }();
 
     function callWPS(cmd) {
@@ -240,7 +246,7 @@
         try {
           var app = window.parent.window.Application;
           var isPPT = false;
-          try { isPPT = !!app.ActivePresentation && !app.ActiveDocument; } catch(e) {}
+          try { isPPT = !!app.ActivePresentation && !app.ActiveDocument; } catch(e) { logWpsFailure("detect-host", null, e); }
           if (isPPT) {
             var slide = app.ActiveWindow.View.Slide;
             if (!slide) { alert("请先选择一张幻灯片"); return; }
@@ -255,7 +261,7 @@
           return;
         }
 
-        try { await wpsFetch(BRIDGE_URL + "/delete-temp?path=" + encodeURIComponent(filePath), { method: "DELETE" }); } catch(e) {}
+        try { await wpsFetch(BRIDGE_URL + "/delete-temp?path=" + encodeURIComponent(filePath), { method: "DELETE" }); } catch(e) { logWpsFailure("delete-temp", null, e); }
         setStatus("success", "图片插入成功");
       } catch (e) {
         setStatus("error", "插入失败: " + e.message);
@@ -292,7 +298,7 @@
         try {
           var fn = window.parent.window.renumberAll;
           if (typeof fn === "function") { fn(); return; }
-        } catch(e) {}
+        } catch(e) { logWpsFailure("invoke-renumber", null, e); }
         setStatus("error", "重新编号功能在任务窗格中不可用，请在 ribbon 工具栏使用");
       });
     }

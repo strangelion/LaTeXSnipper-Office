@@ -107,6 +107,10 @@
       <Component Id="OleRuntimeStateComponent" Directory="NativeOfficeDir" Guid="1E60955A-CA06-4E32-AC21-CB0C4785724E">
         <RegistryKey Root="HKCU" Key="Software\LaTeXSnipper">
           <RegistryValue Type="string" Name="InstallPath" Value="[INSTALLDIR]" KeyPath="yes" />
+          <RegistryValue Type="string" Name="RegistrationOwner" Value="LaTeXSnipper.NativeOfficeMSI" />
+          <RegistryValue Type="string" Name="InstallId" Value="[ProductCode]" />
+          <RegistryValue Type="string" Name="InstallerType" Value="MSI" />
+          <RegistryValue Type="string" Name="Version" Value="[ProductVersion]" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\LaTeXSnipper\OfficePlugin\OleFormulaObject"
                      ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
@@ -137,6 +141,11 @@
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
           <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
+          <RegistryValue Type="string" Name="RegistrationOwner" Value="LaTeXSnipper.NativeOfficeMSI" />
+          <RegistryValue Type="string" Name="InstallId" Value="[ProductCode]" />
+          <RegistryValue Type="string" Name="InstallerType" Value="MSI" />
+          <RegistryValue Type="string" Name="Version" Value="[ProductVersion]" />
+          <RegistryValue Type="string" Name="DllSha256" Value="$(var.OleDllX86Sha256)" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\Insertable" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes" />
         <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\DefaultIcon">
@@ -174,6 +183,11 @@
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
           <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
+          <RegistryValue Type="string" Name="RegistrationOwner" Value="LaTeXSnipper.NativeOfficeMSI" />
+          <RegistryValue Type="string" Name="InstallId" Value="[ProductCode]" />
+          <RegistryValue Type="string" Name="InstallerType" Value="MSI" />
+          <RegistryValue Type="string" Name="Version" Value="[ProductVersion]" />
+          <RegistryValue Type="string" Name="DllSha256" Value="$(var.OleDllX64Sha256)" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\Insertable" ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes" />
         <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\DefaultIcon">

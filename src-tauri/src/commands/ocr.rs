@@ -24,9 +24,9 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
     #[cfg(not(feature = "recognition"))]
     {
         let _ = image_data;
-        return Err(
+        Err(
             "OCR recognition is not included in the default Office Bridge build. Rebuild with the recognition feature to enable local OCR.".to_string(),
-        );
+        )
     }
 
     #[cfg(feature = "recognition")]

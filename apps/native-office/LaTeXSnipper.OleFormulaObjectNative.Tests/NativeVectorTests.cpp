@@ -1,4 +1,5 @@
 #include "Presentation.h"
+#include "JsonHelper.h"
 #include "LaTeXSnipperFormula.h"
 #include "OleFormulaIds.h"
 #include "SvgPathParser.h"
@@ -8,10 +9,16 @@
 #include <windows.h>
 #include <objidl.h>
 #include <gdiplus.h>
+#include <bcrypt.h>
+#include <shlobj.h>
 
 #include <cmath>
 #include <chrono>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -158,8 +165,129 @@ std::wstring PendingValueName(DWORD pid)
     return L"PendingPayload." + std::to_wstring(pid);
 }
 
-void WritePendingPayload(DWORD pid, const std::wstring& payload)
+void TestValidSvgSurvivesInvalidPngFallback()
 {
+    const std::wstring payload =
+        L"{\"latex\":\"x\",\"widthPt\":72,\"heightPt\":72,\"render\":{"
+        L"\"widthPt\":72,\"heightPt\":72,\"svg\":\"<svg viewBox='0 0 10 10'><path d='M1 1L9 1L5 9Z'/></svg>\","
+        L"\"png\":\"not-valid-base64\"}}";
+    FormulaPresentation result = CreatePresentationFromPayload(payload);
+    Expect(!result.enhancedMetafile.empty(), L"valid SVG was discarded when PNG fallback was invalid: " + result.diagnostic);
+    Expect(result.previewKind == PreviewKind::GeneratedVectorEmf, L"valid SVG did not remain the selected preview route");
+    Expect(result.isVector, L"valid SVG result was not marked vector");
+}
+
+void TestEmfCorruptionValidation()
+{
+    SvgToEmfResult source = ConvertMathJaxSvgToVectorEmf(
+        L"<svg viewBox='0 0 10 10'><path d='M1 1L9 1L5 9Z'/></svg>", 72.0, 72.0, L"black");
+    Expect(source.success, L"EMF corruption fixture generation failed");
+    if (!source.success) return;
+    std::wstring reason;
+
+    std::vector<BYTE> trailing = source.emfBytes;
+    trailing.insert(trailing.end(), 4, 0);
+    Expect(!ValidateEmfRecords(trailing, &reason), L"EMF trailing data was accepted");
+
+    std::vector<BYTE> truncated = source.emfBytes;
+    truncated.resize(truncated.size() - sizeof(EMREOF));
+    Expect(!ValidateEmfRecords(truncated, &reason), L"EMF missing EOF was accepted");
+
+    std::vector<BYTE> badCount = source.emfBytes;
+    DWORD count = 0;
+    std::memcpy(&count, badCount.data() + offsetof(ENHMETAHEADER, nRecords), sizeof(count));
+    ++count;
+    std::memcpy(badCount.data() + offsetof(ENHMETAHEADER, nRecords), &count, sizeof(count));
+    Expect(!ValidateEmfRecords(badCount, &reason), L"EMF record count mismatch was accepted");
+}
+
+void TestMathJaxGoldenFixtures(const std::filesystem::path& directory)
+{
+    size_t count = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(directory))
+    {
+        if (!entry.is_regular_file() || entry.path().extension() != L".svg") continue;
+        std::ifstream input(entry.path(), std::ios::binary);
+        std::string utf8((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        const int wideLength = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(),
+            static_cast<int>(utf8.size()), nullptr, 0);
+        Expect(wideLength > 0, L"golden fixture is not valid UTF-8: " + entry.path().wstring());
+        if (wideLength <= 0) continue;
+        std::wstring svg(static_cast<size_t>(wideLength), L'\0');
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()),
+            svg.data(), wideLength);
+        SvgToEmfResult result = ConvertMathJaxSvgToVectorEmf(svg, 180.0, 60.0, L"black");
+        Expect(result.success, L"real MathJax fixture failed: " + entry.path().filename().wstring() + L": " + result.error);
+        ++count;
+    }
+    Expect(count >= 4, L"real MathJax golden fixture set is incomplete");
+}
+
+std::map<DWORD, std::wstring> g_pendingPayloadPaths;
+
+std::string Sha256Hex(const std::string& bytes)
+{
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    BCRYPT_HASH_HANDLE hash = nullptr;
+    DWORD objectBytes = 0;
+    DWORD hashBytes = 0;
+    DWORD resultBytes = 0;
+    NTSTATUS status = BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+    Expect(status >= 0, L"cannot open SHA-256 provider");
+    if (status < 0) return {};
+    status = BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&objectBytes), sizeof(objectBytes), &resultBytes, 0);
+    if (status >= 0) status = BCryptGetProperty(algorithm, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashBytes), sizeof(hashBytes), &resultBytes, 0);
+    std::vector<BYTE> object(objectBytes);
+    std::vector<BYTE> digest(hashBytes);
+    if (status >= 0) status = BCryptCreateHash(algorithm, &hash, object.data(), objectBytes, nullptr, 0, 0);
+    if (status >= 0) status = BCryptHashData(hash, reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())), static_cast<ULONG>(bytes.size()), 0);
+    if (status >= 0) status = BCryptFinishHash(hash, digest.data(), hashBytes, 0);
+    if (hash != nullptr) BCryptDestroyHash(hash);
+    BCryptCloseAlgorithmProvider(algorithm, 0);
+    Expect(status >= 0 && digest.size() == 32, L"cannot compute SHA-256");
+    if (status < 0 || digest.size() != 32) return {};
+    static constexpr char kHex[] = "0123456789abcdef";
+    std::string result;
+    for (BYTE value : digest)
+    {
+        result.push_back(kHex[value >> 4]);
+        result.push_back(kHex[value & 15]);
+    }
+    return result;
+}
+
+std::wstring PendingPayloadPath(const std::string& token)
+{
+    PWSTR localAppData = nullptr;
+    const HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData);
+    Expect(SUCCEEDED(result) && localAppData != nullptr, L"cannot resolve LocalAppData for payload fixture");
+    if (FAILED(result) || localAppData == nullptr) return {};
+    std::filesystem::path path(localAppData);
+    CoTaskMemFree(localAppData);
+    path /= L"LaTeXSnipper";
+    path /= L"OfficePlugin";
+    path /= L"PendingPayloads";
+    std::filesystem::create_directories(path);
+    path /= std::wstring(token.begin(), token.end()) + L".json";
+    return path.wstring();
+}
+
+void WritePendingPayload(DWORD pid, const std::wstring& payload, long long referenceTicks)
+{
+    const std::string utf8 = WideToUtf8(payload);
+    const std::string hash = Sha256Hex(utf8);
+    const std::string token = Sha256Hex(utf8 + std::to_string(pid));
+    const std::wstring payloadPath = PendingPayloadPath(token);
+    {
+        std::ofstream output(payloadPath, std::ios::binary | std::ios::trunc);
+        output.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
+        Expect(output.good(), L"cannot write pending payload fixture file");
+    }
+    g_pendingPayloadPaths[pid] = payloadPath;
+    std::wstringstream reference;
+    reference << L"{\"schemaVersion\":1,\"token\":\"" << std::wstring(token.begin(), token.end())
+              << L"\",\"createdUtcTicks\":" << referenceTicks << L",\"byteLength\":" << utf8.size()
+              << L",\"sha256\":\"" << std::wstring(hash.begin(), hash.end()) << L"\"}";
     HKEY key = nullptr;
     const LSTATUS opened = RegCreateKeyExW(
         HKEY_CURRENT_USER,
@@ -174,13 +302,14 @@ void WritePendingPayload(DWORD pid, const std::wstring& payload)
     Expect(opened == ERROR_SUCCESS && key != nullptr, L"cannot create pending payload test key");
     if (key == nullptr) return;
     const std::wstring name = PendingValueName(pid);
-    const DWORD bytes = static_cast<DWORD>((payload.size() + 1) * sizeof(wchar_t));
+    const std::wstring referenceText = reference.str();
+    const DWORD bytes = static_cast<DWORD>((referenceText.size() + 1) * sizeof(wchar_t));
     const LSTATUS written = RegSetValueExW(
         key,
         name.c_str(),
         0,
         REG_SZ,
-        reinterpret_cast<const BYTE*>(payload.c_str()),
+        reinterpret_cast<const BYTE*>(referenceText.c_str()),
         bytes);
     Expect(written == ERROR_SUCCESS, L"cannot write pending payload test value");
     RegCloseKey(key);
@@ -215,6 +344,12 @@ void DeletePendingValue(DWORD pid)
     const std::wstring name = PendingValueName(pid);
     RegDeleteValueW(key, name.c_str());
     RegCloseKey(key);
+    auto path = g_pendingPayloadPaths.find(pid);
+    if (path != g_pendingPayloadPaths.end())
+    {
+        DeleteFileW(path->second.c_str());
+        g_pendingPayloadPaths.erase(path);
+    }
 }
 
 std::wstring BuildPendingPayload(const std::wstring& formulaId, long long createdUtcTicks)
@@ -287,8 +422,8 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
     const DWORD unrelatedPid = pid == MAXDWORD ? pid - 1 : pid + 1;
     DeletePendingValue(pid);
     DeletePendingValue(unrelatedPid);
-    WritePendingPayload(pid, BuildPendingPayload(L"cross-sta-constructor", CurrentDotNetTicks()));
-    WritePendingPayload(unrelatedPid, L"unrelated-process-fixture");
+    WritePendingPayload(pid, BuildPendingPayload(L"cross-sta-constructor", CurrentDotNetTicks()), CurrentDotNetTicks());
+    WritePendingPayload(unrelatedPid, L"unrelated-process-fixture", CurrentDotNetTicks());
 
     ActivationResult activation{};
     std::thread worker([&]() { activation = ActivateThroughClassFactory(getClassObject); });
@@ -301,11 +436,24 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
     Expect(PendingValueExists(unrelatedPid), L"constructor removed another PID's payload");
     DeletePendingValue(unrelatedPid);
 
-    WritePendingPayload(pid, BuildPendingPayload(L"stale", 1));
+    WritePendingPayload(pid, BuildPendingPayload(L"stale", 1), 1);
     ActivationResult stale = ActivateThroughClassFactory(getClassObject);
     Expect(SUCCEEDED(stale.result), L"stale payload activation failed unexpectedly");
     Expect(stale.initialized == VARIANT_FALSE, L"stale payload initialized the OLE object");
     Expect(!PendingValueExists(pid), L"stale payload was not cleaned up");
+
+    WritePendingPayload(pid, BuildPendingPayload(L"tampered", CurrentDotNetTicks()), CurrentDotNetTicks());
+    const std::wstring tamperedPath = g_pendingPayloadPaths[pid];
+    {
+        std::ofstream output(tamperedPath, std::ios::binary | std::ios::trunc);
+        output << "tampered";
+    }
+    ActivationResult tampered = ActivateThroughClassFactory(getClassObject);
+    Expect(SUCCEEDED(tampered.result), L"tampered payload activation failed unexpectedly");
+    Expect(tampered.initialized == VARIANT_FALSE, L"tampered payload initialized the OLE object");
+    Expect(!PendingValueExists(pid), L"tampered payload reference was not cleaned up");
+    Expect(GetFileAttributesW(tamperedPath.c_str()) == INVALID_FILE_ATTRIBUTES, L"tampered payload file was not cleaned up");
+    g_pendingPayloadPaths.erase(pid);
 
     FreeLibrary(module);
 }
@@ -322,6 +470,16 @@ int wmain(int argc, wchar_t** argv)
     TestVectorFixture(L"ellipse and arc", L"<circle cx='20' cy='20' r='10'/><ellipse cx='60' cy='20' rx='15' ry='8'/><path d='M80 30 A15 10 20 1 1 110 10' fill='none' stroke='black'/>");
     TestVectorFixture(L"defs and use", L"<defs><path id='glyph' d='M0 0 L8 0 L4 8 Z'/></defs><g transform='translate(10 10) scale(2,-2)'><use href='#glyph'/><use href='#glyph' x='12' color='#ff0000' fill='currentColor'/></g>");
     TestVectorFixture(L"transform order", L"<g transform='translate(20 10) rotate(15 10 10) skewX(5) matrix(1 0 0 1 2 3)'><path d='M0 0 h20 v20 h-20 z'/></g>");
+    {
+        SvgToEmfResult none = ConvertMathJaxSvgToVectorEmf(
+            L"<svg viewBox='0 0 120 40' preserveAspectRatio='none'><path d='M0 0L120 0L120 40L0 40Z'/></svg>",
+            240.0, 40.0, L"black");
+        Expect(none.success, L"preserveAspectRatio none conversion failed: " + none.error);
+        SvgToEmfResult slice = ConvertMathJaxSvgToVectorEmf(
+            L"<svg viewBox='0 0 120 40' preserveAspectRatio='xMidYMid slice'><path d='M0 0L120 0L120 40L0 40Z'/></svg>",
+            40.0, 120.0, L"black");
+        Expect(slice.success, L"slice conversion with clip failed: " + slice.error);
+    }
 
     TestInvalid(L"empty SVG", L"", L"SVG_VECTOR_INVALID_XML");
     TestInvalid(L"external image", L"<svg viewBox='0 0 1 1'><image href='https://example.invalid/a.png'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
@@ -329,12 +487,24 @@ int wmain(int argc, wchar_t** argv)
     TestInvalid(L"DTD", L"<!DOCTYPE svg [<!ENTITY x 'x'>]><svg viewBox='0 0 1 1'><path d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
     TestInvalid(L"incomplete path", L"<svg viewBox='0 0 1 1'><path d='M0 0 L'/></svg>", L"SVG_PATH_INCOMPLETE");
     TestInvalid(L"use cycle", L"<svg viewBox='0 0 1 1'><defs><g id='a'><use href='#a'/></g></defs><use href='#a'/></svg>", L"SVG_VECTOR_USE_CYCLE");
+    TestInvalid(L"clip path", L"<svg viewBox='0 0 1 1'><path clip-path='url(#c)' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
+    TestInvalid(L"mask", L"<svg viewBox='0 0 1 1'><path mask='url(#m)' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
+    TestInvalid(L"display", L"<svg viewBox='0 0 1 1'><path display='none' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
+    TestInvalid(L"stroke linecap", L"<svg viewBox='0 0 1 1'><path stroke-linecap='round' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
+    TestInvalid(L"dash array", L"<svg viewBox='0 0 1 1'><path style='stroke-dasharray:1 1' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
+    TestInvalid(L"opacity fallback", L"<svg viewBox='0 0 1 1'><path opacity='0.5' d='M0 0L1 1'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
     TestPngFallback();
+    TestValidSvgSurvivesInvalidPngFallback();
+    TestEmfCorruptionValidation();
     TestStorageValidation();
-    if (argc == 2)
+    if (argc >= 2)
         TestPendingPayloadConstructor(argv[1]);
     else
         Expect(false, L"OLE DLL path argument is required for pending payload constructor tests");
+    if (argc >= 3)
+        TestMathJaxGoldenFixtures(argv[2]);
+    else
+        Expect(false, L"MathJax golden fixture directory argument is required");
 
     if (g_gdiplusToken != 0) Gdiplus::GdiplusShutdown(g_gdiplusToken);
     if (failures == 0)

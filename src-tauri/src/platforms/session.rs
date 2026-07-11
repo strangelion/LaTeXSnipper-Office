@@ -25,7 +25,7 @@ pub enum HostType {
 }
 
 impl HostType {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "word" => Some(Self::Word),
             "excel" => Some(Self::Excel),
@@ -45,11 +45,9 @@ impl HostType {
                 "insert_table",
                 "read_table",
             ],
-            Self::Excel | Self::PowerPoint => vec![
-                "insert_formula",
-                "replace_formula",
-                "read_selection",
-            ],
+            Self::Excel | Self::PowerPoint => {
+                vec!["insert_formula", "replace_formula", "read_selection"]
+            }
         }
         .into_iter()
         .map(String::from)
@@ -144,7 +142,7 @@ impl SessionManager {
                 }
 
                 // Register session with writer channel
-                let host = HostType::from_str(&hostType).unwrap_or(HostType::Word);
+                let host = HostType::parse(&hostType).unwrap_or(HostType::Word);
                 let session = OfficeSession {
                     session_id: sessionId.clone(),
                     host_type: host,
@@ -203,11 +201,21 @@ impl SessionManager {
                     // Store capabilities as a list of supported feature strings
                     if let Some(ref caps) = capabilities {
                         let mut cap_list = Vec::new();
-                        if caps.insert_formula { cap_list.push("insert_formula".to_string()); }
-                        if caps.replace_formula { cap_list.push("replace_formula".to_string()); }
-                        if caps.read_selection { cap_list.push("read_selection".to_string()); }
-                        if caps.insert_table { cap_list.push("insert_table".to_string()); }
-                        if caps.read_table { cap_list.push("read_table".to_string()); }
+                        if caps.insert_formula {
+                            cap_list.push("insert_formula".to_string());
+                        }
+                        if caps.replace_formula {
+                            cap_list.push("replace_formula".to_string());
+                        }
+                        if caps.read_selection {
+                            cap_list.push("read_selection".to_string());
+                        }
+                        if caps.insert_table {
+                            cap_list.push("insert_table".to_string());
+                        }
+                        if caps.read_table {
+                            cap_list.push("read_table".to_string());
+                        }
                         session.capabilities = cap_list;
                     }
                     log::info!(
@@ -724,6 +732,11 @@ impl SessionManager {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
+#[allow(
+    non_snake_case,
+    dead_code,
+    reason = "Envelope field names mirror the versioned desktop protocol"
+)]
 pub struct ResponseEnvelope {
     pub requestId: String,
     pub sessionId: String,

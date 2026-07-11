@@ -59,6 +59,8 @@
     <Compile Include="OleFormulaInterop.cs" />
     <Compile Include="OleFormulaActivation.cs" />
     <Compile Include="OleFormulaPendingPayloadStore.cs" />
+    <Compile Include="OfficeOperationLog.cs" />
+    <Compile Include="StrictBase64.cs" />
     <Compile Include="FormulaObjectLocator.cs" />
     <Compile Include="Metadata\ManifestDiagnostics.cs" />
     <Compile Include="RibbonLocalizer.cs" />

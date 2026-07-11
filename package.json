@@ -17,11 +17,16 @@
     "build:android": "tauri android build",
     "lint": "eslint src --ext .js,.ts",
     "format": "prettier --write src/**/*.{js,ts,css}",
+    "format:check": "prettier --check src/**/*.{js,ts,css} tests/**/*.mjs scripts/**/*.mjs",
+    "typecheck": "tsc -p tsconfig.ci.json",
+    "test": "npm run test:frontend",
     "stage:resources": "node scripts/stage-resources.js",
     "prepare:native-office": "node scripts/prepare-native-office.js",
     "check:office-package": "node scripts/check-native-office-package.mjs",
     "check:frontend": "node --check src/main.js",
     "test:frontend": "node --test tests/formula-svg-renderer.test.mjs",
+    "fixtures:mathjax": "node scripts/generate-mathjax-svg-fixtures.mjs",
+    "fixtures:mathjax:check": "node scripts/generate-mathjax-svg-fixtures.mjs --check",
     "check:office-payload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-native-office-payload.ps1 -PayloadRoot apps/native-office/Installer/output/staging",
     "build:obsidian": "npm --prefix apps/obsidian-plugin ci && npm --prefix apps/obsidian-plugin run build -- --production",
     "build:vscode": "npm --prefix apps/vscode-extension ci && npm --prefix apps/vscode-extension run build",
@@ -47,7 +52,8 @@
     "eslint": "^8.45.0",
     "prettier": "^3.0.0",
     "typescript": "^5.1.0",
-    "vite": "^4.5.14"
+    "vite": "^4.5.14",
+    "mathjax-full": "3.2.2"
   },
   "keywords": [
     "latex",

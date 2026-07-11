@@ -76,8 +76,8 @@ function insertEquation(latex, display) {
 
     if (selection.OMaths.Count > 0) {
         let oMath = selection.OMaths.Item(1)
-        if (display) { try { oMath.Justification = 1 } catch(e) {} }
-        try { oMath.BuildUp() } catch(e) {}
+        if (display) { try { oMath.Justification = 1 } catch(e) { console.error('[WPS] operation=set-display-justification host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); } }
+        try { oMath.BuildUp() } catch(e) { console.error('[WPS] operation=build-up-formula host=wps formulaId=<unknown> hresult=' + (e.number || 0), e.name); }
 
         selection.Range.Collapse(0)
         return true

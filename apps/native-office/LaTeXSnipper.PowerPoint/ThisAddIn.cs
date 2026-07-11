@@ -84,7 +84,7 @@ namespace LaTeXSnipper.PowerPoint
                     });
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("startup-dispatch", "powerpoint", null, ex); }
         }
 
         private async Task InitializePipeAsync()
@@ -309,7 +309,7 @@ namespace LaTeXSnipper.PowerPoint
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-selected-formula-id", "powerpoint", null, ex); }
             return null;
         }
 

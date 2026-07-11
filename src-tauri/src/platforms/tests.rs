@@ -7,7 +7,7 @@
 //! - Session lifecycle
 
 #[cfg(test)]
-mod tests {
+mod platform_hardening_tests {
     use crate::platforms::acl;
     use crate::platforms::pipe_protocol;
     use crate::platforms::pipe_security;
@@ -45,7 +45,6 @@ mod tests {
     #[test]
     fn test_sid_is_not_username() {
         let sid = acl::pipe_sid().unwrap();
-        let username = whoami::username();
         let pipe_name = acl::pipe_name().unwrap();
         assert!(
             pipe_name.contains(&format!("{}.{}", pipe_protocol::PIPE_PREFIX, sid)),

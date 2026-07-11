@@ -244,6 +244,7 @@ fn detect_powerpoint() -> OfficeAppStatus {
     status
 }
 
+#[allow(dead_code, reason = "Reserved for standalone WPS diagnostics")]
 fn detect_wps() -> bool {
     // Check registry
     if query_reg(r"HKLM\SOFTWARE\Kingsoft\Office", "InstallPath").is_some() {

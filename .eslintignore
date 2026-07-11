@@ -1,0 +1,7 @@
+dist/
+src/dist/
+src/public/
+src-tauri/resources/
+**/node_modules/
+**/bin/
+**/obj/

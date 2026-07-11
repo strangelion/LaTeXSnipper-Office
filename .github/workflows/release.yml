@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native-office-required:
+    uses: ./.github/workflows/native-office-ci.yml
+    permissions:
+      contents: read
+
+  package-required:
+    uses: ./.github/workflows/package-verify.yml
+    permissions:
+      contents: read
+
+  release:
+    needs: [native-office-required, package-required]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: verified-*-packages
+          path: release-assets
+          merge-multiple: true
+      - name: Generate SBOM and license inventory
+        run: |
+          node scripts/generate-release-metadata.mjs
+          mv SBOM.spdx.json THIRD-PARTY-LICENSES.json release-assets/
+      - name: Generate SHA256SUMS
+        working-directory: release-assets
+        run: find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          test -n "$RELEASE_TAG"
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          find release-assets -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber

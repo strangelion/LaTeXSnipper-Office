@@ -105,7 +105,7 @@ namespace LaTeXSnipper.Word.Metadata
                         colspan = uint.Parse(xml.Substring(valStart, valEnd - valStart));
                 }
             }
-            catch { }
+            catch (Exception ex) { OfficeOperationLog.Failure("read-table-style", "word", null, ex); }
 
             // Process each paragraph in the cell
             foreach (Microsoft.Office.Interop.Word.Paragraph para in range.Paragraphs)
@@ -210,7 +210,7 @@ namespace LaTeXSnipper.Word.Metadata
                                     _app.Selection.SetRange(cellRange.Start, cellRange.End);
                                     _app.Selection.OMaths.Add(cellRange);
                                     _app.Selection.TypeText(latex);
-                                    try { _app.Selection.OMaths.BuildUp(); } catch { }
+                                    try { _app.Selection.OMaths.BuildUp(); } catch (Exception ex) { OfficeOperationLog.Failure("build-up-table-formula", "word", null, ex); }
                                 }
                                 else
                                 {

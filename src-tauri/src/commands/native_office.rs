@@ -19,6 +19,10 @@ pub async fn native_office_sessions(
 
 /// Insert formula into the current Office host.
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command parameters are part of the public invoke ABI"
+)]
 pub async fn native_office_insert_formula(
     session_mgr: State<'_, Arc<SessionManager>>,
     session_id: String,
@@ -56,13 +60,11 @@ pub async fn native_office_insert_formula(
                 })
             }),
         source: None,
-        storage_mode: integration_mode.as_deref().map(|s| {
-            match s {
-                "ole" => "ole".to_string(),
-                "image" => "image".to_string(),
-                "native" => "native-omml".to_string(),
-                _ => "auto".to_string(),
-            }
+        storage_mode: integration_mode.as_deref().map(|s| match s {
+            "ole" => "ole".to_string(),
+            "image" => "image".to_string(),
+            "native" => "native-omml".to_string(),
+            _ => "auto".to_string(),
         }),
         revision: 0,
         created_utc_ticks: 0,
@@ -77,13 +79,11 @@ pub async fn native_office_insert_formula(
 
     // Resolve integration mode. OLE is supported by the native handler: the
     // frontend sends render.png and the COM object converts it to an EMF preview.
-    let im = integration_mode.as_deref().map(|s| {
-        match s {
-            "ole" => FormulaIntegrationMode::Ole,
-            "native" => FormulaIntegrationMode::Native,
-            "image" => FormulaIntegrationMode::Image,
-            _ => FormulaIntegrationMode::Auto,
-        }
+    let im = integration_mode.as_deref().map(|s| match s {
+        "ole" => FormulaIntegrationMode::Ole,
+        "native" => FormulaIntegrationMode::Native,
+        "image" => FormulaIntegrationMode::Image,
+        _ => FormulaIntegrationMode::Auto,
     });
 
     crate::platforms::pipe_server::send_insert_formula(
@@ -99,51 +99,12 @@ pub async fn native_office_insert_formula(
     Ok("Formula insertion sent".to_string())
 }
 
-/// Render LaTeX to SVG using frontend Temml renderer.
-/// This triggers the frontend to render and returns the SVG.
-#[tauri::command]
-pub async fn native_office_render_svg(
-    app: tauri::AppHandle,
-    latex: String,
-    display: bool,
-) -> Result<String, String> {
-    use tauri::Emitter;
-
-    // Generate unique request ID
-    let request_id = format!("svg-{}", uuid_simple());
-
-    // Create a oneshot channel to wait for the response
-    let (_tx, _rx) = tokio::sync::oneshot::channel::<String>();
-
-    // Store the sender in a temporary map (we'll use a simpler approach)
-    // For now, just emit the event and wait for the frontend to call back
-
-    // Emit event to frontend to render SVG
-    let _ = app.emit(
-        "native-office-render-svg",
-        serde_json::json!({
-            "requestId": request_id,
-            "latex": latex,
-            "display": display
-        }),
-    );
-
-    // Wait for response from frontend (with timeout)
-    match tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        // In a real implementation, we'd use a shared state to wait for the response
-        // For now, return a placeholder
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        Ok::<String, String>(String::new())
-    })
-    .await
-    {
-        Ok(Ok(svg)) => Ok(svg),
-        _ => Err("SVG render timeout".to_string()),
-    }
-}
-
 /// Replace formula in the current Office host.
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command parameters are part of the public invoke ABI"
+)]
 pub async fn native_office_replace_formula(
     session_mgr: State<'_, Arc<SessionManager>>,
     session_id: String,
@@ -308,6 +269,10 @@ pub async fn native_office_insert_reference(
 
 /// Convert a formula between storage modes (image ↔ ole, native ↔ ole).
 #[tauri::command]
+#[allow(
+    dead_code,
+    reason = "Reserved for VSTO protocol clients during staged rollout"
+)]
 pub async fn native_office_convert_formula(
     session_mgr: State<'_, Arc<SessionManager>>,
     session_id: String,
@@ -338,7 +303,8 @@ pub async fn native_office_ole_status() -> Result<OleStatus, String> {
 
 /// Check VSTO trust status: runtime, certificate, manifest loading.
 #[tauri::command]
-pub async fn native_office_vsto_trust_status() -> Result<crate::platforms::integrations::VstoTrustStatus, String> {
+pub async fn native_office_vsto_trust_status(
+) -> Result<crate::platforms::integrations::VstoTrustStatus, String> {
     #[cfg(target_os = "windows")]
     {
         let runtime = crate::platforms::integrations::detect_vsto_runtime();
@@ -468,7 +434,8 @@ pub async fn native_office_uninstall() -> Result<NativeOfficeOperationStarted, S
 
 /// Install OLE COM component (x86/x64 dual registry view).
 #[tauri::command]
-pub async fn native_office_install_ole() -> Result<crate::platforms::integrations::OleComponentResult, String> {
+pub async fn native_office_install_ole(
+) -> Result<crate::platforms::integrations::OleComponentResult, String> {
     #[cfg(target_os = "windows")]
     {
         let result = crate::platforms::integrations::install_ole_component();
@@ -486,7 +453,8 @@ pub async fn native_office_install_ole() -> Result<crate::platforms::integration
 
 /// Re-register VSTO add-ins and re-import signing certificate.
 #[tauri::command]
-pub async fn native_office_repair_vsto() -> Result<crate::platforms::integrations::PlatformIntegrationResult, String> {
+pub async fn native_office_repair_vsto(
+) -> Result<crate::platforms::integrations::PlatformIntegrationResult, String> {
     #[cfg(target_os = "windows")]
     {
         Ok(crate::platforms::integrations::install_native_office_vsto())
@@ -499,7 +467,8 @@ pub async fn native_office_repair_vsto() -> Result<crate::platforms::integration
 
 /// Uninstall OLE COM component (remove dual registry view).
 #[tauri::command]
-pub async fn native_office_uninstall_ole() -> Result<crate::platforms::integrations::OleComponentResult, String> {
+pub async fn native_office_uninstall_ole(
+) -> Result<crate::platforms::integrations::OleComponentResult, String> {
     #[cfg(target_os = "windows")]
     {
         let result = crate::platforms::integrations::uninstall_ole_component();
@@ -517,7 +486,8 @@ pub async fn native_office_uninstall_ole() -> Result<crate::platforms::integrati
 
 /// Validate OLE component: runs smoke checks and returns detailed status.
 #[tauri::command]
-pub async fn native_office_validate_ole() -> Result<crate::platforms::integrations::OleStatus, String> {
+pub async fn native_office_validate_ole(
+) -> Result<crate::platforms::integrations::OleStatus, String> {
     Ok(crate::platforms::integrations::check_ole_status())
 }
 
