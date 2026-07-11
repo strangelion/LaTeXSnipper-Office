@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::Write;
@@ -29,11 +30,13 @@ pub fn is_taskpane_connected() -> bool {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(target_os = "windows")]
 enum RegistryView {
     X64,
     X86,
 }
 
+#[cfg(target_os = "windows")]
 impl RegistryView {
     fn as_reg_arg(self) -> &'static str {
         match self {
@@ -50,6 +53,7 @@ impl RegistryView {
     }
 }
 
+#[cfg(target_os = "windows")]
 const REGISTRY_VIEWS: [RegistryView; 2] = [RegistryView::X64, RegistryView::X86];
 
 /// Safely parse a REG_DWORD hex value from a `reg query` output line.
@@ -250,6 +254,7 @@ fn ledger_path() -> PathBuf {
     app_data_dir().join("integration-ledger.v1.json")
 }
 
+#[cfg(target_os = "windows")]
 fn generate_install_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()
@@ -259,6 +264,7 @@ fn generate_install_id() -> String {
     format!("{}-{:x}", std::process::id(), t)
 }
 
+#[cfg(target_os = "windows")]
 fn get_desktop_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -575,6 +581,7 @@ fn github_root_from_manifest() -> Option<PathBuf> {
     repo_root_from_manifest()?.parent().map(Path::to_path_buf)
 }
 
+#[cfg(target_os = "windows")]
 fn find_office_force_clean() -> Option<PathBuf> {
     let github_root = github_root_from_manifest()?;
     let path = github_root
@@ -867,6 +874,7 @@ fn reg_delete_tree_both(key: &str) {
     let _ = reg_delete_tree_view(key, RegistryView::X86);
 }
 
+#[cfg(target_os = "windows")]
 fn office_addin_clsid() -> &'static str {
     "{71CE99BB-D608-45D7-B837-ABDE82B9B61A}"
 }
@@ -881,6 +889,7 @@ fn office_addin_assembly_name() -> &'static str {
     "LaTeXSnipper.OfficeAddIn, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
 }
 
+#[cfg(target_os = "windows")]
 fn hkcu_classes_key(path: &str) -> String {
     format!(r"HKCU\Software\Classes\{}", path)
 }
@@ -1020,7 +1029,6 @@ pub async fn auto_register_office_addin(_app_handle: &tauri::AppHandle) {
     #[cfg(not(target_os = "windows"))]
     {
         println!("[Office] COM add-in registration skipped (not Windows).");
-        return;
     }
 
     #[cfg(target_os = "windows")]
@@ -1429,6 +1437,7 @@ const OFFICE_DEVELOPER_KEY: &str = r"HKCU\Software\Microsoft\Office\16.0\WEF\Dev
 
 #[derive(Clone, Copy)]
 struct OfficeJsHost {
+    #[cfg(target_os = "windows")]
     id: &'static str,
     name: &'static str,
     manifest_file: &'static str,
@@ -1440,6 +1449,7 @@ struct OfficeJsHost {
 
 const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
     OfficeJsHost {
+        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567890",
         name: "Word",
         manifest_file: "word.xml",
@@ -1449,6 +1459,7 @@ const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
         mac_container: "com.microsoft.Word",
     },
     OfficeJsHost {
+        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567891",
         name: "Excel",
         manifest_file: "excel.xml",
@@ -1458,6 +1469,7 @@ const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
         mac_container: "com.microsoft.Excel",
     },
     OfficeJsHost {
+        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567892",
         name: "PowerPoint",
         manifest_file: "powerpoint.xml",
@@ -1850,6 +1862,7 @@ fn check_office_addin() -> PlatformIntegrationResult {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Native Office VSTO Add-in identifiers
+#[cfg(target_os = "windows")]
 const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
     (
         "Word",
@@ -1871,6 +1884,7 @@ const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+#[cfg(target_os = "windows")]
 fn native_office_install_root() -> PathBuf {
     dirs_next::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -1879,6 +1893,7 @@ fn native_office_install_root() -> PathBuf {
         .join("NativeOffice")
 }
 
+#[cfg(target_os = "windows")]
 fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
     candidates.push(native_office_install_root().join(host_name).join(vsto_file));
@@ -1917,6 +1932,7 @@ fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathB
     candidates.into_iter().find(|path| path.exists())
 }
 
+#[cfg(target_os = "windows")]
 fn office_manifest_value(path: &Path) -> String {
     format!(
         "file:///{}|vstolocal",
@@ -1929,11 +1945,11 @@ fn office_manifest_value(path: &Path) -> String {
 pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
-        return PlatformIntegrationResult::fail(
+        PlatformIntegrationResult::fail(
             "office",
             "native-vsto",
             "Native Office VSTO is only available on Windows.",
-        );
+        )
     }
 
     #[cfg(target_os = "windows")]
@@ -2295,11 +2311,11 @@ fn check_native_office_vsto() -> bool {
 fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
     #[cfg(not(target_os = "windows"))]
     {
-        return PlatformIntegrationResult::fail(
+        PlatformIntegrationResult::fail(
             "office",
             "native-vsto",
             "Native Office VSTO is only available on Windows.",
-        );
+        )
     }
 
     #[cfg(target_os = "windows")]
@@ -4887,6 +4903,7 @@ pub fn uninstall_ole_component() -> OleComponentResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 extern "system" {
     fn RegOpenKeyExW(
         hKey: *mut std::ffi::c_void,
@@ -4934,10 +4951,12 @@ impl CleanerResult {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn skip(&mut self, entry: &str) {
         self.entries_skipped.push(entry.to_string());
     }
 
+    #[cfg(target_os = "windows")]
     fn remove(&mut self, entry: &str) {
         self.entries_removed.push(entry.to_string());
     }
@@ -4946,6 +4965,7 @@ impl CleanerResult {
         self.entries_failed.push(format!("{}: {}", entry, reason));
     }
 
+    #[cfg(target_os = "windows")]
     fn pending(&mut self, entry: &str) {
         self.pending_restart.push(entry.to_string());
     }
@@ -4974,11 +4994,6 @@ fn check_office_processes() -> Vec<String> {
         }
     }
     running
-}
-
-#[cfg(not(target_os = "windows"))]
-fn check_office_processes() -> Vec<String> {
-    vec![]
 }
 
 /// Clean Native VSTO integration state
