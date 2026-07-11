@@ -68,3 +68,8 @@ jobs:
     uses: ./.github/workflows/native-office-ci.yml
     permissions:
       contents: read
+
+  package-verify:
+    uses: ./.github/workflows/package-verify.yml
+    permissions:
+      contents: read
