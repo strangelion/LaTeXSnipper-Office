@@ -5474,15 +5474,28 @@ class UIController {
             `[Office] install_platform_integration result: success=${result.success}, message=${result.message}`,
           );
           this.clearOfficeStatusCache();
+          const actualStatus = await invoke("check_platform_integration", {
+            platformId: "office",
+          });
           if (result.success) {
             this.showToast("Office 插件已启用，请重启 Office 加载插件");
             return true;
-          } else {
-            this.showToast("启用失败: " + (result.message || result.error));
-            platform.enabled = false;
-            return false;
+          } 
+          if (actualStatus?.success) {
+            // VSTO 已实际安装，只是 OLE 所有权迁移失败。
+            // Office 基础集成仍应显示为已启用。
+            this.showToast(
+              "Office VSTO 已启用，但 OLE 需要修复：" +
+                (result.message || result.error || "未知错误"),
+              5000,
+            );
+            return true;
           }
         }
+
+        this.showToast("启用失败: " + (result.message || result.error));
+        platform.enabled = false;
+        return false;
 
         const result = await invoke("install_platform_integration", {
           platformId: platform.id,
