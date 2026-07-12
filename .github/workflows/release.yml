@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing application release tag, for example v1.2.3
+        description: Release version (e.g. 1.2.5 or v1.2.5). Tag must exist.
         required: true
         type: string
 
@@ -39,18 +39,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          input="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
 
-          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "Invalid application release tag: $tag" >&2
-            echo "Expected format: vMAJOR.MINOR.PATCH" >&2
+          # Accept both 1.2.5 and v1.2.5 formats
+          if [[ "$input" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            tag="v${BASH_REMATCH[1]}"
+          else
+            echo "Invalid release version: $input" >&2
+            echo "Expected format: MAJOR.MINOR.PATCH (e.g. 1.2.5)" >&2
             exit 1
           fi
 
           version="${BASH_REMATCH[1]}"
 
           if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "" >&2
             echo "Release tag does not exist: $tag" >&2
+            echo "" >&2
+            echo "To create this tag, run:" >&2
+            echo "  git tag $tag" >&2
+            echo "  git push origin $tag" >&2
+            echo "" >&2
+            echo "Existing tags:" >&2
+            git tag --list "v*" --sort=-version:refname | head -5 >&2
             exit 1
           fi
 
