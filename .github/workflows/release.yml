@@ -36,6 +36,8 @@ jobs:
       - name: Resolve and validate release source
         id: release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -99,36 +101,61 @@ jobs:
             exit 1
           fi
 
+          releases_file="${RUNNER_TEMP}/latexsnipper-releases.json"
+
+          gh api \
+            --paginate \
+            --slurp \
+            "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            > "$releases_file"
+
+          if [[ ! -s "$releases_file" ]]; then
+            echo "GitHub Releases API returned no data." >&2
+            exit 1
+          fi
+
           prior_tag="$(
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
-            node - "$version" <<'NODE'
+            node - "$version" "$releases_file" <<'NODE'
           const fs = require("node:fs");
 
-          const current = process.argv[2].split(".").map(Number);
+          const currentVersion = process.argv[2];
+          const releasesFile = process.argv[3];
 
-          const compare = (left, right) => {
+          const parseVersion = (value) => {
+            const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value);
+            if (!match) return null;
+            return [Number(match[1]), Number(match[2]), Number(match[3])];
+          };
+
+          const compareVersions = (left, right) => {
             for (let i = 0; i < 3; i += 1) {
               if (left[i] !== right[i]) return left[i] - right[i];
             }
             return 0;
           };
 
-          const releases = JSON.parse(fs.readFileSync(0, "utf8"));
+          const current = parseVersion(currentVersion);
+          if (!current) {
+            throw new Error(`Cannot parse current release version: ${currentVersion}`);
+          }
+
+          const raw = JSON.parse(fs.readFileSync(releasesFile, "utf8"));
+          const releases = raw.flatMap((page) => Array.isArray(page) ? page : [page]);
 
           const candidates = releases
             .filter((r) => !r.draft && !r.prerelease)
             .map((r) => r.tag_name)
             .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
-            .map((tag) => ({
-              tag,
-              version: tag.slice(1).split(".").map(Number),
-            }))
-            .filter((entry) => compare(entry.version, current) < 0)
-            .sort((a, b) => compare(a.version, b.version));
+            .map((tag) => ({ tag, version: parseVersion(tag) }))
+            .filter((e) => e.version !== null)
+            .filter((e) => compareVersions(e.version, current) < 0)
+            .sort((a, b) => compareVersions(a.version, b.version));
 
-          process.stdout.write(candidates.length ? candidates.at(-1).tag : "");
+          process.stdout.write(candidates.length > 0 ? candidates.at(-1).tag : "");
           NODE
           )"
+
+          rm -f "$releases_file"
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -136,6 +163,13 @@ jobs:
           echo "prior_tag=$prior_tag" >> "$GITHUB_OUTPUT"
 
           {
+            echo "## Release source"
+            echo
+            echo "- tag: \`$tag\`"
+            echo "- version: \`$version\`"
+            echo "- source SHA: \`$source_sha\`"
+            echo "- prior stable tag: \`${prior_tag:-none}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
             echo "## Release source"
             echo
             echo "- tag: \`$tag\`"
