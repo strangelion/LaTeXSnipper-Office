@@ -104,6 +104,8 @@ public:
     STDMETHOD(GetFormulaId)(BSTR* formulaId) override;
     STDMETHOD(OpenEditor)() override;
     STDMETHOD(IsInitialized)(VARIANT_BOOL* result) override;
+    STDMETHOD(GetExtentJson)(BSTR* extentJson) override;
+    STDMETHOD(CompleteInsertion)() override;
 
     // IDispatch
     STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;
@@ -116,6 +118,14 @@ private:
     HRESULT StartEditSession();
     HRESULT CopyLatexToClipboard();
     void ApplyPendingEditResult();
+
+    SIZEL GetEffectiveExtent() const noexcept;
+    void AdoptPresentation(FormulaPresentation&& presentation, bool preserveDisplayScale);
+    void RequestLayoutAndNotify();
+    bool IsInsertionComplete() const noexcept
+    {
+        return insertionComplete_.load(std::memory_order_acquire);
+    }
 
     volatile LONG refCount_ = 1;
     ATL::CComPtr<IOleClientSite> clientSite_;
@@ -134,6 +144,9 @@ private:
     // CF_METAFILEPICT dimensions or the cached presentation.
     SIZEL containerExtent_{};
     bool hasContainerExtent_ = false;
+    // Office 在创建阶段可能写入临时默认尺寸。
+    // 在宿主明确调用 CompleteInsertion 前，不能信任这些 SetExtent。
+    std::atomic<bool> insertionComplete_{false};
     std::wstring canonicalPayloadJson_;
     bool dirty_ = false;
     bool initializedFromRealPayload_ = false;

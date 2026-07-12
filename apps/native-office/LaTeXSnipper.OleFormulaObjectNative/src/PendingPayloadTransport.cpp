@@ -73,12 +73,12 @@ std::wstring GetPayloadPath(const std::string& token)
     return path;
 }
 
-std::wstring ReadAndDeleteReference()
+std::wstring ReadReference()
 {
     wchar_t valueName[64]{};
     swprintf_s(valueName, L"%s%lu", kValuePrefix, GetCurrentProcessId());
     UniqueRegistryKey key;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_QUERY_VALUE | KEY_SET_VALUE, key.Put()) != ERROR_SUCCESS)
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_QUERY_VALUE, key.Put()) != ERROR_SUCCESS)
         return {};
     DWORD type = 0;
     DWORD bytes = 0;
@@ -86,13 +86,11 @@ std::wstring ReadAndDeleteReference()
     if (status != ERROR_SUCCESS || type != REG_SZ || bytes < sizeof(wchar_t) ||
         bytes > (kMaximumReferenceCharacters + 1) * sizeof(wchar_t))
     {
-        RegDeleteValueW(key.Get(), valueName);
         return {};
     }
     std::wstring reference(bytes / sizeof(wchar_t), L'\0');
     status = RegQueryValueExW(key.Get(), valueName, nullptr, &type,
                               reinterpret_cast<BYTE*>(reference.data()), &bytes);
-    RegDeleteValueW(key.Get(), valueName);
     if (status != ERROR_SUCCESS) return {};
     while (!reference.empty() && reference.back() == L'\0') reference.pop_back();
     return reference;
@@ -144,8 +142,8 @@ bool FixedTimeHexEquals(const std::string& left, const std::string& right)
 bool ReadPayloadFile(const std::wstring& path, std::uint64_t expectedLength, const std::string& expectedHash,
                      std::wstring* payload)
 {
-    UniqueHandle file(CreateFileW(path.c_str(), GENERIC_READ | DELETE, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN | FILE_FLAG_DELETE_ON_CLOSE, nullptr));
+    UniqueHandle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                                  FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
     if (!file.IsValid()) return false;
     LARGE_INTEGER fileSize{};
     if (!GetFileSizeEx(file.Get(), &fileSize) || fileSize.QuadPart <= 0 ||
@@ -173,7 +171,7 @@ bool ReadPayloadFile(const std::wstring& path, std::uint64_t expectedLength, con
 
 std::wstring ConsumePendingPayloadReference()
 {
-    const std::wstring referenceText = ReadAndDeleteReference();
+    const std::wstring referenceText = ReadReference();
     if (referenceText.empty())
     {
         WriteNativeOleLog(L"PendingPayload: token reference not found for current PID.");

@@ -34,10 +34,12 @@ foreach ($file in $files) {
 Write-Host "Bumping version to $Version" -ForegroundColor Green
 
 # Use Node for JSON files so they remain UTF-8 without BOM and use stable formatting.
-$updateJsonScript = @'
+$tempScript = Join-Path $env:TEMP "bump-version-$([guid]::NewGuid().ToString('N').Substring(0,8)).cjs"
+try {
+    @'
 const fs = require("node:fs");
 
-const [file, version, updateLockRoot] = process.argv.slice(1);
+const [file, version, updateLockRoot] = process.argv.slice(2);
 const source = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
 const json = JSON.parse(source);
 
@@ -56,16 +58,19 @@ fs.writeFileSync(
   `${JSON.stringify(json, null, 2)}\n`,
   "utf8",
 );
-'@
+'@ | Set-Content -LiteralPath $tempScript -Encoding UTF8 -NoNewline
 
-& node -e $updateJsonScript "package.json" $Version "false"
-if ($LASTEXITCODE -ne 0) { throw "Failed to update package.json" }
+    & node $tempScript "package.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update package.json" }
 
-& node -e $updateJsonScript "package-lock.json" $Version "true"
-if ($LASTEXITCODE -ne 0) { throw "Failed to update package-lock.json" }
+    & node $tempScript "package-lock.json" $Version "true"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update package-lock.json" }
 
-& node -e $updateJsonScript "src-tauri/tauri.conf.json" $Version "false"
-if ($LASTEXITCODE -ne 0) { throw "Failed to update src-tauri/tauri.conf.json" }
+    & node $tempScript "src-tauri/tauri.conf.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update src-tauri/tauri.conf.json" }
+} finally {
+    if (Test-Path -LiteralPath $tempScript) { Remove-Item -LiteralPath $tempScript -Force }
+}
 
 # Update only the package version in Cargo.toml.
 $cargoPath = "src-tauri/Cargo.toml"
@@ -110,39 +115,45 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to synchronize src-tauri/Cargo.lock"
 }
 
-# Verify all version sources are consistent.
-$packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-$packageLock = Get-Content package-lock.json -Raw | ConvertFrom-Json
-$packageLockVersion = $packageLock.version
-$packageLockRootVersion = $packageLock.packages."".version
-$tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-$cargoText = Get-Content src-tauri/Cargo.toml -Raw
-$cargoMatch = [regex]::Match($cargoText, '(?m)^version\s*=\s*"([^"]+)"')
+# Verify all version sources are consistent using Node (avoids PowerShell JSON limits).
+$verifyScript = @"
+const fs = require("node:fs");
 
-if (-not $cargoMatch.Success) {
-    throw "Unable to verify Cargo.toml version"
+const version = process.argv[2];
+const errors = [];
+
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+if (pkg.version !== version) errors.push("package.json: " + pkg.version);
+
+const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+if (lock.version !== version) errors.push("package-lock version: " + lock.version);
+if (lock.packages && lock.packages[""] && lock.packages[""].version !== version) {
+  errors.push("package-lock packages root: " + lock.packages[""].version);
 }
 
-$cargoVersion = $cargoMatch.Groups[1].Value
+const tauri = JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json", "utf8"));
+if (tauri.version !== version) errors.push("tauri.conf.json: " + tauri.version);
 
-$actualVersions = @{
-    packageJson     = $packageVersion
-    packageLock     = $packageLockVersion
-    packageLockRoot = $packageLockRootVersion
-    tauriConfig     = $tauriVersion
-    cargoToml       = $cargoVersion
+const cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
+const m = cargo.match(/^(version\s*=\s*)"([^"]+)"/m);
+if (!m || m[2] !== version) errors.push("Cargo.toml: " + (m ? m[2] : "not found"));
+
+if (errors.length) {
+  console.error("Version mismatch: " + errors.join(", "));
+  process.exit(1);
 }
 
-foreach ($entry in $actualVersions.GetEnumerator()) {
-    if ($entry.Value -ne $Version) {
-        throw (
-            "Version synchronization failed: " +
-            "$($entry.Key) expected=$Version actual=$($entry.Value)"
-        )
-    }
-}
+console.log("All version sources equal " + version);
+"@
 
-Write-Host "All version sources now equal $Version." -ForegroundColor Green
+$tempVerify = Join-Path $env:TEMP "verify-version-$([guid]::NewGuid().ToString('N').Substring(0,8)).cjs"
+try {
+    $verifyScript | Set-Content -LiteralPath $tempVerify -Encoding UTF8 -NoNewline
+    & node $tempVerify $Version
+    if ($LASTEXITCODE -ne 0) { throw "Version verification failed" }
+} finally {
+    if (Test-Path -LiteralPath $tempVerify) { Remove-Item -LiteralPath $tempVerify -Force }
+}
 
 if ($DryRun) {
     Write-Host "`nDry run - no commit or tag created." -ForegroundColor Cyan

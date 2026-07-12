@@ -16,6 +16,12 @@ interface ILatexSnipperFormula : IDispatch {
     [id(4)] HRESULT GetFormulaId([out, retval] BSTR* formulaId);
     [id(5)] HRESULT OpenEditor();
     [id(6)] HRESULT IsInitialized([out, retval] VARIANT_BOOL* result);
+
+    // Returns natural and display extent in HIMETRIC units as JSON.
+    [id(7)] HRESULT GetExtentJson([out, retval] BSTR* extentJson);
+
+    // Called by the host after sizing, metadata wrapping, and deselection.
+    [id(8)] HRESULT CompleteInsertion();
 };
 
 [

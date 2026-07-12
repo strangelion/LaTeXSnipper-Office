@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
@@ -10,8 +11,11 @@ public sealed class OleActivationResult
     public string ErrorCode { get; private set; } = "";
     public int HResult { get; private set; }
     public string Message { get; private set; } = "";
+    public object? AutomationObject { get; private set; }
 
-    public static OleActivationResult Ok() => new OleActivationResult { Success = true };
+    public static OleActivationResult Ok(object automationObject) =>
+        new OleActivationResult { Success = true, AutomationObject = automationObject };
+
     public static OleActivationResult Failure(string errorCode, int hresult, string message) =>
         new OleActivationResult { Success = false, ErrorCode = errorCode, HResult = hresult, Message = message };
 }
@@ -29,60 +33,74 @@ public static class OleFormulaActivation
         if (payload == null) throw new ArgumentNullException(nameof(payload));
         if (rollback == null) throw new ArgumentNullException(nameof(rollback));
 
-        dynamic? automation;
-        try
+        dynamic? automation = null;
+        Exception? lastAcquireError = null;
+        int[] delaysMs = { 25, 50, 100, 200, 300 };
+
+        // Phase 1: Acquire automation object with retries
+        for (int attempt = 0; attempt < delaysMs.Length; attempt++)
         {
-            automation = getAutomation();
-        }
-        catch (COMException ex) when (IsRetryable(ex.ErrorCode))
-        {
-            return FailWithRollback("OLE_COM_CALL_REJECTED", ex.ErrorCode, ex.Message, rollback);
-        }
-        catch (Exception ex)
-        {
-            return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
+            try
+            {
+                automation = getAutomation();
+                if (automation != null)
+                    break;
+            }
+            catch (COMException ex) when (IsRetryable(ex.ErrorCode))
+            {
+                lastAcquireError = ex;
+            }
+            catch (Exception ex)
+            {
+                return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
+            }
+            Thread.Sleep(delaysMs[attempt]);
         }
 
         if (automation == null)
         {
-            return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", 0,
-                "OLE automation object was not available.", rollback);
+            int hresult = lastAcquireError?.HResult ?? 0;
+            string message = lastAcquireError?.Message ?? "OLE automation object was not available.";
+            string code = lastAcquireError is COMException com && IsRetryable(com.ErrorCode)
+                ? "OLE_COM_CALL_REJECTED" : "OLE_AUTOMATION_UNAVAILABLE";
+            return FailWithRollback(code, hresult, message, rollback);
         }
 
-        try
+        // Phase 2: Initialize and verify with retries
+        string finalErrorCode = "OLE_INITIALIZE_FAILED";
+        string finalMessage = "OLE initialization or verification failed.";
+
+        for (int attempt = 0; attempt < delaysMs.Length; attempt++)
         {
             bool initialized = OleFormulaInterop.IsInitialized(automation);
-            bool verified = OleFormulaInterop.VerifyRoundTrip(automation, payload);
+            bool verified = initialized && OleFormulaInterop.VerifyRoundTrip(automation, payload);
+
             if (!verified)
             {
-                if (!OleFormulaInterop.Initialize(automation, payload))
+                bool initializeSucceeded = OleFormulaInterop.Initialize(automation, payload);
+                if (!initializeSucceeded)
                 {
-                    string previewCode = !string.IsNullOrWhiteSpace(payload.Render?.Svg)
+                    finalErrorCode = !string.IsNullOrWhiteSpace(payload.Render?.Svg)
                         ? "OLE_VECTOR_PREVIEW_FAILED"
                         : !string.IsNullOrWhiteSpace(payload.Render?.Png)
                             ? "OLE_RASTER_FALLBACK_FAILED"
                             : "OLE_INITIALIZE_FAILED";
-                    return FailWithRollback(previewCode, 0, "InitializeFromJson failed.", rollback);
+                    finalMessage = "InitializeFromJson failed.";
                 }
-                initialized = OleFormulaInterop.IsInitialized(automation);
-                verified = OleFormulaInterop.VerifyRoundTrip(automation, payload);
+                else
+                {
+                    initialized = OleFormulaInterop.IsInitialized(automation);
+                    verified = initialized && OleFormulaInterop.VerifyRoundTrip(automation, payload);
+                }
             }
-            if (!initialized)
-                return FailWithRollback("OLE_INITIALIZE_FAILED", 0, "OLE object remained uninitialized after InitializeFromJson.", rollback);
-            if (!verified)
-                return FailWithRollback("OLE_ROUNDTRIP_FAILED", 0, "OLE payload round-trip verification failed.", rollback);
-            return OleActivationResult.Ok();
+
+            if (initialized && verified)
+                return OleActivationResult.Ok(automation);
+
+            Thread.Sleep(delaysMs[attempt]);
         }
-        catch (COMException ex)
-        {
-            string code = ex.ErrorCode == RegdbEClassNotReg ? "OLE_NOT_REGISTERED" :
-                IsRetryable(ex.ErrorCode) ? "OLE_COM_CALL_REJECTED" : "OLE_AUTOMATION_UNAVAILABLE";
-            return FailWithRollback(code, ex.ErrorCode, ex.Message, rollback);
-        }
-        catch (Exception ex)
-        {
-            return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
-        }
+
+        return FailWithRollback(finalErrorCode, 0, finalMessage, rollback);
     }
 
     private static bool IsRetryable(int hresult) =>

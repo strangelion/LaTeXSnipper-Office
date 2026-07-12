@@ -222,4 +222,75 @@ public static class OleFormulaInterop
                bytes[6] == 0x1A &&
                bytes[7] == 0x0A;
     }
+
+    private const double PointsPerInch = 72.0;
+    private const double HimetricPerInch = 2540.0;
+
+    private static float HimetricToPoints(long value)
+    {
+        return checked((float)(value * PointsPerInch / HimetricPerInch));
+    }
+
+    public static bool TryGetExtentPoints(dynamic oleAutomationObject, out OleExtentPoints extent)
+    {
+        extent = default;
+        try
+        {
+            string? json = oleAutomationObject.GetExtentJson();
+            if (string.IsNullOrWhiteSpace(json))
+                return false;
+
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement root = document.RootElement;
+            long naturalCx = root.GetProperty("naturalCxHimetric").GetInt64();
+            long naturalCy = root.GetProperty("naturalCyHimetric").GetInt64();
+            long displayCx = root.GetProperty("displayCxHimetric").GetInt64();
+            long displayCy = root.GetProperty("displayCyHimetric").GetInt64();
+
+            if (naturalCx <= 0 || naturalCy <= 0 || displayCx <= 0 || displayCy <= 0)
+                return false;
+
+            extent = new OleExtentPoints(
+                HimetricToPoints(naturalCx),
+                HimetricToPoints(naturalCy),
+                HimetricToPoints(displayCx),
+                HimetricToPoints(displayCy));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OleFormulaInterop] GetExtentJson failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static bool CompleteInsertion(dynamic oleAutomationObject)
+    {
+        try
+        {
+            oleAutomationObject.CompleteInsertion();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OleFormulaInterop] CompleteInsertion failed: {ex.Message}");
+            return false;
+        }
+    }
+}
+
+public readonly struct OleExtentPoints
+{
+    public OleExtentPoints(float naturalWidthPt, float naturalHeightPt, float displayWidthPt, float displayHeightPt)
+    {
+        NaturalWidthPt = naturalWidthPt;
+        NaturalHeightPt = naturalHeightPt;
+        DisplayWidthPt = displayWidthPt;
+        DisplayHeightPt = displayHeightPt;
+    }
+
+    public float NaturalWidthPt { get; }
+    public float NaturalHeightPt { get; }
+    public float DisplayWidthPt { get; }
+    public float DisplayHeightPt { get; }
 }

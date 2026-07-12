@@ -367,7 +367,7 @@ namespace LaTeXSnipper.Excel.Host
                     );
 
                     ole.Name = $"LSNO_{payload.FormulaId}";
-                    ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMoveAndSize;
+                    ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
 
                     OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => ole.Object,
@@ -377,6 +377,19 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
+
+                    // Query the OLE object's natural/display extent and size the shape to match
+                    if (activation.AutomationObject != null &&
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                    {
+                        ole.Width = extent.DisplayWidthPt;
+                        ole.Height = extent.DisplayHeightPt;
+                    }
+
+                    // Deselect the OLE object so the host can finalize it
+                    cell.Select();
+
+                    OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
 
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
@@ -465,7 +478,17 @@ namespace LaTeXSnipper.Excel.Host
                             var oleObj = shape.OLEFormat?.Object;
                             if (oleObj != null)
                             {
-                                return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                                bool replaced = OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                                if (replaced)
+                                {
+                                    // Update shape dimensions to match new extent
+                                    if (OleFormulaInterop.TryGetExtentPoints(oleObj, out var newExtent))
+                                    {
+                                        shape.Width = newExtent.DisplayWidthPt;
+                                        shape.Height = newExtent.DisplayHeightPt;
+                                    }
+                                }
+                                return replaced;
                             }
                         }
                         catch (Exception ex)

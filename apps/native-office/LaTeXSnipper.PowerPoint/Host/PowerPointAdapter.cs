@@ -257,10 +257,6 @@ namespace LaTeXSnipper.PowerPoint.Host
                         Link: Microsoft.Office.Core.MsoTriState.msoFalse
                     );
 
-                    // Center horizontally after the OLE object has its natural extent
-                    var naturalWidth = shape.Width;
-                    shape.Left = (slideWidth - naturalWidth) / 2f;
-
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
@@ -272,6 +268,22 @@ namespace LaTeXSnipper.PowerPoint.Host
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
+
+                    // Query the OLE object's natural/display extent and size the shape to match
+                    if (activation.AutomationObject != null &&
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                    {
+                        shape.Width = extent.DisplayWidthPt;
+                        shape.Height = extent.DisplayHeightPt;
+                    }
+
+                    // Center horizontally on the slide
+                    shape.Left = (slideWidth - shape.Width) / 2f;
+
+                    // Deselect so the host can finalize the OLE object
+                    _application.ActiveWindow.Selection.Unselect();
+
+                    OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
 
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
@@ -409,7 +421,19 @@ namespace LaTeXSnipper.PowerPoint.Host
                             var oleObj = shape.OLEFormat?.Object;
                             if (oleObj != null)
                             {
-                                return OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                                bool replaced = OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
+                                if (replaced)
+                                {
+                                    // Update shape dimensions to match new extent and re-center
+                                    if (OleFormulaInterop.TryGetExtentPoints(oleObj, out var newExtent))
+                                    {
+                                        shape.Width = newExtent.DisplayWidthPt;
+                                        shape.Height = newExtent.DisplayHeightPt;
+                                    }
+                                    float slideWidth2 = _application.ActivePresentation.PageSetup.SlideWidth;
+                                    shape.Left = (slideWidth2 - shape.Width) / 2f;
+                                }
+                                return replaced;
                             }
                         }
                         catch (Exception ex)

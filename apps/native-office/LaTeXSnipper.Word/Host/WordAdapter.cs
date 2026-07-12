@@ -556,6 +556,29 @@ namespace LaTeXSnipper.Word.Host
         }
 
         /// <summary>
+        /// Adjust the paragraph containing the OLE InlineShape so that line spacing
+        /// does not clip the object. Some documents use "Exact" line spacing which
+        /// truncates tall OLE objects.
+        /// </summary>
+        private static void FixWordParagraphForOle(Microsoft.Office.Interop.Word.InlineShape oleShape)
+        {
+            try
+            {
+                var para = oleShape.Range.Paragraphs[1];
+                var pf = para.Format;
+                // 1 = wdLineSpaceSingle, 2 = wdLineSpace1pt5, 3 = wdLineSpaceDouble
+                if (pf.LineSpacingRule == Microsoft.Office.Interop.Word.WdLineSpacingRule.wdLineSpaceExact)
+                {
+                    pf.LineSpacingRule = Microsoft.Office.Interop.Word.WdLineSpacingRule.wdLineSpaceAtLeast;
+                }
+            }
+            catch
+            {
+                // Non-critical — OLE object is still functional
+            }
+        }
+
+        /// <summary>
         /// Ensure the range is at a block-level insertion point (start of a paragraph).
         /// Moves to the end of the current paragraph and inserts a new paragraph if needed.
         /// </summary>
@@ -595,6 +618,7 @@ namespace LaTeXSnipper.Word.Host
                 }
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
+                OleActivationResult activation;
                 using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     oleShape = (Microsoft.Office.Interop.Word.InlineShape)
@@ -605,11 +629,7 @@ namespace LaTeXSnipper.Word.Host
                             DisplayAsIcon: false,
                             Range: range);
 
-                    // Do not overwrite Width/Height here.
-                    // The native OLE object already consumed the pending payload during
-                    // construction and exposes its padded natural extent through GetExtent().
-
-                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                    activation = OleFormulaActivation.ActivateAndVerify(
                         () => oleShape.OLEFormat?.Object,
                         payload,
                         () => oleShape.Delete());
@@ -617,6 +637,17 @@ namespace LaTeXSnipper.Word.Host
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
+
+                    // Query the OLE object's natural/display extent and size the InlineShape to match
+                    if (activation.AutomationObject != null &&
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                    {
+                        oleShape.Width = (int)extent.DisplayWidthPt;
+                        oleShape.Height = (int)extent.DisplayHeightPt;
+                    }
+
+                    // Fix paragraph line spacing if needed for proper OLE display
+                    FixWordParagraphForOle(oleShape);
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
@@ -637,6 +668,18 @@ namespace LaTeXSnipper.Word.Host
                     // ContentControl wrapping is best-effort — OLE object is still inserted
                     System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
                 }
+
+                // Move cursor past the OLE object
+                try
+                {
+                    var afterRange = oleShape.Range;
+                    afterRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                    _application.Selection.SetRange(afterRange.Start, afterRange.End);
+                }
+                catch { }
+
+                // Complete the insertion so the OLE host knows we're done editing
+                OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
 
                 // Add auto-numbering for DisplayNumbered mode
                 if (mode == InsertMode.DisplayNumbered)

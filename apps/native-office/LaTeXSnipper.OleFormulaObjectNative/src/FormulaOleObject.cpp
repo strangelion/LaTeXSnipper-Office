@@ -10,6 +10,8 @@
 
 #include <atlconv.h>
 #include <comdef.h>
+#include <algorithm>
+#include <cmath>
 #include <new>
 #include <thread>
 #include <vector>
@@ -80,7 +82,7 @@ HRESULT ValidateContentAspect(DWORD aspect)
     return aspect == DVASPECT_CONTENT ? S_OK : DV_E_DVASPECT;
 }
 
-HGLOBAL CreateMetaFilePictFromEnhancedMetafile(const FormulaPresentation& presentation)
+HGLOBAL CreateMetaFilePictFromEnhancedMetafile(const FormulaPresentation& presentation, SIZEL displayExtent)
 {
     HENHMETAFILE enhancedMetafile = CopyEnhMetaFileFromBytes(presentation.enhancedMetafile);
     if (enhancedMetafile == nullptr)
@@ -129,8 +131,8 @@ HGLOBAL CreateMetaFilePictFromEnhancedMetafile(const FormulaPresentation& presen
     }
 
     picture->mm = MM_ANISOTROPIC;
-    picture->xExt = presentation.himetricSize.cx;
-    picture->yExt = presentation.himetricSize.cy;
+    picture->xExt = displayExtent.cx;
+    picture->yExt = displayExtent.cy;
     picture->hMF = metafile;
     GlobalUnlock(handle);
     return handle;
@@ -436,24 +438,35 @@ STDMETHODIMP FormulaOleObject::GetClipboardData(DWORD, IDataObject** dataObject)
     return QueryInterface(IID_IDataObject, reinterpret_cast<void**>(dataObject));
 }
 
-STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, HWND, LPCRECT)
+namespace
 {
-    wchar_t message[96]{};
-    swprintf_s(message, L"FormulaOleObject DoVerb verb=%ld", verb);
-    WriteNativeOleLog(message);
+bool IsExplicitUserActivationMessage(const MSG* msg)
+{
+    if (msg == nullptr)
+        return false;
 
-    // All user-initiated activation verbs open the LaTeXSnipper editor.
-    // Different Office hosts send different verbs for double-click:
-    //   Word/Excel: OLEIVERB_PRIMARY (0) or custom verb 1
-    //   PowerPoint: may send OLEIVERB_OPEN, OLEIVERB_UIACTIVATE, or OLEIVERB_INPLACEACTIVATE
-    if (verb == OLEIVERB_PRIMARY ||
-        verb == OLEIVERB_OPEN ||
-        verb == OLEIVERB_UIACTIVATE ||
-        verb == OLEIVERB_INPLACEACTIVATE ||
-        verb == 0 ||
-        verb == 1)
+    if (msg->message == WM_LBUTTONDBLCLK)
+        return true;
+
+    if (msg->message == WM_KEYDOWN && (msg->wParam == VK_RETURN || msg->wParam == VK_SPACE))
+        return true;
+
+    return false;
+}
+}
+
+STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG message, IOleClientSite*, LONG, HWND, LPCRECT)
+{
+    wchar_t logMessage[128]{};
+    swprintf_s(logMessage, L"FormulaOleObject DoVerb verb=%ld insertionComplete=%d",
+        verb, IsInsertionComplete() ? 1 : 0);
+    WriteNativeOleLog(logMessage);
+
+    // During insertion phase, all activation requests just display — never start editor.
+    if (!IsInsertionComplete())
     {
-        return StartEditSession();
+        NotifyPresentationChanged();
+        return S_OK;
     }
 
     // Office requests display/refresh (e.g. open doc, activate, re-render).
@@ -471,15 +484,27 @@ STDMETHODIMP FormulaOleObject::DoVerb(LONG verb, LPMSG, IOleClientSite*, LONG, H
 
     if (verb == 2)
     {
-        // Verb 2: Copy LaTeX to clipboard
         return CopyLatexToClipboard();
     }
 
     if (verb == 3)
     {
-        // Verb 3: Refresh Preview
         NotifyPresentationChanged();
         return S_OK;
+    }
+
+    // For UIACTIVATE/INPLACEACTIVATE, only start editor if explicit user action.
+    if (verb == OLEIVERB_UIACTIVATE || verb == OLEIVERB_INPLACEACTIVATE)
+    {
+        if (message != nullptr && IsExplicitUserActivationMessage(message))
+            return StartEditSession();
+        NotifyPresentationChanged();
+        return S_OK;
+    }
+
+    if (verb == OLEIVERB_PRIMARY || verb == OLEIVERB_OPEN || verb == 0 || verb == 1)
+    {
+        return StartEditSession();
     }
 
     return OLEOBJ_S_CANNOT_DOVERB_NOW;
@@ -537,48 +562,38 @@ STDMETHODIMP FormulaOleObject::GetUserType(DWORD, LPOLESTR* userType)
 STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
 {
     if (size == nullptr)
-    {
         return E_POINTER;
-    }
 
     HRESULT aspectResult = ValidateContentAspect(drawAspect);
     if (FAILED(aspectResult))
-    {
         return aspectResult;
-    }
 
     if (size->cx <= 0 || size->cy <= 0)
-    {
         return E_INVALIDARG;
+
+    if (!IsInsertionComplete())
+    {
+        WriteNativeOleLog(L"FormulaOleObject SetExtent: provisional extent ignored.");
+        return S_OK;
     }
 
-    // Store the Office container size separately.
-    // Do not overwrite the intrinsic EMF frame size.
     containerExtent_ = *size;
     hasContainerExtent_ = true;
-
+    WriteNativeOleLog(L"FormulaOleObject SetExtent: committed container extent.");
     return S_OK;
 }
 
 STDMETHODIMP FormulaOleObject::GetExtent(DWORD drawAspect, SIZEL* size)
 {
     if (size == nullptr)
-    {
         return E_POINTER;
-    }
-
     HRESULT aspectResult = ValidateContentAspect(drawAspect);
     if (FAILED(aspectResult))
-    {
         return aspectResult;
-    }
-
-    const SIZEL extent = hasContainerExtent_
-        ? containerExtent_
-        : presentation_.himetricSize;
-
-    size->cx = extent.cx;
-    size->cy = extent.cy;
+    const SIZEL extent = GetEffectiveExtent();
+    if (extent.cx <= 0 || extent.cy <= 0)
+        return OLE_E_BLANK;
+    *size = extent;
     return S_OK;
 }
 
@@ -638,7 +653,8 @@ STDMETHODIMP FormulaOleObject::GetMiscStatus(DWORD aspect, DWORD* status)
     *status = OLEMISC_CANTLINKINSIDE
         | OLEMISC_RENDERINGISDEVICEINDEPENDENT
         | OLEMISC_SETCLIENTSITEFIRST
-        | OLEMISC_IGNOREACTIVATEWHENVISIBLE;
+        | OLEMISC_IGNOREACTIVATEWHENVISIBLE
+        | OLEMISC_RECOMPOSEONRESIZE;
     return S_OK;
 }
 
@@ -690,7 +706,7 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
         return S_OK;
     }
 
-    HGLOBAL metafilePict = CreateMetaFilePictFromEnhancedMetafile(presentation_);
+    HGLOBAL metafilePict = CreateMetaFilePictFromEnhancedMetafile(presentation_, GetEffectiveExtent());
     if (metafilePict == nullptr)
     {
         return E_FAIL;
@@ -955,22 +971,14 @@ STDMETHODIMP FormulaOleObject::GetAdvise(DWORD* aspects, DWORD* advf, IAdviseSin
 STDMETHODIMP FormulaOleObject::GetExtent(DWORD drawAspect, LONG, DVTARGETDEVICE*, SIZEL* size)
 {
     if (size == nullptr)
-    {
         return E_POINTER;
-    }
-
     HRESULT aspectResult = ValidateContentAspect(drawAspect);
     if (FAILED(aspectResult))
-    {
         return aspectResult;
-    }
-
-    const SIZEL extent = hasContainerExtent_
-        ? containerExtent_
-        : presentation_.himetricSize;
-
-    size->cx = extent.cx;
-    size->cy = extent.cy;
+    const SIZEL extent = GetEffectiveExtent();
+    if (extent.cx <= 0 || extent.cy <= 0)
+        return OLE_E_BLANK;
+    *size = extent;
     return S_OK;
 }
 
@@ -1189,6 +1197,9 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
         formulaId_ = JsonReadString(presentation_.payloadJson, L"formulaId");
         initializedFromRealPayload_ = true;
         dirty_ = false;
+        containerExtent_ = {};
+        hasContainerExtent_ = false;
+        insertionComplete_.store(true, std::memory_order_release);
         return S_OK;
     }
 
@@ -1715,6 +1726,89 @@ void FormulaOleObject::ApplyPendingEditResult()
 
     // P1: Notify Office that the presentation changed so it refreshes the display.
     NotifyPresentationChanged();
+}
+
+SIZEL FormulaOleObject::GetEffectiveExtent() const noexcept
+{
+    if (!IsInsertionComplete())
+        return presentation_.himetricSize;
+
+    if (hasContainerExtent_ && containerExtent_.cx > 0 && containerExtent_.cy > 0)
+        return containerExtent_;
+
+    return presentation_.himetricSize;
+}
+
+void FormulaOleObject::AdoptPresentation(FormulaPresentation&& next, bool preserveDisplayScale)
+{
+    const SIZEL oldNatural = presentation_.himetricSize;
+    const SIZEL oldDisplay = GetEffectiveExtent();
+
+    bool canPreserveScale = preserveDisplayScale && IsInsertionComplete() &&
+        oldNatural.cx > 0 && oldNatural.cy > 0 && oldDisplay.cx > 0 && oldDisplay.cy > 0 &&
+        next.himetricSize.cx > 0 && next.himetricSize.cy > 0;
+
+    presentation_ = std::move(next);
+
+    if (!canPreserveScale)
+    {
+        containerExtent_ = {};
+        hasContainerExtent_ = false;
+        return;
+    }
+
+    const double scaleX = static_cast<double>(oldDisplay.cx) / static_cast<double>(oldNatural.cx);
+    const double scaleY = static_cast<double>(oldDisplay.cy) / static_cast<double>(oldNatural.cy);
+    const double scale = std::clamp(std::min(scaleX, scaleY), 0.05, 20.0);
+
+    containerExtent_.cx = std::max<LONG>(1, static_cast<LONG>(std::lround(presentation_.himetricSize.cx * scale)));
+    containerExtent_.cy = std::max<LONG>(1, static_cast<LONG>(std::lround(presentation_.himetricSize.cy * scale)));
+    hasContainerExtent_ = true;
+}
+
+void FormulaOleObject::RequestLayoutAndNotify()
+{
+    NotifyPresentationChanged();
+    if (clientSite_ != nullptr)
+    {
+        const HRESULT hr = clientSite_->RequestNewObjectLayout();
+        if (FAILED(hr))
+        {
+            wchar_t message[128]{};
+            swprintf_s(message, L"RequestNewObjectLayout failed: 0x%08X", static_cast<unsigned int>(hr));
+            WriteNativeOleLog(message);
+        }
+    }
+}
+
+STDMETHODIMP FormulaOleObject::GetExtentJson(BSTR* extentJson)
+{
+    if (extentJson == nullptr)
+        return E_POINTER;
+    *extentJson = nullptr;
+    if (!initializedFromRealPayload_ || presentation_.himetricSize.cx <= 0 || presentation_.himetricSize.cy <= 0)
+        return OLE_E_BLANK;
+    const SIZEL display = GetEffectiveExtent();
+    wchar_t json[256]{};
+    const int written = swprintf_s(json,
+        L"{\"naturalCxHimetric\":%ld,\"naturalCyHimetric\":%ld,\"displayCxHimetric\":%ld,\"displayCyHimetric\":%ld}",
+        presentation_.himetricSize.cx, presentation_.himetricSize.cy, display.cx, display.cy);
+    if (written <= 0)
+        return E_FAIL;
+    *extentJson = SysAllocString(json);
+    return *extentJson != nullptr ? S_OK : E_OUTOFMEMORY;
+}
+
+STDMETHODIMP FormulaOleObject::CompleteInsertion()
+{
+    if (!initializedFromRealPayload_ || presentation_.himetricSize.cx <= 0 || presentation_.himetricSize.cy <= 0)
+        return OLE_E_BLANK;
+    containerExtent_ = presentation_.himetricSize;
+    hasContainerExtent_ = true;
+    insertionComplete_.store(true, std::memory_order_release);
+    WriteNativeOleLog(L"FormulaOleObject: insertion completed and editor activation armed.");
+    NotifyPresentationChanged();
+    return S_OK;
 }
 
 // ===================================================================
