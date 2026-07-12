@@ -1,7 +1,7 @@
 #nullable enable
 using System;
 using System.Runtime.InteropServices;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
@@ -54,7 +54,7 @@ public static class OleFormulaActivation
             {
                 return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
             }
-            Thread.Sleep(delaysMs[attempt]);
+            Task.Delay(delaysMs[attempt]).GetAwaiter().GetResult();
         }
 
         if (automation == null)
@@ -97,7 +97,7 @@ public static class OleFormulaActivation
             if (initialized && verified)
                 return OleActivationResult.Ok(automation);
 
-            Thread.Sleep(delaysMs[attempt]);
+            Task.Delay(delaysMs[attempt]).GetAwaiter().GetResult();
         }
 
         return FailWithRollback(finalErrorCode, 0, finalMessage, rollback);

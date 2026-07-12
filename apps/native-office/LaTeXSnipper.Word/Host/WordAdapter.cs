@@ -564,17 +564,29 @@ namespace LaTeXSnipper.Word.Host
         {
             try
             {
-                var para = oleShape.Range.Paragraphs[1];
-                var pf = para.Format;
-                // 1 = wdLineSpaceSingle, 2 = wdLineSpace1pt5, 3 = wdLineSpaceDouble
-                if (pf.LineSpacingRule == Microsoft.Office.Interop.Word.WdLineSpacingRule.wdLineSpaceExact)
+                var paragraph = oleShape.Range.Paragraphs[1];
+                var format = paragraph.Format;
+
+                if (format.LineSpacingRule ==
+                    Microsoft.Office.Interop.Word.WdLineSpacing.wdLineSpaceExactly)
                 {
-                    pf.LineSpacingRule = Microsoft.Office.Interop.Word.WdLineSpacingRule.wdLineSpaceAtLeast;
+                    format.LineSpacingRule =
+                        Microsoft.Office.Interop.Word.WdLineSpacing.wdLineSpaceAtLeast;
+
+                    float requiredHeight = oleShape.Height + 2.0f;
+                    if (format.LineSpacing < requiredHeight)
+                    {
+                        format.LineSpacing = requiredHeight;
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Non-critical — OLE object is still functional
+                OfficeOperationLog.Failure(
+                    "fix-ole-paragraph-spacing",
+                    "word",
+                    null,
+                    ex);
             }
         }
 
@@ -676,7 +688,14 @@ namespace LaTeXSnipper.Word.Host
                     afterRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
                     _application.Selection.SetRange(afterRange.Start, afterRange.End);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure(
+                        "collapse-after-ole-insert",
+                        "word",
+                        payload.FormulaId,
+                        ex);
+                }
 
                 // Complete the insertion so the OLE host knows we're done editing
                 OleFormulaInterop.CompleteInsertion(activation.AutomationObject);

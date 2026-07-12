@@ -27,6 +27,8 @@ public:
     virtual HRESULT STDMETHODCALLTYPE GetFormulaId(BSTR* formulaId) = 0;
     virtual HRESULT STDMETHODCALLTYPE OpenEditor() = 0;
     virtual HRESULT STDMETHODCALLTYPE IsInitialized(VARIANT_BOOL* result) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetExtentJson(BSTR* extentJson) = 0;
+    virtual HRESULT STDMETHODCALLTYPE CompleteInsertion() = 0;
 };
 
 #endif

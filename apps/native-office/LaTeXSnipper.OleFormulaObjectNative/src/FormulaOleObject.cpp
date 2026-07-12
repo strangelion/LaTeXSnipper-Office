@@ -1383,13 +1383,15 @@ STDMETHODIMP FormulaOleObject::InitializeFromJson(BSTR payloadJson)
         return E_INVALIDARG;
     }
 
-    presentation_ = std::move(loaded);
+    const bool preserveScale = IsInsertionComplete();
+    AdoptPresentation(std::move(loaded), preserveScale);
+
     canonicalPayloadJson_ = wsJson;
     formulaId_ = formulaId;
     initializedFromRealPayload_ = true;
     dirty_ = true;
 
-    NotifyPresentationChanged();
+    RequestLayoutAndNotify();
     WriteNativeOleLog(L"FormulaOleObject initialized from JSON payload.");
     return S_OK;
 }
@@ -1490,6 +1492,8 @@ STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT c
         { L"GetFormulaId",       4 },
         { L"OpenEditor",         5 },
         { L"IsInitialized",      6 },
+        { L"GetExtentJson",      7 },
+        { L"CompleteInsertion",  8 },
     };
 
     for (const auto& entry : kDispatchTable)
@@ -1572,6 +1576,26 @@ STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wF
             }
             return hr;
         }
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 7: // GetExtentJson
+        if (pVarResult != nullptr && (wFlags & DISPATCH_METHOD))
+        {
+            BSTR result = nullptr;
+            HRESULT hr = GetExtentJson(&result);
+            if (SUCCEEDED(hr))
+            {
+                VariantClear(pVarResult);
+                pVarResult->vt = VT_BSTR;
+                pVarResult->bstrVal = result;
+            }
+            return hr;
+        }
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 8: // CompleteInsertion
+        if (wFlags & DISPATCH_METHOD)
+            return CompleteInsertion();
         return DISP_E_MEMBERNOTFOUND;
 
     default:
@@ -1707,7 +1731,7 @@ void FormulaOleObject::ApplyPendingEditResult()
     }
 
     WriteNativeOleLog(L"FormulaOleObject: Applying pending async edit result.");
-    presentation_ = std::move(candidate);
+    AdoptPresentation(std::move(candidate), true);
     initializedFromRealPayload_ = true;
     dirty_ = true;
 
@@ -1724,8 +1748,7 @@ void FormulaOleObject::ApplyPendingEditResult()
             formulaId_ = id;
     }
 
-    // P1: Notify Office that the presentation changed so it refreshes the display.
-    NotifyPresentationChanged();
+    RequestLayoutAndNotify();
 }
 
 SIZEL FormulaOleObject::GetEffectiveExtent() const noexcept
@@ -1759,10 +1782,10 @@ void FormulaOleObject::AdoptPresentation(FormulaPresentation&& next, bool preser
 
     const double scaleX = static_cast<double>(oldDisplay.cx) / static_cast<double>(oldNatural.cx);
     const double scaleY = static_cast<double>(oldDisplay.cy) / static_cast<double>(oldNatural.cy);
-    const double scale = std::clamp(std::min(scaleX, scaleY), 0.05, 20.0);
+    const double scale = std::clamp((std::min)(scaleX, scaleY), 0.05, 20.0);
 
-    containerExtent_.cx = std::max<LONG>(1, static_cast<LONG>(std::lround(presentation_.himetricSize.cx * scale)));
-    containerExtent_.cy = std::max<LONG>(1, static_cast<LONG>(std::lround(presentation_.himetricSize.cy * scale)));
+    containerExtent_.cx = (std::max)(static_cast<LONG>(1), static_cast<LONG>(std::lround(presentation_.himetricSize.cx * scale)));
+    containerExtent_.cy = (std::max)(static_cast<LONG>(1), static_cast<LONG>(std::lround(presentation_.himetricSize.cy * scale)));
     hasContainerExtent_ = true;
 }
 

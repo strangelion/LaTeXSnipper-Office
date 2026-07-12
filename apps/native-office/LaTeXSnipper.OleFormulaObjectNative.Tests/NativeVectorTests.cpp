@@ -468,24 +468,32 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
 
 void TestProvisionalExtentIsIgnored()
 {
-    const std::wstring svg = L"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><path fill='black' d='M5 20 L20 5 L35 20 Z'/></svg>";
-    SvgToEmfResult emf = ConvertMathJaxSvgToVectorEmf(svg, 120.0, 40.0, L"black");
-    Expect(emf.success, L"provisional test: EMF conversion failed");
-
-    FormulaPresentation presentation{};
-    presentation.payloadJson = L"{}";
-    presentation.enhancedMetafile = std::move(emf.emfBytes);
-    presentation.himetricSize = emf.himetricSize;
+    ATL::CComBSTR payload(
+        L"{"
+        L"\"schemaVersion\":3,"
+        L"\"formulaId\":\"extent-test-provisional\","
+        L"\"latex\":\"x^2\","
+        L"\"storageMode\":\"ole\","
+        L"\"render\":{"
+          L"\"widthPt\":72,"
+          L"\"heightPt\":36,"
+          L"\"svg\":\"<svg viewBox='0 0 10 5'>"
+            L"<path d='M1 4L5 1L9 4Z'/>"
+          L"</svg>\""
+        L"}"
+        L"}");
 
     FormulaOleObject object;
-    object.InitializeFromJson(L"{}");
-    object.ReplacePayloadJson(L"{\"formulaId\":\"test\",\"render\":{\"svg\":\"\",\"png\":\"\"}}");
+    Expect(SUCCEEDED(object.InitializeFromJson(payload)),
+        L"valid extent fixture initialization failed");
 
     SIZEL provisional{ 20000, 10000 };
-    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &provisional)), L"provisional SetExtent failed");
+    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &provisional)),
+        L"provisional SetExtent failed");
 
     SIZEL actual{};
-    Expect(SUCCEEDED(object.GetExtent(DVASPECT_CONTENT, &actual)), L"GetExtent failed");
+    Expect(SUCCEEDED(object.GetExtent(DVASPECT_CONTENT, &actual)),
+        L"GetExtent failed");
 
     Expect(actual.cx != provisional.cx || actual.cy != provisional.cy,
         L"provisional host extent polluted natural extent before CompleteInsertion");
@@ -493,23 +501,31 @@ void TestProvisionalExtentIsIgnored()
 
 void TestCompletedExtentIsRetained()
 {
-    const std::wstring svg = L"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><path fill='black' d='M5 20 L20 5 L35 20 Z'/></svg>";
-    SvgToEmfResult emf = ConvertMathJaxSvgToVectorEmf(svg, 120.0, 40.0, L"black");
-    Expect(emf.success, L"completed test: EMF conversion failed");
-
-    FormulaPresentation presentation{};
-    presentation.payloadJson = L"{}";
-    presentation.enhancedMetafile = std::move(emf.emfBytes);
-    presentation.himetricSize = emf.himetricSize;
+    ATL::CComBSTR payload(
+        L"{"
+        L"\"schemaVersion\":3,"
+        L"\"formulaId\":\"extent-test-completed\","
+        L"\"latex\":\"x^2\","
+        L"\"storageMode\":\"ole\","
+        L"\"render\":{"
+          L"\"widthPt\":72,"
+          L"\"heightPt\":36,"
+          L"\"svg\":\"<svg viewBox='0 0 10 5'>"
+            L"<path d='M1 4L5 1L9 4Z'/>"
+          L"</svg>\""
+        L"}"
+        L"}");
 
     FormulaOleObject object;
-    object.InitializeFromJson(L"{}");
-    object.ReplacePayloadJson(L"{\"formulaId\":\"test\",\"render\":{\"svg\":\"\",\"png\":\"\"}}");
+    Expect(SUCCEEDED(object.InitializeFromJson(payload)),
+        L"valid extent fixture initialization failed");
 
-    Expect(SUCCEEDED(object.CompleteInsertion()), L"CompleteInsertion failed");
+    Expect(SUCCEEDED(object.CompleteInsertion()),
+        L"CompleteInsertion failed");
 
     SIZEL resized{ 5000, 2000 };
-    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &resized)), L"committed SetExtent failed");
+    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &resized)),
+        L"committed SetExtent failed");
 
     SIZEL actual{};
     object.GetExtent(DVASPECT_CONTENT, &actual);
