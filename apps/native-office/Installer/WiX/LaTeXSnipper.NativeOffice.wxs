@@ -122,7 +122,8 @@
       <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA"
                  Bitness="always32">
         <File Id="OleDllX86" Source="$(var.OleBinDir)\OleFormulaObject.x86.dll" Name="OleFormulaObject.x86.dll" />
-        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula\CLSID">
@@ -131,13 +132,15 @@
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula\CurVer">
           <RegistryValue Type="string" Value="LaTeXSnipper.Formula.1" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1">
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1\CLSID">
           <RegistryValue Type="string" Value="{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}">
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
           <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
@@ -164,7 +167,8 @@
       <Component Id="OleComponentX64" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAB"
                  Bitness="always64">
         <File Id="OleDllX64" Source="$(var.OleBinDir)\OleFormulaObject.x64.dll" Name="OleFormulaObject.x64.dll" />
-        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula">
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula\CLSID">
@@ -173,13 +177,15 @@
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula\CurVer">
           <RegistryValue Type="string" Value="LaTeXSnipper.Formula.1" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1">
+        <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
         </RegistryKey>
         <RegistryKey Root="HKCU" Key="Software\Classes\LaTeXSnipper.Formula.1\CLSID">
           <RegistryValue Type="string" Value="{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}" />
         </RegistryKey>
-        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}">
+        <RegistryKey Root="HKCU" Key="Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}"
+                     ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="LaTeXSnipper Formula Object" />
           <RegistryValue Type="string" Name="ProgID" Value="LaTeXSnipper.Formula.1" />
           <RegistryValue Type="string" Name="VersionIndependentProgID" Value="LaTeXSnipper.Formula" />
