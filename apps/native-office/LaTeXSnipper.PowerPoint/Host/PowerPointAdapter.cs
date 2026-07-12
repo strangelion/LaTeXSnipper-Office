@@ -269,21 +269,34 @@ namespace LaTeXSnipper.PowerPoint.Host
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
 
-                    // Query the OLE object's natural/display extent and size the shape to match
+                    // Query the OLE object's natural extent and compute display size with scale.
+                    OleExtentPoints? targetExtent = null;
                     if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        shape.Width = extent.DisplayWidthPt;
-                        shape.Height = extent.DisplayHeightPt;
+                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
                     }
-
-                    // Center horizontally on the slide
-                    shape.Left = (slideWidth - shape.Width) / 2f;
 
                     // Deselect so the host can finalize the OLE object
                     _application.ActiveWindow.Selection.Unselect();
 
-                    OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
+                    // CompleteInsertion BEFORE setting Width/Height so SetExtent is no longer ignored
+                    if (!OleFormulaInterop.CompleteInsertion(activation.AutomationObject))
+                    {
+                        shape.Delete();
+                        return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
+                    }
+
+                    // Now set final dimensions — SetExtent accepts them after CompleteInsertion
+                    if (targetExtent.HasValue)
+                    {
+                        OleExtentPoints extent = targetExtent.Value;
+                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                        shape.Width = extent.DisplayWidthPt;
+                        shape.Height = extent.DisplayHeightPt;
+                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                        shape.Left = (slideWidth - shape.Width) / 2f;
+                    }
 
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };

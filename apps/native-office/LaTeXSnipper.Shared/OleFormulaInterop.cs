@@ -277,6 +277,22 @@ public static class OleFormulaInterop
             return false;
         }
     }
+
+    public static OleExtentPoints GetInitialDisplayExtent(FormulaPayload payload, OleExtentPoints naturalExtent)
+    {
+        bool isDisplay = string.Equals(payload.Display, "block", StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(payload.Display, "display", StringComparison.OrdinalIgnoreCase);
+
+        // MathJax renders at ~10pt. Inline formulas match Word default 11pt;
+        // display formulas scale up to ~15pt for independent formula appearance.
+        float scale = isDisplay ? 1.50f : 1.10f;
+
+        return new OleExtentPoints(
+            naturalExtent.NaturalWidthPt,
+            naturalExtent.NaturalHeightPt,
+            naturalExtent.NaturalWidthPt * scale,
+            naturalExtent.NaturalHeightPt * scale);
+    }
 }
 
 public readonly struct OleExtentPoints

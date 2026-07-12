@@ -650,12 +650,12 @@ namespace LaTeXSnipper.Word.Host
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
 
-                    // Query the OLE object's natural/display extent and size the InlineShape to match
+                    // Query the OLE object's natural extent and compute display size with scale.
+                    OleExtentPoints? targetExtent = null;
                     if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        oleShape.Width = (int)extent.DisplayWidthPt;
-                        oleShape.Height = (int)extent.DisplayHeightPt;
+                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
                     }
 
                     // Fix paragraph line spacing if needed for proper OLE display
@@ -663,7 +663,6 @@ namespace LaTeXSnipper.Word.Host
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
-                // Without this tag, OLE formulas cannot be read, replaced, deleted, or converted.
                 Microsoft.Office.Interop.Word.ContentControl? cc = null;
                 try
                 {
@@ -677,28 +676,38 @@ namespace LaTeXSnipper.Word.Host
                 }
                 catch
                 {
-                    // ContentControl wrapping is best-effort — OLE object is still inserted
                     System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
                 }
 
-                // Move cursor past the OLE object
+                // Move cursor past the OLE object before CompleteInsertion
                 try
                 {
-                    var afterRange = oleShape.Range;
+                    var afterRange = oleShape.Range.Duplicate;
                     afterRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
                     _application.Selection.SetRange(afterRange.Start, afterRange.End);
                 }
                 catch (Exception ex)
                 {
-                    OfficeOperationLog.Failure(
-                        "collapse-after-ole-insert",
-                        "word",
-                        payload.FormulaId,
-                        ex);
+                    OfficeOperationLog.Failure("collapse-after-ole-insert", "word", payload.FormulaId, ex);
                 }
 
-                // Complete the insertion so the OLE host knows we're done editing
-                OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
+                // CompleteInsertion BEFORE setting Width/Height so SetExtent is no longer ignored
+                if (!OleFormulaInterop.CompleteInsertion(activation.AutomationObject))
+                {
+                    try { oleShape.Delete(); }
+                    catch (Exception rollbackError) { OfficeOperationLog.Failure("rollback-incomplete-ole", "word", payload.FormulaId, rollbackError); }
+                    return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
+                }
+
+                // Now set final dimensions — SetExtent accepts them after CompleteInsertion
+                if (targetExtent.HasValue)
+                {
+                    OleExtentPoints extent = targetExtent.Value;
+                    oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                    oleShape.Width = extent.DisplayWidthPt;
+                    oleShape.Height = extent.DisplayHeightPt;
+                    oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                }
 
                 // Add auto-numbering for DisplayNumbered mode
                 if (mode == InsertMode.DisplayNumbered)

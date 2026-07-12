@@ -378,18 +378,37 @@ namespace LaTeXSnipper.Excel.Host
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
                     }
 
-                    // Query the OLE object's natural/display extent and size the shape to match
+                    // Query the OLE object's natural extent and compute display size with scale.
+                    OleExtentPoints? targetExtent = null;
                     if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out var extent))
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        ole.Width = extent.DisplayWidthPt;
-                        ole.Height = extent.DisplayHeightPt;
+                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
                     }
 
                     // Deselect the OLE object so the host can finalize it
                     cell.Select();
 
-                    OleFormulaInterop.CompleteInsertion(activation.AutomationObject);
+                    // CompleteInsertion BEFORE setting Width/Height so SetExtent is no longer ignored
+                    if (!OleFormulaInterop.CompleteInsertion(activation.AutomationObject))
+                    {
+                        ole.Delete();
+                        return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
+                    }
+
+                    // Now set final dimensions — SetExtent accepts them after CompleteInsertion
+                    if (targetExtent.HasValue)
+                    {
+                        OleExtentPoints extent = targetExtent.Value;
+                        try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse; }
+                        catch (Exception ex) { OfficeOperationLog.Failure("unlock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
+                        ole.Width = extent.DisplayWidthPt;
+                        ole.Height = extent.DisplayHeightPt;
+                        try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue; }
+                        catch (Exception ex) { OfficeOperationLog.Failure("lock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
+                    }
+
+                    ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
 
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
