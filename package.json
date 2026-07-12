@@ -24,7 +24,7 @@
     "prepare:native-office": "node scripts/prepare-native-office.js",
     "check:office-package": "node scripts/check-native-office-package.mjs",
     "check:frontend": "node --check src/main.js",
-    "test:frontend": "node --test tests/formula-svg-renderer.test.mjs",
+    "test:frontend": "node --test tests/*.test.mjs",
     "fixtures:mathjax": "node scripts/generate-mathjax-svg-fixtures.mjs",
     "fixtures:mathjax:check": "node scripts/generate-mathjax-svg-fixtures.mjs --check",
     "check:office-payload": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-native-office-payload.ps1 -PayloadRoot apps/native-office/Installer/output/staging",

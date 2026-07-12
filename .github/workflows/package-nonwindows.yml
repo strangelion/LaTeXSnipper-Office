@@ -1,0 +1,119 @@
+name: Non-Windows Package Verify
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        type: string
+        required: true
+      bundles:
+        type: string
+        required: true
+      artifact_name:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+      - name: Initialize package diagnostics
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force package-diagnostics | Out-Null
+      - name: Clean generated resource targets
+        shell: pwsh
+        run: |
+          foreach ($name in @('OfficeJS', 'WPS', 'NativeOffice', 'Obsidian', 'Ecosystem')) {
+            $path = Join-Path 'src-tauri/resources' $name
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+          }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix apps/office-addin ci
+      - run: npm --prefix apps/obsidian-plugin ci
+      - run: npm --prefix apps/vscode-extension ci
+      - run: npm --prefix apps/browser-extension ci
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev rpm cpio
+      - name: Build and stage current cross-platform resources
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+          npm run build:office-addin
+          npm run build:wps
+          npm run build:ecosystem
+          npm run stage:ecosystem
+          npm run build:vite
+          $wpsStaging = "apps/wps/dist/latexsnipper-wps_$version"
+          "WPS_STAGING=$wpsStaging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+          & scripts/stage-resources.ps1 `
+            -WpsStaging $wpsStaging `
+            -OfficeJsStaging src-tauri/resources/OfficeJS `
+            -WpsSourceName 'current deterministic WPS build' `
+            -OfficeJsSourceName 'current deterministic OfficeJS build' `
+            -ObsidianSourceName 'current deterministic ecosystem build'
+          Copy-Item src-tauri/resources/provenance.json package-diagnostics/resource-provenance.json -Force
+      - run: npx tauri build --config src-tauri/tauri.ci.conf.json --bundles ${{ inputs.bundles }}
+      - name: Extract and reject Windows-only resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package-extract | Out-Null
+          if ($IsLinux) {
+            $deb = (Get-ChildItem src-tauri/target/release/bundle/deb/*.deb | Select-Object -First 1).FullName
+            & dpkg-deb -x $deb package-extract/deb
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $rpm = (Get-ChildItem src-tauri/target/release/bundle/rpm/*.rpm | Select-Object -First 1).FullName
+            bash -c "rpm2cpio '$rpm' | (cd package-extract && mkdir -p rpm && cd rpm && cpio -idmv)"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $wpsRoots = @('package-extract/deb', 'package-extract/rpm')
+          } else {
+            $dmg = (Get-ChildItem src-tauri/target/release/bundle/dmg/*.dmg | Select-Object -First 1).FullName
+            New-Item -ItemType Directory -Force package-extract/mount | Out-Null
+            & hdiutil attach $dmg -readonly -nobrowse -mountpoint package-extract/mount
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $wpsRoots = @('package-extract/mount')
+          }
+          & scripts/verify-package-contents.ps1 `
+            -NonWindowsPackageRoots package-extract `
+            -WpsStaging $env:WPS_STAGING `
+            -WpsPackageRoots $wpsRoots `
+            -ResourceStagingRoot src-tauri/resources `
+            -ResourcePackageRoots $wpsRoots `
+            -ExpectedVersion $env:VERSION
+      - name: Detach macOS package mount
+        if: always() && runner.os == 'macOS'
+        shell: pwsh
+        run: |
+          if (Test-Path package-extract/mount) {
+            & hdiutil detach package-extract/mount -force *>&1 |
+              Tee-Object package-diagnostics/dmg-detach.log
+            if ($LASTEXITCODE -ne 0) { throw "DMG detach failed: $LASTEXITCODE" }
+          }
+      - name: Upload package diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ inputs.artifact_name }}
+          path: package-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload verified packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: src-tauri/target/release/bundle/

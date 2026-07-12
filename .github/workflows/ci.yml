@@ -13,6 +13,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-package-impact:
+    runs-on: ubuntu-24.04
+    outputs:
+      windows_package: ${{ steps.detect.outputs.windows_package }}
+      linux_package: ${{ steps.detect.outputs.linux_package }}
+      macos_package: ${{ steps.detect.outputs.macos_package }}
+      any_package: ${{ steps.detect.outputs.any_package }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Detect package impact
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: node scripts/detect-package-impact.mjs --base "$BASE_SHA" --head "$HEAD_SHA"
+
   source-frontend-protocol:
     runs-on: ubuntu-24.04
     steps:
@@ -69,7 +90,43 @@ jobs:
     permissions:
       contents: read
 
-  package-verify:
-    uses: ./.github/workflows/package-verify.yml
+  package-smoke:
+    needs: detect-package-impact
+    uses: ./.github/workflows/package-smoke.yml
+    with:
+      run_windows: ${{ needs.detect-package-impact.outputs.windows_package == 'true' }}
+      run_linux: ${{ needs.detect-package-impact.outputs.linux_package == 'true' }}
+      run_macos: ${{ needs.detect-package-impact.outputs.macos_package == 'true' }}
     permissions:
       contents: read
+
+  ci-gate:
+    if: always()
+    needs: [detect-package-impact, source-frontend-protocol, rust, native-office, package-smoke]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce required CI results
+        env:
+          DETECT_RESULT: ${{ needs.detect-package-impact.result }}
+          SOURCE_RESULT: ${{ needs.source-frontend-protocol.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          NATIVE_RESULT: ${{ needs.native-office.result }}
+          PACKAGE_RESULT: ${{ needs.package-smoke.result }}
+        run: |
+          failed=0
+          for pair in \
+            "detect-package-impact=$DETECT_RESULT" \
+            "source-frontend-protocol=$SOURCE_RESULT" \
+            "rust=$RUST_RESULT" \
+            "native-office=$NATIVE_RESULT" \
+            "package-smoke=$PACKAGE_RESULT"; do
+            echo "$pair"
+            result="${pair#*=}"
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$failed" -ne 0 ]]; then
+            echo "One or more required CI dependencies failed or were cancelled."
+            exit 1
+          fi

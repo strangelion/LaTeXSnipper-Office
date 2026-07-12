@@ -2,7 +2,13 @@
 param(
     [string]$StagingRoot = "",
     [string[]]$WindowsPackageRoots = @(),
-    [string[]]$NonWindowsPackageRoots = @()
+    [string[]]$NonWindowsPackageRoots = @(),
+    [string]$WpsStaging = "",
+    [string[]]$WpsPackageRoots = @(),
+    [string]$ResourceStagingRoot = "",
+    [string[]]$ResourcePackageRoots = @(),
+    [string[]]$ResourceNames = @("OfficeJS", "WPS", "Obsidian", "Ecosystem"),
+    [string]$ExpectedVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,12 +31,44 @@ function Resolve-Dumpbin {
     return $null
 }
 
+function Assert-FileVersion([string]$Path, [string]$ActualVersion) {
+    if ([string]::IsNullOrWhiteSpace($ActualVersion)) { throw "DLL file version is missing: $Path" }
+    if ([string]::IsNullOrWhiteSpace($ExpectedVersion)) { return }
+
+    $expectedMatch = [regex]::Match($ExpectedVersion, '^\d+\.\d+\.\d+(?:\.\d+)?')
+    $actualMatch = [regex]::Match($ActualVersion, '^\d+\.\d+\.\d+(?:\.\d+)?')
+    if (-not $expectedMatch.Success -or -not $actualMatch.Success) {
+        throw "DLL file version is not numeric: path=$Path expected=$ExpectedVersion actual=$ActualVersion"
+    }
+
+    $expectedVersionValue = [Version]$expectedMatch.Value
+    $actualVersionValue = [Version]$actualMatch.Value
+    $actualRevision = if ($actualVersionValue.Revision -lt 0) { 0 } else { $actualVersionValue.Revision }
+    $expectedRevision = if ($expectedVersionValue.Revision -lt 0) { 0 } else { $expectedVersionValue.Revision }
+    if ($actualVersionValue.Major -ne $expectedVersionValue.Major -or
+        $actualVersionValue.Minor -ne $expectedVersionValue.Minor -or
+        $actualVersionValue.Build -ne $expectedVersionValue.Build -or
+        $actualRevision -ne $expectedRevision) {
+        throw "DLL file version mismatch: path=$Path expected=$ExpectedVersion actual=$ActualVersion"
+    }
+}
+
 if ($WindowsPackageRoots.Count -gt 0) {
     if ([string]::IsNullOrWhiteSpace($StagingRoot)) { throw "StagingRoot is required for Windows package verification" }
     $staging = (Resolve-Path -LiteralPath $StagingRoot).Path
-    $expected = @{
-        "OleFormulaObject.x86.dll" = @{ Hash = (Get-FileHash -LiteralPath (Join-Path $staging "OleFormulaObject.x86.dll") -Algorithm SHA256).Hash; Machine = 0x014c }
-        "OleFormulaObject.x64.dll" = @{ Hash = (Get-FileHash -LiteralPath (Join-Path $staging "OleFormulaObject.x64.dll") -Algorithm SHA256).Hash; Machine = 0x8664 }
+    $expected = @{}
+    foreach ($entry in @(
+        @{ Name = "OleFormulaObject.x86.dll"; Machine = 0x014c },
+        @{ Name = "OleFormulaObject.x64.dll"; Machine = 0x8664 }
+    )) {
+        $path = Join-Path $staging $entry.Name
+        $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileVersion
+        Assert-FileVersion $path $version
+        $expected[$entry.Name] = @{
+            Hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            Machine = $entry.Machine
+            Version = $version
+        }
     }
     $dumpbin = Resolve-Dumpbin
     if ([string]::IsNullOrWhiteSpace($dumpbin)) { throw "dumpbin.exe is required for export and dependency verification" }
@@ -50,10 +88,89 @@ function Get-PeMachine([string]$Path) {
     finally { $stream.Dispose() }
 }
 
+function Assert-WpsPayload([string]$PackageRoot) {
+    if ([string]::IsNullOrWhiteSpace($WpsStaging)) { throw "WpsStaging is required for WPS package verification" }
+    $source = (Resolve-Path -LiteralPath $WpsStaging).Path
+    $wpsDirectories = @(Get-ChildItem -LiteralPath $PackageRoot -Recurse -Directory | Where-Object { $_.Name -eq "WPS" })
+    if ($wpsDirectories.Count -ne 1) { throw "Expected exactly one resources/WPS directory in $PackageRoot; found=$($wpsDirectories.Count)" }
+    $wps = $wpsDirectories[0].FullName
+    if (Test-Path -LiteralPath (Join-Path $wps "WPS") -PathType Container) { throw "Duplicate nested WPS path found: $wps\WPS" }
+    foreach ($relative in @("index.html", "main.js", "manifest.xml", "ribbon.xml", "proxy.js", "server.js", "js/command-layer.js", "js/ribbon.js", "js/util.js", "ui/taskpane.html")) {
+        $relativePath = $relative -replace '/', [System.IO.Path]::DirectorySeparatorChar
+        $sourceFile = Join-Path $source $relativePath
+        $packageFile = Join-Path $wps $relativePath
+        if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) { throw "Packaged WPS file missing: $relative in $PackageRoot" }
+        $sourceHash = (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash
+        $packageHash = (Get-FileHash -LiteralPath $packageFile -Algorithm SHA256).Hash
+        if ($sourceHash -ne $packageHash) { throw "WPS hash mismatch: relative=$relative source=$sourceHash package=$packageHash path=$packageFile" }
+    }
+    if ($ExpectedVersion) {
+        $manifest = Get-Content -Raw -LiteralPath (Join-Path $wps "manifest.xml")
+        if ($manifest -notmatch "<Version>$([regex]::Escape($ExpectedVersion))</Version>") {
+            throw "WPS manifest version mismatch in $wps; expected=$ExpectedVersion"
+        }
+    }
+}
+
+function Assert-ResourcePayload([string]$PackageRoot) {
+    if ([string]::IsNullOrWhiteSpace($ResourceStagingRoot)) {
+        throw "ResourceStagingRoot is required for resource package verification"
+    }
+    $stagingRoot = (Resolve-Path -LiteralPath $ResourceStagingRoot).Path
+    foreach ($name in $ResourceNames) {
+        $sourceRoot = Join-Path $stagingRoot $name
+        if (-not (Test-Path -LiteralPath $sourceRoot -PathType Container)) {
+            throw "Staged resource directory is missing: $sourceRoot"
+        }
+        $packageDirectories = @(
+            Get-ChildItem -LiteralPath $PackageRoot -Recurse -Directory |
+                Where-Object { $_.Name -eq $name }
+        )
+        if ($packageDirectories.Count -ne 1) {
+            throw "Expected exactly one resources/$name directory in $PackageRoot; found=$($packageDirectories.Count)"
+        }
+        $packageResourceRoot = $packageDirectories[0].FullName
+        $sourceFiles = @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File | Sort-Object FullName)
+        $packageFiles = @(Get-ChildItem -LiteralPath $packageResourceRoot -Recurse -File | Sort-Object FullName)
+        if ($sourceFiles.Count -eq 0) { throw "Staged resource directory is empty: $sourceRoot" }
+        if ($sourceFiles.Count -ne $packageFiles.Count) {
+            throw "Resource file count mismatch: resource=$name package=$PackageRoot staging=$($sourceFiles.Count) packaged=$($packageFiles.Count)"
+        }
+        foreach ($sourceFile in $sourceFiles) {
+            $relative = $sourceFile.FullName.Substring($sourceRoot.Length).TrimStart([char[]]@('\', '/'))
+            $packageFile = Join-Path $packageResourceRoot $relative
+            if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
+                throw "Packaged resource file missing: resource=$name relative=$relative package=$PackageRoot"
+            }
+            $sourceHash = (Get-FileHash -LiteralPath $sourceFile.FullName -Algorithm SHA256).Hash
+            $packageHash = (Get-FileHash -LiteralPath $packageFile -Algorithm SHA256).Hash
+            if ($sourceHash -ne $packageHash) {
+                throw "Resource hash mismatch: resource=$name relative=$relative staging=$sourceHash package=$packageHash path=$packageFile"
+            }
+        }
+    }
+
+    $sourceProvenance = Join-Path $stagingRoot "provenance.json"
+    if (-not (Test-Path -LiteralPath $sourceProvenance -PathType Leaf)) {
+        throw "Resource provenance is missing: $sourceProvenance"
+    }
+    $packagedProvenance = @(Get-ChildItem -LiteralPath $PackageRoot -Recurse -File -Filter "provenance.json")
+    if ($packagedProvenance.Count -ne 1) {
+        throw "Expected exactly one packaged provenance.json in $PackageRoot; found=$($packagedProvenance.Count)"
+    }
+    $sourceHash = (Get-FileHash -LiteralPath $sourceProvenance -Algorithm SHA256).Hash
+    $packageHash = (Get-FileHash -LiteralPath $packagedProvenance[0].FullName -Algorithm SHA256).Hash
+    if ($sourceHash -ne $packageHash) {
+        throw "Resource provenance hash mismatch: package=$PackageRoot staging=$sourceHash packaged=$packageHash"
+    }
+}
+
 foreach ($rootValue in $WindowsPackageRoots) {
     $root = (Resolve-Path -LiteralPath $rootValue).Path
     $forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
-        $_.Extension -match '^\.(pfx|p12|pem|key|pdb)$'
+        $_.Extension -match '^\.(pfx|p12|pem|key|pdb|emf)$' -or
+        $_.Name -match '(?i)(NativeVectorTests|OleActivationProbe|PendingPayloadTests).*\.exe$' -or
+        ($_.Extension -eq '.svg' -and $_.FullName -match '(?i)(temp|tmp|fixtures?|tests?)')
     }
     if ($forbidden) { throw "Forbidden files in package ${root}: $($forbidden.FullName -join ', ')" }
 
@@ -66,7 +183,10 @@ foreach ($rootValue in $WindowsPackageRoots) {
             $machine = Get-PeMachine $file.FullName
             if ($machine -ne $expected[$name].Machine) { throw "PE Machine mismatch: $($file.FullName) machine=0x$('{0:X4}' -f $machine)" }
             $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($file.FullName).FileVersion
-            if ([string]::IsNullOrWhiteSpace($version)) { throw "DLL file version is missing: $($file.FullName)" }
+            Assert-FileVersion $file.FullName $version
+            if ($version -ne $expected[$name].Version) {
+                throw "DLL staging/package version mismatch: path=$($file.FullName) staging=$($expected[$name].Version) package=$version"
+            }
             $exports = & $dumpbin /nologo /exports $file.FullName 2>&1 | Out-String
             foreach ($export in @("DllGetClassObject", "DllCanUnloadNow")) {
                 if ($exports -notmatch "\b$export\b") { throw "Missing export $export in $($file.FullName)" }
@@ -85,6 +205,14 @@ foreach ($rootValue in $NonWindowsPackageRoots) {
         $_.Name -match '(?i)(OleFormulaObject|NativeOffice|\.vsto$|\.pfx$|\.cer$|\.msi$)'
     }
     if ($forbidden) { throw "Windows NativeOffice content found in non-Windows package ${root}: $($forbidden.FullName -join ', ')" }
+}
+
+foreach ($rootValue in $WpsPackageRoots) {
+    Assert-WpsPayload (Resolve-Path -LiteralPath $rootValue).Path
+}
+
+foreach ($rootValue in $ResourcePackageRoots) {
+    Assert-ResourcePayload (Resolve-Path -LiteralPath $rootValue).Path
 }
 
 Write-Host "Package content hashes, versions, PE machine values, and forbidden-file rules verified."

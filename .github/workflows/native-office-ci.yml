@@ -56,12 +56,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: microsoft/setup-msbuild@v2
+      - name: Verify WPS artifact staging contract
+        shell: pwsh
+        run: .\scripts\test-wps-artifact-staging.ps1
       - name: Build Shared tests
         shell: pwsh
         run: >-
           msbuild apps\native-office\LaTeXSnipper.Shared.Tests\LaTeXSnipper.Shared.Tests.csproj
           /m /t:Restore,Build /p:RestorePackagesConfig=true
-          /p:Configuration=Release /p:Platform=AnyCPU /p:WarningLevel=4 /v:minimal
+          /p:Configuration=Release /p:Platform=AnyCPU /p:WarningLevel=4
+          /p:TreatWarningsAsErrors=true /v:minimal
       - name: Run PendingPayload ACL/transport and strict Base64 tests
         shell: pwsh
         run: |
@@ -79,7 +83,7 @@ jobs:
       - name: Build C# VSTO projects
         shell: pwsh
         run: |
-          msbuild apps\native-office\LaTeXSnipper.NativeOffice.sln /m /t:Build /p:Configuration=Release "/p:Platform=Any CPU" /p:WarningLevel=4 /v:minimal
+          msbuild apps\native-office\LaTeXSnipper.NativeOffice.sln /m /t:Build /p:Configuration=Release "/p:Platform=Any CPU" /p:WarningLevel=4 /p:TreatWarningsAsErrors=true /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   com-activation:

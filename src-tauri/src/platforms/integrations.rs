@@ -351,7 +351,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
     }
     let ole = install_ole_component();
     if !ole.success {
-        let cleanup = uninstall_ole_component();
+        let status = check_ole_status();
         if ole.message.contains("OLE_REGISTRATION_OWNED_BY_OTHER")
             && ole.message.contains("legacy-unowned")
             && status.available
@@ -366,12 +366,13 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                 true,
             );
         }
+        let cleanup = uninstall_ole_component();
         return PlatformIntegrationResult::fail(
             "office",
             "native-stack",
             format!(
-                "VSTO installation completed, but OLE installation failed: {}",
-                ole.message
+                "VSTO installation completed, but OLE installation failed: {} Cleanup: {}",
+                ole.message, cleanup.message
             ),
         );
     }

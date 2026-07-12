@@ -1,0 +1,32 @@
+name: Main Package Verify
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 18 * * *'
+  workflow_dispatch:
+    inputs:
+      prior_tag:
+        description: Verified prior NativeOffice release tag
+        type: string
+        default: v1.2.1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-package-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-package-verification:
+    uses: ./.github/workflows/package-verify.yml
+    with:
+      prior_tag: ${{ inputs.prior_tag || 'v1.2.1' }}
+      run_windows: true
+      run_linux: true
+      run_macos: true
+      full_upgrade: true
+    permissions:
+      contents: read

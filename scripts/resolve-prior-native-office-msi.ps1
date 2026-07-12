@@ -12,10 +12,38 @@ if ($env:NATIVE_OFFICE_WIX_ROOT) {
 }
 $destinationPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Destination))
 $repository = if ($env:GITHUB_REPOSITORY) { $env:GITHUB_REPOSITORY } else { "strangelion/LaTeXSnipper-Office" }
+$resolutionLog = Join-Path $DiagnosticsDirectory "prior-native-office-resolution.txt"
+"repository=$repository`ntag=$Tag" | Set-Content -LiteralPath $resolutionLog -Encoding UTF8
+
+& git rev-parse --verify "$Tag^{commit}" *> $null
+if ($LASTEXITCODE -ne 0) {
+    "tagLookup=missing; fetching exact tag" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
+    & git fetch --force origin "refs/tags/${Tag}:refs/tags/${Tag}"
+    if ($LASTEXITCODE -ne 0) { throw "Unable to fetch prior tag $Tag from origin." }
+}
+$tagCommit = (& git rev-parse --verify "$Tag^{commit}").Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagCommit)) {
+    throw "Prior tag does not resolve to a commit after fetch: $Tag"
+}
+"tagCommit=$tagCommit" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
+
+function Get-MsiProductVersion([string]$Path) {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $installer.GetType().InvokeMember("OpenDatabase", "InvokeMethod", $null, $installer, @($Path, 0))
+    $view = $database.GetType().InvokeMember("OpenView", "InvokeMethod", $null, $database, @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductVersion'"))
+    $view.GetType().InvokeMember("Execute", "InvokeMethod", $null, $view, $null) | Out-Null
+    $record = $view.GetType().InvokeMember("Fetch", "InvokeMethod", $null, $view, $null)
+    return $record.GetType().InvokeMember("StringData", "GetProperty", $null, $record, 1)
+}
+
 $release = $null
 try {
-    $release = (& gh api "repos/$repository/releases/tags/$Tag" | ConvertFrom-Json)
+    $releaseJson = & gh api "repos/$repository/releases/tags/$Tag" 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "gh api exited with code $LASTEXITCODE" }
+    $release = $releaseJson | ConvertFrom-Json
+    "releaseLookup=found" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
 } catch {
+    "releaseLookup=failed; error=$($_.Exception.Message)" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
     Write-Warning "Release lookup failed for $Tag; using an isolated worktree."
 }
 
@@ -24,14 +52,20 @@ $asset = $release.assets | Where-Object {
 } | Select-Object -First 1
 if ($asset) {
     if ([string]::IsNullOrWhiteSpace($asset.digest) -or $asset.digest -notmatch '^sha256:[0-9a-fA-F]{64}$') {
-        throw "Release asset has no trustworthy SHA256 digest: $($asset.name)"
+        "releaseAsset=$($asset.name); digest=untrusted; chosenSource=worktree" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
+        $asset = $null
     }
+}
+if ($asset) {
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $destinationPath
     $actual = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $expected = $asset.digest.Substring(7).ToLowerInvariant()
     if ($actual -ne $expected) { throw "Prior MSI SHA256 mismatch: expected=$expected actual=$actual" }
-    "source=release`ntag=$Tag`nasset=$($asset.name)`nsha256=$actual" |
+    $productVersion = Get-MsiProductVersion $destinationPath
+    if ($productVersion -ne $Tag.TrimStart('v')) { throw "Prior release MSI ProductVersion mismatch: $productVersion" }
+    "source=release`ntag=$Tag`nasset=$($asset.name)`nsha256=$actual`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
+    "chosenSource=release; msiSha256=$actual; ProductVersion=$productVersion" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
     return
 }
 
@@ -43,7 +77,6 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "git worktree add failed for $Tag." }
     $priorPackage = Get-Content -Raw -LiteralPath (Join-Path $worktree "package.json") | ConvertFrom-Json
     $expectedVersion = $Tag.TrimStart('v')
-    $tagCommit = (& git rev-list -n 1 $Tag).Trim()
     $worktreeCommit = (& git -C $worktree rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $worktreeCommit -ne $tagCommit) {
         throw "Prior worktree does not match the requested tag: tag=$Tag tagCommit=$tagCommit worktreeCommit=$worktreeCommit"
@@ -62,8 +95,11 @@ try {
     if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "Prior worktree did not produce Native Office MSI." }
     Copy-Item -LiteralPath $msi -Destination $destinationPath -Force
     $sha = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    "source=worktree`ntag=$Tag`ncommit=$worktreeCommit`nsourcePackageVersion=$($priorPackage.version)`nmsiVersion=$expectedVersion`nsha256=$sha" |
+    $productVersion = Get-MsiProductVersion $destinationPath
+    if ($productVersion -ne $expectedVersion) { throw "Prior worktree MSI ProductVersion mismatch: expected=$expectedVersion actual=$productVersion" }
+    "source=worktree`ntag=$Tag`ntagCommit=$tagCommit`nworktreeCommit=$worktreeCommit`nsourcePackageVersion=$($priorPackage.version)`nmsiVersion=$expectedVersion`nsha256=$sha`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
+    "worktreeCommit=$worktreeCommit; chosenSource=worktree; msiSha256=$sha; ProductVersion=$productVersion" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
 }
 finally {
     if (Test-Path -LiteralPath $worktree) {

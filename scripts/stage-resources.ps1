@@ -3,7 +3,14 @@
 
 param(
     [string]$ProjectRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$NativeOfficeStaging = ""
+    [string]$NativeOfficeStaging = "",
+    [string]$WpsStaging = "",
+    [string]$OfficeJsStaging = "",
+    [string]$ObsidianStaging = "",
+    [string]$NativeOfficeSourceName = "",
+    [string]$WpsSourceName = "",
+    [string]$OfficeJsSourceName = "",
+    [string]$ObsidianSourceName = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,6 +127,13 @@ New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
 
 # Office.js is produced by scripts/stage-office-addin.mjs before this script runs.
 $officeJsDir = Join-Path $resourcesDir "OfficeJS"
+if (-not [string]::IsNullOrWhiteSpace($OfficeJsStaging)) {
+    $officeJsSource = (Resolve-Path -LiteralPath $OfficeJsStaging -ErrorAction Stop).Path
+    Require-Dir $officeJsSource "Explicit Office.js staging directory"
+    if (-not $officeJsSource.Equals([System.IO.Path]::GetFullPath($officeJsDir), [System.StringComparison]::OrdinalIgnoreCase)) {
+        Copy-CleanDir $officeJsSource $officeJsDir
+    }
+}
 Require-Dir (Join-Path $officeJsDir "site") "Office.js site directory"
 Require-Dir (Join-Path $officeJsDir "manifest") "Office.js manifest directory"
 Require-File (Join-PathParts @($officeJsDir, "site", "taskpane.html")) "Office.js taskpane"
@@ -129,11 +143,18 @@ foreach ($officeHost in @("word", "excel", "powerpoint")) {
 Write-Host "  OfficeJS: ready" -ForegroundColor Green
 
 # WPS JSAddIn. It is JavaScript-only and is staged from its build output on all hosts.
-$wpsBuild = Get-LatestWpsBuild
-if (-not $wpsBuild) {
-    throw "WPS build output missing. Run npm run build:wps before packaging."
+$wpsSource = if (-not [string]::IsNullOrWhiteSpace($WpsStaging)) {
+    $resolvedWps = (Resolve-Path -LiteralPath $WpsStaging -ErrorAction Stop).Path
+    Require-Dir $resolvedWps "Explicit WPS staging directory"
+    $resolvedWps
+} else {
+    $wpsBuild = Get-LatestWpsBuild
+    if (-not $wpsBuild) {
+        throw "WPS build output missing. Run npm run build:wps before packaging."
+    }
+    Write-Warning "Using local-development WPS fallback: $($wpsBuild.FullName)"
+    $wpsBuild.FullName
 }
-$wpsSource = $wpsBuild.FullName
 $wpsDest = Join-Path $resourcesDir "WPS"
 foreach ($file in @(
     "index.html",
@@ -202,8 +223,12 @@ if ($runningOnWindows) {
     Write-Host "  NativeOffice: intentionally excluded (Windows-only)" -ForegroundColor Yellow
 }
 
-# Obsidian is optional for Office packaging, but keep resources valid when it is built.
-$obsidianSource = Join-PathParts @($ProjectRoot, "apps", "obsidian-plugin")
+# Obsidian is optional for local builds. CI should provide an exact artifact directory.
+$obsidianSource = if (-not [string]::IsNullOrWhiteSpace($ObsidianStaging)) {
+    (Resolve-Path -LiteralPath $ObsidianStaging -ErrorAction Stop).Path
+} else {
+    Join-PathParts @($ProjectRoot, "apps", "obsidian-plugin")
+}
 $obsidianDest = Join-Path $resourcesDir "Obsidian"
 if (Test-Path -LiteralPath $obsidianDest) {
     Remove-Item -LiteralPath $obsidianDest -Recurse -Force
@@ -231,3 +256,56 @@ foreach ($dir in @("OfficeJS", "WPS", "NativeOffice", "Obsidian")) {
     $count = (Get-ChildItem -LiteralPath $path -Recurse -File).Count
     Write-Host "  $dir : $count files" -ForegroundColor Gray
 }
+
+$provenance = [ordered]@{
+    schemaVersion = 1
+    workflowRunId = $env:GITHUB_RUN_ID
+    sourceCommitSha = if ($env:GITHUB_SHA) { $env:GITHUB_SHA } else { (& git -C $ProjectRoot rev-parse HEAD) }
+    packageVersion = if ($env:VERSION) {
+        $env:VERSION
+    } else {
+        (Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
+    }
+    sources = [ordered]@{
+        officeJs = [ordered]@{
+            name = if ($OfficeJsSourceName) { $OfficeJsSourceName } elseif ($OfficeJsStaging) { "explicit-path" } else { "local-build" }
+            path = if ($OfficeJsStaging) { $OfficeJsStaging } else { $officeJsDir }
+        }
+        wps = [ordered]@{
+            name = if ($WpsSourceName) { $WpsSourceName } elseif ($WpsStaging) { "explicit-path" } else { "local-build-fallback" }
+            path = $wpsSource
+        }
+        nativeOffice = [ordered]@{
+            name = if (-not $runningOnWindows) { "excluded" } elseif ($NativeOfficeSourceName) { $NativeOfficeSourceName } elseif ($NativeOfficeStaging) { "explicit-path" } else { "local-build" }
+            path = if (-not $runningOnWindows) { "" } elseif ($NativeOfficeStaging) { $NativeOfficeStaging } else { $vstoDest }
+        }
+        obsidian = [ordered]@{
+            name = if ($ObsidianSourceName) { $ObsidianSourceName } elseif ($ObsidianStaging) { "explicit-path" } else { "local-build" }
+            path = $obsidianSource
+        }
+    }
+    resourceHashes = [ordered]@{}
+    wpsHashes = [ordered]@{}
+    nativeOfficeHashes = [ordered]@{}
+}
+foreach ($resourceName in @("OfficeJS", "WPS", "Obsidian", "Ecosystem")) {
+    $resourcePath = Join-Path $resourcesDir $resourceName
+    if (-not (Test-Path -LiteralPath $resourcePath -PathType Container)) { continue }
+    $hashes = [ordered]@{}
+    Get-ChildItem -LiteralPath $resourcePath -Recurse -File |
+        Sort-Object FullName |
+        ForEach-Object {
+            $relative = $_.FullName.Substring($resourcePath.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+            $hashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+        }
+    $provenance.resourceHashes[$resourceName] = $hashes
+}
+foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
+    $provenance.wpsHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-RelativePath $wpsDest $relative)).Hash
+}
+if ($runningOnWindows) {
+    foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
+        $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $vstoDest $name)).Hash
+    }
+}
+$provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $resourcesDir "provenance.json") -Encoding UTF8

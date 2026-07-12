@@ -1,0 +1,14 @@
+{
+  "build": {
+    "beforeBuildCommand": ""
+  },
+  "bundle": {
+    "resources": [
+      "resources/OfficeJS/**/*",
+      "resources/WPS/**/*",
+      "resources/Obsidian/**/*",
+      "resources/Ecosystem/**/*",
+      "resources/provenance.json"
+    ]
+  }
+}

@@ -1,0 +1,28 @@
+name: Package Smoke
+
+on:
+  workflow_call:
+    inputs:
+      run_windows:
+        type: boolean
+        required: true
+      run_linux:
+        type: boolean
+        required: true
+      run_macos:
+        type: boolean
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  current-packages:
+    uses: ./.github/workflows/package-verify.yml
+    with:
+      run_windows: ${{ inputs.run_windows }}
+      run_linux: ${{ inputs.run_linux }}
+      run_macos: ${{ inputs.run_macos }}
+      full_upgrade: false
+    permissions:
+      contents: read
