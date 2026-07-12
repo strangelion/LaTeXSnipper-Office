@@ -439,8 +439,9 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
     Expect(SUCCEEDED(activation.result), L"cross-thread class factory activation failed: " + std::to_wstring(activation.result));
     Expect(activation.initialized == VARIANT_TRUE, L"constructor did not initialize from the same-PID payload");
     Expect(activation.formulaId == L"cross-sta-constructor", L"constructor consumed the wrong payload");
-    Expect(!PendingValueExists(pid), L"constructor did not delete the consumed payload");
+    Expect(PendingValueExists(pid), L"valid pending payload reference should remain during the active lease");
     Expect(PendingValueExists(unrelatedPid), L"constructor removed another PID's payload");
+    DeletePendingValue(pid);
     DeletePendingValue(unrelatedPid);
 
     WritePendingPayload(pid, BuildPendingPayload(L"stale", 1), 1);
@@ -466,8 +467,40 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
 }
 }
 
-void TestProvisionalExtentIsIgnored()
+struct FormulaTestObject
 {
+    ILatexSnipperFormula* formula = nullptr;
+    IOleObject* ole = nullptr;
+
+    ~FormulaTestObject()
+    {
+        if (ole != nullptr) ole->Release();
+        if (formula != nullptr) formula->Release();
+    }
+};
+
+bool CreateFormulaTestObject(DllGetClassObjectFn getClassObject, FormulaTestObject* result)
+{
+    if (getClassObject == nullptr || result == nullptr) return false;
+
+    IClassFactory* factory = nullptr;
+    HRESULT hr = getClassObject(CLSID_LaTeXSnipperFormula, IID_IClassFactory, reinterpret_cast<void**>(&factory));
+    if (FAILED(hr) || factory == nullptr) return false;
+
+    hr = factory->CreateInstance(nullptr, IID_ILatexSnipperFormula, reinterpret_cast<void**>(&result->formula));
+    factory->Release();
+    if (FAILED(hr) || result->formula == nullptr) return false;
+
+    hr = result->formula->QueryInterface(IID_IOleObject, reinterpret_cast<void**>(&result->ole));
+    return SUCCEEDED(hr) && result->ole != nullptr;
+}
+
+void TestProvisionalExtentIsIgnored(DllGetClassObjectFn getClassObject)
+{
+    FormulaTestObject object;
+    Expect(CreateFormulaTestObject(getClassObject, &object), L"could not create formula COM object");
+    if (object.formula == nullptr || object.ole == nullptr) return;
+
     ATL::CComBSTR payload(
         L"{"
         L"\"schemaVersion\":3,"
@@ -477,30 +510,31 @@ void TestProvisionalExtentIsIgnored()
         L"\"render\":{"
           L"\"widthPt\":72,"
           L"\"heightPt\":36,"
-          L"\"svg\":\"<svg viewBox='0 0 10 5'>"
-            L"<path d='M1 4L5 1L9 4Z'/>"
-          L"</svg>\""
+          L"\"svg\":\"<svg viewBox='0 0 10 5'><path d='M1 4L5 1L9 4Z'/></svg>\""
         L"}"
         L"}");
 
-    FormulaOleObject object;
-    Expect(SUCCEEDED(object.InitializeFromJson(payload)),
+    Expect(SUCCEEDED(object.formula->InitializeFromJson(payload)),
         L"valid extent fixture initialization failed");
 
     SIZEL provisional{ 20000, 10000 };
-    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &provisional)),
+    Expect(SUCCEEDED(object.ole->SetExtent(DVASPECT_CONTENT, &provisional)),
         L"provisional SetExtent failed");
 
     SIZEL actual{};
-    Expect(SUCCEEDED(object.GetExtent(DVASPECT_CONTENT, &actual)),
+    Expect(SUCCEEDED(object.ole->GetExtent(DVASPECT_CONTENT, &actual)),
         L"GetExtent failed");
 
     Expect(actual.cx != provisional.cx || actual.cy != provisional.cy,
-        L"provisional host extent polluted natural extent before CompleteInsertion");
+        L"provisional extent polluted natural extent");
 }
 
-void TestCompletedExtentIsRetained()
+void TestCompletedExtentIsRetained(DllGetClassObjectFn getClassObject)
 {
+    FormulaTestObject object;
+    Expect(CreateFormulaTestObject(getClassObject, &object), L"could not create formula COM object");
+    if (object.formula == nullptr || object.ole == nullptr) return;
+
     ATL::CComBSTR payload(
         L"{"
         L"\"schemaVersion\":3,"
@@ -510,27 +544,24 @@ void TestCompletedExtentIsRetained()
         L"\"render\":{"
           L"\"widthPt\":72,"
           L"\"heightPt\":36,"
-          L"\"svg\":\"<svg viewBox='0 0 10 5'>"
-            L"<path d='M1 4L5 1L9 4Z'/>"
-          L"</svg>\""
+          L"\"svg\":\"<svg viewBox='0 0 10 5'><path d='M1 4L5 1L9 4Z'/></svg>\""
         L"}"
         L"}");
 
-    FormulaOleObject object;
-    Expect(SUCCEEDED(object.InitializeFromJson(payload)),
+    Expect(SUCCEEDED(object.formula->InitializeFromJson(payload)),
         L"valid extent fixture initialization failed");
 
-    Expect(SUCCEEDED(object.CompleteInsertion()),
+    Expect(SUCCEEDED(object.formula->CompleteInsertion()),
         L"CompleteInsertion failed");
 
     SIZEL resized{ 5000, 2000 };
-    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &resized)),
+    Expect(SUCCEEDED(object.ole->SetExtent(DVASPECT_CONTENT, &resized)),
         L"committed SetExtent failed");
 
     SIZEL actual{};
-    object.GetExtent(DVASPECT_CONTENT, &actual);
+    object.ole->GetExtent(DVASPECT_CONTENT, &actual);
     Expect(actual.cx == resized.cx && actual.cy == resized.cy,
-        L"completed object did not retain container extent");
+        L"completed object did not retain extent");
 }
 
 int wmain(int argc, wchar_t** argv)
@@ -571,12 +602,24 @@ int wmain(int argc, wchar_t** argv)
     TestValidSvgSurvivesInvalidPngFallback();
     TestEmfCorruptionValidation();
     TestStorageValidation();
-    TestProvisionalExtentIsIgnored();
-    TestCompletedExtentIsRetained();
+
+    DllGetClassObjectFn getClassObject = nullptr;
     if (argc >= 2)
+    {
+        HMODULE module = LoadLibraryW(argv[1]);
+        if (module != nullptr)
+        {
+            getClassObject = reinterpret_cast<DllGetClassObjectFn>(GetProcAddress(module, "DllGetClassObject"));
+        }
+    }
+    Expect(getClassObject != nullptr, L"OLE DLL path argument is required and must export DllGetClassObject");
+
+    if (getClassObject != nullptr)
+    {
+        TestProvisionalExtentIsIgnored(getClassObject);
+        TestCompletedExtentIsRetained(getClassObject);
         TestPendingPayloadConstructor(argv[1]);
-    else
-        Expect(false, L"OLE DLL path argument is required for pending payload constructor tests");
+    }
     if (argc >= 3)
         TestMathJaxGoldenFixtures(argv[2]);
     else

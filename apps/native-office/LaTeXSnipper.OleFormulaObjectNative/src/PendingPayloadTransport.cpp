@@ -226,6 +226,6 @@ std::wstring ConsumePendingPayloadReference()
         WriteNativeOleLog(L"PendingPayload: payload file integrity validation failed.");
         return {};
     }
-    WriteNativeOleLog(L"PendingPayload: current-user token payload consumed and deleted.");
+    WriteNativeOleLog(L"PendingPayload: payload read successfully under active lease.");
     return payload;
 }

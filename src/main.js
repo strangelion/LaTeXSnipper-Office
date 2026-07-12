@@ -2765,10 +2765,7 @@ class UIController {
       // OLE session ended — Rust guard dropped (save/cancel/timeout/error)
       listen("ole-edit-session-ended", async (event) => {
         const sessionToken = event.payload?.sessionToken;
-        if (
-          sessionToken &&
-          this._oleSessionToken === sessionToken
-        ) {
+        if (sessionToken && this._oleSessionToken === sessionToken) {
           this._oleSessions?.delete(sessionToken);
           this._oleSessionToken = null;
           this._oleFormulaId = null;
