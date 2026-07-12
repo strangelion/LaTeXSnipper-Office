@@ -665,10 +665,10 @@ namespace LaTeXSnipper.Word.Host
                     // Constrain to container width to prevent clipping at page/table edges
                     try
                     {
-                        var range = oleShape.Range;
-                        var paragraphFormat = range.ParagraphFormat;
+                        var oleRange = oleShape.Range;
+                        var paragraphFormat = oleRange.ParagraphFormat;
                         bool isInsideTable = Convert.ToBoolean(
-                            range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable));
+                            oleRange.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable));
 
                         float availableWidth;
                         if (isInsideTable)
