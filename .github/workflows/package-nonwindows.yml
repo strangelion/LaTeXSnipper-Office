@@ -55,10 +55,17 @@ jobs:
           "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           npm run build:office-addin
           npm run build:wps
+          $wpsStaging = "apps/wps/dist/latexsnipper-wps_$version"
+          Write-Host "WPS staging path: $wpsStaging"
+          Write-Host "WPS staging exists: $(Test-Path -LiteralPath $wpsStaging)"
+          if (-not (Test-Path -LiteralPath $wpsStaging)) {
+            Write-Host "Listing apps/wps/dist contents:"
+            Get-ChildItem -Path "apps/wps/dist" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+            throw "WPS build output missing: $wpsStaging"
+          }
           npm run build:ecosystem
           npm run stage:ecosystem
           npm run build:vite
-          $wpsStaging = "apps/wps/dist/latexsnipper-wps_$version"
           "WPS_STAGING=$wpsStaging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           & scripts/stage-resources.ps1 `
             -WpsStaging $wpsStaging `

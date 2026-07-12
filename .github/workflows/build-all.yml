@@ -254,11 +254,23 @@ jobs:
           $version = '${{ needs.prepare.outputs.version }}'
           $zip = Join-Path '_wps_artifact' "latexsnipper-wps_$version.zip"
           $destination = Join-Path 'apps\wps\dist' "latexsnipper-wps_$version"
+          Write-Host "WPS zip path: $zip"
+          Write-Host "WPS zip exists: $(Test-Path -LiteralPath $zip)"
+          if (-not (Test-Path -LiteralPath $zip)) {
+            Write-Host "Listing _wps_artifact contents:"
+            Get-ChildItem -Path "_wps_artifact" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+            throw "WPS zip file not found: $zip"
+          }
           & .\scripts\stage-release-artifacts.ps1 `
             -WpsZip $zip `
             -Version $version `
             -Destination $destination `
             -DiagnosticsDirectory package-diagnostics
+          Write-Host "WPS staging path: $destination"
+          Write-Host "WPS staging exists: $(Test-Path -LiteralPath $destination)"
+          if (-not (Test-Path -LiteralPath $destination)) {
+            throw "WPS staging directory missing after extraction: $destination"
+          }
           "WPS_STAGING=$destination" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           "NATIVE_OFFICE_STAGING=apps\native-office\Installer\output\staging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
 
@@ -367,11 +379,24 @@ jobs:
       - name: Extract current-run shared artifacts
         shell: pwsh
         run: |
+          $wpsZip = "_wps_artifact/latexsnipper-wps_$env:VERSION.zip"
+          Write-Host "WPS zip path: $wpsZip"
+          Write-Host "WPS zip exists: $(Test-Path -LiteralPath $wpsZip)"
+          if (-not (Test-Path -LiteralPath $wpsZip)) {
+            Write-Host "Listing _wps_artifact contents:"
+            Get-ChildItem -Path "_wps_artifact" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+            throw "WPS zip file not found: $wpsZip"
+          }
           $wps = & scripts/stage-release-artifacts.ps1 `
-            -WpsZip "_wps_artifact/latexsnipper-wps_$env:VERSION.zip" `
+            -WpsZip $wpsZip `
             -Version $env:VERSION `
             -Destination "apps/wps/dist/latexsnipper-wps_$env:VERSION" `
             -DiagnosticsDirectory package-diagnostics | Select-Object -Last 1
+          Write-Host "WPS staging path: $wps"
+          Write-Host "WPS staging exists: $(Test-Path -LiteralPath $wps)"
+          if (-not (Test-Path -LiteralPath $wps)) {
+            throw "WPS staging directory missing after extraction: $wps"
+          }
           $obsidian = 'apps/obsidian-plugin/dist/current-artifact'
           New-Item -ItemType Directory -Force $obsidian | Out-Null
           Expand-Archive "_obsidian_artifact/latexsnipper-obsidian_$env:VERSION.zip" $obsidian -Force
@@ -465,11 +490,24 @@ jobs:
       - name: Extract current-run shared artifacts
         shell: pwsh
         run: |
+          $wpsZip = "_wps_artifact/latexsnipper-wps_$env:VERSION.zip"
+          Write-Host "WPS zip path: $wpsZip"
+          Write-Host "WPS zip exists: $(Test-Path -LiteralPath $wpsZip)"
+          if (-not (Test-Path -LiteralPath $wpsZip)) {
+            Write-Host "Listing _wps_artifact contents:"
+            Get-ChildItem -Path "_wps_artifact" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+            throw "WPS zip file not found: $wpsZip"
+          }
           $wps = & scripts/stage-release-artifacts.ps1 `
-            -WpsZip "_wps_artifact/latexsnipper-wps_$env:VERSION.zip" `
+            -WpsZip $wpsZip `
             -Version $env:VERSION `
             -Destination "apps/wps/dist/latexsnipper-wps_$env:VERSION" `
             -DiagnosticsDirectory package-diagnostics | Select-Object -Last 1
+          Write-Host "WPS staging path: $wps"
+          Write-Host "WPS staging exists: $(Test-Path -LiteralPath $wps)"
+          if (-not (Test-Path -LiteralPath $wps)) {
+            throw "WPS staging directory missing after extraction: $wps"
+          }
           $obsidian = 'apps/obsidian-plugin/dist/current-artifact'
           New-Item -ItemType Directory -Force $obsidian | Out-Null
           Expand-Archive "_obsidian_artifact/latexsnipper-obsidian_$env:VERSION.zip" $obsidian -Force

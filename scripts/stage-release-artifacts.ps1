@@ -7,6 +7,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Write-Host "Staging WPS artifact from: $WpsZip"
+if (-not (Test-Path -LiteralPath $WpsZip)) {
+    throw "WPS zip file not found: $WpsZip"
+}
 $zip = (Resolve-Path -LiteralPath $WpsZip -ErrorAction Stop).Path
 if ([string]::IsNullOrWhiteSpace($Destination)) {
     $Destination = Join-Path (Get-Location) "apps\wps\dist\latexsnipper-wps_$Version"
@@ -28,6 +32,10 @@ if (Test-Path -LiteralPath $destinationPath) {
 }
 New-Item -ItemType Directory -Force -Path $destinationPath, $DiagnosticsDirectory | Out-Null
 Expand-Archive -LiteralPath $zip -DestinationPath $destinationPath -Force
+if (-not (Test-Path -LiteralPath $destinationPath -PathType Container)) {
+    throw "WPS extraction failed: directory not created at $destinationPath"
+}
+Write-Host "WPS extraction completed: $destinationPath"
 
 $required = @(
     "index.html", "main.js", "manifest.xml", "ribbon.xml", "proxy.js", "server.js",
