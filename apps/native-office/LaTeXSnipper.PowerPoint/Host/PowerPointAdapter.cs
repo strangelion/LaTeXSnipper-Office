@@ -239,25 +239,26 @@ namespace LaTeXSnipper.PowerPoint.Host
                     return new InsertResult { Success = false, Error = ex.Message };
                 }
 
-                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+                // Do not pass Width/Height here.
+                // The native OLE object exposes its padded natural extent through GetExtent().
 
                 float slideWidth = _application.ActivePresentation.PageSetup.SlideWidth;
-                float left = (slideWidth - width) / 2f;
                 float top = 100f;
 
                 using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
                     var shape = slide.Shapes.AddOLEObject(
-                        Left: left,
+                        Left: (slideWidth - 120f) / 2f,
                         Top: top,
-                        Width: width,
-                        Height: height,
                         ClassName: "LaTeXSnipper.Formula.1",
                         DisplayAsIcon: Microsoft.Office.Core.MsoTriState.msoFalse,
                         Link: Microsoft.Office.Core.MsoTriState.msoFalse
                     );
+
+                    // Center horizontally after the OLE object has its natural extent
+                    var naturalWidth = shape.Width;
+                    shape.Left = (slideWidth - naturalWidth) / 2f;
 
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";

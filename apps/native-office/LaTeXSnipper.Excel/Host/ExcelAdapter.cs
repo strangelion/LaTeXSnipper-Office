@@ -356,8 +356,8 @@ namespace LaTeXSnipper.Excel.Host
                 double cellLeft = 0, cellTop = 0;
                 try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
 
-                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+                // Do not pass Width/Height here.
+                // The native OLE object exposes its padded natural extent through GetExtent().
 
                 using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
@@ -368,9 +368,7 @@ namespace LaTeXSnipper.Excel.Host
                         Link: false,
                         DisplayAsIcon: false,
                         Left: (float)cellLeft,
-                        Top: (float)cellTop,
-                        Width: width,
-                        Height: height
+                        Top: (float)cellTop
                     );
 
                     ole.Name = $"LSNO_{payload.FormulaId}";
