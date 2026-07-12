@@ -53,6 +53,17 @@ function Assert-FileVersion([string]$Path, [string]$ActualVersion) {
     }
 }
 
+function Get-PackagedResourceDirectories([string]$PackageRoot, [string]$Name) {
+    return @(
+        Get-ChildItem -LiteralPath $PackageRoot -Recurse -Directory |
+            Where-Object {
+                $_.Name.Equals($Name, [System.StringComparison]::OrdinalIgnoreCase) -and
+                $_.Parent -and
+                $_.Parent.Name.Equals("resources", [System.StringComparison]::OrdinalIgnoreCase)
+            }
+    )
+}
+
 if ($WindowsPackageRoots.Count -gt 0) {
     if ([string]::IsNullOrWhiteSpace($StagingRoot)) { throw "StagingRoot is required for Windows package verification" }
     $staging = (Resolve-Path -LiteralPath $StagingRoot).Path
@@ -91,7 +102,7 @@ function Get-PeMachine([string]$Path) {
 function Assert-WpsPayload([string]$PackageRoot) {
     if ([string]::IsNullOrWhiteSpace($WpsStaging)) { throw "WpsStaging is required for WPS package verification" }
     $source = (Resolve-Path -LiteralPath $WpsStaging).Path
-    $wpsDirectories = @(Get-ChildItem -LiteralPath $PackageRoot -Recurse -Directory | Where-Object { $_.Name -eq "WPS" })
+    $wpsDirectories = @(Get-PackagedResourceDirectories $PackageRoot "WPS")
     if ($wpsDirectories.Count -ne 1) { throw "Expected exactly one resources/WPS directory in $PackageRoot; found=$($wpsDirectories.Count)" }
     $wps = $wpsDirectories[0].FullName
     if (Test-Path -LiteralPath (Join-Path $wps "WPS") -PathType Container) { throw "Duplicate nested WPS path found: $wps\WPS" }
@@ -122,10 +133,7 @@ function Assert-ResourcePayload([string]$PackageRoot) {
         if (-not (Test-Path -LiteralPath $sourceRoot -PathType Container)) {
             throw "Staged resource directory is missing: $sourceRoot"
         }
-        $packageDirectories = @(
-            Get-ChildItem -LiteralPath $PackageRoot -Recurse -Directory |
-                Where-Object { $_.Name -eq $name }
-        )
+        $packageDirectories = @(Get-PackagedResourceDirectories $PackageRoot $name)
         if ($packageDirectories.Count -ne 1) {
             throw "Expected exactly one resources/$name directory in $PackageRoot; found=$($packageDirectories.Count)"
         }

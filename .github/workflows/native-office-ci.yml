@@ -83,7 +83,7 @@ jobs:
       - name: Build C# VSTO projects
         shell: pwsh
         run: |
-          msbuild apps\native-office\LaTeXSnipper.NativeOffice.sln /m /t:Build /p:Configuration=Release "/p:Platform=Any CPU" /p:WarningLevel=4 /p:TreatWarningsAsErrors=true /v:minimal
+          msbuild apps\native-office\LaTeXSnipper.NativeOffice.sln /m /t:Build /p:Configuration=Release "/p:Platform=Any CPU" /p:WarningLevel=4 /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   com-activation:

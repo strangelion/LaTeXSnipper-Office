@@ -57,6 +57,14 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $target "payload.txt")
         }
     }
+    $nestedWps = Join-Path $resourceStaging "Ecosystem\wps\plugin.txt"
+    New-Item -ItemType Directory -Force (Split-Path -Parent $nestedWps) | Out-Null
+    Set-Content -LiteralPath $nestedWps -Value "ecosystem-wps" -Encoding UTF8
+    foreach ($packageRoot in $packageRoots) {
+        $target = Join-Path $packageRoot "app\resources\Ecosystem\wps"
+        New-Item -ItemType Directory -Force $target | Out-Null
+        Copy-Item -LiteralPath $nestedWps -Destination (Join-Path $target "plugin.txt")
+    }
     Set-Content -LiteralPath (Join-Path $resourceStaging "provenance.json") -Value '{"schemaVersion":1}' -Encoding UTF8
     foreach ($packageRoot in $packageRoots) {
         Copy-Item -LiteralPath (Join-Path $resourceStaging "provenance.json") -Destination (Join-Path $packageRoot "app\resources\provenance.json")
