@@ -114,6 +114,8 @@ public:
     STDMETHOD(Invoke)(DISPID dispIdMember, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) override;
 
 private:
+    void NotifyViewChanged();
+    void NotifyPresentationChangedAndPersist();
     void NotifyPresentationChanged();
     HRESULT StartEditSession();
     HRESULT CopyLatexToClipboard();

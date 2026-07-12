@@ -5839,9 +5839,23 @@ class UIController {
 // ═══════════════════════════════════════════
 // Initialize App
 // ═══════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   new UIController();
   Logger.info("App ready");
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
+
+  try {
+    const { getVersion } = await import("@tauri-apps/api/app");
+    const version = await getVersion();
+    document.querySelectorAll(".app-version-text").forEach((el) => {
+      el.textContent = `v${version}`;
+    });
+    const appVersionEl = document.getElementById("appVersion");
+    if (appVersionEl) {
+      appVersionEl.textContent = `v${version}`;
+    }
+  } catch (e) {
+    Logger.warn("Failed to get app version:", e);
+  }
 });

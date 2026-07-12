@@ -526,30 +526,23 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
         return presentation;
     }
 
-    // Create a metafile DC to render the bitmap into
-    constexpr double kRasterFallbackDpi = 300.0;
+    // Create a metafile DC with transparent padding, using point units throughout.
+    const double paddingXPt = std::clamp(widthPoints * 0.02, 1.5, 4.0);
+    const double paddingYPt = std::clamp(heightPoints * 0.08, 1.0, 3.0);
+    const double canvasWidthPt = widthPoints + paddingXPt * 2.0;
+    const double canvasHeightPt = heightPoints + paddingYPt * 2.0;
+
     HDC screenDc = GetDC(nullptr);
     if (screenDc == nullptr)
     {
         presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: GetDC failed";
         return presentation;
     }
-    int widthPx = static_cast<int>(std::lround(widthPoints * kRasterFallbackDpi / 72.0));
-    int heightPx = static_cast<int>(std::lround(heightPoints * kRasterFallbackDpi / 72.0));
-    if (widthPx < 1) widthPx = 1;
-    if (heightPx < 1) heightPx = 1;
-    if (widthPx > 8192 || heightPx > 8192 ||
-        static_cast<unsigned long long>(widthPx) * static_cast<unsigned long long>(heightPx) > 32ULL * 1024ULL * 1024ULL)
-    {
-        ReleaseDC(nullptr, screenDc);
-        presentation.diagnostic = L"OLE_RASTER_FALLBACK_FAILED: raster dimensions exceed safety limits";
-        return presentation;
-    }
 
     RECT frame01mm = {
         0, 0,
-        PointsToHimetric(widthPoints),
-        PointsToHimetric(heightPoints)
+        PointsToHimetric(canvasWidthPt),
+        PointsToHimetric(canvasHeightPt)
     };
     HDC metaDc = CreateEnhMetaFileW(screenDc, nullptr, &frame01mm,
                                      L"LaTeXSnipper\0Formula\0");
@@ -560,13 +553,25 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     Gdiplus::Status drawStatus = Gdiplus::GenericError;
     {
         Gdiplus::Graphics graphics(metaDc);
+        graphics.SetPageUnit(Gdiplus::UnitPoint);
+        graphics.SetPageScale(1.0f);
         graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
         graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
-        drawStatus = graphics.DrawImage(bitmap.get(),
-                                        Gdiplus::Rect(0, 0, widthPx, heightPx),
-                                        0, 0,
-                                        bitmap->GetWidth(), bitmap->GetHeight(),
-                                        Gdiplus::UnitPixel);
+
+        const Gdiplus::RectF destination(
+            static_cast<Gdiplus::REAL>(paddingXPt),
+            static_cast<Gdiplus::REAL>(paddingYPt),
+            static_cast<Gdiplus::REAL>(widthPoints),
+            static_cast<Gdiplus::REAL>(heightPoints));
+
+        drawStatus = graphics.DrawImage(
+            bitmap.get(),
+            destination,
+            0.0f, 0.0f,
+            static_cast<Gdiplus::REAL>(bitmap->GetWidth()),
+            static_cast<Gdiplus::REAL>(bitmap->GetHeight()),
+            Gdiplus::UnitPixel);
+
         graphics.Flush(Gdiplus::FlushIntentionSync);
     }
     if (drawStatus != Gdiplus::Ok)
@@ -588,7 +593,10 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
     }
     DeleteEnhMetaFile(emf);
 
-    presentation.himetricSize = {PointsToHimetric(widthPoints), PointsToHimetric(heightPoints)};
+    presentation.himetricSize = {
+        PointsToHimetric(canvasWidthPt),
+        PointsToHimetric(canvasHeightPt)
+    };
     presentation.previewKind = PreviewKind::RasterEmfFallback;
     presentation.isVector = false;
     std::wstring rasterReason;
