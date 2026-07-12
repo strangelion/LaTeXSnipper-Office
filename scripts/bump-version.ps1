@@ -19,8 +19,10 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 
 $files = @(
     "package.json",
+    "package-lock.json",
     "src-tauri/tauri.conf.json",
-    "src-tauri/Cargo.toml"
+    "src-tauri/Cargo.toml",
+    "src-tauri/Cargo.lock"
 )
 
 foreach ($file in $files) {
@@ -31,37 +33,119 @@ foreach ($file in $files) {
 
 Write-Host "Bumping version to $Version" -ForegroundColor Green
 
-# Detect current version from package.json
-$current = (Get-Content package.json -Raw | ConvertFrom-Json).version
-Write-Host "Current version: $current" -ForegroundColor Yellow
+# Use Node for JSON files so they remain UTF-8 without BOM and use stable formatting.
+$updateJsonScript = @'
+const fs = require("node:fs");
 
-if ($current -eq $Version) {
-    Write-Host "Version unchanged, skipping." -ForegroundColor Cyan
-    exit 0
+const [file, version, updateLockRoot] = process.argv.slice(1);
+const source = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
+const json = JSON.parse(source);
+
+json.version = version;
+
+if (updateLockRoot === "true") {
+  if (!json.packages || !json.packages[""]) {
+    throw new Error(`${file} does not contain packages[""]`);
+  }
+
+  json.packages[""].version = version;
 }
 
-# Update package.json
-$pkg = Get-Content package.json -Raw | ConvertFrom-Json
-$pkg.version = $Version
-$pkg | ConvertTo-Json -Depth 100 | Set-Content package.json -Encoding UTF8
+fs.writeFileSync(
+  file,
+  `${JSON.stringify(json, null, 2)}\n`,
+  "utf8",
+);
+'@
 
-# Update tauri.conf.json
-$tauri = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-$tauri.version = $Version
-$tauri | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json -Encoding UTF8
+& node -e $updateJsonScript "package.json" $Version "false"
+if ($LASTEXITCODE -ne 0) { throw "Failed to update package.json" }
 
-# Update Cargo.toml (line-based, no TOML library needed)
-$cargo = Get-Content src-tauri/Cargo.toml -Raw
-$cargo = $cargo -replace '^(version\s*=\s*)"[^"]+"', "`$1`"$Version`""
-Set-Content src-tauri/Cargo.toml -Value $cargo -Encoding UTF8 -NoNewline
+& node -e $updateJsonScript "package-lock.json" $Version "true"
+if ($LASTEXITCODE -ne 0) { throw "Failed to update package-lock.json" }
 
-Write-Host "Updated:" -ForegroundColor Green
-foreach ($file in $files) {
-    Write-Host "  $file" -ForegroundColor Gray
+& node -e $updateJsonScript "src-tauri/tauri.conf.json" $Version "false"
+if ($LASTEXITCODE -ne 0) { throw "Failed to update src-tauri/tauri.conf.json" }
+
+# Update only the package version in Cargo.toml.
+$cargoPath = "src-tauri/Cargo.toml"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+$cargo = [System.IO.File]::ReadAllText(
+    $cargoPath,
+    [System.Text.Encoding]::UTF8
+)
+
+$versionRegex = [regex]::new(
+    '(?m)^(version\s*=\s*)"[^"]+"'
+)
+
+if (-not $versionRegex.IsMatch($cargo)) {
+    throw "Unable to locate package version in $cargoPath"
 }
+
+$cargo = $versionRegex.Replace(
+    $cargo,
+    {
+        param($match)
+        return $match.Groups[1].Value + '"' + $Version + '"'
+    },
+    1
+)
+
+[System.IO.File]::WriteAllText(
+    $cargoPath,
+    $cargo,
+    $utf8NoBom
+)
+
+# Ask Cargo to synchronize the root package entry in Cargo.lock.
+& cargo metadata `
+    --manifest-path "src-tauri/Cargo.toml" `
+    --format-version 1 `
+    --no-deps |
+    Out-Null
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to synchronize src-tauri/Cargo.lock"
+}
+
+# Verify all version sources are consistent.
+$packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+$packageLock = Get-Content package-lock.json -Raw | ConvertFrom-Json
+$packageLockVersion = $packageLock.version
+$packageLockRootVersion = $packageLock.packages."".version
+$tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+$cargoText = Get-Content src-tauri/Cargo.toml -Raw
+$cargoMatch = [regex]::Match($cargoText, '(?m)^version\s*=\s*"([^"]+)"')
+
+if (-not $cargoMatch.Success) {
+    throw "Unable to verify Cargo.toml version"
+}
+
+$cargoVersion = $cargoMatch.Groups[1].Value
+
+$actualVersions = @{
+    packageJson     = $packageVersion
+    packageLock     = $packageLockVersion
+    packageLockRoot = $packageLockRootVersion
+    tauriConfig     = $tauriVersion
+    cargoToml       = $cargoVersion
+}
+
+foreach ($entry in $actualVersions.GetEnumerator()) {
+    if ($entry.Value -ne $Version) {
+        throw (
+            "Version synchronization failed: " +
+            "$($entry.Key) expected=$Version actual=$($entry.Value)"
+        )
+    }
+}
+
+Write-Host "All version sources now equal $Version." -ForegroundColor Green
 
 if ($DryRun) {
-    Write-Host "`nDry run — no commit or tag created." -ForegroundColor Cyan
+    Write-Host "`nDry run - no commit or tag created." -ForegroundColor Cyan
     git diff --stat
     exit 0
 }
@@ -84,8 +168,7 @@ if ($Tag) {
 }
 
 # Push
-$pushArgs = @("push", "origin", "main")
-git push @pushArgs
+git push origin main
 Write-Host "Pushed to origin/main." -ForegroundColor Green
 
 if ($Tag -and -not $existing) {
