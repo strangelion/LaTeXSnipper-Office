@@ -11,6 +11,9 @@
 
     <SummaryInformation Description="LaTeXSnipper Native Office VSTO Add-in for Word, Excel, and PowerPoint" />
 
+    <!-- Produce one self-contained MSI. Do not require cab1.cab. -->
+    <MediaTemplate EmbedCab="yes" />
+
     <MajorUpgrade DowngradeErrorMessage="A newer version of LaTeXSnipper Native Office is already installed." />
 
     <!-- Directory structure -->

@@ -100,8 +100,9 @@ jobs:
           fi
 
           prior_tag="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
             node - "$version" <<'NODE'
-          const { execFileSync } = require("node:child_process");
+          const fs = require("node:fs");
 
           const current = process.argv[2].split(".").map(Number);
 
@@ -112,11 +113,11 @@ jobs:
             return 0;
           };
 
-          const tags = execFileSync("git", ["tag", "--list", "v*"], {
-            encoding: "utf8",
-          })
-            .split(/\r?\n/)
-            .map((tag) => tag.trim())
+          const releases = JSON.parse(fs.readFileSync(0, "utf8"));
+
+          const candidates = releases
+            .filter((r) => !r.draft && !r.prerelease)
+            .map((r) => r.tag_name)
             .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
             .map((tag) => ({
               tag,
@@ -125,7 +126,7 @@ jobs:
             .filter((entry) => compare(entry.version, current) < 0)
             .sort((a, b) => compare(a.version, b.version));
 
-          process.stdout.write(tags.length ? tags.at(-1).tag : "");
+          process.stdout.write(candidates.length ? candidates.at(-1).tag : "");
           NODE
           )"
 

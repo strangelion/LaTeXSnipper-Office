@@ -660,6 +660,28 @@ $env:CertificateDir = $stagingAbs + "\certificates"
     -ext $iisExtension
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed" }
 
+if (-not (Test-Path -LiteralPath $msiOutput -PathType Leaf)) {
+    throw "NativeOffice MSI was not generated: $msiOutput"
+}
+
+$externalCabinets = @(
+    Get-ChildItem `
+        -LiteralPath (Split-Path -Parent $msiOutput) `
+        -Filter '*.cab' `
+        -File `
+        -ErrorAction SilentlyContinue
+)
+
+if ($externalCabinets.Count -gt 0) {
+    throw (
+        "NativeOffice MSI is not self-contained. " +
+        "Unexpected external cabinet files: " +
+        ($externalCabinets.Name -join ', ')
+    )
+}
+
+Write-Host "  MSI is self-contained; no external cabinet files were generated." -ForegroundColor Green
+
 # ─── Build Bundle (Bootstrapper) ───────────────────────────────────
 Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
 $bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"

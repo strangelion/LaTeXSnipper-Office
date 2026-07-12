@@ -440,6 +440,12 @@ jobs:
 
           $ErrorActionPreference = $savedErrorAction
           $global:LASTEXITCODE = 0
+
+          # Clean up any external cabinet files left by prior-version MSI install.
+          Get-ChildItem -LiteralPath (Get-Location) -Filter '*.cab' -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          $global:LASTEXITCODE = 0
+
           if (Test-Path $installed) {
             $remaining = @(Get-ChildItem $installed -Recurse -File -ErrorAction SilentlyContinue)
             if ($remaining.Count -gt 0) {

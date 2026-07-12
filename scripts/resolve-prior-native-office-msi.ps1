@@ -167,6 +167,21 @@ try {
     $msi = Join-Path $output "LaTeXSnipper.NativeOffice.msi"
     if (-not (Test-Path -LiteralPath $msi -PathType Leaf)) { throw "Prior worktree did not produce Native Office MSI." }
     Copy-Item -LiteralPath $msi -Destination $destinationPath -Force
+
+    # Historical versions may produce external .cab files alongside the MSI.
+    # Copy them to the same directory so msiexec can locate them during install.
+    $destinationDirectory = Split-Path -Parent $destinationPath
+    $externalCabinets = @(
+        Get-ChildItem -LiteralPath $output -Filter '*.cab' -File -ErrorAction SilentlyContinue
+    )
+    foreach ($cabinet in $externalCabinets) {
+        $cabinetDestination = Join-Path $destinationDirectory $cabinet.Name
+        Copy-Item -LiteralPath $cabinet.FullName -Destination $cabinetDestination -Force
+    }
+    if ($externalCabinets.Count -gt 0) {
+        Write-Host "Copied prior MSI external cabinets: $($externalCabinets.Name -join ', ')" -ForegroundColor Yellow
+    }
+
     $sha = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $productVersion = Get-MsiProductVersion $destinationPath
     if ($productVersion -ne $expectedVersion) { throw "Prior worktree MSI ProductVersion mismatch: expected=$expectedVersion actual=$productVersion" }
