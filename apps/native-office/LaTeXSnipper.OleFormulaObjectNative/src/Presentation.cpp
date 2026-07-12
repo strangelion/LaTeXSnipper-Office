@@ -272,40 +272,60 @@ std::vector<BYTE> DecodeBase64(const std::wstring& value)
     return bytes;
 }
 
-double ReadRenderDimension(const std::wstring& payloadJson, const char* propertyName)
+struct PayloadDimensions
+{
+    double widthPt = 0.0;
+    double heightPt = 0.0;
+
+    bool IsValid() const noexcept
+    {
+        return std::isfinite(widthPt) && std::isfinite(heightPt) &&
+               widthPt > 0.0 && heightPt > 0.0;
+    }
+};
+
+PayloadDimensions ReadPayloadDimensions(const std::wstring& payloadJson)
 {
 #if HAS_NLOHMANN_JSON
     try
     {
         const auto root = nlohmann::json::parse(WideToUtf8(payloadJson));
-        if (!root.contains("render") || !root["render"].is_object())
-            return 0.0;
-        const auto& render = root["render"];
-        if (!render.contains(propertyName) || !render[propertyName].is_number())
-            return 0.0;
-        return render[propertyName].get<double>();
+
+        auto readPair = [](const nlohmann::json& object, const char* widthKey, const char* heightKey) -> PayloadDimensions
+        {
+            if (!object.is_object() || !object.contains(widthKey) || !object.contains(heightKey) ||
+                !object[widthKey].is_number() || !object[heightKey].is_number())
+                return {};
+            PayloadDimensions d{ object[widthKey].get<double>(), object[heightKey].get<double>() };
+            return d.IsValid() ? d : PayloadDimensions{};
+        };
+
+        // Current schema: strictly read from render.
+        if (root.contains("render"))
+        {
+            PayloadDimensions d = readPair(root["render"], "widthPt", "heightPt");
+            if (d.IsValid()) return d;
+        }
+
+        // Legacy schema: root-level widthPt/heightPt (for old saved documents).
+        PayloadDimensions legacy = readPair(root, "widthPt", "heightPt");
+        if (legacy.IsValid()) return legacy;
+
+        // Very old schema: widthPoints/heightPoints.
+        return readPair(root, "widthPoints", "heightPoints");
     }
-    catch (...)
-    {
-        return 0.0;
-    }
+    catch (const std::exception&) { return {}; }
 #else
-    return 0.0;
+    return {};
 #endif
 }
 
 void ApplyPayloadSize(const std::wstring& payloadJson, FormulaPresentation* presentation)
 {
-    // Strictly read from render.widthPt/render.heightPt to avoid picking up
-    // unrelated fields (e.g. thumbnail.widthPt) from the full JSON.
-    double widthPoints = ReadRenderDimension(payloadJson, "widthPt");
-    double heightPoints = ReadRenderDimension(payloadJson, "heightPt");
-    if (widthPoints <= 0) widthPoints = ExtractJsonNumber(payloadJson, L"widthPoints");
-    if (heightPoints <= 0) heightPoints = ExtractJsonNumber(payloadJson, L"heightPoints");
-    if (widthPoints > 0 && heightPoints > 0)
-    {
-        presentation->himetricSize = {PointsToHimetric(widthPoints), PointsToHimetric(heightPoints)};
-    }
+    if (presentation == nullptr) return;
+    const PayloadDimensions dimensions = ReadPayloadDimensions(payloadJson);
+    if (!dimensions.IsValid()) return;
+    presentation->himetricSize = {PointsToHimetric(dimensions.widthPt), PointsToHimetric(dimensions.heightPt)};
 }
 
 FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJson)
@@ -351,12 +371,14 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
     const std::wstring svg = JsonReadNestedString(payloadJson, L"render", L"svg");
     if (!svg.empty())
     {
-        double widthPoints = ReadRenderDimension(payloadJson, "widthPt");
-        double heightPoints = ReadRenderDimension(payloadJson, "heightPt");
-        if (widthPoints <= 0.0) widthPoints = ExtractJsonNumber(payloadJson, L"widthPoints");
-        if (heightPoints <= 0.0) heightPoints = ExtractJsonNumber(payloadJson, L"heightPoints");
+        const PayloadDimensions dimensions = ReadPayloadDimensions(payloadJson);
+        if (!dimensions.IsValid())
+        {
+            presentation.diagnostic = L"OLE_PRESENTATION_INVALID: render dimensions are missing";
+            return presentation;
+        }
         const std::wstring color = JsonReadNestedString(payloadJson, L"presentation", L"color");
-        SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, widthPoints, heightPoints, color);
+        SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, dimensions.widthPt, dimensions.heightPt, color);
         if (vectorResult.success)
         {
             presentation.enhancedMetafile = std::move(vectorResult.emfBytes);
@@ -468,18 +490,16 @@ FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payload
         return presentation;
     }
 
-    // Get size from payload (try nested render.widthPt first, then flat widthPt)
-    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
-    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
-    if (widthPoints <= 0) widthPoints = 180;
-    if (heightPoints <= 0) heightPoints = 42;
+    // Get size using unified parser (render → root → legacy).
+    const PayloadDimensions dimensions = ReadPayloadDimensions(payloadJson);
+    double widthPoints = dimensions.IsValid() ? dimensions.widthPt : 180;
+    double heightPoints = dimensions.IsValid() ? dimensions.heightPt : 42;
 
-    // Try render.png first, then render.svg → we need PNG for GDI bitmap
-    std::wstring pngBase64 = ExtractJsonString(payloadJson, L"png");
+    // Read PNG from render.png first, then fall back to root png for legacy schema.
+    std::wstring pngBase64 = JsonReadNestedString(payloadJson, L"render", L"png");
     if (pngBase64.empty())
     {
-        // Fallback: nested render.png
-        pngBase64 = JsonReadNestedString(payloadJson, L"render", L"png");
+        pngBase64 = ExtractJsonString(payloadJson, L"png");
     }
     if (pngBase64.empty()) return presentation;
 

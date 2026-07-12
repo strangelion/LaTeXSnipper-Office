@@ -2157,6 +2157,17 @@ class UIController {
         this.refreshEcosystemClients();
       });
 
+    function compareVersions(left, right) {
+      const a = left.split(".").map(Number);
+      const b = right.split(".").map(Number);
+      const length = Math.max(a.length, b.length);
+      for (let i = 0; i < length; i += 1) {
+        const diff = (a[i] || 0) - (b[i] || 0);
+        if (diff !== 0) return Math.sign(diff);
+      }
+      return 0;
+    }
+
     // Simple Markdown → HTML renderer (covers GitHub release notes)
     function renderMarkdown(md) {
       return (
@@ -2235,9 +2246,10 @@ class UIController {
           );
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
-          const current = "1.2.2";
+          const { getVersion } = await import("@tauri-apps/api/app");
+          const current = await getVersion();
           const latest = (data.tag_name || "").replace(/^v/, "");
-          if (latest && latest !== current) {
+          if (latest && compareVersions(latest, current) > 0) {
             statusEl.innerHTML = `发现新版本 <a href="${data.html_url}" target="_blank">v${latest}</a>`;
             statusEl.className = "settings-hint";
             if (notesEl && data.body) {

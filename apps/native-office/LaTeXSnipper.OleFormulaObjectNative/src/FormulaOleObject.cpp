@@ -200,7 +200,7 @@ FormulaOleObject::~FormulaOleObject()
     InterlockedDecrement(&g_objectCount);
 }
 
-void FormulaOleObject::NotifyPresentationChanged()
+void FormulaOleObject::NotifyViewChanged()
 {
     if (viewAdviseSink_ != nullptr)
     {
@@ -221,11 +221,22 @@ void FormulaOleObject::NotifyPresentationChanged()
             ReleaseStgMedium(&medium);
         }
     }
+}
+
+void FormulaOleObject::NotifyPresentationChangedAndPersist()
+{
+    NotifyViewChanged();
 
     if (clientSite_ != nullptr)
     {
         clientSite_->SaveObject();
     }
+}
+
+// Backward compatibility alias.
+void FormulaOleObject::NotifyPresentationChanged()
+{
+    NotifyPresentationChangedAndPersist();
 }
 
 // -------------------------------------------------------------------
@@ -587,7 +598,7 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
     if (changed)
     {
         WriteNativeOleLog(L"FormulaOleObject SetExtent: committed extent and refreshed view.");
-        NotifyPresentationChanged();
+        NotifyViewChanged();
     }
 
     return S_OK;
@@ -1836,11 +1847,18 @@ STDMETHODIMP FormulaOleObject::CompleteInsertion()
 {
     if (!initializedFromRealPayload_ || presentation_.himetricSize.cx <= 0 || presentation_.himetricSize.cy <= 0)
         return OLE_E_BLANK;
+
+    const bool wasAlreadyComplete = insertionComplete_.exchange(true, std::memory_order_acq_rel);
+    if (wasAlreadyComplete)
+    {
+        WriteNativeOleLog(L"FormulaOleObject: CompleteInsertion ignored because insertion was already completed.");
+        return S_OK;
+    }
+
     containerExtent_ = presentation_.himetricSize;
     hasContainerExtent_ = true;
-    insertionComplete_.store(true, std::memory_order_release);
-    WriteNativeOleLog(L"FormulaOleObject: insertion completed and editor activation armed.");
-    NotifyPresentationChanged();
+    WriteNativeOleLog(L"FormulaOleObject: insertion completed.");
+    // View refresh happens in SetExtent when the host sets the final display size.
     return S_OK;
 }
 

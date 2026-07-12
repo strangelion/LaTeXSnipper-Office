@@ -662,20 +662,33 @@ namespace LaTeXSnipper.Word.Host
 
                     targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
 
-                    // Constrain to page width to prevent clipping at page edges
+                    // Constrain to container width to prevent clipping at page/table edges
                     try
                     {
-                        var section = oleShape.Range.Sections[1];
-                        var pageSetup = section.PageSetup;
                         var paragraphFormat = oleShape.Range.ParagraphFormat;
-                        float availableWidth = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin
-                            - Math.Max(0.0f, paragraphFormat.LeftIndent) - Math.Max(0.0f, paragraphFormat.RightIndent);
+                        bool isInsideTable = oleShape.Range.get_Information(
+                            Microsoft.Office.Interop.Word.WdInformation.wdWithInTable);
+
+                        float availableWidth;
+                        if (isInsideTable)
+                        {
+                            var cell = oleShape.Range.Cells[1];
+                            availableWidth = cell.Width - cell.LeftPadding - cell.RightPadding
+                                - Math.Max(0.0f, paragraphFormat.LeftIndent) - Math.Max(0.0f, paragraphFormat.RightIndent);
+                        }
+                        else
+                        {
+                            var section = oleShape.Range.Sections[1];
+                            var pageSetup = section.PageSetup;
+                            availableWidth = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin
+                                - Math.Max(0.0f, paragraphFormat.LeftIndent) - Math.Max(0.0f, paragraphFormat.RightIndent);
+                        }
                         availableWidth = Math.Max(36.0f, availableWidth - 4.0f);
                         targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent, availableWidth);
                     }
                     catch (Exception ex)
                     {
-                        OfficeOperationLog.Failure("fit-extent-page-width", "word", payload.FormulaId, ex);
+                        OfficeOperationLog.Failure("fit-extent-container-width", "word", payload.FormulaId, ex);
                     }
                 }
 

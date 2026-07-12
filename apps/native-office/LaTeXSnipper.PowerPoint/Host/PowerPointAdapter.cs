@@ -281,9 +281,8 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                     // Constrain to slide dimensions to prevent clipping at slide edges
                     float slideHeight = _application.ActivePresentation.PageSetup.SlideHeight;
-                    float horizontalMargin = 36.0f;
-                    float bottomMargin = 36.0f;
-                    float top = 100f;
+                    const float horizontalMargin = 36.0f;
+                    const float bottomMargin = 36.0f;
                     targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent,
                         Math.Max(36.0f, slideWidth - horizontalMargin * 2.0f),
                         Math.Max(36.0f, slideHeight - top - bottomMargin));
