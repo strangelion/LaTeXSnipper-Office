@@ -96,6 +96,20 @@ std::wstring ReadReference()
     return reference;
 }
 
+void DeleteCurrentProcessReference()
+{
+    wchar_t valueName[64]{};
+    swprintf_s(valueName, L"%s%lu", kValuePrefix, GetCurrentProcessId());
+    UniqueRegistryKey key;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_SET_VALUE, key.Put()) != ERROR_SUCCESS)
+        return;
+    const LSTATUS status = RegDeleteValueW(key.Get(), valueName);
+    if (status != ERROR_SUCCESS && status != ERROR_FILE_NOT_FOUND)
+    {
+        WriteNativeOleLog(L"PendingPayload: failed to delete invalid token reference.");
+    }
+}
+
 bool ComputeSha256(const std::vector<BYTE>& bytes, std::string* hashHex)
 {
     BCRYPT_ALG_HANDLE algorithm = nullptr;
@@ -190,7 +204,8 @@ std::wstring ConsumePendingPayloadReference()
             !reference.contains("byteLength") || !reference["byteLength"].is_number_unsigned() ||
             !reference.contains("createdUtcTicks") || !reference["createdUtcTicks"].is_number_integer())
         {
-            WriteNativeOleLog(L"PendingPayload: malformed token reference rejected.");
+            DeleteCurrentProcessReference();
+            WriteNativeOleLog(L"PendingPayload: malformed token reference rejected and removed.");
             return {};
         }
         token = reference["token"].get<std::string>();
@@ -200,12 +215,14 @@ std::wstring ConsumePendingPayloadReference()
     }
     catch (const std::exception&)
     {
-        WriteNativeOleLog(L"PendingPayload: token reference JSON rejected.");
+        DeleteCurrentProcessReference();
+        WriteNativeOleLog(L"PendingPayload: token reference JSON rejected and removed.");
         return {};
     }
     if (!IsHex(token, 64) || !IsHex(expectedHash, 64) || expectedLength == 0 || expectedLength > kMaximumPayloadBytes)
     {
-        WriteNativeOleLog(L"PendingPayload: token reference fields rejected.");
+        DeleteCurrentProcessReference();
+        WriteNativeOleLog(L"PendingPayload: invalid token reference fields removed.");
         return {};
     }
     const std::wstring payloadPath = GetPayloadPath(token);
@@ -216,14 +233,16 @@ std::wstring ConsumePendingPayloadReference()
     if (createdUtcTicks <= 0 || ageTicks < -kClockSkewTicks || ageTicks > kPayloadTtlTicks)
     {
         DeleteFileW(payloadPath.c_str());
-        WriteNativeOleLog(L"PendingPayload: stale token reference rejected and cleaned.");
+        DeleteCurrentProcessReference();
+        WriteNativeOleLog(L"PendingPayload: stale payload and reference removed.");
         return {};
     }
     std::wstring payload;
     if (!ReadPayloadFile(payloadPath, expectedLength, expectedHash, &payload))
     {
         DeleteFileW(payloadPath.c_str());
-        WriteNativeOleLog(L"PendingPayload: payload file integrity validation failed.");
+        DeleteCurrentProcessReference();
+        WriteNativeOleLog(L"PendingPayload: invalid payload and reference removed.");
         return {};
     }
     WriteNativeOleLog(L"PendingPayload: payload read successfully under active lease.");

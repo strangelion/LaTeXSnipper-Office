@@ -8,6 +8,8 @@
 
 #include <windows.h>
 #include <objidl.h>
+#include <oleidl.h>
+#include <atlbase.h>
 #include <gdiplus.h>
 #include <bcrypt.h>
 #include <shlobj.h>
@@ -603,13 +605,14 @@ int wmain(int argc, wchar_t** argv)
     TestEmfCorruptionValidation();
     TestStorageValidation();
 
+    HMODULE oleModule = nullptr;
     DllGetClassObjectFn getClassObject = nullptr;
     if (argc >= 2)
     {
-        HMODULE module = LoadLibraryW(argv[1]);
-        if (module != nullptr)
+        oleModule = LoadLibraryW(argv[1]);
+        if (oleModule != nullptr)
         {
-            getClassObject = reinterpret_cast<DllGetClassObjectFn>(GetProcAddress(module, "DllGetClassObject"));
+            getClassObject = reinterpret_cast<DllGetClassObjectFn>(GetProcAddress(oleModule, "DllGetClassObject"));
         }
     }
     Expect(getClassObject != nullptr, L"OLE DLL path argument is required and must export DllGetClassObject");
@@ -619,6 +622,12 @@ int wmain(int argc, wchar_t** argv)
         TestProvisionalExtentIsIgnored(getClassObject);
         TestCompletedExtentIsRetained(getClassObject);
         TestPendingPayloadConstructor(argv[1]);
+    }
+
+    if (oleModule != nullptr)
+    {
+        FreeLibrary(oleModule);
+        oleModule = nullptr;
     }
     if (argc >= 3)
         TestMathJaxGoldenFixtures(argv[2]);
