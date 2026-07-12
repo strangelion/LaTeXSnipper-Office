@@ -466,6 +466,57 @@ void TestPendingPayloadConstructor(const std::wstring& dllPath)
 }
 }
 
+void TestProvisionalExtentIsIgnored()
+{
+    const std::wstring svg = L"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><path fill='black' d='M5 20 L20 5 L35 20 Z'/></svg>";
+    SvgToEmfResult emf = ConvertMathJaxSvgToVectorEmf(svg, 120.0, 40.0, L"black");
+    Expect(emf.success, L"provisional test: EMF conversion failed");
+
+    FormulaPresentation presentation{};
+    presentation.payloadJson = L"{}";
+    presentation.enhancedMetafile = std::move(emf.emfBytes);
+    presentation.himetricSize = emf.himetricSize;
+
+    FormulaOleObject object;
+    object.InitializeFromJson(L"{}");
+    object.ReplacePayloadJson(L"{\"formulaId\":\"test\",\"render\":{\"svg\":\"\",\"png\":\"\"}}");
+
+    SIZEL provisional{ 20000, 10000 };
+    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &provisional)), L"provisional SetExtent failed");
+
+    SIZEL actual{};
+    Expect(SUCCEEDED(object.GetExtent(DVASPECT_CONTENT, &actual)), L"GetExtent failed");
+
+    Expect(actual.cx != provisional.cx || actual.cy != provisional.cy,
+        L"provisional host extent polluted natural extent before CompleteInsertion");
+}
+
+void TestCompletedExtentIsRetained()
+{
+    const std::wstring svg = L"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 40'><path fill='black' d='M5 20 L20 5 L35 20 Z'/></svg>";
+    SvgToEmfResult emf = ConvertMathJaxSvgToVectorEmf(svg, 120.0, 40.0, L"black");
+    Expect(emf.success, L"completed test: EMF conversion failed");
+
+    FormulaPresentation presentation{};
+    presentation.payloadJson = L"{}";
+    presentation.enhancedMetafile = std::move(emf.emfBytes);
+    presentation.himetricSize = emf.himetricSize;
+
+    FormulaOleObject object;
+    object.InitializeFromJson(L"{}");
+    object.ReplacePayloadJson(L"{\"formulaId\":\"test\",\"render\":{\"svg\":\"\",\"png\":\"\"}}");
+
+    Expect(SUCCEEDED(object.CompleteInsertion()), L"CompleteInsertion failed");
+
+    SIZEL resized{ 5000, 2000 };
+    Expect(SUCCEEDED(object.SetExtent(DVASPECT_CONTENT, &resized)), L"committed SetExtent failed");
+
+    SIZEL actual{};
+    object.GetExtent(DVASPECT_CONTENT, &actual);
+    Expect(actual.cx == resized.cx && actual.cy == resized.cy,
+        L"completed object did not retain container extent");
+}
+
 int wmain(int argc, wchar_t** argv)
 {
     TestPathParser();
@@ -504,6 +555,8 @@ int wmain(int argc, wchar_t** argv)
     TestValidSvgSurvivesInvalidPngFallback();
     TestEmfCorruptionValidation();
     TestStorageValidation();
+    TestProvisionalExtentIsIgnored();
+    TestCompletedExtentIsRetained();
     if (argc >= 2)
         TestPendingPayloadConstructor(argv[1]);
     else

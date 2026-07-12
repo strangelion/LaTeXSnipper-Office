@@ -2762,6 +2762,22 @@ class UIController {
         await win.setFocus();
       });
 
+      // OLE session ended — Rust guard dropped (save/cancel/timeout/error)
+      listen("ole-edit-session-ended", async (event) => {
+        const sessionToken = event.payload?.sessionToken;
+        if (
+          sessionToken &&
+          this._oleSessionToken === sessionToken
+        ) {
+          this._oleSessions?.delete(sessionToken);
+          this._oleSessionToken = null;
+          this._oleFormulaId = null;
+          Logger.info(
+            `[OLE] Session ended and frontend state cleared: ${sessionToken}`,
+          );
+        }
+      });
+
       // Focus on OCR tab (from VSTO Ribbon)
       listen("native-office-focus-ocr", async () => {
         Logger.info("Native Office: focus OCR requested");

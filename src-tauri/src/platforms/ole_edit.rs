@@ -224,6 +224,26 @@ pub async fn handle_ole_edit_session_with_app(
         return Ok(());
     };
     let session_token = extract_session_token_from_pipe_name(pipe_name)?;
+
+    // Guard that emits ole-edit-session-ended when dropped (covers save, cancel, timeout, error).
+    struct FrontendOleSessionGuard {
+        app_handle: tauri::AppHandle,
+        session_token: String,
+    }
+    impl Drop for FrontendOleSessionGuard {
+        fn drop(&mut self) {
+            use tauri::Emitter;
+            let _ = self.app_handle.emit(
+                "ole-edit-session-ended",
+                serde_json::json!({ "sessionToken": self.session_token }),
+            );
+        }
+    }
+    let _frontend_session_guard = FrontendOleSessionGuard {
+        app_handle: app_handle.clone(),
+        session_token: session_token.clone(),
+    };
+
     log::info!(
         "[OleEdit] Received formula: formulaId={} revision={}",
         envelope.formula_id,
