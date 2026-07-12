@@ -1,67 +1,67 @@
-{
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
-  "productName": "LaTeXSnipper Office",
-  "version": "1.2.5",
-  "identifier": "com.latexsnipper.office",
-  "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:2100",
-    "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build:office-addin && npm run build:wps && npm run prepare:native-office && npm run build:vite && npm run stage:resources"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "LaTeXSnipper Office",
-        "width": 1024,
-        "height": 768,
-        "resizable": true,
-        "fullscreen": false
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "msi",
-      "nsis",
-      "dmg",
-      "deb",
-      "rpm"
-    ],
-    "icon": [
-      "icons/icon.ico",
-      "icons/icon.png"
-    ],
-    "resources": [
-      "resources/OfficeJS/**/*",
-      "resources/WPS/**/*",
-      "resources/Obsidian/**/*",
-      "resources/Ecosystem/**/*"
-    ],
-    "windows": {
-      "webviewInstallMode": {
-        "type": "embedBootstrapper"
-      },
-      "nsis": {
-        "displayLanguageSelector": true,
-        "installMode": "both",
-        "languages": [
-          "SimpChinese",
-          "English"
-        ]
-      }
-    },
-    "macOS": {
-      "minimumSystemVersion": "12.0"
-    }
-  },
-  "plugins": {
-    "shell": {
-      "open": true
-    }
-  }
+﻿{
+    "$schema":  "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
+    "productName":  "LaTeXSnipper Office",
+    "version":  "1.2.6",
+    "identifier":  "com.latexsnipper.office",
+    "build":  {
+                  "frontendDist":  "../dist",
+                  "devUrl":  "http://localhost:2100",
+                  "beforeDevCommand":  "npm run dev:vite",
+                  "beforeBuildCommand":  "npm run build:office-addin \u0026\u0026 npm run build:wps \u0026\u0026 npm run prepare:native-office \u0026\u0026 npm run build:vite \u0026\u0026 npm run stage:resources"
+              },
+    "app":  {
+                "windows":  [
+                                {
+                                    "title":  "LaTeXSnipper Office",
+                                    "width":  1024,
+                                    "height":  768,
+                                    "resizable":  true,
+                                    "fullscreen":  false
+                                }
+                            ],
+                "security":  {
+                                 "csp":  "default-src \u0027self\u0027; connect-src \u0027self\u0027 http://127.0.0.1:* http://localhost:*; img-src \u0027self\u0027 data: blob:; style-src \u0027self\u0027 \u0027unsafe-inline\u0027"
+                             }
+            },
+    "bundle":  {
+                   "active":  true,
+                   "targets":  [
+                                   "msi",
+                                   "nsis",
+                                   "dmg",
+                                   "deb",
+                                   "rpm"
+                               ],
+                   "icon":  [
+                                "icons/icon.ico",
+                                "icons/icon.png"
+                            ],
+                   "resources":  [
+                                     "resources/OfficeJS/**/*",
+                                     "resources/WPS/**/*",
+                                     "resources/Obsidian/**/*",
+                                     "resources/Ecosystem/**/*"
+                                 ],
+                   "windows":  {
+                                   "webviewInstallMode":  {
+                                                              "type":  "embedBootstrapper"
+                                                          },
+                                   "nsis":  {
+                                                "displayLanguageSelector":  true,
+                                                "installMode":  "both",
+                                                "languages":  [
+                                                                  "SimpChinese",
+                                                                  "English"
+                                                              ]
+                                            }
+                               },
+                   "macOS":  {
+                                 "minimumSystemVersion":  "12.0"
+                             }
+               },
+    "plugins":  {
+                    "shell":  {
+                                  "open":  true
+                              }
+                }
 }
