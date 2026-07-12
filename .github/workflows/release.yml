@@ -170,13 +170,6 @@ jobs:
             echo "- source SHA: \`$source_sha\`"
             echo "- prior stable tag: \`${prior_tag:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
-            echo "## Release source"
-            echo
-            echo "- tag: \`$tag\`"
-            echo "- version: \`$version\`"
-            echo "- source SHA: \`$source_sha\`"
-            echo "- prior stable tag: \`${prior_tag:-none}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
 
   package-required:
     needs: prepare-release
