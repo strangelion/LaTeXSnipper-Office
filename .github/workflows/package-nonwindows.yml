@@ -12,6 +12,12 @@ on:
       artifact_name:
         type: string
         required: true
+      source_ref:
+        type: string
+        default: ''
+      expected_version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -22,9 +28,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
           fetch-depth: 0
           fetch-tags: true
           submodules: recursive
+      - name: Verify package source version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $cargoText = Get-Content src-tauri/Cargo.toml -Raw
+          $cargoVersion = [regex]::Match(
+            $cargoText,
+            '(?m)^version\s*=\s*"([^"]+)"'
+          ).Groups[1].Value
+
+          $expected = '${{ inputs.expected_version }}'
+
+          if ([string]::IsNullOrWhiteSpace($expected)) {
+            $expected = $packageVersion
+          }
+
+          if (
+            $packageVersion -ne $expected -or
+            $tauriVersion -ne $expected -or
+            $cargoVersion -ne $expected
+          ) {
+            throw (
+              "Package version mismatch: expected=$expected " +
+              "package=$packageVersion tauri=$tauriVersion cargo=$cargoVersion"
+            )
+          }
+
+          "VERSION=$expected" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
       - name: Initialize package diagnostics
         shell: pwsh
         run: New-Item -ItemType Directory -Force package-diagnostics | Out-Null
@@ -51,9 +88,7 @@ jobs:
       - name: Build and stage current cross-platform resources
         shell: pwsh
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          $env:VERSION = $version
-          "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+          $version = $env:VERSION
           npm run build:office-addin
           npm run build:wps
           $wpsStaging = "apps/wps/dist/latexsnipper-wps_$version"

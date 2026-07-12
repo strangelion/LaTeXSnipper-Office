@@ -28,8 +28,8 @@ test("WPS and shared package workflow changes trigger all platforms", () => {
     "apps/obsidian-plugin/main.ts",
     "src-tauri/tauri.ci.conf.json",
     ".github/workflows/ci.yml",
-    ".github/workflows/build-all.yml",
-    ".github/workflows/package-smoke.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/package-verify.yml",
   ]) {
     const result = detectPackageImpact([path]);
     assert.equal(result.windows_package, true);

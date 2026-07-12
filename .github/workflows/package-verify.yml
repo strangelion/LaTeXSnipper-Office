@@ -3,21 +3,44 @@ name: Package Verify
 on:
   workflow_call:
     inputs:
+      source_ref:
+        type: string
+        default: ''
+
+      expected_version:
+        type: string
+        default: ''
+
       prior_tag:
         type: string
         default: v1.2.1
+
       run_windows:
         type: boolean
         default: true
+
       run_linux:
         type: boolean
         default: true
+
       run_macos:
         type: boolean
         default: true
+
       full_upgrade:
         type: boolean
         default: true
+
+      release_mode:
+        type: boolean
+        default: false
+
+    secrets:
+      VSTO_CERT_BASE64:
+        required: false
+
+      VSTO_CERT_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -31,9 +54,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
           fetch-depth: 0
           fetch-tags: true
           submodules: recursive
+      - name: Verify package source version
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri\tauri.conf.json | ConvertFrom-Json).version
+          $cargoText = Get-Content src-tauri\Cargo.toml -Raw
+          $cargoMatch = [regex]::Match(
+            $cargoText,
+            '(?m)^version\s*=\s*"([^"]+)"'
+          )
+
+          if (-not $cargoMatch.Success) {
+            throw "Unable to read version from src-tauri/Cargo.toml"
+          }
+
+          $cargoVersion = $cargoMatch.Groups[1].Value
+          $expected = '${{ inputs.expected_version }}'
+
+          if ([string]::IsNullOrWhiteSpace($expected)) {
+            $expected = $packageVersion
+          }
+
+          foreach ($entry in @{
+            package = $packageVersion
+            tauri = $tauriVersion
+            cargo = $cargoVersion
+          }.GetEnumerator()) {
+            if ($entry.Value -ne $expected) {
+              throw (
+                "Release version mismatch: source=$($entry.Key) " +
+                "expected=$expected actual=$($entry.Value)"
+              )
+            }
+          }
+
+          "VERSION=$expected" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
       - name: Initialize package diagnostics
         shell: pwsh
         run: |
@@ -55,6 +116,51 @@ jobs:
         uses: ./.github/actions/setup-native-office
         with:
           diagnostics-directory: package-diagnostics
+      - name: Configure release VSTO signing
+        if: inputs.release_mode
+        shell: pwsh
+        env:
+          VSTO_CERT_BASE64: ${{ secrets.VSTO_CERT_BASE64 }}
+          VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_BASE64)) {
+            throw "VSTO_CERT_BASE64 is required for release packaging"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_PASSWORD)) {
+            throw "VSTO_CERT_PASSWORD is required for release packaging"
+          }
+
+          $pfx = Join-Path $env:RUNNER_TEMP "LaTeXSnipper-Office-Release.pfx"
+
+          try {
+            $bytes = [Convert]::FromBase64String($env:VSTO_CERT_BASE64)
+            [IO.File]::WriteAllBytes($pfx, $bytes)
+          } catch {
+            throw "VSTO_CERT_BASE64 is not valid Base64: $($_.Exception.Message)"
+          }
+
+          $securePassword = ConvertTo-SecureString `
+            $env:VSTO_CERT_PASSWORD `
+            -AsPlainText `
+            -Force
+
+          $certificate = Get-PfxCertificate `
+            -FilePath $pfx `
+            -Password $securePassword
+
+          if (-not $certificate.HasPrivateKey) {
+            throw "Release VSTO PFX does not contain a private key"
+          }
+
+          "VstoManifestKeyFile=$pfx" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+
+          "VstoManifestKeyPassword=$env:VSTO_CERT_PASSWORD" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+
+          "VstoManifestThumbprint=$($certificate.Thumbprint)" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
       - run: npm ci
       - run: npm --prefix apps/office-addin ci
       - run: npm --prefix apps/obsidian-plugin ci
@@ -71,17 +177,71 @@ jobs:
       - name: Build current NativeOffice MSI and bootstrapper
         shell: pwsh
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $version = $env:VERSION
           & powershell -NoProfile -ExecutionPolicy Bypass -File apps\native-office\Installer\build.ps1 `
             -Configuration Release -Version $version *>&1 |
             Tee-Object package-diagnostics\current-native-office-build.log
           if ($LASTEXITCODE -ne 0) { throw "Current Native Office build failed with exit code $LASTEXITCODE" }
+      - name: Test exact NativeOffice binaries selected for packaging
+        shell: pwsh
+        run: |
+          $testProject = (
+            "apps\native-office\" +
+            "LaTeXSnipper.OleFormulaObjectNative.Tests\" +
+            "LaTeXSnipper.OleFormulaObjectNative.Tests.vcxproj"
+          )
+
+          foreach ($platform in @('Win32', 'x64')) {
+            msbuild $testProject `
+              /m `
+              /t:Build `
+              /p:Configuration=Release `
+              /p:Platform=$platform `
+              /p:WarningLevel=Level4 `
+              /p:TreatWarningAsError=true `
+              /v:minimal
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "NativeVectorTests build failed for $platform"
+            }
+          }
+
+          $staging = (
+            "apps\native-office\Installer\output\staging"
+          )
+
+          & (
+            "apps\native-office\" +
+            "LaTeXSnipper.OleFormulaObjectNative.Tests\" +
+            "bin\Win32\Release\NativeVectorTests.exe"
+          ) `
+            "$staging\OleFormulaObject.x86.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Win32 packaged OLE vector tests failed"
+          }
+
+          & (
+            "apps\native-office\" +
+            "LaTeXSnipper.OleFormulaObjectNative.Tests\" +
+            "bin\x64\Release\NativeVectorTests.exe"
+          ) `
+            "$staging\OleFormulaObject.x64.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "x64 packaged OLE vector tests failed"
+          }
+
+          & scripts\invoke-native-office-activation-gate.ps1 `
+            -StagingRoot $staging `
+            -ProbeConfiguration Release `
+            -DiagnosticsDirectory package-diagnostics
       - name: Build and stage desktop resources
         shell: pwsh
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          $env:VERSION = $version
-          "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+          $version = $env:VERSION
           npm run build:office-addin
           npm run build:wps
           $wpsStaging = "apps\wps\dist\latexsnipper-wps_$version"
@@ -148,6 +308,34 @@ jobs:
             -ResourceStagingRoot src-tauri\resources `
             -ResourcePackageRoots @('package-extract\tauri-msi', 'package-extract\nsis') `
             -ExpectedVersion $env:VERSION
+      - name: Create verified standalone VSTO package
+        shell: pwsh
+        run: |
+          $output = "release-components"
+          $staging = "apps\native-office\Installer\output\staging"
+          $zip = Join-Path `
+            $output `
+            "LaTeXSnipper-Office-VSTO_$env:VERSION.zip"
+
+          if (Test-Path $output) {
+            Remove-Item $output -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+
+          & scripts\verify-vsto-manifests.ps1 `
+            -PayloadRoot $staging
+
+          $items = Get-ChildItem -LiteralPath $staging -Force
+
+          Compress-Archive `
+            -Path $items.FullName `
+            -DestinationPath $zip `
+            -CompressionLevel Optimal
+
+          if (-not (Test-Path $zip -PathType Leaf)) {
+            throw "Standalone VSTO ZIP was not generated"
+          }
       - name: Install, activate, same-version reinstall, cross-version upgrade, and uninstall
         shell: pwsh
         run: |
@@ -202,6 +390,19 @@ jobs:
             $remaining = @(Get-ChildItem $installed -Recurse -File -ErrorAction SilentlyContinue)
             if ($remaining.Count -gt 0) { throw "NativeOffice file residue remains: $($remaining.FullName -join ', ')" }
           }
+      - name: Remove ephemeral release PFX
+        if: always()
+        shell: pwsh
+        run: |
+          if (
+            $env:VstoManifestKeyFile -and
+            (Test-Path -LiteralPath $env:VstoManifestKeyFile)
+          ) {
+            Remove-Item `
+              -LiteralPath $env:VstoManifestKeyFile `
+              -Force `
+              -ErrorAction SilentlyContinue
+          }
       - name: Upload package diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -220,6 +421,7 @@ jobs:
             apps/native-office/Installer/output/*.exe
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+            release-components/*.zip
 
   linux-packages:
     if: inputs.run_linux
@@ -228,6 +430,8 @@ jobs:
       runner: ubuntu-24.04
       bundles: deb,rpm
       artifact_name: verified-Linux-packages
+      source_ref: ${{ inputs.source_ref }}
+      expected_version: ${{ inputs.expected_version }}
     permissions:
       contents: read
 
@@ -238,5 +442,7 @@ jobs:
       runner: macos-14
       bundles: dmg
       artifact_name: verified-macOS-packages
+      source_ref: ${{ inputs.source_ref }}
+      expected_version: ${{ inputs.expected_version }}
     permissions:
       contents: read

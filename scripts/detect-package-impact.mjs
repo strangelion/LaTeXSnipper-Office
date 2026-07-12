@@ -7,7 +7,6 @@ const normalize = (value) => value.replaceAll("\\", "/").replace(/^\.\//, "");
 const sharedPackage = (path) =>
   /^\.github\/workflows\/(package-.*|main-package-verify)\.yml$/.test(path) ||
   path === ".github/workflows/ci.yml" ||
-  path === ".github/workflows/build-all.yml" ||
   path === ".github/workflows/release.yml" ||
   path === "src-tauri/tauri.conf.json" ||
   path === "src-tauri/tauri.ci.conf.json" ||

@@ -2,57 +2,406 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to publish
+        description: Existing application release tag, for example v1.2.3
         required: true
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  native-office-required:
-    uses: ./.github/workflows/native-office-ci.yml
-    permissions:
-      contents: read
-
-  package-required:
-    uses: ./.github/workflows/package-verify.yml
-    permissions:
-      contents: read
-
-  release:
-    needs: [native-office-required, package-required]
+  prepare-release:
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      prior_tag: ${{ steps.release.outputs.prior_tag }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve and validate release source
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "Invalid application release tag: $tag" >&2
+            echo "Expected format: vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+
+          version="${BASH_REMATCH[1]}"
+
+          if ! git show-ref --verify --quiet "refs/tags/$tag"; then
+            echo "Release tag does not exist: $tag" >&2
+            exit 1
+          fi
+
+          source_sha="$(git rev-list -n 1 "$tag")"
+
+          read_json_version() {
+            node -e '
+              let text = "";
+              process.stdin.on("data", chunk => text += chunk);
+              process.stdin.on("end", () => {
+                process.stdout.write(JSON.parse(text).version);
+              });
+            '
+          }
+
+          package_version="$(git show "$tag:package.json" | read_json_version)"
+          tauri_version="$(git show "$tag:src-tauri/tauri.conf.json" | read_json_version)"
+          cargo_version="$(
+            git show "$tag:src-tauri/Cargo.toml" |
+              awk -F'"' '/^version[[:space:]]*=/ { print $2; exit }'
+          )"
+
+          if [[ "$package_version" != "$version" ]]; then
+            echo "package.json version mismatch: tag=$version file=$package_version" >&2
+            exit 1
+          fi
+
+          if [[ "$tauri_version" != "$version" ]]; then
+            echo "tauri.conf.json version mismatch: tag=$version file=$tauri_version" >&2
+            exit 1
+          fi
+
+          if [[ "$cargo_version" != "$version" ]]; then
+            echo "Cargo.toml version mismatch: tag=$version file=$cargo_version" >&2
+            exit 1
+          fi
+
+          prior_tag="$(
+            node - "$version" <<'NODE'
+          const { execFileSync } = require("node:child_process");
+
+          const current = process.argv[2].split(".").map(Number);
+
+          const compare = (left, right) => {
+            for (let i = 0; i < 3; i += 1) {
+              if (left[i] !== right[i]) return left[i] - right[i];
+            }
+            return 0;
+          };
+
+          const tags = execFileSync("git", ["tag", "--list", "v*"], {
+            encoding: "utf8",
+          })
+            .split(/\r?\n/)
+            .map((tag) => tag.trim())
+            .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag))
+            .map((tag) => ({
+              tag,
+              version: tag.slice(1).split(".").map(Number),
+            }))
+            .filter((entry) => compare(entry.version, current) < 0)
+            .sort((a, b) => compare(a.version, b.version));
+
+          process.stdout.write(tags.length ? tags.at(-1).tag : "");
+          NODE
+          )"
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "prior_tag=$prior_tag" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Release source"
+            echo
+            echo "- tag: \`$tag\`"
+            echo "- version: \`$version\`"
+            echo "- source SHA: \`$source_sha\`"
+            echo "- prior stable tag: \`${prior_tag:-none}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  package-required:
+    needs: prepare-release
+    uses: ./.github/workflows/package-verify.yml
+    with:
+      source_ref: ${{ needs.prepare-release.outputs.tag }}
+      expected_version: ${{ needs.prepare-release.outputs.version }}
+      prior_tag: ${{ needs.prepare-release.outputs.prior_tag }}
+      run_windows: true
+      run_linux: true
+      run_macos: true
+      full_upgrade: ${{ needs.prepare-release.outputs.prior_tag != '' }}
+      release_mode: true
+    secrets: inherit
+    permissions:
+      contents: read
+
+  component-packages:
+    needs: prepare-release
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+
       - run: npm ci
+      - run: npm --prefix apps/obsidian-plugin ci
+      - run: npm --prefix apps/vscode-extension ci
+      - run: npm --prefix apps/browser-extension ci
+
+      - name: Set component versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const version = process.env.VERSION;
+
+          const updateJson = (path) => {
+            const value = JSON.parse(fs.readFileSync(path, "utf8"));
+            value.version = version;
+            fs.writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+          };
+
+          updateJson("apps/obsidian-plugin/manifest.json");
+          updateJson("apps/vscode-extension/package.json");
+          updateJson("apps/browser-extension/manifest.chrome.json");
+          updateJson("apps/browser-extension/manifest.firefox.json");
+          NODE
+
+      - name: Build WPS package
+        run: npm run build:wps
+
+      - name: Build Obsidian package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm --prefix apps/obsidian-plugin run build -- --production
+
+          output="release-components/latexsnipper-obsidian_${VERSION}"
+          rm -rf "$output"
+          mkdir -p "$output"
+
+          cp apps/obsidian-plugin/main.js "$output/"
+          cp apps/obsidian-plugin/manifest.json "$output/"
+
+          if [[ -f apps/obsidian-plugin/styles.css ]]; then
+            cp apps/obsidian-plugin/styles.css "$output/"
+          fi
+
+          (
+            cd release-components
+            zip -r "latexsnipper-obsidian_${VERSION}.zip" \
+              "latexsnipper-obsidian_${VERSION}"
+          )
+
+          rm -rf "$output"
+
+      - name: Build VS Code package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          npm --prefix apps/vscode-extension run build
+          npm --prefix apps/vscode-extension run package
+
+          vsix="$(
+            find apps/vscode-extension \
+              -maxdepth 1 \
+              -type f \
+              -name '*.vsix' \
+              -print \
+              -quit
+          )"
+
+          if [[ -z "$vsix" ]]; then
+            echo "VSIX package was not generated" >&2
+            exit 1
+          fi
+
+          mkdir -p release-components
+          cp "$vsix" \
+            "release-components/latexsnipper-vscode-${VERSION}.vsix"
+
+      - name: Build browser packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          app="apps/browser-extension"
+          mkdir -p release-components
+
+          npm --prefix "$app" run typecheck
+
+          npm --prefix "$app" run build:chrome
+          rm -rf "$app/dist-chrome"
+          mkdir -p "$app/dist-chrome"
+          cp -R "$app/dist/." "$app/dist-chrome/"
+          cp "$app/manifest.chrome.json" "$app/dist-chrome/manifest.json"
+          cp "$app/popup.html" "$app/dist-chrome/"
+          (
+            cd "$app/dist-chrome"
+            zip -r "../../../release-components/latexsnipper-browser-chrome_${VERSION}.zip" .
+          )
+
+          npm --prefix "$app" run build:firefox
+          rm -rf "$app/dist-firefox"
+          mkdir -p "$app/dist-firefox"
+          cp -R "$app/dist/." "$app/dist-firefox/"
+          cp "$app/manifest.firefox.json" "$app/dist-firefox/manifest.json"
+          cp "$app/popup.html" "$app/dist-firefox/"
+          (
+            cd "$app/dist-firefox"
+            zip -r "../../../release-components/latexsnipper-browser-firefox_${VERSION}.zip" .
+          )
+
+      - name: Collect WPS package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source="apps/wps/dist/latexsnipper-wps_${VERSION}.zip"
+
+          if [[ ! -f "$source" ]]; then
+            echo "WPS package missing: $source" >&2
+            exit 1
+          fi
+
+          mkdir -p release-components
+          cp "$source" release-components/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-component-packages
+          path: release-components/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs:
+      - prepare-release
+      - package-required
+      - component-packages
+
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
       - uses: actions/download-artifact@v4
         with:
           pattern: verified-*-packages
-          path: release-assets
+          path: downloaded/packages
           merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-component-packages
+          path: downloaded/components
+
+      - name: Assemble user-facing release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf release-assets
+          mkdir -p release-assets
+
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              *.msi|*.exe|*.dmg|*.deb|*.rpm|*.zip|*.vsix)
+                name="$(basename "$file")"
+                destination="release-assets/$name"
+
+                if [[ -e "$destination" ]]; then
+                  old_hash="$(sha256sum "$destination" | awk '{print $1}')"
+                  new_hash="$(sha256sum "$file" | awk '{print $1}')"
+
+                  if [[ "$old_hash" != "$new_hash" ]]; then
+                    echo "Release asset name collision with different bytes: $name" >&2
+                    exit 1
+                  fi
+                else
+                  cp "$file" "$destination"
+                fi
+                ;;
+            esac
+          done < <(find downloaded -type f -print0)
+
+          if ! find release-assets -maxdepth 1 -type f | grep -q .; then
+            echo "No release assets were assembled" >&2
+            exit 1
+          fi
+
       - name: Generate SBOM and license inventory
         run: |
           node scripts/generate-release-metadata.mjs
           mv SBOM.spdx.json THIRD-PARTY-LICENSES.json release-assets/
+
       - name: Generate SHA256SUMS
         working-directory: release-assets
-        run: find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-      - name: Publish GitHub release
+        shell: bash
+        run: |
+          find . \
+            -maxdepth 1 \
+            -type f \
+            ! -name SHA256SUMS \
+            -printf '%f\0' |
+            sort -z |
+            xargs -0 sha256sum > SHA256SUMS
+
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
         run: |
-          test -n "$RELEASE_TAG"
-          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || gh release create "$RELEASE_TAG" --verify-tag --generate-notes
-          find release-assets -type f -print0 | xargs -0 gh release upload "$RELEASE_TAG" --clobber
+          set -euo pipefail
+
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 ||
+            gh release create \
+              "$RELEASE_TAG" \
+              --verify-tag \
+              --generate-notes \
+              --title "$RELEASE_TAG"
+
+          find release-assets -maxdepth 1 -type f -print0 |
+            xargs -0 gh release upload "$RELEASE_TAG" --clobber
