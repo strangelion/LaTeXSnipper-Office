@@ -1,0 +1,212 @@
+name: Package Verify
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-packages:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Initialize package diagnostics
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package-diagnostics | Out-Null
+          New-Item -ItemType File -Force package-diagnostics\prior-native-office-build.log | Out-Null
+          New-Item -ItemType File -Force package-diagnostics\current-native-office-build.log | Out-Null
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Set up Windows Native Office CI dependencies
+        uses: ./.github/actions/setup-native-office
+        with:
+          diagnostics-directory: package-diagnostics
+      - run: npm ci
+      - run: npm --prefix apps/office-addin ci
+
+      - name: Build prior-version NativeOffice MSI
+        shell: pwsh
+        run: |
+          & .\scripts\resolve-prior-native-office-msi.ps1 `
+            -Tag v1.2.1 -Destination prior-version.msi -DiagnosticsDirectory package-diagnostics *>&1 |
+            Tee-Object package-diagnostics\prior-native-office-build.log
+      - name: Build current NativeOffice MSI and bootstrapper
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          & powershell -NoProfile -ExecutionPolicy Bypass -File apps\native-office\Installer\build.ps1 `
+            -Configuration Release -Version $version *>&1 |
+            Tee-Object package-diagnostics\current-native-office-build.log
+          if ($LASTEXITCODE -ne 0) { throw "Current Native Office build failed with exit code $LASTEXITCODE" }
+      - name: Build and stage desktop resources
+        run: |
+          npm run build:office-addin
+          npm run build:wps
+          npm run build:vite
+          npm run stage:resources
+      - name: Build Tauri MSI and NSIS
+        shell: pwsh
+        run: |
+          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle'
+          foreach ($name in @('msi', 'nsis')) {
+            $path = Join-Path $bundleRoot $name
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+          }
+          npx tauri build --config src-tauri/tauri.windows.conf.json --bundles msi,nsis
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Unpack all Windows packages
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package-extract\native, package-extract\tauri-msi, package-extract\nsis | Out-Null
+          $nativeMsi = (Get-ChildItem apps\native-office\Installer\output\*.msi | Select-Object -First 1).FullName
+          $tauriMsis = @(Get-ChildItem src-tauri\target\release\bundle\msi\*.msi)
+          $nsisBundles = @(Get-ChildItem src-tauri\target\release\bundle\nsis\*.exe)
+          if ($tauriMsis.Count -ne 1 -or $nsisBundles.Count -ne 1) {
+            throw "Expected exactly one current Tauri MSI and NSIS bundle; MSI=$($tauriMsis.Count) NSIS=$($nsisBundles.Count)"
+          }
+          $tauriMsi = $tauriMsis[0].FullName
+          $nsis = $nsisBundles[0].FullName
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$nativeMsi`" /qn TARGETDIR=`"$pwd\package-extract\native`""
+          if ($p.ExitCode -ne 0) { throw "Native MSI administrative extraction failed: $($p.ExitCode)" }
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$tauriMsi`" /qn TARGETDIR=`"$pwd\package-extract\tauri-msi`""
+          if ($p.ExitCode -ne 0) { throw "Tauri MSI administrative extraction failed: $($p.ExitCode)" }
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source
+          if (-not $sevenZip) { $sevenZip = "$env:ProgramFiles\7-Zip\7z.exe" }
+          if (-not (Test-Path -LiteralPath $sevenZip)) { throw "7-Zip executable not found" }
+          & $sevenZip x -y "-opackage-extract\nsis" $nsis | Out-File package-diagnostics\nsis-extract.log
+          if ($LASTEXITCODE -ne 0) { throw "NSIS extraction failed: $LASTEXITCODE" }
+      - name: Verify final package contents, PE, exports, dependencies, versions, and hashes
+        shell: pwsh
+        run: |
+          & scripts\verify-package-contents.ps1 `
+            -StagingRoot apps\native-office\Installer\output\staging `
+            -WindowsPackageRoots @('package-extract\native', 'package-extract\tauri-msi', 'package-extract\nsis')
+      - name: Install, activate, same-version reinstall, cross-version upgrade, and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $current = (Get-ChildItem apps\native-office\Installer\output\*.msi | Select-Object -First 1).FullName
+          $prior = (Resolve-Path prior-version.msi).Path
+          $windowsInstaller = New-Object -ComObject WindowsInstaller.Installer
+          function Get-MsiProductVersion([string]$Path) {
+            $database = $windowsInstaller.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $windowsInstaller, @($Path, 0))
+            $view = $database.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $database, @("SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductVersion'"))
+            $view.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $view, $null) | Out-Null
+            $record = $view.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $view, $null)
+            return $record.GetType().InvokeMember('StringData', 'GetProperty', $null, $record, 1)
+          }
+          $priorVersion = Get-MsiProductVersion $prior
+          if ($priorVersion -ne '1.2.1') { throw "Prior MSI ProductVersion mismatch: $priorVersion" }
+          "prior=$priorVersion`ncurrent=$(Get-MsiProductVersion $current)" |
+            Set-Content package-diagnostics\msi-product-versions.txt -Encoding UTF8
+          $operations = @(
+            @{ Name = 'prior-install'; Path = $prior },
+            @{ Name = 'cross-version-upgrade'; Path = $current },
+            @{ Name = 'same-version-reinstall'; Path = $current }
+          )
+          foreach ($operation in $operations) {
+            $log = Join-Path package-diagnostics "$($operation.Name).log"
+            $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$($operation.Path)`" /qn /norestart /l*v `"$log`""
+            if ($p.ExitCode -notin @(0, 3010)) { throw "MSI $($operation.Name) failed: $($p.ExitCode) file=$($operation.Path)" }
+          }
+          $installed = Join-Path $env:LOCALAPPDATA 'LaTeXSnipper\NativeOffice'
+          & scripts\invoke-native-office-activation-gate.ps1 `
+            -StagingRoot $installed `
+            -ProbeConfiguration Release `
+            -DiagnosticsDirectory package-diagnostics `
+            -ExistingRegistration
+          $uninstallLog = Join-Path package-diagnostics 'uninstall.log'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/x `"$current`" /qn /norestart /l*v `"$uninstallLog`""
+          if ($p.ExitCode -notin @(0, 1605, 3010)) { throw "MSI uninstall failed: $($p.ExitCode)" }
+          $savedErrorAction = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          foreach ($view in @('32', '64')) {
+            reg.exe query 'HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}' "/reg:$view" *> $null
+            if ($LASTEXITCODE -eq 0) { throw "CLSID residue remains in registry view $view" }
+          }
+          $ErrorActionPreference = $savedErrorAction
+          if (Test-Path $installed) {
+            $remaining = @(Get-ChildItem $installed -Recurse -File -ErrorAction SilentlyContinue)
+            if ($remaining.Count -gt 0) { throw "NativeOffice file residue remains: $($remaining.FullName -join ', ')" }
+          }
+      - name: Upload package diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-diagnostics-windows
+          path: package-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload verified Windows packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-windows-packages
+          path: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+
+  non-windows-packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            bundles: deb,rpm
+          - os: macos-14
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix apps/office-addin ci
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev rpm cpio
+      - name: Build and stage cross-platform resources
+        run: |
+          npm run build:office-addin
+          npm run build:wps
+          npm run build:vite
+          npm run stage:resources
+      - run: npx tauri build --bundles ${{ matrix.bundles }}
+      - name: Unpack and reject Windows NativeOffice content
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package-extract | Out-Null
+          if ($IsLinux) {
+            $deb = (Get-ChildItem src-tauri/target/release/bundle/deb/*.deb | Select-Object -First 1).FullName
+            & dpkg-deb -x $deb package-extract/deb
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $rpm = (Get-ChildItem src-tauri/target/release/bundle/rpm/*.rpm | Select-Object -First 1).FullName
+            bash -c "rpm2cpio '$rpm' | (cd package-extract && mkdir -p rpm && cd rpm && cpio -idmv)"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            $dmg = (Get-ChildItem src-tauri/target/release/bundle/dmg/*.dmg | Select-Object -First 1).FullName
+            New-Item -ItemType Directory -Force package-extract/mount | Out-Null
+            & hdiutil attach $dmg -readonly -nobrowse -mountpoint package-extract/mount
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          & scripts/verify-package-contents.ps1 -NonWindowsPackageRoots package-extract
+      - name: Upload verified non-Windows packages
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-${{ runner.os }}-packages
+          path: src-tauri/target/release/bundle/

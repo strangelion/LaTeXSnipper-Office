@@ -1,0 +1,970 @@
+name: Build All (Unified Release)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 3.0.0)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  # Resolve version: tag name -> semver, or input, or default
+  VERSION: ${{ github.event.inputs.version || '' }}
+
+jobs:
+  # ─────────── Resolve version ──────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Resolve version
+        id: resolve
+        shell: bash
+        run: |
+          if [ -n "${{ env.VERSION }}" ]; then
+            VER="${{ env.VERSION }}"
+          elif [[ "${{ github.ref }}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            VER="${BASH_REMATCH[1]}"
+          else
+            # Read version from package.json as fallback (never hardcode)
+            VER=$(node -p "require('./package.json').version")
+          fi
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "Version: $VER"
+
+      - name: Validate protocol schema
+        shell: bash
+        run: node core-protocol/schema-validate.mjs
+
+      - name: Test frontend SVG sizing
+        shell: bash
+        run: npm run test:frontend
+
+  # ─────────── Office Web Add-in ────────────────────────────────────
+  office-addin:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/office-addin/package-lock.json
+
+      - name: Install deps
+        working-directory: apps/office-addin
+        run: npm ci
+
+      - name: Inject version into Office manifests
+        shell: bash
+        run: |
+          ver="${{ needs.prepare.outputs.version }}"
+          ver4="${ver}.0"
+          for f in apps/office-addin/manifests/*.xml; do
+            if [ -f "$f" ]; then
+              perl -pi -e "s|<Version>.*</Version>|<Version>${ver4}</Version>|" "$f"
+            fi
+          done
+          echo "Office manifests version set to ${ver4}"
+
+      - name: Validate Office manifests
+        working-directory: apps/office-addin
+        run: |
+          npm run validate:word
+          npm run validate:excel
+          npm run validate:powerpoint
+
+      - name: Build
+        working-directory: apps/office-addin
+        run: npm run build
+
+      - name: Stage Office assets for Tauri bundle
+        run: node scripts/stage-office-addin.mjs
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: office-addin
+          path: |
+            apps/office-addin/dist/
+            src-tauri/resources/OfficeJS/
+
+  # ─────────── Tauri Desktop (Windows) ───────────
+  tauri-windows:
+    needs: [prepare, office-addin, vsto, wps]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - uses: actions/download-artifact@v4
+        with: { name: office-addin }
+
+      # Download VSTO build output so stage-resources can bundle it
+      - name: Download VSTO artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: vsto
+          path: _vsto_artifact
+      - name: Stage downloaded VSTO artifact
+        shell: pwsh
+        run: |
+          $src = "_vsto_artifact"
+          $dst = "apps/native-office/Installer/output/staging"
+              
+          if (-not (Test-Path -LiteralPath $src)) {
+            throw "VSTO artifact source missing: $src"
+          }
+        
+          # Detect nested staging directory (old artifact structure):
+          #   _vsto_artifact/staging/Word   → use _vsto_artifact/staging/
+          #   _vsto_artifact/Word            → use _vsto_artifact/
+          if (Test-Path "$src\staging\Word") {
+            Write-Host "  Detected nested staging artifact; using $src\staging as source root"
+            $src = "$src\staging"
+          }
+        
+          # Validate required files
+          $required = @(
+            "Word\LaTeXSnipper.Word.vsto",
+            "Excel\LaTeXSnipper.Excel.vsto",
+            "PowerPoint\LaTeXSnipper.PowerPoint.vsto",
+            "Shared\LaTeXSnipper.NativeOffice.Shared.dll",
+            "OleFormulaObject.x64.dll",
+            "OleFormulaObject.x86.dll",
+            "certificates\LaTeXSnipperOffice.cer",
+            "certificates\native-office-signing.json"
+          )
+          foreach ($rel in $required) {
+            $p = Join-Path $src $rel
+            if (-not (Test-Path -LiteralPath $p)) {
+              throw "VSTO artifact missing required file: $rel; source=$src"
+            }
+          }
+          Write-Host "  All required VSTO artifact files present" -ForegroundColor Green
+        
+          $artifactFiles = Get-ChildItem -LiteralPath $src -Recurse -Force
+          Write-Host "VSTO artifact source: $src (files: $($artifactFiles.Count))"
+        
+          # NativeOffice is generated staging content. Never merge it with old output.
+          if (Test-Path -LiteralPath $dst) {
+            Remove-Item -LiteralPath $dst -Recurse -Force
+          }
+        
+          New-Item -ItemType Directory -Path $dst -Force | Out-Null
+        
+          Get-ChildItem -LiteralPath $src -Force | ForEach-Object {
+            $target = Join-Path $dst $_.Name
+            Copy-Item -LiteralPath $_.FullName -Destination $target -Recurse -Force
+          }
+        
+          $stagedFiles = Get-ChildItem -LiteralPath $dst -Recurse -Force
+          Write-Host "VSTO staging files: $($stagedFiles.Count)"
+        
+          if ($stagedFiles.Count -eq 0) {
+            throw "VSTO artifact staging produced an empty directory."
+          }
+
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $dst
+
+          foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
+            $artifactHash = (Get-FileHash -Algorithm SHA256 (Join-Path $src $name)).Hash
+            $stagingHash = (Get-FileHash -Algorithm SHA256 (Join-Path $dst $name)).Hash
+            if ($artifactHash -ne $stagingHash) { throw "$name artifact/staging hash mismatch" }
+            Write-Host "$name artifact hash: $artifactHash"
+          }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
+      - name: Install VS Code extension dependencies
+        working-directory: apps/vscode-extension
+        run: npm ci
+      - name: Build VS Code extension
+        working-directory: apps/vscode-extension
+        run: npm run build
+      - name: Install Browser extension dependencies
+        working-directory: apps/browser-extension
+        run: npm ci
+      - name: Build Browser extension
+        working-directory: apps/browser-extension
+        run: npm run build
+      - name: Stage ecosystem resources
+        run: node scripts/stage-ecosystem-resources.js
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+
+      - name: Download WPS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wps
+          path: _wps_artifact
+
+      - name: Stage downloaded WPS artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $version = '${{ needs.prepare.outputs.version }}'
+          $zip = Get-ChildItem `
+            -LiteralPath '_wps_artifact' `
+            -Filter "latexsnipper-wps_$version.zip" `
+            -File |
+            Select-Object -First 1
+
+          if (-not $zip) {
+            throw "WPS artifact ZIP is missing for version $version"
+          }
+        
+          $distRoot = 'apps\wps\dist'
+          $destination = Join-Path $distRoot "latexsnipper-wps_$version"
+        
+          if (Test-Path -LiteralPath $destination) {
+            Remove-Item -LiteralPath $destination -Recurse -Force
+          }
+        
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Expand-Archive `
+            -LiteralPath $zip.FullName `
+            -DestinationPath $destination `
+            -Force
+        
+          $required = @(
+            'index.html',
+            'main.js',
+            'manifest.xml',
+            'ribbon.xml',
+            'proxy.js',
+            'server.js',
+            'js\command-layer.js',
+            'js\ribbon.js',
+            'js\util.js',
+            'ui\taskpane.html'
+          )
+        
+          foreach ($relative in $required) {
+            $path = Join-Path $destination $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Extracted WPS artifact is incomplete: $relative"
+            }
+          }
+        
+          Write-Host "WPS artifact staged: $destination"
+
+      # Inject version into Cargo.toml and tauri.conf.json
+      - name: Inject version
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
+
+      - name: Stage Native Office resources and verify hash chain
+        shell: pwsh
+        run: |
+          npm run stage:resources
+          $artifact = "_vsto_artifact"
+          if (Test-Path "$artifact\staging\OleFormulaObject.x64.dll") { $artifact = "$artifact\staging" }
+          $staging = "apps\native-office\Installer\output\staging"
+          $resources = "src-tauri\resources\NativeOffice"
+          foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
+            $hashes = @(
+              (Get-FileHash -Algorithm SHA256 (Join-Path $artifact $name)).Hash,
+              (Get-FileHash -Algorithm SHA256 (Join-Path $staging $name)).Hash,
+              (Get-FileHash -Algorithm SHA256 (Join-Path $resources $name)).Hash
+            )
+            if (($hashes | Select-Object -Unique).Count -ne 1) { throw "$name hash chain mismatch: $($hashes -join ', ')" }
+            Write-Host "$name verified hash chain: $($hashes[0])"
+          }
+
+      - run: npx tauri build --config src-tauri/tauri.windows.conf.json --bundles msi,nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows
+          path: |
+            src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/nsis/*.exe
+
+  # ─────────── Tauri Desktop (macOS) ───────────
+  tauri-macos:
+    needs: prepare
+    runs-on: macos-14
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
+      - name: Install VS Code extension dependencies
+        working-directory: apps/vscode-extension
+        run: npm ci
+      - name: Build VS Code extension
+        working-directory: apps/vscode-extension
+        run: npm run build
+      - name: Install Browser extension dependencies
+        working-directory: apps/browser-extension
+        run: npm ci
+      - name: Build Browser extension
+        working-directory: apps/browser-extension
+        run: npm run build
+      - name: Stage ecosystem resources
+        run: node scripts/stage-ecosystem-resources.js
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+
+      - name: Inject version
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
+
+      - run: npx tauri build --bundles dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-macos
+          path: |
+            src-tauri/target/release/bundle/dmg/*.dmg
+
+  # ─────────── Tauri Desktop (Linux) ───────────
+  tauri-linux:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Init submodules
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - name: Install Office add-in dependencies
+        working-directory: apps/office-addin
+        run: npm ci
+      - name: Install Obsidian plugin dependencies
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+      - name: Build Obsidian plugin
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev rpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: src-tauri -> target }
+
+      - name: Inject version
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' src-tauri/tauri.conf.json
+          perl -pi -e 's/^version = .*/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
+          echo "Injected version $VERSION into manifests"
+
+      - run: npx tauri build --bundles deb,rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-linux
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
+
+  # ─────────── VSTO Native Office ───────────
+  vsto:
+    needs: prepare
+    # VSTO/.NET Framework tooling is pinned to the VS 2022 image. windows-latest
+    # may advance to a newer Visual Studio image without the same VSTO component set.
+    runs-on: windows-2022
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Initialize VSTO diagnostics
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force vsto-diagnostics | Out-Null
+
+      - name: Set up Windows Native Office CI dependencies
+        uses: ./.github/actions/setup-native-office
+        with:
+          diagnostics-directory: vsto-diagnostics
+
+      - name: Import release certificate from Secrets
+        shell: pwsh
+        env:
+          VSTO_CERT_BASE64: ${{ secrets.VSTO_CERT_BASE64 }}
+          VSTO_CERT_PASSWORD: ${{ secrets.VSTO_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_BASE64)) {
+            if ($env:GITHUB_REF -like "refs/tags/*") {
+              throw "VSTO_CERT_BASE64 is required for tagged releases"
+            }
+            Write-Host "  No VSTO_CERT_BASE64 secret — non-release build will use a dev certificate" -ForegroundColor Yellow
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:VSTO_CERT_PASSWORD)) {
+            throw "VSTO_CERT_PASSWORD is required when VSTO_CERT_BASE64 is provided"
+          }
+
+          $certPath = Join-Path $env:RUNNER_TEMP "LaTeXSnipper-Office-Release.pfx"
+          [System.IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:VSTO_CERT_BASE64))
+
+          # Write to GITHUB_ENV so subsequent steps (build.ps1) see the values
+          "VstoManifestKeyFile=$certPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VstoManifestKeyPassword=$env:VSTO_CERT_PASSWORD" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          # Export .cer for inclusion in the release package
+          $cert = Get-PfxCertificate -FilePath $certPath -Password (ConvertTo-SecureString $env:VSTO_CERT_PASSWORD -AsPlainText -Force)
+          "VstoManifestThumbprint=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $certDir = Join-Path $env:GITHUB_WORKSPACE "apps\native-office\Installer\output\certificates"
+          New-Item -ItemType Directory -Path $certDir -Force | Out-Null
+          $certBytes2 = $cert.Export("Cert")
+          [System.IO.File]::WriteAllBytes((Join-Path $certDir "LaTeXSnipperOffice.cer"), $certBytes2)
+
+          # Generate signing metadata JSON consumed by check_certificate_trusted()
+          $signingJson = @{
+            schemaVersion     = 1
+            subject           = $cert.Subject
+            sha1Thumbprint    = $cert.Thumbprint
+            sha256Thumbprint  = $(
+              $hashAlgo = [System.Security.Cryptography.SHA256]::Create()
+              $hashBytes = $hashAlgo.ComputeHash($cert.RawData)
+              ($hashBytes | ForEach-Object { $_.ToString("X2") }) -join ""
+            )
+            certificateFile   = "LaTeXSnipperOffice.cer"
+          } | ConvertTo-Json -Compress
+          Set-Content -Path (Join-Path $certDir "native-office-signing.json") -Value $signingJson -Encoding UTF8
+          Write-Host "  Signing metadata written to native-office-signing.json"
+          Write-Host "  Signing with release certificate (thumbprint: $($cert.Thumbprint))" -ForegroundColor Green
+
+      - name: Fetch nlohmann/json for OLE DLL
+        shell: pwsh
+        run: .\apps\native-office\LaTeXSnipper.OleFormulaObjectNative\vendor\nlohmann\fetch_json.ps1
+
+      - name: Generate OLE version header from package.json
+        shell: pwsh
+        run: .\scripts\build-ole-version.ps1 -Version $env:VERSION
+
+      - name: Build dual-bitness OLE DLLs
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=Win32 /p:LaTeXSnipperVersion=$env:VERSION /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=x64 /p:LaTeXSnipperVersion=$env:VERSION /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and run dual-bitness vector EMF tests
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\LaTeXSnipper.OleFormulaObjectNative.Tests.vcxproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=Win32 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=x64 /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\Win32\Release\NativeVectorTests.exe" `
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\Win32\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x86.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\x64\Release\NativeVectorTests.exe" `
+            "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\x64\Release\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.x64.dll" `
+            "apps\native-office\fixtures\mathjax-svg"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and run pending payload tests
+        shell: pwsh
+        run: |
+          $project = "apps\native-office\LaTeXSnipper.Shared.Tests\LaTeXSnipper.Shared.Tests.csproj"
+          msbuild $project /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "apps\native-office\LaTeXSnipper.Shared.Tests\bin\Release\LaTeXSnipper.Shared.Tests.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build VSTO payload and installers
+        shell: pwsh
+        run: |
+          & .\apps\native-office\Installer\build.ps1 `
+            -Configuration Release `
+            -OutputDir .\apps\native-office\Installer\output `
+            -Version $env:VERSION
+
+      - name: Remove ephemeral PFX
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:VstoManifestKeyFile -and (Test-Path -LiteralPath $env:VstoManifestKeyFile)) {
+            Remove-Item $env:VstoManifestKeyFile -Force -ErrorAction SilentlyContinue
+            Write-Host "Cleaned up ephemeral PFX"
+          }
+
+      - name: Verify OLE DLLs exist in staging
+        shell: pwsh
+        run: |
+          $staging = "apps/native-office/Installer/output/staging"
+          $required = @("OleFormulaObject.x64.dll", "OleFormulaObject.x86.dll")
+          foreach ($file in $required) {
+            $p = Join-Path $staging $file
+            if (-not (Test-Path -LiteralPath $p)) {
+              throw "OLE DLL missing from staging: $file"
+            }
+            Write-Host "  OLE DLL found: $file" -ForegroundColor Green
+          }
+          Get-FileHash -Algorithm SHA256 (Join-Path $staging "OleFormulaObject.x86.dll") | Format-List
+          Get-FileHash -Algorithm SHA256 (Join-Path $staging "OleFormulaObject.x64.dll") | Format-List
+
+      - name: Build probes and smoke-test dual-bitness OLE activation
+        shell: pwsh
+        run: |
+          & .\scripts\invoke-native-office-activation-gate.ps1 `
+            -StagingRoot .\apps\native-office\Installer\output\staging `
+            -ProbeConfiguration Release `
+            -DiagnosticsDirectory vsto-diagnostics
+
+      - name: Collect VSTO diagnostics
+        if: always()
+        shell: pwsh
+        run: |
+          & .\scripts\collect-native-office-diagnostics.ps1 `
+            -StagingRoot .\apps\native-office\Installer\output\staging `
+            -ProbeConfiguration Release `
+            -DiagnosticsDirectory vsto-diagnostics
+
+      - name: Upload VSTO diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsto-diagnostics-build-all
+          path: vsto-diagnostics/
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: vsto
+          # Upload staging content only (not the staging/ wrapper) so that
+          # the downloaded artifact structure is flat:
+          #   _vsto_artifact/Word/LaTeXSnipper.Word.vsto
+          #   _vsto_artifact/OleFormulaObject.x64.dll
+          #   _vsto_artifact/certificates/LaTeXSnipperOffice.cer
+          path: apps/native-office/Installer/output/staging/**
+
+      - name: Upload Native Office installers
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-office-installer
+          if-no-files-found: error
+          path: |
+            apps/native-office/Installer/output/*.msi
+            apps/native-office/Installer/output/*.exe
+              
+  # ─────────── WPS Plugin ───────────
+  wps:
+    needs: prepare
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Build WPS plugin
+        working-directory: apps/wps
+        run: .\build.ps1 -Version $env:VERSION -OutputDir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wps
+          path: apps/wps/dist/latexsnipper-wps_${{ env.VERSION }}.zip
+
+  # ─────────── Obsidian Plugin ───────────
+  obsidian:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/obsidian-plugin/package-lock.json
+
+      - name: Set version in manifest
+        working-directory: apps/obsidian-plugin
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' manifest.json
+          echo "Obsidian manifest version set to $VERSION"
+
+      - name: Install deps
+        working-directory: apps/obsidian-plugin
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/obsidian-plugin
+        run: npm run build -- --production
+
+      - name: Package
+        working-directory: apps/obsidian-plugin
+        run: |
+          New-Item -ItemType Directory -Path "dist" -Force | Out-Null
+          $d = "dist/latexsnipper-obsidian_$env:VERSION"
+          New-Item -ItemType Directory -Path $d -Force | Out-Null
+          Copy-Item main.js $d/
+          Copy-Item manifest.json $d/
+          Compress-Archive -Path "$d\*" -DestinationPath "dist/latexsnipper-obsidian_$env:VERSION.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: obsidian
+          path: apps/obsidian-plugin/dist/*.zip
+
+  # ─────────── VS Code Extension ───────────
+  vscode-extension:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/vscode-extension/package-lock.json
+
+      - name: Set version in package.json
+        working-directory: apps/vscode-extension
+        shell: bash
+        run: |
+          perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' package.json
+          echo "VS Code extension version set to $VERSION"
+
+      - name: Install deps
+        working-directory: apps/vscode-extension
+        run: npm ci
+
+      - name: Build
+        working-directory: apps/vscode-extension
+        run: npm run build
+
+      - name: Clean old VSIX packages
+        working-directory: apps/vscode-extension
+        run: Remove-Item *.vsix -Force -ErrorAction SilentlyContinue
+
+      - name: Package VSIX
+        working-directory: apps/vscode-extension
+        run: npm run package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          if-no-files-found: error
+          path: apps/vscode-extension/latexsnipper-vscode-${{ env.VERSION }}.vsix
+
+  # ─────────── Browser Extension ───────────
+  browser-extension:
+    needs: prepare
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/browser-extension/package-lock.json
+
+      - name: Set version in manifests
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          for f in manifest.chrome.json manifest.firefox.json; do
+            perl -pi -e 's/"version": ".*"/"version": "'"$VERSION"'"/' "$f"
+          done
+          echo "Browser extension version set to $VERSION"
+
+      - name: Install deps
+        working-directory: apps/browser-extension
+        run: npm ci
+
+      - name: Typecheck Browser extension
+        working-directory: apps/browser-extension
+        run: npm run typecheck
+
+      - name: Build Chrome
+        working-directory: apps/browser-extension
+        run: npm run build:chrome
+
+      - name: Package Chrome
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          rm -rf dist-chrome
+          mkdir -p dist-chrome
+          cp -R dist/. dist-chrome/
+          cp manifest.chrome.json dist-chrome/manifest.json
+          cp popup.html dist-chrome/
+          test -f dist-chrome/background.js
+          test -f dist-chrome/content.js
+          test -f dist-chrome/popup.js
+          test -f dist-chrome/manifest.json
+          cd dist-chrome && zip -r "../latexsnipper-browser-chrome_$VERSION.zip" .
+
+      - name: Build Firefox
+        working-directory: apps/browser-extension
+        run: npm run build:firefox
+
+      - name: Package Firefox
+        shell: bash
+        working-directory: apps/browser-extension
+        run: |
+          rm -rf dist-firefox
+          mkdir -p dist-firefox
+          cp -R dist/. dist-firefox/
+          cp manifest.firefox.json dist-firefox/manifest.json
+          cp popup.html dist-firefox/
+          test -f dist-firefox/background.js
+          test -f dist-firefox/content.js
+          test -f dist-firefox/popup.js
+          test -f dist-firefox/manifest.json
+          cd dist-firefox && zip -r "../latexsnipper-browser-firefox_$VERSION.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension
+          if-no-files-found: error
+          path: |
+            apps/browser-extension/latexsnipper-browser-chrome_${{ env.VERSION }}.zip
+            apps/browser-extension/latexsnipper-browser-firefox_${{ env.VERSION }}.zip
+
+  # ─────────── Package + Release ───────────
+  package:
+    needs: [prepare, tauri-windows, tauri-macos, tauri-linux, vsto, wps, obsidian, vscode-extension, browser-extension]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+
+      - name: Organize release artifacts
+        shell: pwsh
+        run: |
+          $ver = "$env:VERSION"
+          $release = "release/LaTeXSnipper-$ver"
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+
+          # Tauri Windows
+          $tw = Get-ChildItem "artifacts/tauri-windows" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/windows" -Force
+          $tw | Copy-Item -Destination "$release/windows/" -Force
+
+          # Standalone Native Office installers — artifact only, NOT copied to release.
+          # These are already included in the desktop installer; standalone packages are
+          # only for manual deployment and remain accessible via Actions artifacts.
+          $nativeOfficeInstallers = Get-ChildItem "artifacts/native-office-installer" -Recurse -File
+          if ($nativeOfficeInstallers) {
+            Write-Host "Native Office installers (artifact only, not in release):"
+            $nativeOfficeInstallers | ForEach-Object { Write-Host "  $($_.Name)" }
+          }
+
+          # VSTO: preserve the host-directory layout in one archive. Uploading the
+          # individual files flattens Word/Excel/PowerPoint dependencies and makes
+          # the release page unusable as a standalone VSTO package.
+          $vstoRoot = (Resolve-Path -LiteralPath "artifacts/vsto").Path
+          & .\scripts\verify-vsto-manifests.ps1 -PayloadRoot $vstoRoot
+
+          $vstoZip = Join-Path $release "LaTeXSnipper-Office-VSTO_$ver.zip"
+          Remove-Item -LiteralPath $vstoZip -Force -ErrorAction SilentlyContinue
+          $vstoItems = Get-ChildItem -LiteralPath $vstoRoot -Force
+          Compress-Archive -Path $vstoItems.FullName -DestinationPath $vstoZip -CompressionLevel Optimal
+
+          # VS Code
+          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
+          Copy-Item "artifacts/vscode-extension/latexsnipper-vscode-$ver.vsix" "$release/plugins/" -Force
+
+          # Browser
+          Copy-Item "artifacts/browser-extension/latexsnipper-browser-chrome_$ver.zip" "$release/plugins/" -Force
+          Copy-Item "artifacts/browser-extension/latexsnipper-browser-firefox_$ver.zip" "$release/plugins/" -Force
+
+          # WPS
+          $null = New-Item -ItemType Directory -Path "$release/plugins" -Force
+          Copy-Item "artifacts/wps/latexsnipper-wps_$ver.zip" "$release/plugins/" -Force
+
+          # Obsidian
+          Copy-Item "artifacts/obsidian/latexsnipper-obsidian_$ver.zip" "$release/plugins/" -Force
+
+          # macOS
+          $mac = Get-ChildItem "artifacts/tauri-macos" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/macos" -Force
+          $mac | Copy-Item -Destination "$release/macos/" -Force
+
+          # Linux
+          $linux = Get-ChildItem "artifacts/tauri-linux" -Recurse -File
+          $null = New-Item -ItemType Directory -Path "$release/linux" -Force
+          $linux | Copy-Item -Destination "$release/linux/" -Force
+
+          # Build release-manifest.json. Exclude the manifest itself so it never
+          # contains a stale/self-referential entry after a rerun.
+          $releaseRoot = (Resolve-Path -LiteralPath $release).Path
+          $manifest = [ordered]@{ version = $ver; components = @() }
+
+          Get-ChildItem -LiteralPath $releaseRoot -Recurse -File |
+            Where-Object { $_.Name -ne "release-manifest.json" } |
+            ForEach-Object {
+              $relativePath = $_.FullName.Substring($releaseRoot.Length).TrimStart([char[]]@('\', '/'))
+              $manifest.components += [ordered]@{
+                path = $relativePath.Replace('\', '/')
+                size = $_.Length
+              }
+            }
+
+          $manifest | ConvertTo-Json -Depth 10 |
+            Set-Content -LiteralPath (Join-Path $releaseRoot "release-manifest.json") -Encoding UTF8
+
+          # User-facing checksums cover installable packages only. The internal
+          # release manifest stays in the workflow artifact but is not attached
+          # as a separate GitHub Release asset.
+          $checksums = Join-Path $releaseRoot "SHA256SUMS.txt"
+          Get-ChildItem -LiteralPath $releaseRoot -Recurse -File |
+            Where-Object { $_.Name -notin @("release-manifest.json", "SHA256SUMS.txt") } |
+            Sort-Object FullName |
+            ForEach-Object {
+              $relativePath = $_.FullName.Substring($releaseRoot.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $relativePath"
+            } |
+            Set-Content -LiteralPath $checksums -Encoding ASCII
+
+          Write-Host "Release structure:"
+          Get-ChildItem $release -Recurse -File | ForEach-Object {
+            Write-Host "  $($_.FullName.Replace((Get-Location).Path, '')) ($(($_.Length/1MB).ToString('F2')) MB)"
+          }
+
+      - name: Upload unified release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaTeXSnipper-${{ env.VERSION }}
+          path: release/LaTeXSnipper-${{ env.VERSION }}/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: v${{ env.VERSION }}
+          files: |
+            release/LaTeXSnipper-${{ env.VERSION }}/windows/*.msi
+            release/LaTeXSnipper-${{ env.VERSION }}/windows/*.exe
+            release/LaTeXSnipper-${{ env.VERSION }}/LaTeXSnipper-Office-VSTO_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-vscode-${{ env.VERSION }}.vsix
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-chrome_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-browser-firefox_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-wps_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip
+            release/LaTeXSnipper-${{ env.VERSION }}/macos/*.dmg
+            release/LaTeXSnipper-${{ env.VERSION }}/linux/*.deb
+            release/LaTeXSnipper-${{ env.VERSION }}/linux/*.rpm
+            release/LaTeXSnipper-${{ env.VERSION }}/SHA256SUMS.txt
+          generate_release_notes: true
+          body: |
+            ## LaTeXSnipper Office v${{ env.VERSION }}
+
+            ### Windows
+            - **推荐桌面安装包**：下载 `.msi`；`.exe` 是 NSIS 备用安装包。
+            - **Native Office VSTO**：桌面安装包内已包含；仅在需要手动部署时下载 `LaTeXSnipper-Office-VSTO_*.zip`，必须完整解压并保持 `Word/Excel/PowerPoint/Shared` 目录结构。
+            - **VS Code Extension**: `plugins/latexsnipper-vscode-*.vsix`
+            - **Browser Extension**: `plugins/latexsnipper-browser-chrome.zip` / `latexsnipper-browser-firefox.zip`
+            - **WPS Plugin**: `plugins/latexsnipper-wps_${{ env.VERSION }}.zip`
+            - **Obsidian Plugin**: `plugins/latexsnipper-obsidian_${{ env.VERSION }}.zip`
+
+            ### macOS
+            - **Tauri Desktop**: `macos/*.dmg`
+
+            ### Linux
+            - **Tauri Desktop**: `linux/*.deb` (.rpm)
+
+            ### Office 加载项安装
+            安装桌面端后，打开 LaTeXSnipper → 设置 → 开启 Office 集成，然后重启 Word、Excel 或 PowerPoint。不要从 Release 页面单独下载 DLL、`.vsto` 或 `.manifest` 文件混用。
+
+            `SHA256SUMS.txt` 包含所有用户可下载安装包的校验值。
