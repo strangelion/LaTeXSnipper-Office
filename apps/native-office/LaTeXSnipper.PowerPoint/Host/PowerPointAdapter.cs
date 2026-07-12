@@ -63,24 +63,25 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                 string? imageExt = null;
                 string? imageData = null;
-                if (payload.Render?.Svg != null)
-                {
-                    imageExt = ".svg";
-                    imageData = "SVG";
-                }
-                else if (payload.Render?.Png != null)
+                // PNG-first: Raw MathJax SVG can be accepted by Office but rendered blank.
+                if (payload.Render?.Png != null)
                 {
                     imageExt = ".png";
                     imageData = "PNG";
+                }
+                else if (payload.Render?.Svg != null)
+                {
+                    imageExt = ".svg";
+                    imageData = "SVG";
                 }
 
                 if (imageExt != null && imageData != null)
                 {
                     var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}{imageExt}");
                     if (imageExt == ".png")
-                        WritePngPayload(tempPath, payload.Render.Png);
+                        System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
                     else
-                        File.WriteAllText(tempPath, payload.Render.Svg);
+                        File.WriteAllText(tempPath, payload.Render!.Svg!);
 
                     float width = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : 120f;
                     float height = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : 30f;
@@ -96,14 +97,14 @@ namespace LaTeXSnipper.PowerPoint.Host
                         shape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                             Microsoft.Office.Core.MsoTriState.msoTrue, left, top, width, height);
                     }
-                    catch (Exception svgError) when (imageExt == ".svg" && payload.Render?.Png != null)
+                    catch (Exception pngError) when (imageExt == ".png" && payload.Render?.Svg != null)
                     {
                         oleFallbackReason = string.IsNullOrEmpty(oleFallbackReason)
-                            ? $"SVG insertion failed: {svgError.Message}"
-                            : $"{oleFallbackReason}; SVG insertion failed: {svgError.Message}";
-                        tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                        WritePngPayload(tempPath, payload.Render.Png);
-                        imageData = "PNG";
+                            ? $"PNG insertion failed: {pngError.Message}"
+                            : $"{oleFallbackReason}; PNG insertion failed: {pngError.Message}";
+                        tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                        File.WriteAllText(tempPath, payload.Render.Svg);
+                        imageData = "SVG";
                         shape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                             Microsoft.Office.Core.MsoTriState.msoTrue, left, top, width, height);
                     }
@@ -144,7 +145,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     // Extract formulaId from shape name: LSNO_{formulaId}
                     var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
 
-                    // Layer 1a: OLE object — read full payload via COM automation
+                    // Layer 1a: OLE object �?read full payload via COM automation
                     try
                     {
                         var oleObj = shape.OLEFormat?.Object;
@@ -432,15 +433,15 @@ namespace LaTeXSnipper.PowerPoint.Host
                         int oldZOrder = 0;
                         try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "powerpoint", formulaId, ex); }
                         var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        bool replacingWithSvg = payload.Render?.Svg != null;
-                        if (replacingWithSvg)
+                        bool replacingWithPng = payload.Render?.Png != null;
+                        if (replacingWithPng)
                         {
-                            File.WriteAllText(tempPath, payload.Render!.Svg!);
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                            System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
                         }
                         else
                         {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            WritePngPayload(tempPath, payload.Render!.Png!);
+                            File.WriteAllText(tempPath, payload.Render!.Svg!);
                         }
                         float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
                         float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
@@ -450,11 +451,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
-                        catch (Exception ex) when (replacingWithSvg && payload.Render?.Png != null)
+                        catch (Exception ex) when (replacingWithPng && payload.Render?.Svg != null)
                         {
-                            OfficeOperationLog.Failure("replace-svg-fallback-png", "powerpoint", formulaId, ex);
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            WritePngPayload(tempPath, payload.Render.Png);
+                            OfficeOperationLog.Failure("replace-png-fallback-svg", "powerpoint", formulaId, ex);
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                            File.WriteAllText(tempPath, payload.Render.Svg);
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
@@ -490,9 +491,9 @@ namespace LaTeXSnipper.PowerPoint.Host
             return false;
         }
 
-        // ═══════════════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════════════�?
         // ICommandHostAdapter implementation
-        // ═══════════════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════════════�?
 
         public CommandResultMessage Execute(CommandMessage cmd)
         {

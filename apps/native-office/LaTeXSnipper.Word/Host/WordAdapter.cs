@@ -693,31 +693,27 @@ namespace LaTeXSnipper.Word.Host
             try
             {
                 if (payload.Render?.Png == null && payload.Render?.Svg == null)
-                    return new InsertResult { Success = false, Error = "No render data for image insertion" };
+                    return new InsertResult { Success = false, ErrorCode = "NO_RENDER_DATA", Error = "No render data for image insertion" };
 
                 Microsoft.Office.Interop.Word.InlineShape image;
-                string? fallbackReason = null;
-                if (payload.Render?.Svg != null)
+                string imageId = Guid.NewGuid().ToString("N");
+
+                // PNG-first: Raw MathJax SVG can be accepted by Office but rendered blank.
+                if (payload.Render?.Png != null)
                 {
-                    try
-                    {
-                        tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        System.IO.File.WriteAllText(tempPath, payload.Render.Svg);
-                        image = range.InlineShapes.AddPicture(tempPath);
-                    }
-                    catch (Exception svgError) when (payload.Render?.Png != null)
-                    {
-                        fallbackReason = $"SVG insertion failed: {svgError.Message}";
-                        tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                        WritePngPayload(tempPath, payload.Render.Png);
-                        image = range.InlineShapes.AddPicture(tempPath);
-                    }
+                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{imageId}.png");
+                    System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render.Png));
+                    image = range.InlineShapes.AddPicture(tempPath);
+                }
+                else if (payload.Render?.Svg != null)
+                {
+                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{imageId}.svg");
+                    System.IO.File.WriteAllText(tempPath, payload.Render.Svg);
+                    image = range.InlineShapes.AddPicture(tempPath);
                 }
                 else
                 {
-                    tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                    WritePngPayload(tempPath, payload.Render!.Png!);
-                    image = range.InlineShapes.AddPicture(tempPath);
+                    return new InsertResult { Success = false, ErrorCode = "NO_RENDER_DATA", Error = "No render data for image insertion" };
                 }
                 image.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                 if (payload.Render!.WidthPt > 0) image.Width = payload.Render.WidthPt;
@@ -729,7 +725,7 @@ namespace LaTeXSnipper.Word.Host
                 {
                     cc = doc.ContentControls.Add(
                         Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
-                        range);
+                        image.Range.Duplicate);
                     cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
                     cc.LockContentControl = false;
                     cc.LockContents = false;
@@ -750,12 +746,11 @@ namespace LaTeXSnipper.Word.Host
                     RangeStart = (uint)(cc?.Range.Start ?? range.Start),
                     RangeEnd = (uint)(cc?.Range.End ?? range.End),
                     StorageMode = "image",
-                    FallbackReason = fallbackReason
                 };
             }
             catch (Exception ex)
             {
-                return new InsertResult { Success = false, Error = $"Image insert failed: {ex.Message}" };
+                return new InsertResult { Success = false, ErrorCode = "IMAGE_INSERT_FAILED", Error = $"Image insert failed: {ex.Message}" };
             }
             finally
             {

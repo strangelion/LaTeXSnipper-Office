@@ -62,29 +62,20 @@ namespace LaTeXSnipper.Excel.Host
                     return new InsertResult { Success = false, Error = "Native OMML insertion in Excel is not yet implemented. Use OLE or Image mode instead." };
                 }
 
-                // Image / text fallback
-                if (payload.Render?.Svg != null)
-                {
-                    try
-                    {
-                        var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
-                        imageResult.ActualStorageMode = "image";
-                        imageResult.FallbackReason = oleFallbackReason;
-                        return imageResult;
-                    }
-                    catch (Exception svgError) when (payload.Render?.Png != null)
-                    {
-                        oleFallbackReason = string.IsNullOrEmpty(oleFallbackReason)
-                            ? $"SVG insertion failed: {svgError.Message}"
-                            : $"{oleFallbackReason}; SVG insertion failed: {svgError.Message}";
-                    }
-                }
-
+                // Image / text fallback - PNG-first (Raw MathJax SVG renders blank in Office)
                 if (payload.Render?.Png != null)
                 {
                     var imageResult = InsertImage(sheet, cell, payload, payload.Render.Png, ".png");
                     imageResult.ActualStorageMode = "image";
-                    imageResult.FallbackReason = oleFallbackReason ?? "SVG unavailable; used high-DPI PNG";
+                    imageResult.FallbackReason = oleFallbackReason ?? "OLE unavailable; used high-DPI PNG";
+                    return imageResult;
+                }
+
+                if (payload.Render?.Svg != null)
+                {
+                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
+                    imageResult.ActualStorageMode = "image";
+                    imageResult.FallbackReason = oleFallbackReason ?? "PNG unavailable; used SVG";
                     return imageResult;
                 }
 
@@ -106,37 +97,41 @@ namespace LaTeXSnipper.Excel.Host
         {
             var isPng = ext == ".png";
             var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}{ext}");
-            if (isPng)
-                WritePngPayload(tempPath, data);
-            else
-                File.WriteAllText(tempPath, data);
+            try
+            {
+                if (isPng)
+                    System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(data));
+                else
+                    File.WriteAllText(tempPath, data);
 
-            float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-            float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
+                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
+                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
 
-            double cellLeft = 0, cellTop = 0;
-            try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
+                double cellLeft = 0, cellTop = 0;
+                try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
 
-            var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
-            if (excelSheet == null)
-                return new InsertResult { Success = false, Error = "Cannot cast sheet to Worksheet" };
-            var shape = excelSheet.Shapes.AddPicture(
-                tempPath,
-                Microsoft.Office.Core.MsoTriState.msoFalse,
-                Microsoft.Office.Core.MsoTriState.msoTrue,
-                (float)cellLeft, (float)cellTop,
-                width, height
-            );
-            shape.Name = $"LSNO_{payload.FormulaId}";
-            shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-            shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
-            shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+                var excelSheet = sheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (excelSheet == null)
+                    return new InsertResult { Success = false, Error = "Cannot cast sheet to Worksheet" };
+                var shape = excelSheet.Shapes.AddPicture(
+                    tempPath,
+                    Microsoft.Office.Core.MsoTriState.msoFalse,
+                    Microsoft.Office.Core.MsoTriState.msoTrue,
+                    (float)cellLeft, (float)cellTop,
+                    width, height
+                );
+                shape.Name = $"LSNO_{payload.FormulaId}";
+                shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
+                shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
 
-            // Clean up temp file after successful insertion
-            try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-            catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "excel", payload.FormulaId, ex); }
-
-            return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+            }
+            finally
+            {
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+                catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "excel", payload.FormulaId, ex); }
+            }
         }
 
         public FormulaPayload? ReadSelection()
@@ -152,7 +147,7 @@ namespace LaTeXSnipper.Excel.Host
                     // Extract formulaId from shape name: LSNO_{formulaId}
                     var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
 
-                    // Layer 1a: OLE object — read full payload via COM automation
+                    // Layer 1a: OLE object - read full payload via COM automation
                     try
                     {
                         var oleObj = shape.OLEFormat?.Object;
@@ -552,9 +547,9 @@ namespace LaTeXSnipper.Excel.Host
             return false;
         }
 
-        // ═══════════════════════════════════════════════════════════════
+        // ====================================================================
         // ICommandHostAdapter implementation
-        // ═══════════════════════════════════════════════════════════════
+        // ====================================================================
 
         public CommandResultMessage Execute(CommandMessage cmd)
         {
