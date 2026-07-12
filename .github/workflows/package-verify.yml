@@ -400,29 +400,46 @@ jobs:
           $savedErrorAction = $ErrorActionPreference
           $ErrorActionPreference = 'Continue'
           $residueErrors = @()
-          foreach ($view in @('32', '64')) {
-            $registryLog = Join-Path `
-              package-diagnostics `
-              "post-uninstall-clsid-$view.txt"
-            reg.exe query `
-              'HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}' `
-              /s `
-              "/reg:$view" *> $registryLog
-            if ($LASTEXITCODE -eq 0) {
-              $residueErrors += "CLSID residue remains in registry view $view"
-            }
-            $progIdLog = Join-Path `
-              package-diagnostics `
-              "post-uninstall-progid-$view.txt"
-            reg.exe query `
-              'HKCU\Software\Classes\LaTeXSnipper.Formula' `
-              /s `
-              "/reg:$view" *> $progIdLog
-            if ($LASTEXITCODE -eq 0) {
-              $residueErrors += "ProgID residue remains in registry view $view"
+
+          function Test-RegistryKeyAbsent {
+            param(
+              [Parameter(Mandatory = $true)][string]$Key,
+              [Parameter(Mandatory = $true)][ValidateSet('32', '64')][string]$View,
+              [Parameter(Mandatory = $true)][string]$LogPath,
+              [Parameter(Mandatory = $true)][string]$Description
+            )
+            & reg.exe query $Key /s "/reg:$View" *> $LogPath
+            $queryExitCode = $LASTEXITCODE
+            # GitHub Actions pwsh wrapper checks LASTEXITCODE at step end.
+            # Exit code 1 from reg.exe means the key does not exist (expected).
+            $global:LASTEXITCODE = 0
+            switch ($queryExitCode) {
+              0 { return "$Description residue remains in registry view $View" }
+              1 { return $null }
+              default {
+                return "Unable to verify $Description registry cleanup in view $View; reg.exe exit code=$queryExitCode"
+              }
             }
           }
+
+          foreach ($view in @('32', '64')) {
+            $errorMessage = Test-RegistryKeyAbsent `
+              -Key 'HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}' `
+              -View $view `
+              -LogPath (Join-Path package-diagnostics "post-uninstall-clsid-$view.txt") `
+              -Description 'CLSID'
+            if ($errorMessage) { $residueErrors += $errorMessage }
+
+            $errorMessage = Test-RegistryKeyAbsent `
+              -Key 'HKCU\Software\Classes\LaTeXSnipper.Formula' `
+              -View $view `
+              -LogPath (Join-Path package-diagnostics "post-uninstall-progid-$view.txt") `
+              -Description 'ProgID'
+            if ($errorMessage) { $residueErrors += $errorMessage }
+          }
+
           $ErrorActionPreference = $savedErrorAction
+          $global:LASTEXITCODE = 0
           if (Test-Path $installed) {
             $remaining = @(Get-ChildItem $installed -Recurse -File -ErrorAction SilentlyContinue)
             if ($remaining.Count -gt 0) {
