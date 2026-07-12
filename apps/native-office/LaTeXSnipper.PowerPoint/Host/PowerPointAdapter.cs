@@ -281,9 +281,12 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                     // Constrain to slide dimensions to prevent clipping at slide edges
                     float slideHeight = _application.ActivePresentation.PageSetup.SlideHeight;
+                    float horizontalMargin = 36.0f;
+                    float bottomMargin = 36.0f;
+                    float top = 100f;
                     targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent,
-                        Math.Max(36.0f, slideWidth - 72.0f),
-                        Math.Max(36.0f, slideHeight - 72.0f));
+                        Math.Max(36.0f, slideWidth - horizontalMargin * 2.0f),
+                        Math.Max(36.0f, slideHeight - top - bottomMargin));
 
                     // Deselect so the host can finalize the OLE object
                     _application.ActiveWindow.Selection.Unselect();
@@ -296,15 +299,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                     }
 
                     // Now set final dimensions — SetExtent accepts them after CompleteInsertion
-                    if (targetExtent.HasValue)
-                    {
-                        OleExtentPoints extent = targetExtent.Value;
-                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
-                        shape.Width = extent.DisplayWidthPt;
-                        shape.Height = extent.DisplayHeightPt;
-                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                        shape.Left = (slideWidth - shape.Width) / 2f;
-                    }
+                    shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                    shape.Width = targetExtent.DisplayWidthPt;
+                    shape.Height = targetExtent.DisplayHeightPt;
+                    shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                    shape.Left = (slideWidth - shape.Width) / 2f;
 
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };

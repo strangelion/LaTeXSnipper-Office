@@ -351,8 +351,10 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
     const std::wstring svg = JsonReadNestedString(payloadJson, L"render", L"svg");
     if (!svg.empty())
     {
-        const double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
-        const double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
+        double widthPoints = ReadRenderDimension(payloadJson, "widthPt");
+        double heightPoints = ReadRenderDimension(payloadJson, "heightPt");
+        if (widthPoints <= 0.0) widthPoints = ExtractJsonNumber(payloadJson, L"widthPoints");
+        if (heightPoints <= 0.0) heightPoints = ExtractJsonNumber(payloadJson, L"heightPoints");
         const std::wstring color = JsonReadNestedString(payloadJson, L"presentation", L"color");
         SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, widthPoints, heightPoints, color);
         if (vectorResult.success)

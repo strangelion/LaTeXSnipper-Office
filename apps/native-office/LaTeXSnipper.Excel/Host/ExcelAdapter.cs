@@ -399,16 +399,12 @@ namespace LaTeXSnipper.Excel.Host
                     }
 
                     // Now set final dimensions — SetExtent accepts them after CompleteInsertion
-                    if (targetExtent.HasValue)
-                    {
-                        OleExtentPoints extent = targetExtent.Value;
-                        try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse; }
-                        catch (Exception ex) { OfficeOperationLog.Failure("unlock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
-                        ole.Width = extent.DisplayWidthPt;
-                        ole.Height = extent.DisplayHeightPt;
-                        try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue; }
-                        catch (Exception ex) { OfficeOperationLog.Failure("lock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
-                    }
+                    try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse; }
+                    catch (Exception ex) { OfficeOperationLog.Failure("unlock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
+                    ole.Width = targetExtent.DisplayWidthPt;
+                    ole.Height = targetExtent.DisplayHeightPt;
+                    try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue; }
+                    catch (Exception ex) { OfficeOperationLog.Failure("lock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
 
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
 

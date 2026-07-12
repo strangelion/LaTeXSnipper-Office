@@ -630,6 +630,8 @@ namespace LaTeXSnipper.Word.Host
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
                 OleActivationResult activation;
+                OleExtentPoints targetExtent;
+
                 using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
                     oleShape = (Microsoft.Office.Interop.Word.InlineShape)
@@ -658,7 +660,7 @@ namespace LaTeXSnipper.Word.Host
                         return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
 
-                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                    targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
 
                     // Constrain to page width to prevent clipping at page edges
                     try
@@ -671,7 +673,10 @@ namespace LaTeXSnipper.Word.Host
                         availableWidth = Math.Max(36.0f, availableWidth - 4.0f);
                         targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent, availableWidth);
                     }
-                    catch { /* best effort — use unscaled extent */ }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure("fit-extent-page-width", "word", payload.FormulaId, ex);
+                    }
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.

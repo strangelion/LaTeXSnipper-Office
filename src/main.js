@@ -2459,12 +2459,18 @@ class UIController {
           !isWord || integrationMode === "ole" || integrationMode === "image";
 
         // Render SVG for OLE/image previews. Word native mode uses OMML directly.
+        const isDisplayFormula =
+          document.getElementById("displayMode")?.checked === true;
+
         let svg = null;
         let widthPt = 0;
         let heightPt = 0;
         if (shouldRenderPreview) {
           try {
-            const rendered = await this._renderLatexSvg(latex, true);
+            const rendered = await this._renderLatexSvg(
+              latex,
+              isDisplayFormula,
+            );
             svg = rendered.svg;
             widthPt = rendered.widthPt;
             heightPt = rendered.heightPt;
@@ -2487,9 +2493,6 @@ class UIController {
             }
           }
         }
-
-        const isDisplayFormula =
-          document.getElementById("displayMode")?.checked === true;
 
         console.log(
           `[Insert] Sending to session ${sessionId} (${session.host_type}) display=${isDisplayFormula ? "block" : "inline"}`,
