@@ -709,14 +709,14 @@ namespace LaTeXSnipper.Word.Host
                     {
                         fallbackReason = $"SVG insertion failed: {svgError.Message}";
                         tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                        System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render.Png));
+                        WritePngPayload(tempPath, payload.Render.Png);
                         image = range.InlineShapes.AddPicture(tempPath);
                     }
                 }
                 else
                 {
                     tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                    System.IO.File.WriteAllBytes(tempPath, Convert.FromBase64String(payload.Render!.Png!));
+                    WritePngPayload(tempPath, payload.Render!.Png!);
                     image = range.InlineShapes.AddPicture(tempPath);
                 }
                 image.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
@@ -1126,5 +1126,22 @@ namespace LaTeXSnipper.Word.Host
         public uint? RangeEnd { get; set; }
         public string Error { get; set; } = "";
         public string? ErrorCode { get; set; }
+    }
+
+    private static void WritePngPayload(string path, string encodedPng)
+    {
+        if (string.IsNullOrWhiteSpace(encodedPng))
+            throw new InvalidOperationException("PNG render payload is empty.");
+
+        byte[] bytes = StrictBase64.Decode(encodedPng, allowDataUrl: true, expectedMediaType: "image/png");
+
+        if (bytes.Length < 8 ||
+            bytes[0] != 0x89 || bytes[1] != 0x50 || bytes[2] != 0x4E || bytes[3] != 0x47 ||
+            bytes[4] != 0x0D || bytes[5] != 0x0A || bytes[6] != 0x1A || bytes[7] != 0x0A)
+        {
+            throw new FormatException("Decoded render payload is not a PNG file.");
+        }
+
+        System.IO.File.WriteAllBytes(path, bytes);
     }
 }

@@ -1121,6 +1121,48 @@ STDMETHODIMP FormulaOleObject::InitNew(IStorage* storage)
     }
 
     storage_ = storage;
+
+    // The constructor may already have consumed the pending payload.
+    // Persist it immediately because PowerPoint may release this COM
+    // instance and reactivate the object through OLEFormat.Object.
+    if (initializedFromRealPayload_)
+    {
+        result = SavePresentationToStorage(storage, presentation_);
+        if (FAILED(result))
+        {
+            WriteNativeOleLog(L"InitNew: initial presentation save failed.");
+            storage_.Release();
+            return result;
+        }
+
+        const std::wstring envelope = !canonicalPayloadJson_.empty()
+            ? canonicalPayloadJson_ : presentation_.payloadJson;
+        if (envelope.empty())
+        {
+            WriteNativeOleLog(L"InitNew: canonical payload is empty.");
+            storage_.Release();
+            return STG_E_INVALIDHEADER;
+        }
+
+        result = SaveEnvelopeToStorage(storage, envelope);
+        if (FAILED(result))
+        {
+            WriteNativeOleLog(L"InitNew: initial envelope save failed.");
+            storage_.Release();
+            return result;
+        }
+
+        result = storage->Commit(STGC_DEFAULT);
+        if (FAILED(result))
+        {
+            WriteNativeOleLog(L"InitNew: initial storage commit failed.");
+            storage_.Release();
+            return result;
+        }
+
+        WriteNativeOleLog(L"InitNew: real payload persisted immediately.");
+    }
+
     dirty_ = true;
     return S_OK;
 }
@@ -1147,9 +1189,45 @@ STDMETHODIMP FormulaOleObject::Load(IStorage* storage)
         formulaId_ = JsonReadString(presentation_.payloadJson, L"formulaId");
         initializedFromRealPayload_ = true;
         dirty_ = false;
+        return S_OK;
     }
 
-    return SUCCEEDED(result) ? S_OK : result;
+    // If storage streams are missing but we have a real payload from the
+    // constructor, persist it now. This handles hosts that release and
+    // reactivate the COM instance before InitNew finishes.
+    if (result == STG_E_FILENOTFOUND && initializedFromRealPayload_)
+    {
+        WriteNativeOleLog(L"Load: storage streams missing; persisting constructor payload.");
+        storage_ = storage;
+
+        HRESULT saveResult = SavePresentationToStorage(storage, presentation_);
+        if (SUCCEEDED(saveResult))
+        {
+            const std::wstring envelope = !canonicalPayloadJson_.empty()
+                ? canonicalPayloadJson_ : presentation_.payloadJson;
+            if (envelope.empty())
+            {
+                saveResult = STG_E_INVALIDHEADER;
+            }
+            else
+            {
+                saveResult = SaveEnvelopeToStorage(storage, envelope);
+            }
+        }
+
+        if (SUCCEEDED(saveResult))
+        {
+            saveResult = storage->Commit(STGC_DEFAULT);
+        }
+
+        if (SUCCEEDED(saveResult))
+        {
+            dirty_ = true;
+            return S_OK;
+        }
+    }
+
+    return result;
 }
 
 STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
@@ -1212,14 +1290,25 @@ STDMETHODIMP FormulaOleObject::Save(IStorage* storage, BOOL)
     return result;
 }
 
-STDMETHODIMP FormulaOleObject::SaveCompleted(IStorage*)
+STDMETHODIMP FormulaOleObject::SaveCompleted(IStorage* storage)
 {
-    if (storage_ != nullptr)
+    if (storage != nullptr)
     {
-        storage_->Commit(STGC_DEFAULT);
+        storage_ = storage;
     }
 
-    return S_OK;
+    if (storage_ == nullptr)
+    {
+        return S_OK;
+    }
+
+    const HRESULT result = storage_->Commit(STGC_DEFAULT);
+    if (FAILED(result))
+    {
+        WriteNativeOleLog(L"SaveCompleted: storage commit failed.");
+    }
+
+    return result;
 }
 
 STDMETHODIMP FormulaOleObject::HandsOffStorage()
