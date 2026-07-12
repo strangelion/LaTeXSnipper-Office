@@ -238,6 +238,24 @@ jobs:
             -StagingRoot $staging `
             -ProbeConfiguration Release `
             -DiagnosticsDirectory package-diagnostics
+      - name: Set Office.js manifest version
+        shell: pwsh
+        run: |
+          $manifestVersion = "$env:VERSION.0"
+
+          Get-ChildItem `
+            apps\office-addin\manifests\manifest.*.desktop.xml |
+            ForEach-Object {
+              $content = Get-Content $_.FullName -Raw
+              $content = $content -replace `
+                '<Version>[^<]+</Version>', `
+                "<Version>$manifestVersion</Version>"
+
+              Set-Content `
+                -LiteralPath $_.FullName `
+                -Value $content `
+                -Encoding UTF8
+            }
       - name: Build and stage desktop resources
         shell: pwsh
         run: |

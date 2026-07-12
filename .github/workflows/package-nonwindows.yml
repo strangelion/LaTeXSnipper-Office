@@ -85,6 +85,24 @@ jobs:
       - name: Linux build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev rpm cpio
+      - name: Set Office.js manifest version
+        shell: pwsh
+        run: |
+          $manifestVersion = "$env:VERSION.0"
+
+          Get-ChildItem `
+            apps/office-addin/manifests/manifest.*.desktop.xml |
+            ForEach-Object {
+              $content = Get-Content $_.FullName -Raw
+              $content = $content -replace `
+                '<Version>[^<]+</Version>', `
+                "<Version>$manifestVersion</Version>"
+
+              Set-Content `
+                -LiteralPath $_.FullName `
+                -Value $content `
+                -Encoding UTF8
+            }
       - name: Build and stage current cross-platform resources
         shell: pwsh
         run: |

@@ -214,7 +214,7 @@ jobs:
 
           npm --prefix apps/obsidian-plugin run build -- --production
 
-          output="release-components/latexsnipper-obsidian_${VERSION}"
+          output="release-components/latexsnipper-obsidian"
           rm -rf "$output"
           mkdir -p "$output"
 
@@ -228,7 +228,7 @@ jobs:
           (
             cd release-components
             zip -r "latexsnipper-obsidian_${VERSION}.zip" \
-              "latexsnipper-obsidian_${VERSION}"
+              "latexsnipper-obsidian"
           )
 
           rm -rf "$output"
@@ -308,7 +308,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: verified-component-packages
+          name: release-component-packages
           path: release-components/
           if-no-files-found: error
           retention-days: 14
@@ -345,7 +345,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: verified-component-packages
+          name: release-component-packages
           path: downloaded/components
 
       - name: Assemble user-facing release assets
