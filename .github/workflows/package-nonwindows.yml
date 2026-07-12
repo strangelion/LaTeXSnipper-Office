@@ -52,6 +52,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
+          $env:VERSION = $version
           "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           npm run build:office-addin
           npm run build:wps

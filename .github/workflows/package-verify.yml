@@ -18,23 +18,6 @@ on:
       full_upgrade:
         type: boolean
         default: true
-  workflow_dispatch:
-    inputs:
-      prior_tag:
-        type: string
-        default: v1.2.1
-      run_windows:
-        type: boolean
-        default: true
-      run_linux:
-        type: boolean
-        default: true
-      run_macos:
-        type: boolean
-        default: true
-      full_upgrade:
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -97,6 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json | ConvertFrom-Json).version
+          $env:VERSION = $version
           "VERSION=$version" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           npm run build:office-addin
           npm run build:wps
