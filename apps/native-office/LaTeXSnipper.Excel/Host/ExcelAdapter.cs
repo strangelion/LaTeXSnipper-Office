@@ -492,54 +492,69 @@ namespace LaTeXSnipper.Excel.Host
                         int oldPlacement = -1;
                         try { oldPlacement = (int)shape.Placement; } catch (Exception ex) { OfficeOperationLog.Failure("read-placement", "excel", formulaId, ex); }
 
-                        var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        bool replacingWithSvg = payload.Render?.Svg != null;
-                        if (replacingWithSvg)
-                        {
-                            File.WriteAllText(tempPath, payload.Render!.Svg!);
-                        }
-                        else
-                        {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            WritePngPayload(tempPath, payload.Render!.Png!);
-                        }
-                        float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
-                        float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                        Microsoft.Office.Interop.Excel.Shape newShape;
+                        string imageToken = Guid.NewGuid().ToString("N");
+                        bool replacingWithPng = !string.IsNullOrWhiteSpace(payload.Render?.Png);
+                        string? tempPath = null;
+
                         try
                         {
-                            newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                        }
-                        catch (Exception ex) when (replacingWithSvg && payload.Render?.Png != null)
-                        {
-                            OfficeOperationLog.Failure("replace-svg-fallback-png", "excel", formulaId, ex);
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.png");
-                            WritePngPayload(tempPath, payload.Render.Png);
-                            newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                        }
-                        shape.Delete();
-                        newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                        newShape.Name = $"LSNO_{formulaId}";
-                        newShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{formulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+                            if (replacingWithPng)
+                            {
+                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageToken}.png");
+                                File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
+                            }
+                            else if (!string.IsNullOrWhiteSpace(payload.Render?.Svg))
+                            {
+                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageToken}.svg");
+                                File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
+                            }
+                            else
+                            {
+                                return false;
+                            }
 
-                        // Restore preserved properties
-                        if (oldPlacement >= 0)
-                        {
-                            try { newShape.Placement = (Microsoft.Office.Interop.Excel.XlPlacement)oldPlacement; } catch (Exception ex) { OfficeOperationLog.Failure("restore-placement", "excel", formulaId, ex); }
+                            float w = payload.Render!.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
+                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
+                            Microsoft.Office.Interop.Excel.Shape newShape;
+                            try
+                            {
+                                newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                    Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                            }
+                            catch (Exception ex) when (replacingWithPng && !string.IsNullOrWhiteSpace(payload.Render?.Svg))
+                            {
+                                OfficeOperationLog.Failure("replace-png-fallback-svg", "excel", formulaId, ex);
+                                try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
+                                catch (Exception cleanupError) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, cleanupError); }
+                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}.svg");
+                                File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
+                                newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                                    Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
+                            }
+                            shape.Delete();
+                            newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                            newShape.Name = $"LSNO_{formulaId}";
+                            newShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{formulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+
+                            if (oldPlacement >= 0)
+                            {
+                                try { newShape.Placement = (Microsoft.Office.Interop.Excel.XlPlacement)oldPlacement; } catch (Exception ex) { OfficeOperationLog.Failure("restore-placement", "excel", formulaId, ex); }
+                            }
+                            if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
+                            {
+                                try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "excel", formulaId, ex); }
+                            }
+                            if (oldZOrder > 1)
+                            {
+                                try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "excel", formulaId, ex); }
+                            }
+                            return true;
                         }
-                        if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
+                        finally
                         {
-                            try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "excel", formulaId, ex); }
+                            try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
+                            catch (Exception cleanupError) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, cleanupError); }
                         }
-                        // Restore z-order (move behind shapes that were originally behind it)
-                        if (oldZOrder > 1)
-                        {
-                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "excel", formulaId, ex); }
-                        }
-                        try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, ex); }
-                        return true;
                     }
                 }
             }
