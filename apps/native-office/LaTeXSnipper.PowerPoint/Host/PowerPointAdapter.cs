@@ -432,16 +432,18 @@ namespace LaTeXSnipper.PowerPoint.Host
                         string oldAltText = shape.AlternativeText ?? "";
                         int oldZOrder = 0;
                         try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "powerpoint", formulaId, ex); }
-                        var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                        bool replacingWithPng = payload.Render?.Png != null;
+                        string imageId = Guid.NewGuid().ToString("N");
+                        bool replacingWithPng = !string.IsNullOrWhiteSpace(payload.Render?.Png);
+                        string tempPath;
                         if (replacingWithPng)
                         {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageId}.png");
                             System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
                         }
                         else
                         {
-                            File.WriteAllText(tempPath, payload.Render!.Svg!);
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageId}.svg");
+                            File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
                         }
                         float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
                         float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
@@ -451,11 +453,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
-                        catch (Exception ex) when (replacingWithPng && payload.Render?.Svg != null)
+                        catch (Exception ex) when (replacingWithPng && !string.IsNullOrWhiteSpace(payload.Render?.Svg))
                         {
                             OfficeOperationLog.Failure("replace-png-fallback-svg", "powerpoint", formulaId, ex);
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}.svg");
-                            File.WriteAllText(tempPath, payload.Render.Svg);
+                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}.svg");
+                            File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
                             newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
                                 Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
                         }
@@ -566,22 +568,5 @@ namespace LaTeXSnipper.PowerPoint.Host
         public string? FallbackReason { get; set; }
         public string Error { get; set; } = "";
         public string? ErrorCode { get; set; }
-    }
-
-    private static void WritePngPayload(string path, string encodedPng)
-    {
-        if (string.IsNullOrWhiteSpace(encodedPng))
-            throw new InvalidOperationException("PNG render payload is empty.");
-
-        byte[] bytes = StrictBase64.Decode(encodedPng, allowDataUrl: true, expectedMediaType: "image/png");
-
-        if (bytes.Length < 8 ||
-            bytes[0] != 0x89 || bytes[1] != 0x50 || bytes[2] != 0x4E || bytes[3] != 0x47 ||
-            bytes[4] != 0x0D || bytes[5] != 0x0A || bytes[6] != 0x1A || bytes[7] != 0x0A)
-        {
-            throw new FormatException("Decoded render payload is not a PNG file.");
-        }
-
-        File.WriteAllBytes(path, bytes);
     }
 }
