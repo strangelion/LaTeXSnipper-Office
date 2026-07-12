@@ -594,9 +594,6 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = ex.Message };
                 }
 
-                float width = payload.Render?.WidthPt > 0 ? payload.Render.WidthPt : 120f;
-                float height = payload.Render?.HeightPt > 0 ? payload.Render.HeightPt : 30f;
-
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
                 using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
                 {
@@ -608,8 +605,9 @@ namespace LaTeXSnipper.Word.Host
                             DisplayAsIcon: false,
                             Range: range);
 
-                    oleShape.Width = width;
-                    oleShape.Height = height;
+                    // Do not overwrite Width/Height here.
+                    // The native OLE object already consumed the pending payload during
+                    // construction and exposes its padded natural extent through GetExtent().
 
                     OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => oleShape.OLEFormat?.Object,

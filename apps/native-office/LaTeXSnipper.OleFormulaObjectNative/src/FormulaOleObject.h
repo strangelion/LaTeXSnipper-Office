@@ -129,6 +129,11 @@ private:
     DWORD dataAdviseFlags_ = 0;
     DWORD cacheConnection_ = 1;
     FormulaPresentation presentation_;
+    // The EMF's intrinsic extent remains in presentation_.himetricSize.
+    // Office container resizing is stored separately so it cannot corrupt
+    // CF_METAFILEPICT dimensions or the cached presentation.
+    SIZEL containerExtent_{};
+    bool hasContainerExtent_ = false;
     std::wstring canonicalPayloadJson_;
     bool dirty_ = false;
     bool initializedFromRealPayload_ = false;

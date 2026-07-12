@@ -547,7 +547,16 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
         return aspectResult;
     }
 
-    presentation_.himetricSize = {size->cx, size->cy};
+    if (size->cx <= 0 || size->cy <= 0)
+    {
+        return E_INVALIDARG;
+    }
+
+    // Store the Office container size separately.
+    // Do not overwrite the intrinsic EMF frame size.
+    containerExtent_ = *size;
+    hasContainerExtent_ = true;
+
     return S_OK;
 }
 
@@ -564,8 +573,12 @@ STDMETHODIMP FormulaOleObject::GetExtent(DWORD drawAspect, SIZEL* size)
         return aspectResult;
     }
 
-    size->cx = presentation_.himetricSize.cx;
-    size->cy = presentation_.himetricSize.cy;
+    const SIZEL extent = hasContainerExtent_
+        ? containerExtent_
+        : presentation_.himetricSize;
+
+    size->cx = extent.cx;
+    size->cy = extent.cy;
     return S_OK;
 }
 
@@ -952,8 +965,12 @@ STDMETHODIMP FormulaOleObject::GetExtent(DWORD drawAspect, LONG, DVTARGETDEVICE*
         return aspectResult;
     }
 
-    size->cx = presentation_.himetricSize.cx;
-    size->cy = presentation_.himetricSize.cy;
+    const SIZEL extent = hasContainerExtent_
+        ? containerExtent_
+        : presentation_.himetricSize;
+
+    size->cx = extent.cx;
+    size->cy = extent.cy;
     return S_OK;
 }
 
