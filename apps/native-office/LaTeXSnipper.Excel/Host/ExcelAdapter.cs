@@ -379,12 +379,14 @@ namespace LaTeXSnipper.Excel.Host
                     }
 
                     // Query the OLE object's natural extent and compute display size with scale.
-                    OleExtentPoints? targetExtent = null;
-                    if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
+                    if (activation.AutomationObject == null ||
+                        !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                        ole.Delete();
+                        return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
+
+                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
 
                     // Deselect the OLE object so the host can finalize it
                     cell.Select();

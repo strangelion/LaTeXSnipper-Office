@@ -270,12 +270,20 @@ namespace LaTeXSnipper.PowerPoint.Host
                     }
 
                     // Query the OLE object's natural extent and compute display size with scale.
-                    OleExtentPoints? targetExtent = null;
-                    if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
+                    if (activation.AutomationObject == null ||
+                        !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                        shape.Delete();
+                        return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
+
+                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+
+                    // Constrain to slide dimensions to prevent clipping at slide edges
+                    float slideHeight = _application.ActivePresentation.PageSetup.SlideHeight;
+                    targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent,
+                        Math.Max(36.0f, slideWidth - 72.0f),
+                        Math.Max(36.0f, slideHeight - 72.0f));
 
                     // Deselect so the host can finalize the OLE object
                     _application.ActiveWindow.Selection.Unselect();

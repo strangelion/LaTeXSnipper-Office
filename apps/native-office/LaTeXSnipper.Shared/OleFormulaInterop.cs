@@ -293,6 +293,22 @@ public static class OleFormulaInterop
             naturalExtent.NaturalWidthPt * scale,
             naturalExtent.NaturalHeightPt * scale);
     }
+
+    public static OleExtentPoints FitDisplayExtent(OleExtentPoints extent, float maxWidthPt, float maxHeightPt = float.MaxValue)
+    {
+        if (extent.DisplayWidthPt <= 0 || extent.DisplayHeightPt <= 0)
+            return extent;
+
+        float scale = Math.Min(1.0f, Math.Min(
+            maxWidthPt / extent.DisplayWidthPt,
+            maxHeightPt / extent.DisplayHeightPt));
+
+        return new OleExtentPoints(
+            extent.NaturalWidthPt,
+            extent.NaturalHeightPt,
+            extent.DisplayWidthPt * scale,
+            extent.DisplayHeightPt * scale);
+    }
 }
 
 public readonly struct OleExtentPoints

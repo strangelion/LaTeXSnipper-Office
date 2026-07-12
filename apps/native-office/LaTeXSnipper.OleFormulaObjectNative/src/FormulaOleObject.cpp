@@ -577,9 +577,19 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
         return S_OK;
     }
 
+    const bool changed = !hasContainerExtent_ ||
+        containerExtent_.cx != size->cx ||
+        containerExtent_.cy != size->cy;
+
     containerExtent_ = *size;
     hasContainerExtent_ = true;
-    WriteNativeOleLog(L"FormulaOleObject SetExtent: committed container extent.");
+
+    if (changed)
+    {
+        WriteNativeOleLog(L"FormulaOleObject SetExtent: committed extent and refreshed view.");
+        NotifyPresentationChanged();
+    }
+
     return S_OK;
 }
 

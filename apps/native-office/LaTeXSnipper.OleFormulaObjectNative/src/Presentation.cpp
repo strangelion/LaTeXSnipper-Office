@@ -272,12 +272,34 @@ std::vector<BYTE> DecodeBase64(const std::wstring& value)
     return bytes;
 }
 
+double ReadRenderDimension(const std::wstring& payloadJson, const char* propertyName)
+{
+#if HAS_NLOHMANN_JSON
+    try
+    {
+        const auto root = nlohmann::json::parse(WideToUtf8(payloadJson));
+        if (!root.contains("render") || !root["render"].is_object())
+            return 0.0;
+        const auto& render = root["render"];
+        if (!render.contains(propertyName) || !render[propertyName].is_number())
+            return 0.0;
+        return render[propertyName].get<double>();
+    }
+    catch (...)
+    {
+        return 0.0;
+    }
+#else
+    return 0.0;
+#endif
+}
+
 void ApplyPayloadSize(const std::wstring& payloadJson, FormulaPresentation* presentation)
 {
-    // Search for leaf keys directly — works for nested JSON like {"render":{"widthPt":120}}
-    double widthPoints = ExtractJsonNumber(payloadJson, L"widthPt");
-    double heightPoints = ExtractJsonNumber(payloadJson, L"heightPt");
-    // Fallback to old field names for backward compatibility
+    // Strictly read from render.widthPt/render.heightPt to avoid picking up
+    // unrelated fields (e.g. thumbnail.widthPt) from the full JSON.
+    double widthPoints = ReadRenderDimension(payloadJson, "widthPt");
+    double heightPoints = ReadRenderDimension(payloadJson, "heightPt");
     if (widthPoints <= 0) widthPoints = ExtractJsonNumber(payloadJson, L"widthPoints");
     if (heightPoints <= 0) heightPoints = ExtractJsonNumber(payloadJson, L"heightPoints");
     if (widthPoints > 0 && heightPoints > 0)

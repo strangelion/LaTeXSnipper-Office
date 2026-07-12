@@ -2488,16 +2488,19 @@ class UIController {
           }
         }
 
+        const isDisplayFormula =
+          document.getElementById("displayMode")?.checked === true;
+
         console.log(
-          `[Insert] Sending to session ${sessionId} (${session.host_type})`,
+          `[Insert] Sending to session ${sessionId} (${session.host_type}) display=${isDisplayFormula ? "block" : "inline"}`,
         );
         await invoke("native_office_insert_formula", {
           sessionId: sessionId,
           formulaId: crypto.randomUUID(),
           latex: latex,
           omml: omml,
-          display: "block",
-          mode: "display",
+          display: isDisplayFormula ? "block" : "inline",
+          mode: isDisplayFormula ? "display" : "inline",
           svg: shouldRenderPreview ? svg : null,
           png: pngBase64,
           widthPt: widthPt,

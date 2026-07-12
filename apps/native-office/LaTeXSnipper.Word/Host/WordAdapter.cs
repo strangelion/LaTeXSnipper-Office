@@ -567,26 +567,25 @@ namespace LaTeXSnipper.Word.Host
                 var paragraph = oleShape.Range.Paragraphs[1];
                 var format = paragraph.Format;
 
+                float requiredHeight = Math.Max(oleShape.Height + 2.0f, 12.0f);
+
                 if (format.LineSpacingRule ==
                     Microsoft.Office.Interop.Word.WdLineSpacing.wdLineSpaceExactly)
                 {
                     format.LineSpacingRule =
                         Microsoft.Office.Interop.Word.WdLineSpacing.wdLineSpaceAtLeast;
+                }
 
-                    float requiredHeight = oleShape.Height + 2.0f;
-                    if (format.LineSpacing < requiredHeight)
-                    {
-                        format.LineSpacing = requiredHeight;
-                    }
+                if (format.LineSpacingRule ==
+                    Microsoft.Office.Interop.Word.WdLineSpacing.wdLineSpaceAtLeast &&
+                    format.LineSpacing < requiredHeight)
+                {
+                    format.LineSpacing = requiredHeight;
                 }
             }
             catch (Exception ex)
             {
-                OfficeOperationLog.Failure(
-                    "fix-ole-paragraph-spacing",
-                    "word",
-                    null,
-                    ex);
+                OfficeOperationLog.Failure("fix-ole-paragraph-spacing", "word", null, ex);
             }
         }
 
@@ -651,15 +650,28 @@ namespace LaTeXSnipper.Word.Host
                     }
 
                     // Query the OLE object's natural extent and compute display size with scale.
-                    OleExtentPoints? targetExtent = null;
-                    if (activation.AutomationObject != null &&
-                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
+                    if (activation.AutomationObject == null ||
+                        !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
-                        targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                        try { oleShape.Delete(); }
+                        catch (Exception rollbackError) { OfficeOperationLog.Failure("rollback-invalid-ole-extent", "word", payload.FormulaId, rollbackError); }
+                        return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
 
-                    // Fix paragraph line spacing if needed for proper OLE display
-                    FixWordParagraphForOle(oleShape);
+                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+
+                    // Constrain to page width to prevent clipping at page edges
+                    try
+                    {
+                        var section = oleShape.Range.Sections[1];
+                        var pageSetup = section.PageSetup;
+                        var paragraphFormat = oleShape.Range.ParagraphFormat;
+                        float availableWidth = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin
+                            - Math.Max(0.0f, paragraphFormat.LeftIndent) - Math.Max(0.0f, paragraphFormat.RightIndent);
+                        availableWidth = Math.Max(36.0f, availableWidth - 4.0f);
+                        targetExtent = OleFormulaInterop.FitDisplayExtent(targetExtent, availableWidth);
+                    }
+                    catch { /* best effort — use unscaled extent */ }
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
@@ -700,14 +712,13 @@ namespace LaTeXSnipper.Word.Host
                 }
 
                 // Now set final dimensions — SetExtent accepts them after CompleteInsertion
-                if (targetExtent.HasValue)
-                {
-                    OleExtentPoints extent = targetExtent.Value;
-                    oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
-                    oleShape.Width = extent.DisplayWidthPt;
-                    oleShape.Height = extent.DisplayHeightPt;
-                    oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                }
+                oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                oleShape.Width = targetExtent.DisplayWidthPt;
+                oleShape.Height = targetExtent.DisplayHeightPt;
+                oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+
+                // MUST be after final dimensions are set so requiredHeight reflects the enlarged object.
+                FixWordParagraphForOle(oleShape);
 
                 // Add auto-numbering for DisplayNumbered mode
                 if (mode == InsertMode.DisplayNumbered)
