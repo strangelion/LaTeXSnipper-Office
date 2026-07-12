@@ -45,11 +45,22 @@ jobs:
       - name: Run vector, golden fixture, storage corruption, and transport tests
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force native-test-logs | Out-Null
           $suffix = if ('${{ matrix.platform }}' -eq 'Win32') { 'x86' } else { 'x64' }
           $test = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative.Tests\bin\${{ matrix.platform }}\${{ matrix.configuration }}\NativeVectorTests.exe"
           $dll = "apps\native-office\LaTeXSnipper.OleFormulaObjectNative\bin\${{ matrix.platform }}\${{ matrix.configuration }}\LaTeXSnipper.OfficePlugin.OleFormulaObject.Handler.$suffix.dll"
-          & $test $dll "apps\native-office\fixtures\mathjax-svg"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $log = "native-test-logs\NativeVectorTests-${{ matrix.platform }}-${{ matrix.configuration }}.log"
+          & $test $dll "apps\native-office\fixtures\mathjax-svg" 2>&1 | Tee-Object -FilePath $log
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) { exit $exitCode }
+      - name: Upload native test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-logs-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: native-test-logs/
+          if-no-files-found: warn
+          retention-days: 14
 
   managed-tests:
     runs-on: windows-2022
