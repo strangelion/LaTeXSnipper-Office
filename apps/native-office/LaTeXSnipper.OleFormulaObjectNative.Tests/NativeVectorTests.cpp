@@ -68,16 +68,49 @@ void TestVectorFixture(const std::wstring& name, const std::wstring& body, doubl
         Expect((header.rclFrame.right - header.rclFrame.left) > unpaddedWidth, name + L": horizontal safety margin missing");
         Expect((header.rclFrame.bottom - header.rclFrame.top) > unpaddedHeight, name + L": vertical safety margin missing");
 
-        // Validate rclBounds is geometrically consistent with rclFrame.
-        // If bounds exceed frame significantly, the EMF will overflow the OLE display box.
-        const LONG frameW = header.rclFrame.right - header.rclFrame.left;
-        const LONG frameH = header.rclFrame.bottom - header.rclFrame.top;
+        // Validate rclBounds is contained within rclFrame by converting to common device units.
+        // rclFrame is in 0.01 mm; rclBounds is in device pixels. Use szlDevice/szlMillimeters to convert.
+        const LONG frameW01mm = header.rclFrame.right - header.rclFrame.left;
+        const LONG frameH01mm = header.rclFrame.bottom - header.rclFrame.top;
         const LONG boundsW = header.rclBounds.right - header.rclBounds.left;
         const LONG boundsH = header.rclBounds.bottom - header.rclBounds.top;
-        const LONG toleranceX = (std::max)(4L, frameW / 20L);
-        const LONG toleranceY = (std::max)(4L, frameH / 20L);
-        Expect(std::abs(boundsW - frameW) <= toleranceX, name + L": bounds width exceeds frame by >5%");
-        Expect(std::abs(boundsH - frameH) <= toleranceY, name + L": bounds height exceeds frame by >5%");
+
+        Expect(header.szlDevice.cx > 0 && header.szlDevice.cy > 0 &&
+               header.szlMillimeters.cx > 0 && header.szlMillimeters.cy > 0,
+            name + L": invalid EMF reference-device metrics");
+
+        if (header.szlDevice.cx > 0 && header.szlDevice.cy > 0 &&
+            header.szlMillimeters.cx > 0 && header.szlMillimeters.cy > 0)
+        {
+            // Convert rclFrame (0.01 mm) to device units
+            const double frameWDevice = static_cast<double>(frameW01mm) *
+                static_cast<double>(header.szlDevice.cx) /
+                (static_cast<double>(header.szlMillimeters.cx) * 100.0);
+            const double frameHDevice = static_cast<double>(frameH01mm) *
+                static_cast<double>(header.szlDevice.cy) /
+                (static_cast<double>(header.szlMillimeters.cy) * 100.0);
+
+            const LONG expectedRight = static_cast<LONG>(std::ceil(frameWDevice));
+            const LONG expectedBottom = static_cast<LONG>(std::ceil(frameHDevice));
+            const LONG toleranceX = (std::max)(4L, static_cast<LONG>(std::ceil(frameWDevice * 0.05)));
+            const LONG toleranceY = (std::max)(4L, static_cast<LONG>(std::ceil(frameHDevice * 0.05)));
+
+            Expect(boundsW > 0, name + L": drawing bounds width is empty");
+            Expect(boundsH > 0, name + L": drawing bounds height is empty");
+            Expect(header.rclBounds.left >= -toleranceX, name + L": drawing extends beyond left frame edge");
+            Expect(header.rclBounds.top >= -toleranceY, name + L": drawing extends beyond top frame edge");
+            Expect(header.rclBounds.right <= expectedRight + toleranceX, name + L": drawing extends beyond right frame edge");
+            Expect(header.rclBounds.bottom <= expectedBottom + toleranceY, name + L": drawing extends beyond bottom frame edge");
+
+            if (header.rclBounds.right > expectedRight + toleranceX ||
+                header.rclBounds.bottom > expectedBottom + toleranceY)
+            {
+                std::wcerr << name << L": frame01mm=" << frameW01mm << L"x" << frameH01mm
+                    << L", frameDevice=" << static_cast<LONG>(frameWDevice) << L"x" << static_cast<LONG>(frameHDevice)
+                    << L", bounds=(" << header.rclBounds.left << L"," << header.rclBounds.top
+                    << L"," << header.rclBounds.right << L"," << header.rclBounds.bottom << L")" << std::endl;
+            }
+        }
 
         DeleteEnhMetaFile(emf);
     }
