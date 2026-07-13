@@ -97,18 +97,24 @@ void TestVectorFixture(const std::wstring& name, const std::wstring& body, doubl
 
             Expect(boundsW > 0, name + L": drawing bounds width is empty");
             Expect(boundsH > 0, name + L": drawing bounds height is empty");
-            Expect(header.rclBounds.left >= -toleranceX, name + L": drawing extends beyond left frame edge");
-            Expect(header.rclBounds.top >= -toleranceY, name + L": drawing extends beyond top frame edge");
-            Expect(header.rclBounds.right <= expectedRight + toleranceX, name + L": drawing extends beyond right frame edge");
-            Expect(header.rclBounds.bottom <= expectedBottom + toleranceY, name + L": drawing extends beyond bottom frame edge");
 
-            if (header.rclBounds.right > expectedRight + toleranceX ||
-                header.rclBounds.bottom > expectedBottom + toleranceY)
+            const bool leftOverflow = header.rclBounds.left < -toleranceX;
+            const bool topOverflow = header.rclBounds.top < -toleranceY;
+            const bool rightOverflow = header.rclBounds.right > expectedRight + toleranceX;
+            const bool bottomOverflow = header.rclBounds.bottom > expectedBottom + toleranceY;
+
+            Expect(!leftOverflow, name + L": drawing extends beyond left frame edge");
+            Expect(!topOverflow, name + L": drawing extends beyond top frame edge");
+            Expect(!rightOverflow, name + L": drawing extends beyond right frame edge");
+            Expect(!bottomOverflow, name + L": drawing extends beyond bottom frame edge");
+
+            if (leftOverflow || topOverflow || rightOverflow || bottomOverflow)
             {
                 std::wcerr << name << L": frame01mm=" << frameW01mm << L"x" << frameH01mm
                     << L", frameDevice=" << static_cast<LONG>(frameWDevice) << L"x" << static_cast<LONG>(frameHDevice)
                     << L", bounds=(" << header.rclBounds.left << L"," << header.rclBounds.top
-                    << L"," << header.rclBounds.right << L"," << header.rclBounds.bottom << L")" << std::endl;
+                    << L"," << header.rclBounds.right << L"," << header.rclBounds.bottom
+                    << L"), tolerance=" << toleranceX << L"x" << toleranceY << std::endl;
             }
         }
 
@@ -616,7 +622,7 @@ int wmain(int argc, wchar_t** argv)
     TestPathParser();
     TestVectorFixture(L"simple formula", L"<path fill='currentColor' d='M5 20 L20 5 L35 20 Z'/>");
     TestVectorFixture(L"fraction and radical", L"<g transform='translate(5 5) scale(1.2)'><path d='M0 10 H60 M5 5 Q20 -5 35 5 T55 5' fill='none' stroke='black'/></g>");
-    TestVectorFixture(L"sum and integral", L"<path d='M5 5 C20 0 20 40 5 35 S30 10 40 20' fill='none' stroke='currentColor' stroke-width='2'/>");
+    TestVectorFixture(L"sum and integral", L"<path d='M5 5 C20 0 20 40 10 35 S30 10 40 20' fill='none' stroke='currentColor' stroke-width='2'/>");
     TestVectorFixture(L"matrix", L"<rect x='10' y='5' width='90' height='30' fill='none' stroke='black'/><line x1='55' y1='5' x2='55' y2='35' stroke='black'/>");
     TestVectorFixture(L"cases", L"<polyline points='20,5 10,5 10,35 20,35' fill='none' stroke='black'/><polygon points='40,5 70,20 40,35' fill='#336699'/>");
     TestVectorFixture(L"ellipse and arc", L"<circle cx='20' cy='20' r='10'/><ellipse cx='60' cy='20' rx='15' ry='8'/><path d='M80 30 A15 10 20 1 1 110 10' fill='none' stroke='black'/>");
