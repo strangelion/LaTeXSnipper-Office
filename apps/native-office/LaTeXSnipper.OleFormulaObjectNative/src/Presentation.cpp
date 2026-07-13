@@ -359,18 +359,32 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
         }
         else
         {
-            presentation.enhancedMetafile = std::move(emfFromPresentation);
-            // Use the EMF's own rclFrame as the natural size to ensure consistency.
-            SIZEL emfExtent{};
-            if (TryReadEmfFrameHimetric(presentation.enhancedMetafile, &emfExtent))
+            // Check for catastrophic geometric overflow before accepting.
+            std::wstring geometryReason;
+            if (HasCatastrophicFrameOverflow(emfFromPresentation, &geometryReason))
             {
-                presentation.himetricSize = emfExtent;
+                presentation.diagnostic = geometryReason;
+                WriteNativeOleLog(geometryReason.c_str());
+                // Fall through to SVG and PNG fallback instead of returning.
             }
-            presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
-            presentation.isVector = !raster;
-            presentation.diagnostic = raster ? L"Embedded EMF contains raster records" : L"Embedded vector EMF validated";
-            WriteNativeOleLog(raster ? L"Presentation route: EMBEDDED_RASTER_EMF" : L"Presentation route: EMBEDDED_VECTOR_EMF");
-            return presentation;
+            else
+            {
+                SIZEL emfExtent{};
+                if (!TryReadEmfFrameHimetric(emfFromPresentation, &emfExtent))
+                {
+                    presentation.diagnostic = L"OLE_EMBEDDED_EMF_INVALID_FRAME";
+                }
+                else
+                {
+                    presentation.enhancedMetafile = std::move(emfFromPresentation);
+                    presentation.himetricSize = emfExtent;
+                    presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
+                    presentation.isVector = !raster;
+                    presentation.diagnostic = raster ? L"Embedded EMF contains raster records" : L"Embedded vector EMF validated";
+                    WriteNativeOleLog(raster ? L"Presentation route: EMBEDDED_RASTER_EMF" : L"Presentation route: EMBEDDED_VECTOR_EMF");
+                    return presentation;
+                }
+            }
         }
     }
 
@@ -405,7 +419,8 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
                 return presentation;
             }
         }
-        presentation.diagnostic = vectorResult.error;
+        if (!vectorResult.error.empty())
+            presentation.diagnostic = vectorResult.error;
     }
 
     FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);

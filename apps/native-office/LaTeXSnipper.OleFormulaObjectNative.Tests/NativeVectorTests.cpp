@@ -639,6 +639,30 @@ int wmain(int argc, wchar_t** argv)
         Expect(slice.success, L"slice conversion with clip failed: " + slice.error);
     }
 
+    // Test: normal EMF should not have catastrophic overflow
+    {
+        SvgToEmfResult normalResult = ConvertMathJaxSvgToVectorEmf(
+            L"<svg viewBox='0 0 100 40'><path d='M5 20L95 20' stroke='black'/></svg>",
+            100.0, 40.0, L"black");
+        Expect(normalResult.success, L"normal EMF fixture generation failed");
+        std::wstring overflowReason;
+        Expect(!HasCatastrophicFrameOverflow(normalResult.emfBytes, &overflowReason),
+            L"normal generated EMF was classified as overflow: " + overflowReason);
+    }
+
+    // Test: EMF frame extent matches presentation extent
+    {
+        SvgToEmfResult extentResult = ConvertMathJaxSvgToVectorEmf(
+            L"<svg viewBox='0 0 100 40'><rect x='5' y='5' width='90' height='30'/></svg>",
+            100.0, 40.0, L"black");
+        Expect(extentResult.success, L"extent fixture generation failed");
+        SIZEL extent{};
+        Expect(TryReadEmfFrameHimetric(extentResult.emfBytes, &extent),
+            L"could not read EMF frame extent");
+        Expect(extent.cx == extentResult.himetricSize.cx && extent.cy == extentResult.himetricSize.cy,
+            L"EMF frame extent does not match presentation extent");
+    }
+
     TestInvalid(L"empty SVG", L"", L"SVG_VECTOR_INVALID_XML");
     TestInvalid(L"external image", L"<svg viewBox='0 0 1 1'><image href='https://example.invalid/a.png'/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
     TestInvalid(L"script", L"<svg viewBox='0 0 1 1'><script/></svg>", L"SVG_VECTOR_UNSUPPORTED_FEATURE");
