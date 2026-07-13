@@ -79,6 +79,23 @@ LaTeXSnipper-Office/
 
 ## 快速开始
 
+## 安装指南
+
+完整的手动安装、插件部署和故障排查说明：
+
+[Manual Installation Guide](docs/MANUAL_INSTALLATION.md)
+
+内容包括：
+
+- Windows Desktop 安装
+- Word / Excel / PowerPoint Native Office (OLE + VSTO)
+- Office.js Web Add-in
+- Obsidian Plugin
+- WPS Plugin
+- VS Code Extension
+- Chrome / Edge / Firefox Extension
+- 卸载与故障排查
+
 ### 安装依赖
 
 ```bash
