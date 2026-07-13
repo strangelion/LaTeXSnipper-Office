@@ -59,6 +59,17 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] WordAdapter created.");
 
+            // Migrate: hide ContentControls created by older versions
+            try
+            {
+                Host.WordAdapter.HideExistingFormulaContentControls(Application.ActiveDocument);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LaTeXSnipper.Word] ContentControl migration error: {ex.Message}");
+            }
+
             // Subscribe to document change events for context tracking
             Application.DocumentChange += OnDocumentChange;
 

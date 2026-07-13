@@ -556,6 +556,28 @@ namespace LaTeXSnipper.Word.Host
         }
 
         /// <summary>
+        /// Hide ContentControls created by older versions that used the default
+        /// bounding-box appearance, which shows a confusing large rectangle.
+        /// </summary>
+        internal static void HideExistingFormulaContentControls(Microsoft.Office.Interop.Word.Document document)
+        {
+            if (document == null) return;
+            foreach (Microsoft.Office.Interop.Word.ContentControl control in document.ContentControls)
+            {
+                try
+                {
+                    string tag = control.Tag as string ?? string.Empty;
+                    if (!tag.StartsWith("latexsnipper:formula:", StringComparison.Ordinal)) continue;
+                    control.Appearance = Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+                }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("hide-existing-formula-control", "word", null, ex);
+                }
+            }
+        }
+
+        /// <summary>
         /// Adjust the paragraph containing the OLE InlineShape so that line spacing
         /// does not clip the object. Some documents use "Exact" line spacing which
         /// truncates tall OLE objects.
@@ -694,16 +716,27 @@ namespace LaTeXSnipper.Word.Host
                 }
 
                 // Wrap the OLE object in a ContentControl with tag so Delete/Replace/Convert can find it.
+                // Use an exact single-character range to avoid absorbing paragraph marks or adjacent content.
                 Microsoft.Office.Interop.Word.ContentControl? cc = null;
                 try
                 {
-                    var oleRange = oleShape.Range;
+                    int oleStart = oleShape.Range.Start;
+                    var exactOleRange = doc.Range(oleStart, oleStart + 1);
                     cc = doc.ContentControls.Add(
                         Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
-                        oleRange);
+                        exactOleRange);
                     cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
+                    cc.Title = "LaTeXSnipper Formula";
                     cc.LockContentControl = false;
                     cc.LockContents = false;
+                    try
+                    {
+                        cc.Appearance = Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+                    }
+                    catch (Exception appearanceError)
+                    {
+                        OfficeOperationLog.Failure("hide-ole-content-control", "word", payload.FormulaId, appearanceError);
+                    }
                 }
                 catch
                 {
