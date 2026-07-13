@@ -928,7 +928,22 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
     }
 
     RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
-    BOOL played = PlayEnhMetaFile(drawContext, metafile, &rect);
+
+    // Safety clip: prevent EMF content from overflowing into adjacent objects
+    const int savedDc = SaveDC(drawContext);
+    if (savedDc == 0)
+    {
+        DeleteEnhMetaFile(metafile);
+        return E_FAIL;
+    }
+
+    const int clipResult = IntersectClipRect(drawContext, rect.left, rect.top, rect.right, rect.bottom);
+    BOOL played = FALSE;
+    if (clipResult != ERROR)
+    {
+        played = PlayEnhMetaFile(drawContext, metafile, &rect);
+    }
+    RestoreDC(drawContext, savedDc);
     DeleteEnhMetaFile(metafile);
     return played ? S_OK : S_FALSE;
 }

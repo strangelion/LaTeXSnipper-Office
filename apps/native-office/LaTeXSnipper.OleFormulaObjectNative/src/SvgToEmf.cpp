@@ -1094,13 +1094,6 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     const int canvasWidthLogical = contentWidthLogical + paddingXLogical * 2;
     const int canvasHeightLogical = contentHeightLogical + paddingYLogical * 2;
 
-    const int canvasWidthPixels = (std::max)(
-        1,
-        static_cast<int>(std::lround(canvasWidthPt * kRenderDpi / kPointsPerInch)));
-    const int canvasHeightPixels = (std::max)(
-        1,
-        static_cast<int>(std::lround(canvasHeightPt * kRenderDpi / kPointsPerInch)));
-
     Matrix rootMatrix{};
     bool requiresClip = false;
     if (!BuildRootMatrix(
@@ -1124,15 +1117,32 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
         std::lround(canvasWidthPt * kHimetricPerInch / kPointsPerInch));
     frame.bottom = static_cast<LONG>(
         std::lround(canvasHeightPt * kHimetricPerInch / kPointsPerInch));
+
     HDC reference = GetDC(nullptr);
     if (reference == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: GetDC failed"; return result; }
+
+    // Use the reference DC's actual DPI, not a hardcoded value, to ensure
+    // the EMF frame and drawing bounds are consistent.
+    const int dpiX = GetDeviceCaps(reference, LOGPIXELSX);
+    const int dpiY = GetDeviceCaps(reference, LOGPIXELSY);
+    if (dpiX <= 0 || dpiY <= 0)
+    {
+        ReleaseDC(nullptr, reference);
+        result.error = L"SVG_VECTOR_GDI_ERROR: invalid reference DPI";
+        return result;
+    }
+
+    // frame is in 0.01 mm; 1 inch = 2540 hundredths of mm.
+    const int canvasWidthDevice = (std::max)(1, MulDiv(frame.right, dpiX, 2540));
+    const int canvasHeightDevice = (std::max)(1, MulDiv(frame.bottom, dpiY, 2540));
+
     HDC metafileDc = CreateEnhMetaFileW(reference, nullptr, &frame, L"LaTeXSnipper\0MathJax SVG vector formula\0");
     ReleaseDC(nullptr, reference);
     if (metafileDc == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: CreateEnhMetaFile failed"; return result; }
     context.dc = metafileDc;
     if (SetMapMode(metafileDc, MM_ANISOTROPIC) == 0 ||
         !SetWindowExtEx(metafileDc, canvasWidthLogical, canvasHeightLogical, nullptr) ||
-        !SetViewportExtEx(metafileDc, canvasWidthPixels, canvasHeightPixels, nullptr) ||
+        !SetViewportExtEx(metafileDc, canvasWidthDevice, canvasHeightDevice, nullptr) ||
         SetBkMode(metafileDc, TRANSPARENT) == 0)
     {
         HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);

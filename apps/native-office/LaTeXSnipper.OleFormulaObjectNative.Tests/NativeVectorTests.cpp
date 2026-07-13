@@ -67,6 +67,18 @@ void TestVectorFixture(const std::wstring& name, const std::wstring& body, doubl
         Expect(std::abs((header.rclFrame.bottom - header.rclFrame.top) - expectedHeight) <= 2, name + L": frame height mismatch");
         Expect((header.rclFrame.right - header.rclFrame.left) > unpaddedWidth, name + L": horizontal safety margin missing");
         Expect((header.rclFrame.bottom - header.rclFrame.top) > unpaddedHeight, name + L": vertical safety margin missing");
+
+        // Validate rclBounds is geometrically consistent with rclFrame.
+        // If bounds exceed frame significantly, the EMF will overflow the OLE display box.
+        const LONG frameW = header.rclFrame.right - header.rclFrame.left;
+        const LONG frameH = header.rclFrame.bottom - header.rclFrame.top;
+        const LONG boundsW = header.rclBounds.right - header.rclBounds.left;
+        const LONG boundsH = header.rclBounds.bottom - header.rclBounds.top;
+        const LONG toleranceX = (std::max)(4L, frameW / 20L);
+        const LONG toleranceY = (std::max)(4L, frameH / 20L);
+        Expect(std::abs(boundsW - frameW) <= toleranceX, name + L": bounds width exceeds frame by >5%");
+        Expect(std::abs(boundsH - frameH) <= toleranceY, name + L": bounds height exceeds frame by >5%");
+
         DeleteEnhMetaFile(emf);
     }
 }
