@@ -40,6 +40,8 @@ double ExtractJsonNumber(const std::wstring& json, const std::wstring& propertyN
 // --- EMF helpers (defined in Presentation.cpp) ---
 HENHMETAFILE CopyEnhMetaFileFromBytes(const std::vector<BYTE>& bytes);
 bool HasValidEmf(const std::vector<BYTE>& bytes);
+bool HasCatastrophicFrameOverflow(const std::vector<BYTE>& emfBytes, std::wstring* reason);
+bool TryReadEmfFrameHimetric(const std::vector<BYTE>& bytes, SIZEL* extent);
 
 // --- Factory functions (defined in Presentation.cpp) ---
 FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJson);

@@ -360,6 +360,12 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
         else
         {
             presentation.enhancedMetafile = std::move(emfFromPresentation);
+            // Use the EMF's own rclFrame as the natural size to ensure consistency.
+            SIZEL emfExtent{};
+            if (TryReadEmfFrameHimetric(presentation.enhancedMetafile, &emfExtent))
+            {
+                presentation.himetricSize = emfExtent;
+            }
             presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
             presentation.isVector = !raster;
             presentation.diagnostic = raster ? L"Embedded EMF contains raster records" : L"Embedded vector EMF validated";
@@ -381,13 +387,23 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
         SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, dimensions.widthPt, dimensions.heightPt, color);
         if (vectorResult.success)
         {
-            presentation.enhancedMetafile = std::move(vectorResult.emfBytes);
-            presentation.himetricSize = vectorResult.himetricSize;
-            presentation.previewKind = PreviewKind::GeneratedVectorEmf;
-            presentation.isVector = true;
-            presentation.diagnostic = L"SVG vector EMF generated and validated";
-            WriteNativeOleLog(L"Presentation route: SVG_VECTOR_EMF");
-            return presentation;
+            // Reject EMFs where drawing bounds substantially exceed the frame.
+            std::wstring geometryReason;
+            if (HasCatastrophicFrameOverflow(vectorResult.emfBytes, &geometryReason))
+            {
+                WriteNativeOleLog(geometryReason.c_str());
+                presentation.diagnostic = geometryReason;
+            }
+            else
+            {
+                presentation.enhancedMetafile = std::move(vectorResult.emfBytes);
+                presentation.himetricSize = vectorResult.himetricSize;
+                presentation.previewKind = PreviewKind::GeneratedVectorEmf;
+                presentation.isVector = true;
+                presentation.diagnostic = L"SVG vector EMF generated and validated";
+                WriteNativeOleLog(L"Presentation route: SVG_VECTOR_EMF");
+                return presentation;
+            }
         }
         presentation.diagnostic = vectorResult.error;
     }
@@ -475,6 +491,71 @@ bool HasValidEmf(const std::vector<BYTE>& bytes)
         header.rclFrame.bottom > header.rclFrame.top;
     DeleteEnhMetaFile(emf);
     return valid;
+}
+
+bool HasCatastrophicFrameOverflow(const std::vector<BYTE>& emfBytes, std::wstring* reason)
+{
+    HENHMETAFILE emf = SetEnhMetaFileBits(static_cast<UINT>(emfBytes.size()), emfBytes.data());
+    if (emf == nullptr)
+    {
+        if (reason) *reason = L"EMF_GEOMETRY_INVALID: cannot open EMF";
+        return true;
+    }
+
+    ENHMETAHEADER header{};
+    const UINT headerSize = GetEnhMetaFileHeader(emf, sizeof(header), &header);
+    DeleteEnhMetaFile(emf);
+
+    if (headerSize < sizeof(header) || header.szlDevice.cx <= 0 || header.szlDevice.cy <= 0 ||
+        header.szlMillimeters.cx <= 0 || header.szlMillimeters.cy <= 0)
+    {
+        if (reason) *reason = L"EMF_GEOMETRY_INVALID: reference-device metrics are invalid";
+        return true;
+    }
+
+    const double devicePer01mmX = static_cast<double>(header.szlDevice.cx) /
+        (static_cast<double>(header.szlMillimeters.cx) * 100.0);
+    const double devicePer01mmY = static_cast<double>(header.szlDevice.cy) /
+        (static_cast<double>(header.szlMillimeters.cy) * 100.0);
+
+    const double frameLeft = header.rclFrame.left * devicePer01mmX;
+    const double frameTop = header.rclFrame.top * devicePer01mmY;
+    const double frameRight = header.rclFrame.right * devicePer01mmX;
+    const double frameBottom = header.rclFrame.bottom * devicePer01mmY;
+    const double frameWidth = frameRight - frameLeft;
+    const double frameHeight = frameBottom - frameTop;
+
+    const double toleranceX = (std::max)(8.0, frameWidth * 0.25);
+    const double toleranceY = (std::max)(8.0, frameHeight * 0.25);
+
+    const bool overflow =
+        header.rclBounds.left < std::floor(frameLeft - toleranceX) ||
+        header.rclBounds.top < std::floor(frameTop - toleranceY) ||
+        header.rclBounds.right > std::ceil(frameRight + toleranceX) ||
+        header.rclBounds.bottom > std::ceil(frameBottom + toleranceY);
+
+    if (overflow && reason)
+        *reason = L"EMF_GEOMETRY_OVERFLOW: drawing bounds are substantially outside the frame";
+
+    return overflow;
+}
+
+bool TryReadEmfFrameHimetric(const std::vector<BYTE>& bytes, SIZEL* extent)
+{
+    if (extent == nullptr) return false;
+    HENHMETAFILE emf = SetEnhMetaFileBits(static_cast<UINT>(bytes.size()), bytes.data());
+    if (emf == nullptr) return false;
+
+    ENHMETAHEADER header{};
+    const bool valid = GetEnhMetaFileHeader(emf, sizeof(header), &header) >= sizeof(header) &&
+        header.rclFrame.right > header.rclFrame.left &&
+        header.rclFrame.bottom > header.rclFrame.top;
+    DeleteEnhMetaFile(emf);
+
+    if (!valid) return false;
+    extent->cx = header.rclFrame.right - header.rclFrame.left;
+    extent->cy = header.rclFrame.bottom - header.rclFrame.top;
+    return extent->cx > 0 && extent->cy > 0;
 }
 
 FormulaPresentation CreatePresentationFromPayloadPng(const std::wstring& payloadJson)

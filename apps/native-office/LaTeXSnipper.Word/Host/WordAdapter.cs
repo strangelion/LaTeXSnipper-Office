@@ -633,6 +633,24 @@ namespace LaTeXSnipper.Word.Host
                 {
                     format.LineSpacing = requiredHeight;
                 }
+
+                // Also fix table row heights if the formula is inside a table cell.
+                bool isInsideTable = Convert.ToBoolean(
+                    oleShape.Range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable));
+                if (isInsideTable)
+                {
+                    foreach (Microsoft.Office.Interop.Word.Row row in oleShape.Range.Rows)
+                    {
+                        if (row.HeightRule == Microsoft.Office.Interop.Word.WdRowHeightRule.wdRowHeightExactly)
+                        {
+                            row.HeightRule = Microsoft.Office.Interop.Word.WdRowHeightRule.wdRowHeightAtLeast;
+                        }
+                        if (row.Height < requiredHeight)
+                        {
+                            row.Height = requiredHeight;
+                        }
+                    }
+                }
             }
             catch (Exception ex)
             {
