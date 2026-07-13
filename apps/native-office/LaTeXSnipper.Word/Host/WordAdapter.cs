@@ -278,7 +278,7 @@ namespace LaTeXSnipper.Word.Host
                     var tag = control.Tag as string;
                     if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
                     {
-                        control.Delete();
+                        control.Delete(true);
                         return new InsertResult { Success = true };
                     }
                 }
@@ -289,7 +289,7 @@ namespace LaTeXSnipper.Word.Host
                     var parentCc = FindParentLsnContentControl(sel.Range);
                     if (parentCc != null)
                     {
-                        parentCc.Delete();
+                        parentCc.Delete(true);
                         return new InsertResult { Success = true };
                     }
                 }
@@ -319,7 +319,7 @@ namespace LaTeXSnipper.Word.Host
                     var tag = cc.Tag as string;
                     if (string.Equals(tag, targetTag, StringComparison.Ordinal))
                     {
-                        cc.Delete();
+                        cc.Delete(true);
                         return new InsertResult { Success = true };
                     }
                 }
@@ -353,32 +353,61 @@ namespace LaTeXSnipper.Word.Host
                 var doc = _application.ActiveDocument;
                 if (doc == null) return new InsertResult { Success = false, Error = "No document" };
 
-                // Find formula by ContentControl tag (insertion uses w:tag, not Bookmark)
+                string targetTag = $"latexsnipper:formula:{formulaId}";
+
                 foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
                 {
-                    var tag = cc.Tag as string;
-                    if (tag == $"latexsnipper:formula:{formulaId}")
+                    if (!string.Equals(cc.Tag as string, targetTag, StringComparison.Ordinal))
+                        continue;
+
+                    // Find OLE object inside this ContentControl
+                    foreach (Microsoft.Office.Interop.Word.InlineShape shape in cc.Range.InlineShapes)
                     {
-                        var range = cc.Range.Duplicate;
-                        // P1-2: Insert new formula FIRST, then delete old one.
-                        // This is transactional: if insertion fails, the old formula remains intact.
-                        _application.Selection.SetRange(range.Start, range.Start);
-                        var mode = string.IsNullOrEmpty(newPayload.Display) || newPayload.Display == "inline"
-                            ? InsertMode.Inline : InsertMode.Display;
-                        var insertResult = InsertFormula(newPayload, mode);
-                        if (!insertResult.Success)
+                        if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                            continue;
+
+                        object? automationObject = shape.OLEFormat?.Object;
+                        if (automationObject == null) continue;
+
+                        // In-place update: replace payload directly, no insert+delete cycle
+                        newPayload.FormulaId = formulaId;
+                        newPayload = OleFormulaInterop.NormalizeForOle(newPayload);
+
+                        if (!OleFormulaInterop.ReplacePayloadJson(automationObject, newPayload))
                         {
-                            // New formula failed to insert — old formula is untouched
-                            return insertResult;
+                            return new InsertResult { Success = false, ErrorCode = "OLE_REPLACE_FAILED", Error = "ReplacePayloadJson failed." };
                         }
 
-                        // New formula inserted successfully — safe to delete old one
-                        cc.Delete();
-                        return insertResult;
+                        // Update shape dimensions to match new extent
+                        if (!OleFormulaInterop.TryGetExtentPoints(automationObject, out OleExtentPoints naturalExtent))
+                        {
+                            return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "Updated OLE extent was unavailable." };
+                        }
+
+                        OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent);
+
+                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                        shape.Width = targetExtent.DisplayWidthPt;
+                        shape.Height = targetExtent.DisplayHeightPt;
+                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+
+                        FixWordParagraphForOle(shape);
+
+                        FormulaDocumentManifest.Write(doc, newPayload);
+
+                        return new InsertResult
+                        {
+                            Success = true,
+                            FormulaId = formulaId,
+                            RangeStart = (uint)shape.Range.Start,
+                            RangeEnd = (uint)shape.Range.End
+                        };
                     }
+
+                    return new InsertResult { Success = false, ErrorCode = "OLE_OBJECT_NOT_FOUND", Error = "The formula content control did not contain an OLE object." };
                 }
 
-                return new InsertResult { Success = false, Error = "Formula not found" };
+                return new InsertResult { Success = false, Error = $"Formula {formulaId} not found" };
             }
             catch (Exception ex)
             {
