@@ -426,7 +426,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
         }
         let cleanup = uninstall_ole_component();
         return PlatformIntegrationResult::fail(
-            "office-web",
+            "office-native",
             "native-stack",
             format!(
                 "VSTO installation completed, but OLE installation failed: {} Cleanup: {}",

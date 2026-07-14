@@ -1,6 +1,16 @@
-import type { OfficeFormulaHostAdapter, OfficeHostCapabilities, FormulaOperationResult } from "./office-host-adapter";
-import type { OfficeFormulaPayload, SelectedOfficeFormula } from "../model/formula-payload";
-import { formulaIdFromTag, validateFormulaPayload } from "../model/formula-payload";
+import type {
+  OfficeFormulaHostAdapter,
+  OfficeHostCapabilities,
+  FormulaOperationResult,
+} from "./office-host-adapter";
+import type {
+  OfficeFormulaPayload,
+  SelectedOfficeFormula,
+} from "../model/formula-payload";
+import {
+  formulaIdFromTag,
+  validateFormulaPayload,
+} from "../model/formula-payload";
 import { bookmarkNameForFormula } from "../model/formula-payload";
 import { getEquationLayoutProfile } from "../model/equation-layout";
 import { OfficeBridgeClient } from "./bridge-client";
@@ -15,23 +25,54 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
     private readonly ooxml = new WordOoxmlHelper(),
   ) {}
 
-  async insertFormula(input: OfficeFormulaPayload): Promise<FormulaOperationResult<OfficeFormulaPayload>> {
+  async insertFormula(
+    input: OfficeFormulaPayload,
+  ): Promise<FormulaOperationResult<OfficeFormulaPayload>> {
     try {
       const payload = validateFormulaPayload(input);
-      const converted = await this.bridge.convert("latex", "omml", payload.latex, payload.displayMode);
-      const packageXml = this.ooxml.buildFormulaOoxml(payload, converted.content, getEquationLayoutProfile(payload.layoutProfileId));
-      await Word.run(async (context: any) => {
-        const selection = context.document.getSelection();
-        selection.insertOoxml(packageXml, "Replace");
-        await context.sync();
-      });
+      const converted = await this.bridge.convert(
+        "latex",
+        "omml",
+        payload.latex,
+        payload.displayMode,
+      );
+      const profile = getEquationLayoutProfile(payload.layoutProfileId);
+      if (payload.displayMode === "inline") {
+        const stagedPart = await this.addMetadataPart(payload);
+        try {
+          const inlineXml = this.ooxml.buildReplacementContent(
+            payload,
+            converted.content,
+            profile,
+          );
+          await Word.run(async (context: any) => {
+            context.document.getSelection().insertOoxml(inlineXml, "Replace");
+            await context.sync();
+          });
+        } catch (error) {
+          await this.deleteMetadataParts([stagedPart]);
+          throw error;
+        }
+      } else {
+        const packageXml = this.ooxml.buildFormulaOoxml(
+          payload,
+          converted.content,
+          profile,
+        );
+        await Word.run(async (context: any) => {
+          context.document.getSelection().insertOoxml(packageXml, "Replace");
+          await context.sync();
+        });
+      }
       return { ok: true, data: payload };
     } catch (error) {
       return this.failure("WORD_INSERT_FAILED", error);
     }
   }
 
-  async getSelectedFormula(): Promise<FormulaOperationResult<SelectedOfficeFormula>> {
+  async getSelectedFormula(): Promise<
+    FormulaOperationResult<SelectedOfficeFormula>
+  > {
     try {
       const snapshot = await Word.run(async (context: any) => {
         const selected = await this.getSelectedControl(context);
@@ -41,40 +82,112 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
         await context.sync();
         return { tag, xml: String(ooxmlResult.value ?? "") };
       });
-      if (!snapshot) return { ok: false, code: "NO_FORMULA_SELECTED", error: "Select or place the cursor inside a LaTeXSnipper formula." };
-      const formulaId = formulaIdFromTag(snapshot.tag) ?? this.ooxml.extractFormulaId(snapshot.xml);
-      if (!formulaId) return { ok: false, code: "FORMULA_METADATA_UNREADABLE", error: "The selected formula identifier is missing." };
+      if (!snapshot)
+        return {
+          ok: false,
+          code: "NO_FORMULA_SELECTED",
+          error: "Select or place the cursor inside a LaTeXSnipper formula.",
+        };
+      const formulaId =
+        formulaIdFromTag(snapshot.tag) ??
+        this.ooxml.extractFormulaId(snapshot.xml);
+      if (!formulaId)
+        return {
+          ok: false,
+          code: "FORMULA_METADATA_UNREADABLE",
+          error: "The selected formula identifier is missing.",
+        };
       const inlineMetadata = this.ooxml.extractPayload(snapshot.xml);
-      const metadata = inlineMetadata ?? await this.readMetadataPart(formulaId);
-      if (metadata) return { ok: true, data: { ...metadata, source: "metadata" as const } };
+      const metadata =
+        inlineMetadata ?? (await this.readMetadataPart(formulaId));
+      if (metadata)
+        return { ok: true, data: { ...metadata, source: "metadata" as const } };
       const omml = this.ooxml.extractOmml(snapshot.xml);
       if (omml) {
-        const converted = await this.bridge.convert("omml", "latex", omml, snapshot.xml.includes("<m:oMathPara") ? "block" : "inline");
-        return { ok: true, data: { schemaVersion: 1, formulaId, latex: converted.content,
-          displayMode: snapshot.xml.includes("LaTeXSnipperEquation") ? "numbered" : snapshot.xml.includes("<m:oMathPara") ? "block" : "inline", source: "omml" as const } };
+        const converted = await this.bridge.convert(
+          "omml",
+          "latex",
+          omml,
+          snapshot.xml.includes("<m:oMathPara") ? "block" : "inline",
+        );
+        return {
+          ok: true,
+          data: {
+            schemaVersion: 1,
+            formulaId,
+            latex: converted.content,
+            displayMode: snapshot.xml.includes("LaTeXSnipperEquation")
+              ? "numbered"
+              : snapshot.xml.includes("<m:oMathPara")
+                ? "block"
+                : "inline",
+            source: "omml" as const,
+          },
+        };
       }
       const text = this.ooxml.extractText(snapshot.xml).trim();
-      if (text) return { ok: true, data: { schemaVersion: 1, formulaId, latex: text, displayMode: "inline", source: "text" as const } };
-      return { ok: false, code: "FORMULA_METADATA_UNREADABLE", error: "The selected formula metadata is missing or invalid." };
+      if (text)
+        return {
+          ok: true,
+          data: {
+            schemaVersion: 1,
+            formulaId,
+            latex: text,
+            displayMode: "inline",
+            source: "text" as const,
+          },
+        };
+      return {
+        ok: false,
+        code: "FORMULA_METADATA_UNREADABLE",
+        error: "The selected formula metadata is missing or invalid.",
+      };
     } catch (error) {
       return this.failure("WORD_READ_FAILED", error);
     }
   }
 
-  async replaceSelectedFormula(input: OfficeFormulaPayload): Promise<FormulaOperationResult<OfficeFormulaPayload>> {
+  async replaceSelectedFormula(
+    input: OfficeFormulaPayload,
+  ): Promise<FormulaOperationResult<OfficeFormulaPayload>> {
     const selected = await this.getSelectedFormula();
     if (!selected.ok || !selected.data) return selected;
     try {
-      const payload = validateFormulaPayload({ ...input, formulaId: selected.data.formulaId, schemaVersion: 1 });
-      const converted = await this.bridge.convert("latex", "omml", payload.latex, payload.displayMode);
-      const packageXml = this.ooxml.buildFormulaOoxml(payload, converted.content, getEquationLayoutProfile(payload.layoutProfileId));
-      await this.deleteMetadataPart(payload.formulaId);
-      await Word.run(async (context: any) => {
-        const selectedControl = await this.getSelectedControl(context);
-        if (!selectedControl) throw new Error("The formula selection changed before replacement.");
-        selectedControl.control.getRange().insertOoxml(packageXml, "Replace");
-        await context.sync();
+      const payload = validateFormulaPayload({
+        ...input,
+        formulaId: selected.data.formulaId,
+        schemaVersion: 1,
       });
+      const converted = await this.bridge.convert(
+        "latex",
+        "omml",
+        payload.latex,
+        payload.displayMode,
+      );
+      const replacementXml = this.ooxml.buildReplacementContent(
+        payload,
+        converted.content,
+        getEquationLayoutProfile(payload.layoutProfileId),
+      );
+      const previousParts = await this.findMetadataParts(payload.formulaId);
+      const stagedPart = await this.addMetadataPart(payload);
+      try {
+        await Word.run(async (context: any) => {
+          const selectedControl = await this.getSelectedControl(context);
+          if (!selectedControl)
+            throw new Error(
+              "The formula selection changed before replacement.",
+            );
+          selectedControl.control
+            .getRange()
+            .insertOoxml(replacementXml, "Replace");
+          await context.sync();
+        });
+      } catch (error) {
+        await this.deleteMetadataParts([stagedPart]);
+        throw error;
+      }
+      await this.deleteMetadataParts(previousParts);
       return { ok: true, data: payload };
     } catch (error) {
       return this.failure("WORD_REPLACE_FAILED", error);
@@ -90,7 +203,12 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
         await context.sync();
         return formulaIdFromTag(selected.tag);
       });
-      if (!formulaId) return { ok: false, code: "NO_FORMULA_SELECTED", error: "Select a LaTeXSnipper formula to delete." };
+      if (!formulaId)
+        return {
+          ok: false,
+          code: "NO_FORMULA_SELECTED",
+          error: "Select a LaTeXSnipper formula to delete.",
+        };
       await this.deleteMetadataPart(formulaId);
       return { ok: true };
     } catch (error) {
@@ -98,7 +216,9 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
     }
   }
 
-  async insertEquationReference(formulaId: string): Promise<FormulaOperationResult> {
+  async insertEquationReference(
+    formulaId: string,
+  ): Promise<FormulaOperationResult> {
     try {
       const bookmark = bookmarkNameForFormula(formulaId);
       await Word.run(async (context: any) => {
@@ -125,30 +245,82 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
       pngInsertion: false,
       persistentMetadata: true,
       equationReference: true,
-      diagnostic: "Formula insertion inside existing table cells is supported; arbitrary table extraction is not.",
+      diagnostic:
+        "Formula insertion inside existing table cells is supported; arbitrary table extraction is not.",
     };
   }
 
-  private async readMetadataPart(formulaId: string): Promise<OfficeFormulaPayload | null> {
-    const parts = await this.getMetadataParts();
+  private async readMetadataPart(
+    formulaId: string,
+  ): Promise<OfficeFormulaPayload | null> {
+    const parts = await this.findMetadataParts(formulaId);
+    let latest: OfficeFormulaPayload | null = null;
     for (const part of parts) {
-      const xml = await new Promise<string>((resolve) => part.getXmlAsync((result: any) =>
-        resolve(result.status === "succeeded" ? String(result.value ?? "") : "")));
-      if (!xml.includes(`formulaId="${formulaId}"`)) continue;
+      const xml = await new Promise<string>((resolve) =>
+        part.getXmlAsync((result: any) =>
+          resolve(
+            result.status === "succeeded" ? String(result.value ?? "") : "",
+          ),
+        ),
+      );
       const payload = this.ooxml.extractPayload(xml);
-      if (payload?.formulaId === formulaId) return payload;
+      if (payload?.formulaId === formulaId) latest = payload;
     }
-    return null;
+    return latest;
   }
 
   private async deleteMetadataPart(formulaId: string): Promise<void> {
+    await this.deleteMetadataParts(await this.findMetadataParts(formulaId));
+  }
+
+  private async findMetadataParts(formulaId: string): Promise<any[]> {
     const parts = await this.getMetadataParts();
+    const matches: any[] = [];
     for (const part of parts) {
-      const xml = await new Promise<string>((resolve) => part.getXmlAsync((result: any) =>
-        resolve(result.status === "succeeded" ? String(result.value ?? "") : "")));
-      if (!xml.includes(`formulaId="${formulaId}"`)) continue;
-      await new Promise<void>((resolve, reject) => part.deleteAsync((result: any) =>
-        result.status === "succeeded" ? resolve() : reject(new Error(result.error?.message ?? "Unable to delete formula metadata"))));
+      const xml = await new Promise<string>((resolve) =>
+        part.getXmlAsync((result: any) =>
+          resolve(
+            result.status === "succeeded" ? String(result.value ?? "") : "",
+          ),
+        ),
+      );
+      if (xml.includes(`formulaId="${formulaId}"`)) matches.push(part);
+    }
+    return matches;
+  }
+
+  private async addMetadataPart(payload: OfficeFormulaPayload): Promise<any> {
+    const customXmlParts = Office.context?.document?.customXmlParts;
+    if (!customXmlParts?.addAsync)
+      throw new Error("Office custom XML parts are unavailable.");
+    return new Promise((resolve, reject) =>
+      customXmlParts.addAsync(
+        this.ooxml.buildMetadataXml(payload),
+        (result: any) =>
+          result.status === "succeeded" && result.value
+            ? resolve(result.value)
+            : reject(
+                new Error(
+                  result.error?.message ?? "Unable to stage formula metadata",
+                ),
+              ),
+      ),
+    );
+  }
+
+  private async deleteMetadataParts(parts: any[]): Promise<void> {
+    for (const part of parts) {
+      await new Promise<void>((resolve, reject) =>
+        part.deleteAsync((result: any) =>
+          result.status === "succeeded"
+            ? resolve()
+            : reject(
+                new Error(
+                  result.error?.message ?? "Unable to delete formula metadata",
+                ),
+              ),
+        ),
+      );
     }
   }
 
@@ -158,14 +330,21 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
     return new Promise((resolve, reject) => {
       customXmlParts.getByNamespaceAsync(
         "https://latexsnipper.com/office/formula/1",
-        (result: any) => result.status === "succeeded"
-          ? resolve(Array.isArray(result.value) ? result.value : [])
-          : reject(new Error(result.error?.message ?? "Unable to read formula metadata")),
+        (result: any) =>
+          result.status === "succeeded"
+            ? resolve(Array.isArray(result.value) ? result.value : [])
+            : reject(
+                new Error(
+                  result.error?.message ?? "Unable to read formula metadata",
+                ),
+              ),
       );
     });
   }
 
-  private async getSelectedControl(context: any): Promise<{ control: any; tag: string } | null> {
+  private async getSelectedControl(
+    context: any,
+  ): Promise<{ control: any; tag: string } | null> {
     const selection = context.document.getSelection();
     const parent = selection.parentContentControlOrNullObject;
     parent.load("tag,title,isNullObject");
@@ -176,11 +355,17 @@ export class WordFormulaAdapter implements OfficeFormulaHostAdapter {
     const controls = selection.contentControls;
     controls.load("items/tag,items/title");
     await context.sync();
-    const control = controls.items?.find((item: any) => formulaIdFromTag(String(item.tag ?? "")) !== null);
+    const control = controls.items?.find(
+      (item: any) => formulaIdFromTag(String(item.tag ?? "")) !== null,
+    );
     return control ? { control, tag: String(control.tag) } : null;
   }
 
   private failure(code: string, error: unknown): FormulaOperationResult<never> {
-    return { ok: false, code, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      code,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

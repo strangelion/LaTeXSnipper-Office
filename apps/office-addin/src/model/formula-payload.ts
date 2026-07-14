@@ -1,6 +1,9 @@
 export type FormulaDisplayMode = "inline" | "block" | "numbered";
 
-export type EquationNumberingScheme = "global" | "chapter-dot" | "chapter-hyphen";
+export type EquationNumberingScheme =
+  | "global"
+  | "chapter-dot"
+  | "chapter-hyphen";
 
 export interface OfficeFormulaPayload {
   schemaVersion: 1;
@@ -33,7 +36,8 @@ const FORMULA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/;
 const EQUATION_LABEL_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,79}$/;
 
 export function createFormulaId(): string {
-  const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  const random =
+    globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
   return random.replace(/[^A-Za-z0-9]/g, "").slice(0, 32);
 }
 
@@ -55,6 +59,17 @@ export function bookmarkNameForFormula(formulaId: string): string {
   return `LSNEq_${normalized || "Formula"}`;
 }
 
+export function bookmarkNumericIdForFormula(formulaId: string): number {
+  if (!FORMULA_ID_PATTERN.test(formulaId)) throw new Error("Invalid formulaId");
+  let hash = 2166136261;
+  for (const byte of new TextEncoder().encode(formulaId)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  // Keep IDs positive and away from the small values commonly authored by Word.
+  return 0x40000000 | (hash & 0x3fffffff);
+}
+
 export function validateFormulaPayload(
   value: unknown,
   options: { requireLatex?: boolean } = { requireLatex: true },
@@ -66,42 +81,76 @@ export function validateFormulaPayload(
   if (input.schemaVersion !== FORMULA_SCHEMA_VERSION) {
     throw new Error("Unsupported formula schemaVersion");
   }
-  if (typeof input.formulaId !== "string" || !FORMULA_ID_PATTERN.test(input.formulaId)) {
+  if (
+    typeof input.formulaId !== "string" ||
+    !FORMULA_ID_PATTERN.test(input.formulaId)
+  ) {
     throw new Error("Invalid formulaId");
   }
-  if (typeof input.latex !== "string" || (options.requireLatex !== false && input.latex.trim() === "")) {
+  if (
+    typeof input.latex !== "string" ||
+    (options.requireLatex !== false && input.latex.trim() === "")
+  ) {
     throw new Error("Formula LaTeX is required");
   }
-  if (new TextEncoder().encode(input.latex).length > MAX_FORMULA_METADATA_BYTES) {
+  if (
+    new TextEncoder().encode(input.latex).length > MAX_FORMULA_METADATA_BYTES
+  ) {
     throw new Error("Formula metadata exceeds the size limit");
   }
-  if (input.displayMode !== "inline" && input.displayMode !== "block" && input.displayMode !== "numbered") {
+  if (
+    input.displayMode !== "inline" &&
+    input.displayMode !== "block" &&
+    input.displayMode !== "numbered"
+  ) {
     throw new Error("Invalid formula displayMode");
   }
-  if (input.equationLabel !== undefined &&
-      (typeof input.equationLabel !== "string" || !EQUATION_LABEL_PATTERN.test(input.equationLabel))) {
+  if (
+    input.equationLabel !== undefined &&
+    (typeof input.equationLabel !== "string" ||
+      !EQUATION_LABEL_PATTERN.test(input.equationLabel))
+  ) {
     throw new Error("Invalid equation label");
   }
   if (input.numbering !== undefined) {
-    if (!input.numbering || typeof input.numbering !== "object" || Array.isArray(input.numbering)) {
+    if (
+      !input.numbering ||
+      typeof input.numbering !== "object" ||
+      Array.isArray(input.numbering)
+    ) {
       throw new Error("Invalid numbering metadata");
     }
     const numbering = input.numbering as Record<string, unknown>;
-    if (numbering.scheme !== "global" && numbering.scheme !== "chapter-dot" && numbering.scheme !== "chapter-hyphen") {
+    if (
+      numbering.scheme !== "global" &&
+      numbering.scheme !== "chapter-dot" &&
+      numbering.scheme !== "chapter-hyphen"
+    ) {
       throw new Error("Unsupported numbering scheme");
     }
-    if (numbering.separator !== undefined && numbering.separator !== "." && numbering.separator !== "-") {
+    if (
+      numbering.separator !== undefined &&
+      numbering.separator !== "." &&
+      numbering.separator !== "-"
+    ) {
       throw new Error("Invalid numbering separator");
     }
-    if (numbering.chapterLevel !== undefined &&
-        (typeof numbering.chapterLevel !== "number" || !Number.isInteger(numbering.chapterLevel) || numbering.chapterLevel < 1 || numbering.chapterLevel > 9)) {
+    if (
+      numbering.chapterLevel !== undefined &&
+      (typeof numbering.chapterLevel !== "number" ||
+        !Number.isInteger(numbering.chapterLevel) ||
+        numbering.chapterLevel < 1 ||
+        numbering.chapterLevel > 9)
+    ) {
       throw new Error("Invalid chapter level");
     }
     if (numbering.scheme === "chapter-dot" && numbering.separator === "-") {
       throw new Error("Numbering metadata conflicts with chapter-dot scheme");
     }
     if (numbering.scheme === "chapter-hyphen" && numbering.separator === ".") {
-      throw new Error("Numbering metadata conflicts with chapter-hyphen scheme");
+      throw new Error(
+        "Numbering metadata conflicts with chapter-hyphen scheme",
+      );
     }
   }
   return input as unknown as OfficeFormulaPayload;
@@ -116,8 +165,12 @@ export function encodeFormulaMetadata(payload: OfficeFormulaPayload): string {
 }
 
 export function decodeFormulaMetadata(encoded: string): OfficeFormulaPayload {
-  if (!encoded.startsWith(FORMULA_METADATA_PREFIX)) throw new Error("Unknown formula metadata format");
-  const base64 = encoded.slice(FORMULA_METADATA_PREFIX.length).replace(/-/g, "+").replace(/_/g, "/");
+  if (!encoded.startsWith(FORMULA_METADATA_PREFIX))
+    throw new Error("Unknown formula metadata format");
+  const base64 = encoded
+    .slice(FORMULA_METADATA_PREFIX.length)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
   const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
   const binary = atob(padded);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));

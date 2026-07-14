@@ -477,7 +477,7 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
 
                 var body = mode == InsertMode.DisplayNumbered
-                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId)
+                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId, GetContainerWidthTwips(range))
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
@@ -793,9 +793,9 @@ namespace LaTeXSnipper.Word.Host
                         OfficeOperationLog.Failure("hide-ole-content-control", "word", payload.FormulaId, appearanceError);
                     }
                 }
-                catch
+                catch (Exception wrapError)
                 {
-                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
+                    OfficeOperationLog.Failure("wrap-ole-content-control", "word", payload.FormulaId, wrapError);
                 }
 
                 // Move cursor past the OLE object before CompleteInsertion
@@ -868,7 +868,6 @@ namespace LaTeXSnipper.Word.Host
                             }
                         }
                         availableWidth = Math.Max(72.0f, availableWidth - paragraphFormat.LeftIndent - paragraphFormat.RightIndent);
-                        paragraphFormat.TabStops.ClearAll();
                         paragraphFormat.TabStops.Add(availableWidth / 2.0f, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
                         paragraphFormat.TabStops.Add(availableWidth, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
 
@@ -876,6 +875,7 @@ namespace LaTeXSnipper.Word.Host
                         // starts at the explicit right tab for this actual container.
                         var beforeOle = doc.Range(oleShape.Range.Start, oleShape.Range.Start);
                         beforeOle.Text = "\t";
+                        var ownedStart = beforeOle.Start;
                         var numberedRange = cc?.Range ?? oleShape.Range;
                         numberedRange = numberedRange.Duplicate;
                         numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
@@ -895,6 +895,21 @@ namespace LaTeXSnipper.Word.Host
                         if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
                         var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
+
+                        // Re-wrap the complete generated layout so delete/update owns
+                        // the leading tab, OLE object, number field, and bookmark.
+                        if (cc != null)
+                        {
+                            cc.Delete(false);
+                        }
+                        var ownedRange = doc.Range(ownedStart, closingRange.End);
+                        cc = doc.ContentControls.Add(
+                            Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                            ownedRange);
+                        cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
+                        cc.Title = "LaTeXSnipper Numbered Formula";
+                        cc.LockContentControl = false;
+                        cc.LockContents = false;
                     }
                     catch (Exception ex)
                     {
@@ -1195,10 +1210,51 @@ namespace LaTeXSnipper.Word.Host
 </w:sdt>";
         }
 
-        private static string BuildNumberedEquationBody(string omml, string formulaId)
+        private static int GetContainerWidthTwips(Microsoft.Office.Interop.Word.Range range)
+        {
+            try
+            {
+                float width;
+                if (Convert.ToBoolean(range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable)))
+                {
+                    var cell = range.Cells[1];
+                    width = cell.Width - cell.LeftPadding - cell.RightPadding;
+                }
+                else
+                {
+                    var pageSetup = range.Sections[1].PageSetup;
+                    width = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin;
+                    var columns = pageSetup.TextColumns;
+                    if (columns.Count > 1) width = columns[1].Width;
+                }
+                width -= Math.Max(0.0f, range.ParagraphFormat.LeftIndent) + Math.Max(0.0f, range.ParagraphFormat.RightIndent);
+                return Math.Max(2880, (int)Math.Round(width * 20.0f));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WordAdapter] Container width fallback: {ex.Message}");
+                return 9360;
+            }
+        }
+
+        private static int BookmarkNumericId(string formulaId)
+        {
+            uint hash = 2166136261;
+            foreach (byte value in System.Text.Encoding.UTF8.GetBytes(formulaId))
+            {
+                hash ^= value;
+                hash *= 16777619;
+            }
+            return (int)(0x40000000u | (hash & 0x3fffffffu));
+        }
+
+        private static string BuildNumberedEquationBody(string omml, string formulaId, int totalWidthTwips)
         {
             var bookmark = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(formulaId, "[^A-Za-z0-9_]", "_");
             if (bookmark.Length > 40) bookmark = bookmark.Substring(0, 40);
+            var sideWidth = Math.Max(720, Math.Min(totalWidthTwips / 4, (int)Math.Round(totalWidthTwips * 0.115)));
+            var centerWidth = Math.Max(1440, totalWidthTwips - sideWidth * 2);
+            var bookmarkId = BookmarkNumericId(formulaId);
             return $@"<w:sdt>
   <w:sdtPr>
     <w:alias w:val=""LaTeXSnipper Numbered Formula""/>
@@ -1207,11 +1263,11 @@ namespace LaTeXSnipper.Word.Host
   <w:sdtContent>
     <w:tbl>
       <w:tblPr><w:tblW w:w=""5000"" w:type=""pct""/><w:tblLayout w:type=""fixed""/><w:tblBorders><w:top w:val=""nil""/><w:left w:val=""nil""/><w:bottom w:val=""nil""/><w:right w:val=""nil""/><w:insideH w:val=""nil""/><w:insideV w:val=""nil""/></w:tblBorders><w:tblCellMar><w:top w:w=""0"" w:type=""dxa""/><w:left w:w=""0"" w:type=""dxa""/><w:bottom w:w=""0"" w:type=""dxa""/><w:right w:w=""0"" w:type=""dxa""/></w:tblCellMar></w:tblPr>
-      <w:tblGrid><w:gridCol w:w=""1080""/><w:gridCol w:w=""7200""/><w:gridCol w:w=""1080""/></w:tblGrid>
+      <w:tblGrid><w:gridCol w:w=""{sideWidth}""/><w:gridCol w:w=""{centerWidth}""/><w:gridCol w:w=""{sideWidth}""/></w:tblGrid>
       <w:tr><w:trPr><w:cantSplit/></w:trPr>
-        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w=""7200"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""1"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""1""/></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{centerWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""{bookmarkId}"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""{bookmarkId}""/></w:p></w:tc>
       </w:tr>
     </w:tbl>
   </w:sdtContent>
