@@ -273,6 +273,7 @@ fn main() {
             commands::native_office::native_office_request_read_selection,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_table,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_import_conversation,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,
