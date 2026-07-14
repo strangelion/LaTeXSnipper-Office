@@ -20,7 +20,7 @@
 
 | 宿主 | 当前状态 | 已知限制 |
 |------|----------|----------|
-| Word (Office.js) | ✅ OOXML 插入，Bridge 转换 | 编号公式未差异处理 |
+| Word (Office.js) | 🧪 OOXML 插入，Bridge 转换 | 局部 SDT fragment 尚需 Windows/macOS/Web 真实宿主验证 |
 | Excel (Office.js) | 🧪 PNG shape 插入（ExcelApi 1.10） | 完整选择/读取/替换/删除要求 ExcelApi 1.19 |
 | PowerPoint (Office.js) | 🧪 PNG shape Beta | 图片插入要求 Preview `addPicture`，metadata 生命周期要求 PowerPointApi 1.10 |
 | WPS 文字 | ✅ OMath 插入 + BuildUp | PPT/表格未实现 |

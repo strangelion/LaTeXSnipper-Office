@@ -5243,9 +5243,13 @@ class UIController {
       ? await this.getOfficeStatus()
       : this._officeStatusCache;
     const officePlatform = this.platforms.find((p) => p.id === "office");
+    const officeIntegrationStatus =
+      refreshStatus && officePlatform
+        ? await this.getPlatformIntegrationStatus("office")
+        : null;
     if (officePlatform && officeStatus) {
+      const parts = [];
       if (officeStatus.installed) {
-        const parts = [];
         if (officeStatus.word && officeStatus.word.available)
           parts.push("Word");
         if (officeStatus.excel && officeStatus.excel.available)
@@ -5258,44 +5262,28 @@ class UIController {
       }
     }
 
-    if (refreshStatus) {
-      if (officePlatform && officeStatus?.installed) {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const nativeStatus = await invoke("native_office_status");
-          if (nativeStatus) {
-            // Per-host VSTO registration status
-            const hostParts = [];
-            if (nativeStatus.hosts) {
-              for (const h of nativeStatus.hosts) {
-                const sym =
-                  h.state === "Installed"
-                    ? "✅"
-                    : h.state === "Broken"
-                      ? "⚠️"
-                      : "⬜";
-                hostParts.push(`${sym}${h.host}`);
-              }
-            }
-            officePlatform.desc = hostParts.join(" ") || "Office detected";
-
-            // Certificate & OLE status (shown at end)
-            const extra = [];
-            if (nativeStatus.certificateTrusted) extra.push("证书受信");
-            if (nativeStatus.ole?.health === "Registered")
-              extra.push("OLE可用");
-            if (extra.length > 0)
-              officePlatform.desc += " · " + extra.join(" ");
-
-            // Log full status for debugging
-            Logger.info("[Office] Native status:", nativeStatus);
-          }
-        } catch (e) {
-          Logger.warn("[Office] Failed to get native status:", e);
-          officePlatform.desc += " · 插件已启用";
-        }
+    if (officePlatform && officeIntegrationStatus) {
+      const detectedHosts =
+        officeStatus?.installed && officePlatform.desc !== "未检测到 Office"
+          ? officePlatform.desc
+          : "";
+      if (officeIntegrationStatus.success) {
+        officePlatform.desc =
+          detectedHosts ||
+          officeIntegrationStatus.message ||
+          "Office 集成已安装";
+      } else if (officeIntegrationStatus.message) {
+        officePlatform.desc = detectedHosts
+          ? `${detectedHosts} · ${officeIntegrationStatus.message}`
+          : officeIntegrationStatus.message;
       }
+      Logger.info(
+        "[Office] Generic integration status:",
+        officeIntegrationStatus,
+      );
+    }
 
+    if (refreshStatus) {
       const wpsPlatform = this.platforms.find((p) => p.id === "wps");
       if (wpsPlatform) {
         const wpsStatus = await this.getPlatformIntegrationStatus("wps");
@@ -5527,37 +5515,16 @@ class UIController {
           }
         }
         if (platform.id === "office") {
-          const status = await this.getOfficeStatus();
-          Logger.info(
-            `[Office] detect_office result: installed=${status.installed}, word=${status.word?.available}, excel=${status.excel?.available}, ppt=${status.powerpoint?.available}`,
-          );
-          if (!status.installed) {
-            this.showToast("未检测到 Microsoft Office，请先安装 Office");
-            platform.enabled = false;
-            return false;
-          }
-
           const result = await invoke("install_platform_integration", {
             platformId: "office",
           });
           Logger.info(
-            `[Office] install_platform_integration result: success=${result.success}, message=${result.message}`,
+            `[Office] install result: success=${result.success}, mode=${result.mode}, message=${result.message}`,
           );
           this.clearOfficeStatusCache();
-          const actualStatus = await invoke("check_platform_integration", {
-            platformId: "office",
-          });
           if (result.success) {
-            this.showToast("Office 插件已启用，请重启 Office 加载插件");
-            return true;
-          }
-          if (actualStatus?.success) {
-            // VSTO 已实际安装，只是 OLE 所有权迁移失败。
-            // Office 基础集成仍应显示为已启用。
             this.showToast(
-              "Office VSTO 已启用，但 OLE 需要修复：" +
-                (result.message || result.error || "未知错误"),
-              5000,
+              result.message || "Office 集成已启用，请重启 Office 应用。",
             );
             return true;
           }

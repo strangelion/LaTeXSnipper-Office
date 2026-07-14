@@ -2540,94 +2540,83 @@ fn check_native_office_vsto() -> bool {
 }
 
 /// Uninstall Native Office VSTO add-ins with verification, including OLE cleanup.
+#[cfg(target_os = "windows")]
 fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
-    #[cfg(not(target_os = "windows"))]
-    {
-        PlatformIntegrationResult::fail(
-            "office",
-            "native-vsto",
-            "Native Office VSTO is only available on Windows.",
-        )
+    // Step 1: Uninstall OLE component first
+    let ole_result = uninstall_ole_component();
+    if !ole_result.success {
+        log::warn!(
+            "[Office] OLE uninstall reported issue: {}",
+            ole_result.message
+        );
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        // Step 1: Uninstall OLE component first
-        let ole_result = uninstall_ole_component();
-        if !ole_result.success {
-            log::warn!(
-                "[Office] OLE uninstall reported issue: {}",
-                ole_result.message
-            );
-        }
+    // Step 2: Remove VSTO registry keys
+    let mut host_reg_keys: Vec<(String, String)> = Vec::new();
 
-        // Step 2: Remove VSTO registry keys
-        let mut host_reg_keys: Vec<(String, String)> = Vec::new();
+    for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
+        let reg_key = format!(
+            r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+            match *host_name {
+                "Word" => "Word",
+                "Excel" => "Excel",
+                "PowerPoint" => "PowerPoint",
+                _ => continue,
+            },
+            addin_id
+        );
 
-        for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
-            let reg_key = format!(
-                r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
-                match *host_name {
-                    "Word" => "Word",
-                    "Excel" => "Excel",
-                    "PowerPoint" => "PowerPoint",
-                    _ => continue,
-                },
-                addin_id
-            );
+        reg_delete_tree_both(&reg_key);
+        host_reg_keys.push((host_name.to_string(), reg_key));
+    }
 
-            reg_delete_tree_both(&reg_key);
-            host_reg_keys.push((host_name.to_string(), reg_key));
-        }
+    // Step 3: Verify VSTO removal
+    let mut remaining_keys: Vec<String> = Vec::new();
+    for (host_name, reg_key) in &host_reg_keys {
+        for view in &REGISTRY_VIEWS {
+            let still_present = run_windows_tool(
+                super::process::background_command("reg.exe").args([
+                    "query",
+                    reg_key,
+                    "/v",
+                    "LoadBehavior",
+                    view.as_reg_arg(),
+                ]),
+                10,
+            )
+            .map(|out| out.status.success())
+            .unwrap_or(false);
 
-        // Step 3: Verify VSTO removal
-        let mut remaining_keys: Vec<String> = Vec::new();
-        for (host_name, reg_key) in &host_reg_keys {
-            for view in &REGISTRY_VIEWS {
-                let still_present = run_windows_tool(
-                    super::process::background_command("reg.exe").args([
-                        "query",
-                        reg_key,
-                        "/v",
-                        "LoadBehavior",
-                        view.as_reg_arg(),
-                    ]),
-                    10,
-                )
-                .map(|out| out.status.success())
-                .unwrap_or(false);
-
-                if still_present {
-                    remaining_keys.push(format!("{} [{}]", host_name, view.label()));
-                }
+            if still_present {
+                remaining_keys.push(format!("{} [{}]", host_name, view.label()));
             }
         }
+    }
 
-        if !remaining_keys.is_empty() {
-            return PlatformIntegrationResult::fail(
-                "office",
-                "native-vsto",
-                format!(
-                    "停用失败：以下注册表项仍存在：{}",
-                    remaining_keys.join(", ")
-                ),
-            );
-        }
-
-        PlatformIntegrationResult::ok(
+    if !remaining_keys.is_empty() {
+        return PlatformIntegrationResult::fail(
             "office",
             "native-vsto",
             format!(
-                "已停用 Native Office VSTO（{}），OLE 已清理。重启 Office 完成卸载。",
-                host_reg_keys
-                    .iter()
-                    .map(|(h, _)| h.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "停用失败：以下注册表项仍存在：{}",
+                remaining_keys.join(", ")
             ),
-            true,
-        )
+        );
     }
+
+    PlatformIntegrationResult::ok(
+        "office",
+        "native-vsto",
+        format!(
+            "已停用 Native Office VSTO（{}），OLE 已清理。重启 Office 完成卸载。",
+            host_reg_keys
+                .iter()
+                .map(|(h, _)| h.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        true,
+    )
 }
 
 fn office_js_manifests() -> Vec<(OfficeJsHost, PathBuf)> {

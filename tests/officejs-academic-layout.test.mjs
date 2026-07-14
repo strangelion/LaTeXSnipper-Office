@@ -434,7 +434,7 @@ test("Word replacement failure removes staged metadata and preserves old metadat
   assert.equal(oldDeletes, 0);
 });
 
-test("Native Word numbering preserves user tab stops and owns generated content", () => {
+test("Native Word numbering owns a dedicated paragraph and is transactional", () => {
   const source = fs.readFileSync(
     path.join(
       "apps",
@@ -446,11 +446,17 @@ test("Native Word numbering preserves user tab stops and owns generated content"
     "utf8",
   );
   assert.doesNotMatch(source, /TabStops\.ClearAll\s*\(/);
+  assert.match(source, /PrepareNumberedOleInsertionRange\(doc, range\)/);
   assert.match(
     source,
-    /var ownedRange = doc\.Range\(ownedStart, closingRange\.End\)/,
+    /var ownedRange = oleShape\.Range\.Paragraphs\[1\]\.Range\.Duplicate/,
   );
   assert.match(source, /cc\.Delete\(false\)/);
+  assert.match(source, /hide-numbered-ole-content-control/);
+  assert.match(source, /recover-numbered-ole-content-control/);
+  assert.match(source, /rollback-numbered-ole/);
+  assert.match(source, /ErrorCode = "OLE_NUMBERING_FAILED"/);
+  assert.doesNotMatch(source, /Numbering is best-effort/);
   assert.match(source, /BookmarkNumericId\(formulaId\)/);
   assert.doesNotMatch(source, /w:bookmarkStart w:id=""1""/);
   assert.match(source, /GetContainerWidthTwips\(range\)/);
@@ -465,4 +471,41 @@ test("Native Office install failure is attributed to office-native", () => {
     source,
     /if !ole\.success[\s\S]*?PlatformIntegrationResult::fail\(\s*"office-native",\s*"native-stack"/,
   );
+});
+
+test("generic Office registration delegates operating-system routing to Rust", () => {
+  const source = fs.readFileSync(path.join("src", "main.js"), "utf8");
+  const registerStart = source.indexOf("  async registerPlatform(platform)");
+  const unregisterStart = source.indexOf(
+    "  async unregisterPlatform(platform)",
+    registerStart,
+  );
+  assert.notEqual(registerStart, -1);
+  assert.notEqual(unregisterStart, -1);
+  const registerSource = source.slice(registerStart, unregisterStart);
+
+  assert.match(
+    registerSource,
+    /invoke\("install_platform_integration",\s*\{\s*platformId: "office"/,
+  );
+  assert.doesNotMatch(registerSource, /getOfficeStatus\(\)/);
+  assert.doesNotMatch(registerSource, /detect_office/);
+  assert.doesNotMatch(registerSource, /if\s*\(\s*!status\.installed\s*\)/);
+});
+
+test("generic Office status and macOS host discovery are platform-aware", () => {
+  const frontend = fs.readFileSync(path.join("src", "main.js"), "utf8");
+  const officeBackend = fs.readFileSync(
+    path.join("src-tauri", "src", "platforms", "office.rs"),
+    "utf8",
+  );
+
+  assert.match(frontend, /getPlatformIntegrationStatus\("office"\)/);
+  assert.doesNotMatch(frontend, /invoke\("native_office_status"\)/);
+  assert.match(officeBackend, /fn detect_windows_office\(\)/);
+  assert.match(officeBackend, /fn detect_macos_office\(\)/);
+  assert.match(officeBackend, /Microsoft Word\.app/);
+  assert.match(officeBackend, /Microsoft Excel\.app/);
+  assert.match(officeBackend, /Microsoft PowerPoint\.app/);
+  assert.match(officeBackend, /home\.join\("Applications"\)/);
 });

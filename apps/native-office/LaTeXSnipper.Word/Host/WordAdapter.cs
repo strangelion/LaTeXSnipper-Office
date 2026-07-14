@@ -691,6 +691,58 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        /// <summary>
+        /// Numbered OLE formulas own an otherwise-empty paragraph so their local
+        /// tab stops disappear with the formula and never mutate a user paragraph.
+        /// </summary>
+        private static Microsoft.Office.Interop.Word.Range PrepareNumberedOleInsertionRange(
+            Microsoft.Office.Interop.Word.Document doc,
+            Microsoft.Office.Interop.Word.Range sourceRange)
+        {
+            var insertionRange = sourceRange.Duplicate;
+            if (insertionRange.Start != insertionRange.End)
+            {
+                insertionRange.Delete();
+                insertionRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
+            }
+
+            var paragraphRange = insertionRange.Paragraphs[1].Range.Duplicate;
+            bool paragraphIsEmpty = paragraphRange.End <= paragraphRange.Start + 1;
+            if (paragraphIsEmpty)
+            {
+                return doc.Range(paragraphRange.Start, paragraphRange.Start);
+            }
+
+            int dedicatedParagraphStart = paragraphRange.End;
+            paragraphRange.InsertParagraphAfter();
+            return doc.Range(dedicatedParagraphStart, dedicatedParagraphStart);
+        }
+
+        private static void ConfigureOleContentControl(
+            Microsoft.Office.Interop.Word.ContentControl control,
+            string formulaId,
+            string title,
+            string hideOperation)
+        {
+            control.Tag = $"latexsnipper:formula:{formulaId}";
+            control.Title = title;
+            control.LockContentControl = false;
+            control.LockContents = false;
+            try
+            {
+                control.Appearance =
+                    Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+            }
+            catch (Exception appearanceError)
+            {
+                OfficeOperationLog.Failure(
+                    hideOperation,
+                    "word",
+                    formulaId,
+                    appearanceError);
+            }
+        }
+
         private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload, InsertMode mode = InsertMode.Inline)
         {
             try
@@ -703,6 +755,11 @@ namespace LaTeXSnipper.Word.Host
                 catch (InvalidOperationException ex)
                 {
                     return new InsertResult { Success = false, Error = ex.Message };
+                }
+
+                if (mode == InsertMode.DisplayNumbered)
+                {
+                    range = PrepareNumberedOleInsertionRange(doc, range);
                 }
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
@@ -780,22 +837,33 @@ namespace LaTeXSnipper.Word.Host
                     cc = doc.ContentControls.Add(
                         Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
                         exactOleRange);
-                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
-                    cc.Title = "LaTeXSnipper Formula";
-                    cc.LockContentControl = false;
-                    cc.LockContents = false;
-                    try
-                    {
-                        cc.Appearance = Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
-                    }
-                    catch (Exception appearanceError)
-                    {
-                        OfficeOperationLog.Failure("hide-ole-content-control", "word", payload.FormulaId, appearanceError);
-                    }
+                    ConfigureOleContentControl(
+                        cc,
+                        payload.FormulaId,
+                        "LaTeXSnipper Formula",
+                        "hide-ole-content-control");
                 }
                 catch (Exception wrapError)
                 {
                     OfficeOperationLog.Failure("wrap-ole-content-control", "word", payload.FormulaId, wrapError);
+                    try
+                    {
+                        oleShape.Delete();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "rollback-unowned-ole",
+                            "word",
+                            payload.FormulaId,
+                            rollbackError);
+                    }
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "OLE_CONTENT_CONTROL_REQUIRED",
+                        Error = "The OLE object could not be wrapped in its required content control."
+                    };
                 }
 
                 // Move cursor past the OLE object before CompleteInsertion
@@ -875,7 +943,6 @@ namespace LaTeXSnipper.Word.Host
                         // starts at the explicit right tab for this actual container.
                         var beforeOle = doc.Range(oleShape.Range.Start, oleShape.Range.Start);
                         beforeOle.Text = "\t";
-                        var ownedStart = beforeOle.Start;
                         var numberedRange = cc?.Range ?? oleShape.Range;
                         numberedRange = numberedRange.Duplicate;
                         numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
@@ -896,25 +963,110 @@ namespace LaTeXSnipper.Word.Host
                         var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
 
-                        // Re-wrap the complete generated layout so delete/update owns
-                        // the leading tab, OLE object, number field, and bookmark.
-                        if (cc != null)
+                        // The dedicated paragraph is the ownership boundary. Its
+                        // paragraph mark carries the local tab stops, so deleting
+                        // the control also removes every layout mutation.
+                        var ownedRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                        if (cc == null)
                         {
-                            cc.Delete(false);
+                            throw new InvalidOperationException(
+                                "The original OLE content control is unavailable.");
                         }
-                        var ownedRange = doc.Range(ownedStart, closingRange.End);
-                        cc = doc.ContentControls.Add(
-                            Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
-                            ownedRange);
-                        cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
-                        cc.Title = "LaTeXSnipper Numbered Formula";
-                        cc.LockContentControl = false;
-                        cc.LockContents = false;
+                        var previousControl = cc;
+                        var recoveryRange = previousControl.Range.Duplicate;
+                        string recoveryTag = previousControl.Tag as string
+                            ?? $"latexsnipper:formula:{payload.FormulaId}";
+                        string recoveryTitle = previousControl.Title as string
+                            ?? "LaTeXSnipper Formula";
+                        bool recoveryLockControl = previousControl.LockContentControl;
+                        bool recoveryLockContents = previousControl.LockContents;
+                        previousControl.Delete(false);
+                        cc = null;
+                        try
+                        {
+                            cc = doc.ContentControls.Add(
+                                Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                                ownedRange);
+                            ConfigureOleContentControl(
+                                cc,
+                                payload.FormulaId,
+                                "LaTeXSnipper Numbered Formula",
+                                "hide-numbered-ole-content-control");
+                        }
+                        catch (Exception rewrapError)
+                        {
+                            OfficeOperationLog.Failure(
+                                "rewrap-numbered-ole-content-control",
+                                "word",
+                                payload.FormulaId,
+                                rewrapError);
+
+                            // Preserve FormulaId ownership while the outer failure
+                            // path rolls back the dedicated formula paragraph.
+                            try
+                            {
+                                cc = doc.ContentControls.Add(
+                                    Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                                    recoveryRange);
+                                ConfigureOleContentControl(
+                                    cc,
+                                    payload.FormulaId,
+                                    recoveryTitle,
+                                    "hide-recovered-ole-content-control");
+                                cc.Tag = recoveryTag;
+                                cc.LockContentControl = recoveryLockControl;
+                                cc.LockContents = recoveryLockContents;
+                            }
+                            catch (Exception recoveryError)
+                            {
+                                OfficeOperationLog.Failure(
+                                    "recover-numbered-ole-content-control",
+                                    "word",
+                                    payload.FormulaId,
+                                    recoveryError);
+                            }
+
+                            throw new InvalidOperationException(
+                                "The numbered OLE ownership range could not be created.",
+                                rewrapError);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        // Numbering is best-effort — OLE object is still inserted
-                        System.Diagnostics.Debug.WriteLine($"[WordAdapter] OLE numbering failed: {ex.Message}");
+                        OfficeOperationLog.Failure(
+                            "number-ole-formula",
+                            "word",
+                            payload.FormulaId,
+                            ex);
+
+                        // Numbered insertion is transactional. The paragraph was
+                        // created exclusively for this formula, so rolling it back
+                        // cannot remove user content and also removes local tabs.
+                        try
+                        {
+                            var rollbackRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                            if (cc != null)
+                            {
+                                cc.Delete(false);
+                                cc = null;
+                            }
+                            rollbackRange.Delete();
+                        }
+                        catch (Exception rollbackError)
+                        {
+                            OfficeOperationLog.Failure(
+                                "rollback-numbered-ole",
+                                "word",
+                                payload.FormulaId,
+                                rollbackError);
+                        }
+
+                        return new InsertResult
+                        {
+                            Success = false,
+                            ErrorCode = "OLE_NUMBERING_FAILED",
+                            Error = $"Numbered OLE insertion failed: {ex.Message}"
+                        };
                     }
                 }
 
