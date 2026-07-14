@@ -10,7 +10,11 @@ New-Item -ItemType Directory -Force -Path $DiagnosticsDirectory | Out-Null
 if ($env:NATIVE_OFFICE_WIX_ROOT) {
     $env:PATH = "$env:NATIVE_OFFICE_WIX_ROOT;$env:PATH"
 }
-$destinationPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Destination))
+$destinationPath = if ([System.IO.Path]::IsPathRooted($Destination)) {
+    [System.IO.Path]::GetFullPath($Destination)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Destination))
+}
 $repository = if ($env:GITHUB_REPOSITORY) { $env:GITHUB_REPOSITORY } else { "strangelion/LaTeXSnipper-Office" }
 $resolutionLog = Join-Path $DiagnosticsDirectory "prior-native-office-resolution.txt"
 "repository=$repository`ntag=$Tag" | Set-Content -LiteralPath $resolutionLog -Encoding UTF8
@@ -73,7 +77,7 @@ $tempRoot = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [System.IO.Path]::
 $worktree = Join-Path $tempRoot "lso-wt-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 $output = Join-Path $tempRoot "lso-out-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
 try {
-    & git -c core.longpaths=true worktree add --detach $worktree $Tag
+    & git -c core.longpaths=true worktree add --quiet --detach $worktree $Tag
     if ($LASTEXITCODE -ne 0) { throw "git worktree add failed for $Tag." }
     $priorPackage = Get-Content -Raw -LiteralPath (Join-Path $worktree "package.json") | ConvertFrom-Json
     $expectedVersion = $Tag.TrimStart('v')
