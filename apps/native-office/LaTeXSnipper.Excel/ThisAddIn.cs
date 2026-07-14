@@ -3,7 +3,6 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
 
@@ -14,9 +13,7 @@ namespace LaTeXSnipper.Excel
     {
         private Host.ExcelAdapter _adapter;
         private PipeClient _pipeClient;
-        private SynchronizationContext _syncContext;
-        private System.Windows.Forms.Control? _uiDispatcher;
-        private int _uiThreadId;
+        private OfficeStaDispatcher? _staDispatcher;
         private string _sessionId;
         private bool _pipeConnected;
 
@@ -39,10 +36,7 @@ namespace LaTeXSnipper.Excel
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
         {
             System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Startup reached.");
-            _uiThreadId = Thread.CurrentThread.ManagedThreadId;
-            _uiDispatcher = new System.Windows.Forms.Control();
-            _uiDispatcher.CreateControl();
-            _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            _staDispatcher = new OfficeStaDispatcher("excel");
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
             _adapter = new Host.ExcelAdapter(Application);
             _ = InitializePipeAsync();
@@ -91,13 +85,8 @@ namespace LaTeXSnipper.Excel
                     if (await _pipeClient.SendHelloAsync(_sessionId, secret, "excel", Application.Version))
                     {
                         _pipeConnected = true;
-                        _uiDispatcher.BeginInvoke(new Action(() =>
+                        _staDispatcher?.TryPost("send-host-ready", () =>
                         {
-                            if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] FATAL: HOST_READY not on UI thread");
-                                return;
-                            }
                             try
                             {
                                 var ctx = _adapter.GetCurrentContextId();
@@ -116,7 +105,7 @@ namespace LaTeXSnipper.Excel
                             {
                                 System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] HOST_READY error: " + ex.Message);
                             }
-                        }));
+                        });
                         return;
                     }
                 }
@@ -131,18 +120,13 @@ namespace LaTeXSnipper.Excel
         private void OnMessageReceived(object sender, DesktopMessage message)
         {
             if (_adapter == null) return;
-            if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
+            if (_staDispatcher != null && _staDispatcher.IsAvailable)
             {
-                _uiDispatcher.BeginInvoke(new Action(() =>
+                _staDispatcher.TryPost("handle-pipe-command", () =>
                 {
-                    if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] FATAL: Command not on UI thread");
-                        return;
-                    }
                     try { HandleCommand(message); }
                     catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Handler error: " + ex.Message); }
-                }));
+                });
             }
             else
             {
@@ -267,6 +251,7 @@ namespace LaTeXSnipper.Excel
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
             _pipeClient?.Disconnect();
+            _staDispatcher?.Dispose();
         }
 
         /// <summary>

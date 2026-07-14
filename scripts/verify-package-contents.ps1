@@ -106,7 +106,21 @@ function Assert-WpsPayload([string]$PackageRoot) {
     if ($wpsDirectories.Count -ne 1) { throw "Expected exactly one resources/WPS directory in $PackageRoot; found=$($wpsDirectories.Count)" }
     $wps = $wpsDirectories[0].FullName
     if (Test-Path -LiteralPath (Join-Path $wps "WPS") -PathType Container) { throw "Duplicate nested WPS path found: $wps\WPS" }
-    foreach ($relative in @("index.html", "main.js", "manifest.xml", "ribbon.xml", "proxy.js", "server.js", "js/command-layer.js", "js/ribbon.js", "js/util.js", "ui/taskpane.html")) {
+    foreach ($relative in @(
+        "index.html",
+        "main.js",
+        "manifest.json",
+        "manifest.xml",
+        "ribbon.xml",
+        "js/command-layer.js",
+        "js/host-detect.js",
+        "js/bridge-client.js",
+        "js/adapters.js",
+        "js/ribbon.js",
+        "js/util.js",
+        "ui/taskpane.html",
+        "ui/taskpane.js"
+    )) {
         $relativePath = $relative -replace '/', [System.IO.Path]::DirectorySeparatorChar
         $sourceFile = Join-Path $source $relativePath
         $packageFile = Join-Path $wps $relativePath
@@ -114,6 +128,11 @@ function Assert-WpsPayload([string]$PackageRoot) {
         $sourceHash = (Get-FileHash -LiteralPath $sourceFile -Algorithm SHA256).Hash
         $packageHash = (Get-FileHash -LiteralPath $packageFile -Algorithm SHA256).Hash
         if ($sourceHash -ne $packageHash) { throw "WPS hash mismatch: relative=$relative source=$sourceHash package=$packageHash path=$packageFile" }
+    }
+    foreach ($legacy in @("proxy.js", "server.js", "start.js", "publish.html", "taskpane.html")) {
+        if (Test-Path -LiteralPath (Join-Path $wps $legacy) -PathType Leaf) {
+            throw "Legacy WPS runtime must not be packaged: $legacy in $PackageRoot"
+        }
     }
     if ($ExpectedVersion) {
         $manifest = Get-Content -Raw -LiteralPath (Join-Path $wps "manifest.xml")
@@ -176,9 +195,10 @@ function Assert-ResourcePayload([string]$PackageRoot) {
 foreach ($rootValue in $WindowsPackageRoots) {
     $root = (Resolve-Path -LiteralPath $rootValue).Path
     $forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
+        $relativePath = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\', '/'))
         $_.Extension -match '^\.(pfx|p12|pem|key|pdb|emf)$' -or
         $_.Name -match '(?i)(NativeVectorTests|OleActivationProbe|PendingPayloadTests).*\.exe$' -or
-        ($_.Extension -eq '.svg' -and $_.FullName -match '(?i)(temp|tmp|fixtures?|tests?)')
+        ($_.Extension -eq '.svg' -and $relativePath -match '(?i)(^|[\\/])(temp|tmp|fixtures?|tests?)([\\/]|$)|(^|[\\/])(temp|tmp)[^\\/]*\.svg$')
     }
     if ($forbidden) { throw "Forbidden files in package ${root}: $($forbidden.FullName -join ', ')" }
 

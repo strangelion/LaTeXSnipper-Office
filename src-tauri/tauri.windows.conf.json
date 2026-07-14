@@ -5,7 +5,8 @@
       "resources/WPS/**/*",
       "resources/NativeOffice/**/*",
       "resources/Obsidian/**/*",
-      "resources/Ecosystem/**/*"
+      "resources/Ecosystem/**/*",
+      "resources/provenance.json"
     ]
   }
 }

@@ -66,6 +66,16 @@ jobs:
         run: node --test tests/officejs-academic-layout.test.mjs
       - name: Real MathJax golden fixtures
         run: npm run fixtures:mathjax:check
+      - name: Browser extension dependencies
+        run: npm --prefix apps/browser-extension ci
+      - name: Browser extension typecheck and fixtures
+        run: |
+          npm --prefix apps/browser-extension run typecheck
+          npm --prefix apps/browser-extension test
+      - name: Build and verify Chrome and Firefox packages
+        run: |
+          npm --prefix apps/browser-extension run build
+          node scripts/verify-browser-packages.mjs
 
   rust:
     runs-on: ubuntu-24.04
@@ -129,7 +139,7 @@ jobs:
             "package-smoke=$PACKAGE_RESULT"; do
             echo "$pair"
             result="${pair#*=}"
-            if [[ "$result" != "success" && "$result" != "skipped" && "$result" != "cancelled" ]]; then
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               failed=1
             fi
           done

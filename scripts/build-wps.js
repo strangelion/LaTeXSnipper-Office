@@ -1,10 +1,14 @@
 const { execFileSync } = require("child_process");
+const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
 const isWindows = os.platform() === "win32";
 const shell = isWindows ? "powershell.exe" : "pwsh";
-const version = process.env.VERSION || "1.0.0";
+const version =
+  process.env.VERSION ||
+  JSON.parse(fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"))
+    .version;
 const args = ["-NoProfile"];
 
 if (isWindows) {

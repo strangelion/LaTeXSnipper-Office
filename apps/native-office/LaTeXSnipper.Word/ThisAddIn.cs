@@ -2,7 +2,6 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using LaTeXSnipper.Word.Host;
@@ -16,9 +15,7 @@ namespace LaTeXSnipper.Word
         private Host.WordAdapter _adapter;
         private Metadata.TableConverter _tableConverter;
         private PipeClient _pipeClient;
-        private SynchronizationContext _syncContext;
-        private System.Windows.Forms.Control? _uiDispatcher;
-        private int _uiThreadId;
+        private OfficeStaDispatcher? _staDispatcher;
         private string _sessionId;
         private bool _pipeConnected;
 
@@ -43,10 +40,7 @@ namespace LaTeXSnipper.Word
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] ThisAddIn_Startup reached.");
 
-            _uiThreadId = Thread.CurrentThread.ManagedThreadId;
-            _uiDispatcher = new System.Windows.Forms.Control();
-            _uiDispatcher.CreateControl();
-            _syncContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+            _staDispatcher = new OfficeStaDispatcher("word");
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
 
             System.Diagnostics.Debug.WriteLine(
@@ -126,15 +120,10 @@ namespace LaTeXSnipper.Word
 
                     _pipeConnected = true;
 
-                    if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
+                    if (_staDispatcher != null)
                     {
-                        _uiDispatcher.BeginInvoke(new Action(() =>
+                        _staDispatcher.TryPost("send-host-ready", () =>
                         {
-                            if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] FATAL: HOST_READY not on UI thread");
-                                return;
-                            }
                             try
                             {
                                 var contextId = _adapter.GetCurrentContextId();
@@ -162,7 +151,7 @@ namespace LaTeXSnipper.Word
                                 System.Diagnostics.Debug.WriteLine(
                                     $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
                             }
-                        }));
+                        });
                     }
 
                     System.Diagnostics.Debug.WriteLine(
@@ -185,15 +174,10 @@ namespace LaTeXSnipper.Word
         {
             if (_adapter == null) return;
 
-            if (_uiDispatcher != null && !_uiDispatcher.IsDisposed)
+            if (_staDispatcher != null && _staDispatcher.IsAvailable)
             {
-                _uiDispatcher.BeginInvoke(new Action(() =>
+                _staDispatcher.TryPost("handle-pipe-command", () =>
                 {
-                    if (Thread.CurrentThread.ManagedThreadId != _uiThreadId)
-                    {
-                        System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Word] FATAL: Command not on UI thread");
-                        return;
-                    }
                     try
                     {
                         HandleCommand(message);
@@ -203,7 +187,7 @@ namespace LaTeXSnipper.Word
                         System.Diagnostics.Debug.WriteLine(
                             $"[LaTeXSnipper.Word] Command handler error: {ex.Message}");
                     }
-                }));
+                });
             }
             else
             {
@@ -254,6 +238,21 @@ namespace LaTeXSnipper.Word
                         RangeEnd = result.RangeEnd,
                         Error = result.Error,
                         ErrorCode = result.ErrorCode
+                    });
+                    break;
+                }
+
+                case DesktopImportConversation cmd:
+                {
+                    var result = new ConversationImporter(Application).Commit(cmd.Plan);
+                    _pipeClient.SendOnlyAsync(new VstoConversationImportResult
+                    {
+                        RequestId = cmd.RequestId,
+                        SessionId = cmd.SessionId,
+                        ImportId = cmd.Plan.ImportId,
+                        Success = result.Success,
+                        ErrorCode = result.ErrorCode,
+                        Error = result.Error
                     });
                     break;
                 }
@@ -419,6 +418,7 @@ namespace LaTeXSnipper.Word
 
             Application.DocumentChange -= OnDocumentChange;
             _pipeClient?.Disconnect();
+            _staDispatcher?.Dispose();
             _pipeConnected = false;
         }
 

@@ -348,79 +348,283 @@ namespace LaTeXSnipper.Word.Host
 
         public InsertResult ReplaceFormula(string formulaId, FormulaPayload newPayload)
         {
+            Microsoft.Office.Interop.Word.ContentControl candidate = null;
+            Microsoft.Office.Interop.Word.Document doc = null;
+            FormulaPayload originalManifest = null;
+            string candidateId = FormulaIdHelper.NewId();
             try
             {
-                var doc = _application.ActiveDocument;
+                doc = _application.ActiveDocument;
                 if (doc == null) return new InsertResult { Success = false, Error = "No document" };
 
                 string targetTag = $"latexsnipper:formula:{formulaId}";
+                originalManifest = FormulaDocumentManifest.Read(doc, formulaId);
+                if (originalManifest != null &&
+                    newPayload.Revision != originalManifest.Revision)
+                {
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "OFFICE_TARGET_CHANGED",
+                        Error = $"Formula revision changed from {newPayload.Revision} to {originalManifest.Revision}."
+                    };
+                }
 
                 foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
                 {
                     if (!string.Equals(cc.Tag as string, targetTag, StringComparison.Ordinal))
                         continue;
 
-                    // Find OLE object inside this ContentControl
+                    Microsoft.Office.Interop.Word.InlineShape originalOleShape = null;
                     foreach (Microsoft.Office.Interop.Word.InlineShape shape in cc.Range.InlineShapes)
                     {
-                        if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
-                            continue;
-
-                        object? automationObject = shape.OLEFormat?.Object;
-                        if (automationObject == null) continue;
-
-                        // In-place update: replace payload directly, no insert+delete cycle
-                        newPayload.FormulaId = formulaId;
-                        newPayload = OleFormulaInterop.NormalizeForOle(newPayload);
-
-                        if (!OleFormulaInterop.ReplacePayloadJson(automationObject, newPayload))
+                        if (shape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
                         {
-                            return new InsertResult { Success = false, ErrorCode = "OLE_REPLACE_FAILED", Error = "ReplacePayloadJson failed." };
+                            originalOleShape = shape;
+                            break;
                         }
+                    }
 
-                        // Update shape dimensions to match new extent
-                        if (!OleFormulaInterop.TryGetExtentPoints(automationObject, out OleExtentPoints naturalExtent))
-                        {
-                            return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "Updated OLE extent was unavailable." };
-                        }
+                    var originalRange = cc.Range.Duplicate;
+                    int originalStart = originalRange.Start;
+                    int originalEnd = originalRange.End;
+                    float originalWidth = originalOleShape?.Width ?? 0;
+                    float originalHeight = originalOleShape?.Height ?? 0;
 
-                        OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent);
-                        if (!OleFormulaInterop.TrySetDisplayExtent(automationObject, targetExtent))
-                        {
-                            targetExtent = new OleExtentPoints(
-                                naturalExtent.NaturalWidthPt,
-                                naturalExtent.NaturalHeightPt,
-                                naturalExtent.NaturalWidthPt,
-                                naturalExtent.NaturalHeightPt);
-                        }
+                    var mode = ParseInsertMode(newPayload.Display);
+                    string requestedFormulaId = newPayload.FormulaId;
+                    newPayload.FormulaId = candidateId;
+                    if (originalOleShape != null)
+                        newPayload.StorageMode = "ole";
+                    else if (originalManifest != null && !string.IsNullOrWhiteSpace(originalManifest.StorageMode))
+                        newPayload.StorageMode = originalManifest.StorageMode;
 
-                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
-                        shape.Width = targetExtent.DisplayWidthPt;
-                        shape.Height = targetExtent.DisplayHeightPt;
-                        shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-
-                        FixWordParagraphForOle(shape);
-
-                        FormulaDocumentManifest.Write(doc, newPayload);
-
+                    var candidatePoint = doc.Range(originalEnd, originalEnd);
+                    candidatePoint.Select();
+                    var inserted = InsertFormula(newPayload, mode);
+                    if (!inserted.Success)
+                    {
+                        newPayload.FormulaId = requestedFormulaId;
                         return new InsertResult
                         {
-                            Success = true,
-                            FormulaId = formulaId,
-                            RangeStart = (uint)shape.Range.Start,
-                            RangeEnd = (uint)shape.Range.End
+                            Success = false,
+                            ErrorCode = inserted.ErrorCode ?? "CANDIDATE_CREATE_FAILED",
+                            Error = inserted.Error ?? "Candidate formula creation failed."
                         };
                     }
 
-                    return new InsertResult { Success = false, ErrorCode = "OLE_OBJECT_NOT_FOUND", Error = "The formula content control did not contain an OLE object." };
+                    candidate = FindFormulaContentControl(doc, candidateId);
+                    if (candidate == null || candidate.Range.Start < originalEnd)
+                        throw new InvalidOperationException("Candidate formula ownership could not be read back.");
+
+                    Microsoft.Office.Interop.Word.InlineShape candidateOleShape = null;
+                    if (originalOleShape != null)
+                    {
+                        foreach (Microsoft.Office.Interop.Word.InlineShape shape in candidate.Range.InlineShapes)
+                        {
+                            if (shape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                            {
+                                candidateOleShape = shape;
+                                break;
+                            }
+                        }
+                        if (candidateOleShape == null)
+                            throw new InvalidOperationException("Candidate OLE object was not created.");
+
+                        newPayload.FormulaId = formulaId;
+                        newPayload = OleFormulaInterop.NormalizeForOle(newPayload);
+                        object automationObject = candidateOleShape.OLEFormat?.Object;
+                        if (automationObject == null ||
+                            !OleFormulaInterop.ReplacePayloadJson(automationObject, newPayload))
+                            throw new InvalidOperationException("Candidate OLE payload verification failed.");
+                        if (!OleFormulaInterop.TryGetExtentPoints(automationObject, out OleExtentPoints naturalExtent))
+                            return RollbackCandidate(
+                                doc,
+                                candidate,
+                                originalManifest,
+                                formulaId,
+                                "OLE_EXTENT_UNAVAILABLE",
+                                "Candidate OLE extent was unavailable.");
+
+                        OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent);
+                        if (!OleFormulaInterop.TrySetDisplayExtent(automationObject, targetExtent))
+                            return RollbackCandidate(
+                                doc,
+                                candidate,
+                                originalManifest,
+                                formulaId,
+                                "OLE_EXTENT_VERIFY_FAILED",
+                                "Candidate OLE display extent could not be verified.");
+                        candidateOleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                        candidateOleShape.Width = originalWidth > 0 ? originalWidth : targetExtent.DisplayWidthPt;
+                        candidateOleShape.Height = originalHeight > 0 ? originalHeight : targetExtent.DisplayHeightPt;
+                        candidateOleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+                    }
+                    else
+                    {
+                        newPayload.FormulaId = formulaId;
+                    }
+
+                    candidate.Tag = targetTag;
+                    candidate.Title = "LaTeXSnipper Formula";
+                    try
+                    {
+                        candidate.Appearance = Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+                    }
+                    catch (Exception appearanceError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "hide-replacement-content-control",
+                            "word",
+                            formulaId,
+                            appearanceError);
+                    }
+                    newPayload.Revision = Math.Max(newPayload.Revision, originalManifest?.Revision ?? 0) + 1;
+                    FormulaDocumentManifest.Write(doc, newPayload);
+                    FormulaDocumentManifest.Remove(doc, candidateId);
+                    var committedRange = candidate.Range.Duplicate;
+
+                    try
+                    {
+                        cc.LockContents = false;
+                        cc.LockContentControl = false;
+                        cc.Delete(true);
+                    }
+                    catch (Exception deleteError)
+                    {
+                        RestoreManifest(doc, originalManifest, formulaId);
+                        return RollbackCandidate(
+                            doc,
+                            candidate,
+                            originalManifest,
+                            formulaId,
+                            "ORIGINAL_DELETE_FAILED",
+                            deleteError.Message);
+                    }
+
+                    // The original is gone at this point. Selection is best-effort and
+                    // must never turn a successful commit into a destructive rollback.
+                    try
+                    {
+                        committedRange.Select();
+                    }
+                    catch (Exception selectionError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "select-replacement-content-control",
+                            "word",
+                            formulaId,
+                            selectionError);
+                    }
+                    return new InsertResult
+                    {
+                        Success = true,
+                        FormulaId = formulaId,
+                        RangeStart = (uint)committedRange.Start,
+                        RangeEnd = (uint)committedRange.End,
+                        StorageMode = newPayload.StorageMode
+                    };
                 }
 
                 return new InsertResult { Success = false, Error = $"Formula {formulaId} not found" };
             }
             catch (Exception ex)
             {
-                return new InsertResult { Success = false, Error = ex.Message };
+                OfficeOperationLog.Failure("candidate-first-replace", "word", formulaId, ex);
+                if (doc != null && candidate != null)
+                    return RollbackCandidate(
+                        doc,
+                        candidate,
+                        originalManifest,
+                        formulaId,
+                        "CANDIDATE_VALIDATION_FAILED",
+                        ex.Message);
+                return new InsertResult
+                {
+                    Success = false,
+                    ErrorCode = "CANDIDATE_CREATE_FAILED",
+                    Error = ex.Message
+                };
             }
+        }
+
+        private static InsertMode ParseInsertMode(string display)
+        {
+            if (string.Equals(display, "numbered", StringComparison.Ordinal) ||
+                string.Equals(display, "displayNumbered", StringComparison.Ordinal))
+                return InsertMode.DisplayNumbered;
+            return string.Equals(display, "inline", StringComparison.Ordinal)
+                ? InsertMode.Inline
+                : InsertMode.Display;
+        }
+
+        private static Microsoft.Office.Interop.Word.ContentControl FindFormulaContentControl(
+            Microsoft.Office.Interop.Word.Document document,
+            string formulaId)
+        {
+            string tag = $"latexsnipper:formula:{formulaId}";
+            foreach (Microsoft.Office.Interop.Word.ContentControl control in document.ContentControls)
+            {
+                if (string.Equals(control.Tag as string, tag, StringComparison.Ordinal))
+                    return control;
+            }
+            return null;
+        }
+
+        private static void RestoreManifest(
+            Microsoft.Office.Interop.Word.Document document,
+            FormulaPayload original,
+            string formulaId)
+        {
+            try
+            {
+                if (original != null)
+                    FormulaDocumentManifest.Write(document, original);
+                else
+                    FormulaDocumentManifest.Remove(document, formulaId);
+            }
+            catch (Exception restoreError)
+            {
+                OfficeOperationLog.Failure(
+                    "restore-replacement-manifest",
+                    "word",
+                    formulaId,
+                    restoreError);
+            }
+        }
+
+        private static InsertResult RollbackCandidate(
+            Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.ContentControl candidate,
+            FormulaPayload originalManifest,
+            string formulaId,
+            string errorCode,
+            string error)
+        {
+            try
+            {
+                if (candidate != null)
+                {
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+            }
+            catch (Exception cleanupError)
+            {
+                OfficeOperationLog.Failure(
+                    "cleanup-replacement-candidate",
+                    "word",
+                    formulaId,
+                    cleanupError);
+            }
+            RestoreManifest(document, originalManifest, formulaId);
+            return new InsertResult
+            {
+                Success = false,
+                ErrorCode = errorCode,
+                Error = error
+            };
         }
 
         public void InsertText(string value)

@@ -87,34 +87,45 @@ function stageBrowser() {
   if (!fs.existsSync(distDir)) {
     throw new Error("[Browser] Build output is missing. Run the browser extension build first.");
   }
-  fs.cpSync(distDir, dstDir, { recursive: true });
-
-  // Copy popup.html from app root
-  const popupSrc = path.join(appDir, "popup.html");
-  if (fs.existsSync(popupSrc)) {
-    fs.copyFileSync(popupSrc, path.join(dstDir, "popup.html"));
-  }
-
-  // Copy both manifests
-  for (const m of ["manifest.chrome.json", "manifest.firefox.json"]) {
-    const src = path.join(appDir, m);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(dstDir, m));
+  const required = [
+    "manifest.json", "background.js", "content.js", "popup.html",
+    "sidepanel.html", "options.html", "provenance.json",
+    "THIRD_PARTY_LICENSES.txt", "_locales/en/messages.json",
+    "_locales/zh_CN/messages.json", "_locales/zh_TW/messages.json",
+  ];
+  for (const target of ["chrome", "firefox"]) {
+    const targetDir = path.join(distDir, target);
+    for (const file of required) {
+      const candidate = path.join(targetDir, file);
+      if (!fs.existsSync(candidate) || fs.statSync(candidate).size === 0) {
+        throw new Error(`[Browser] Incomplete ${target} package: ${file}`);
+      }
+    }
+    const manifest = JSON.parse(fs.readFileSync(path.join(targetDir, "manifest.json"), "utf8"));
+    if (JSON.stringify(manifest).includes("<all_urls>") || JSON.stringify(manifest).includes("19876")) {
+      throw new Error(`[Browser] ${target} manifest violates permission or Bridge port policy`);
     }
   }
+  fs.cpSync(distDir, dstDir, { recursive: true });
 
-  console.log("  [Browser] Staged complete Vite output, popup, and manifests");
+  console.log("  [Browser] Staged verified Chrome and Firefox packages");
 }
 
 // ─── WPS ───────────────────────────────────────────────────────────────
 function stageWps() {
-  const appDir = path.join(__dirname, "..", "apps", "wps", "installer");
+  const distRoot = path.join(__dirname, "..", "apps", "wps", "dist");
   const dstDir = path.join(ECO_ROOT, "wps");
 
-  if (!fs.existsSync(appDir)) {
-    console.warn("  [WPS] WARNING: WPS installer dir not found. Skipping.");
-    return;
+  if (!fs.existsSync(distRoot)) {
+    throw new Error("[WPS] Build output missing. Run npm run build:wps first.");
   }
+  const builds = fs
+    .readdirSync(distRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("latexsnipper-wps_"))
+    .map((entry) => path.join(distRoot, entry.name))
+    .sort();
+  const appDir = builds.at(-1);
+  if (!appDir) throw new Error("[WPS] No complete production build was found.");
 
   function copyDir(src, dest) {
     if (!fs.existsSync(src)) return;
@@ -130,6 +141,7 @@ function stageWps() {
     }
   }
 
+  fs.rmSync(dstDir, { recursive: true, force: true });
   copyDir(appDir, dstDir);
   console.log("  [WPS] Staged resources");
 }

@@ -1,0 +1,9 @@
+{
+  "extensionName": { "message": "LaTeXSnipper 网页助手" },
+  "extensionDescription": { "message": "提取可见公式和 AI 对话，并交给本地桌面应用预览。" },
+  "checkingConnection": { "message": "正在检查桌面连接…" }, "connected": { "message": "已连接 LaTeXSnipper" }, "desktopOffline": { "message": "桌面应用未运行" },
+  "scanSelection": { "message": "扫描所选内容" }, "scanMessage": { "message": "扫描当前消息" }, "scanPage": { "message": "扫描可见页面" }, "sendSelection": { "message": "发送所选内容到桌面" }, "openPanel": { "message": "打开对话面板" },
+  "noFormulas": { "message": "未发现公式。" }, "scanFailed": { "message": "无法扫描此页面。" }, "noSelection": { "message": "请先选择可见内容。" }, "sentToDesktop": { "message": "已发送到桌面等待预览。" }, "previewRequired": { "message": "请在桌面应用中预览并确认导入。" },
+  "clear": { "message": "清除提取内容" }, "formulas": { "message": "公式" }, "conversation": { "message": "对话" }, "diagnostics": { "message": "诊断" }, "options": { "message": "设置" }, "save": { "message": "保存" }, "cancel": { "message": "取消" }, "permissionRequired": { "message": "此站点需要可选访问权限。" },
+  "providerChatgpt": { "message": "ChatGPT" }, "providerGemini": { "message": "Gemini" }, "providerDeepseek": { "message": "DeepSeek" }, "providerClaude": { "message": "Claude" }, "providerCopilot": { "message": "Microsoft Copilot" }, "providerKimi": { "message": "Kimi" }, "providerDoubao": { "message": "豆包" }, "providerQwen": { "message": "通义千问" }, "providerYuanbao": { "message": "腾讯元宝" }, "providerPerplexity": { "message": "Perplexity" }, "providerGrok": { "message": "Grok" }, "providerWenxin": { "message": "文心一言" }, "providerZhipu": { "message": "智谱清言" }, "providerGeneric": { "message": "通用网页" }
+}

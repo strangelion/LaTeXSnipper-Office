@@ -143,8 +143,25 @@ export class PowerPointFormulaAdapter implements OfficeFormulaHostAdapter {
         replacement.name = `LSN_${payload.formulaId}`;
         replacement.altTextTitle = "LaTeXSnipper Formula";
         replacement.altTextDescription = encodeFormulaMetadata(payload);
-        oldShape.delete();
+        replacement.load("name,altTextDescription,left,top,width,height");
         await context.sync();
+        if (
+          replacement.name !== `LSN_${payload.formulaId}` ||
+          String(replacement.altTextDescription ?? "") !==
+            encodeFormulaMetadata(payload)
+        ) {
+          replacement.delete();
+          await context.sync();
+          throw new Error("Candidate formula metadata readback failed.");
+        }
+        try {
+          oldShape.delete();
+          await context.sync();
+        } catch (deleteError) {
+          replacement.delete();
+          await context.sync();
+          throw deleteError;
+        }
       });
       return { ok: true, data: payload };
     } catch (error) {

@@ -70,6 +70,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoDeleteResult), "DELETE_RESULT")]
 [JsonDerivedType(typeof(VstoConvertResult), "CONVERT_RESULT")]
 [JsonDerivedType(typeof(VstoInsertTableResult), "INSERT_TABLE_RESULT")]
+[JsonDerivedType(typeof(VstoConversationImportResult), "CONVERSATION_IMPORT_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -130,6 +131,9 @@ public class VstoOpenEditor : VstoMessage
     [JsonPropertyName("action")] public string Action { get; set; } = "insert";
     [JsonPropertyName("display")] public string? Display { get; set; }
     [JsonPropertyName("omml")] public string? Omml { get; set; }
+    [JsonPropertyName("latex")] public string? Latex { get; set; }
+    [JsonPropertyName("formulaId")] public string? FormulaId { get; set; }
+    [JsonPropertyName("revision")] public int? Revision { get; set; }
     [JsonPropertyName("sourceHost")] public string? SourceHost { get; set; }
 }
 public class VstoFocusOcr : VstoMessage { }
@@ -215,6 +219,14 @@ public class VstoInsertTableResult : VstoMessage
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
+public class VstoConversationImportResult : VstoMessage
+{
+    [JsonPropertyName("importId")] public string ImportId { get; set; } = "";
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("errorCode")] public string? ErrorCode { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
+}
+
 public class VstoHostError : VstoMessage
 {
     [JsonPropertyName("error")] public string Error { get; set; } = "";
@@ -232,6 +244,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopInsertFormula), "INSERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopReplaceFormula), "REPLACE_FORMULA")]
 [JsonDerivedType(typeof(DesktopInsertTable), "INSERT_TABLE")]
+[JsonDerivedType(typeof(DesktopImportConversation), "IMPORT_CONVERSATION")]
 [JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
 [JsonDerivedType(typeof(DesktopRequestReadTable), "REQUEST_READ_TABLE")]
 [JsonDerivedType(typeof(DesktopDeleteCurrent), "DELETE_CURRENT")]
@@ -277,6 +290,32 @@ public class DesktopReplaceFormula : DesktopDocumentCommand
 public class DesktopInsertTable : DesktopDocumentCommand
 {
     [JsonPropertyName("table")] public TablePayload Table { get; set; } = new();
+}
+
+public class DesktopImportConversation : DesktopDocumentCommand
+{
+    [JsonPropertyName("plan")] public WordImportPlan Plan { get; set; } = new();
+}
+
+public class WordImportPlan
+{
+    [JsonPropertyName("planId")] public string PlanId { get; set; } = "";
+    [JsonPropertyName("importId")] public string ImportId { get; set; } = "";
+    [JsonPropertyName("operations")] public List<WordImportOperation> Operations { get; set; } = new();
+    [JsonPropertyName("canCommit")] public bool CanCommit { get; set; }
+    [JsonPropertyName("checksum")] public string Checksum { get; set; } = "";
+}
+
+public class WordImportOperation
+{
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "";
+    [JsonPropertyName("text")] public string? Text { get; set; }
+    [JsonPropertyName("level")] public uint? Level { get; set; }
+    [JsonPropertyName("ordered")] public bool? Ordered { get; set; }
+    [JsonPropertyName("rows")] public List<List<string>>? Rows { get; set; }
+    [JsonPropertyName("omml")] public string? Omml { get; set; }
+    [JsonPropertyName("display")] public bool? Display { get; set; }
+    [JsonPropertyName("style")] public string? Style { get; set; }
 }
 
 public class DesktopDeleteCurrent : DesktopDocumentCommand

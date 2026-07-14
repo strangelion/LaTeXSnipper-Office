@@ -132,8 +132,25 @@ export class ExcelFormulaAdapter implements OfficeFormulaHostAdapter {
         replacement.height = oldShape.height;
         replacement.lockAspectRatio = true;
         replacement.placement = "OneCell";
-        oldShape.delete();
+        replacement.load("name,altTextDescription,left,top,width,height");
         await context.sync();
+        if (
+          replacement.name !== `LSN_${payload.formulaId}` ||
+          String(replacement.altTextDescription ?? "") !==
+            encodeFormulaMetadata(payload)
+        ) {
+          replacement.delete();
+          await context.sync();
+          throw new Error("Candidate formula metadata readback failed.");
+        }
+        try {
+          oldShape.delete();
+          await context.sync();
+        } catch (deleteError) {
+          replacement.delete();
+          await context.sync();
+          throw deleteError;
+        }
       });
       return { ok: true, data: payload };
     } catch (error) {

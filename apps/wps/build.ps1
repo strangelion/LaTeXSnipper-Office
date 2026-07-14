@@ -27,6 +27,9 @@ $manifestPath = Join-Path $ScriptDir "manifest.xml"
 $manifest = Get-Content $manifestPath -Raw
 $manifest = $manifest -replace '<Version>.*?</Version>', "<Version>$Version</Version>"
 Set-Content -Path (Join-Path $DistDir "manifest.xml") -Value $manifest -NoNewline
+$manifestJson = Get-Content (Join-Path $ScriptDir "manifest.json") -Raw | ConvertFrom-Json
+$manifestJson.version = $Version
+$manifestJson | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $DistDir "manifest.json")
 
 # Copy plugin files
 Write-Host "`nCopying plugin files..." -ForegroundColor Cyan
@@ -34,11 +37,7 @@ Write-Host "`nCopying plugin files..." -ForegroundColor Cyan
 $files = @(
     "index.html",
     "main.js",
-    "manifest.json",
-    "ribbon.xml",
-    "package.json",
-    "proxy.js",
-    "server.js"
+    "ribbon.xml"
 )
 
 foreach ($file in $files) {
@@ -46,11 +45,12 @@ foreach ($file in $files) {
     Write-Host "  $file" -ForegroundColor Gray
 }
 Write-Host "  manifest.xml" -ForegroundColor Gray
+Write-Host "  manifest.json" -ForegroundColor Gray
 
 # Subdirectories
 $subdirs = @(
-    @{Src="js"; Files=@("command-layer.js", "ribbon.js", "util.js")},
-    @{Src="ui"; Files=@("taskpane.html")},
+    @{Src="js"; Files=@("command-layer.js", "ribbon.js", "util.js", "host-detect.js", "bridge-client.js", "adapters.js")},
+    @{Src="ui"; Files=@("taskpane.html", "taskpane.js")},
     @{Src="images"; Files=(Get-ChildItem (Join-Path $ScriptDir "images") -Filter "*.svg" | Select-Object -ExpandProperty Name)}
 )
 
@@ -63,16 +63,6 @@ foreach ($dir in $subdirs) {
             Copy-Item $src (Join-Path $dstDir $file) -Force
             Write-Host "  $($dir.Src)/$file" -ForegroundColor Gray
         }
-    }
-}
-
-# Copy installer scripts (install.bat, uninstall.bat)
-$installerFiles = @("install.bat", "uninstall.bat")
-foreach ($file in $installerFiles) {
-    $src = Join-Path (Join-Path $ScriptDir "installer") $file
-    if (Test-Path $src) {
-        Copy-Item $src (Join-Path $DistDir $file) -Force
-        Write-Host "  installer/$file" -ForegroundColor Gray
     }
 }
 

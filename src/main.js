@@ -2,6 +2,11 @@
 
 import { t, applyTranslations, setLocale, getResolvedLocale } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
+import {
+  FORMULA_INSERT_MODES,
+  normalizeOfficeInsertMode,
+  officeInsertModeIsDisplay,
+} from "./services/office-insert-mode.js";
 
 // ═══════════════════════════════════════════
 // Logging System
@@ -31,6 +36,17 @@ const Logger = {
 };
 
 Logger.info("Application starting...");
+
+function selectedFormulaInsertMode() {
+  const selected = document.querySelector(
+    'input[name="formulaInsertMode"]:checked',
+  );
+  return normalizeOfficeInsertMode(selected?.value);
+}
+
+function matchesOfficeEditAction(action) {
+  return action === "insert" || action === "edit";
+}
 
 // ═══════════════════════════════════════════
 // MathLive Chinese Translation
@@ -332,7 +348,7 @@ class FormulaEditor {
       return;
     }
 
-    const display = document.getElementById("displayMode")?.checked || false;
+    const display = officeInsertModeIsDisplay(selectedFormulaInsertMode());
     Logger.debug(`updatePreview: display=${display}`);
 
     if (!this.renderer.loaded) {
@@ -1709,6 +1725,7 @@ class UIController {
     this.settingsManager = new SettingsManager();
     this.formulaSvgRenderer = new FormulaSvgRenderer();
     this.platformOperations = new Set();
+    this._pendingOfficeEditorRequest = null;
 
     this.initCustomSelects();
     this.initEventListeners();
@@ -1724,6 +1741,182 @@ class UIController {
     this.initHistoryDb();
 
     Logger.info("UIController ready");
+  }
+
+  getFormulaInsertMode() {
+    return selectedFormulaInsertMode();
+  }
+
+  setFormulaInsertMode(value) {
+    const mode = normalizeOfficeInsertMode(value);
+    const input = document.querySelector(
+      `input[name="formulaInsertMode"][value="${mode}"]`,
+    );
+    if (input) input.checked = true;
+    this.updateFormulaInsertModeUi(mode);
+    return mode;
+  }
+
+  updateFormulaInsertModeUi(value = this.getFormulaInsertMode()) {
+    const mode = normalizeOfficeInsertMode(value);
+    const numbering = document.getElementById("numberingOptions");
+    if (numbering) numbering.hidden = mode !== FORMULA_INSERT_MODES.NUMBERED;
+
+    const context = document.getElementById("officeRequestContext");
+    if (!context) return;
+    const request = this._pendingOfficeEditorRequest;
+    if (!request) {
+      context.hidden = true;
+      context.textContent = "";
+      return;
+    }
+    const host = request.sourceHost === "word" ? "Word" : request.sourceHost;
+    const modeLabel = {
+      inline: "行内公式",
+      display: "行间公式",
+      numbered: "编号公式",
+    }[mode];
+    context.textContent = `目标：${host || "Office"} — ${modeLabel}`;
+    context.hidden = false;
+  }
+
+  clearPendingOfficeEditorRequest() {
+    this._pendingOfficeEditorRequest = null;
+    this.updateFormulaInsertModeUi();
+  }
+
+  officeNumberingOptions(mode) {
+    if (normalizeOfficeInsertMode(mode) !== FORMULA_INSERT_MODES.NUMBERED) {
+      return null;
+    }
+    return {
+      scheme: "global",
+      chapterLevel: null,
+      separator: null,
+      label: null,
+    };
+  }
+
+  officeHostKind(hostType) {
+    if (hostType === "excel") return "excel";
+    if (hostType === "powerpoint") return "powerPoint";
+    return "word";
+  }
+
+  async ensureOfficeEditTransaction(invoke, session, mode, latex) {
+    const requestedMode = normalizeOfficeInsertMode(mode);
+    const pending = this._pendingOfficeEditorRequest;
+    if (pending?.transactionId) {
+      const transaction = await invoke("update_office_edit_draft", {
+        request: {
+          transactionId: pending.transactionId,
+          draftLatex: latex,
+          requestedMode,
+          numbering: this.officeNumberingOptions(requestedMode),
+        },
+      });
+      Object.assign(pending, {
+        requestedMode: transaction.requestedMode,
+        formulaId: transaction.formulaId,
+      });
+      return transaction;
+    }
+
+    const transaction = await invoke("begin_office_edit_transaction", {
+      request: {
+        integration: "nativeOffice",
+        host: this.officeHostKind(session.host_type),
+        sourceSessionId: session.session_id,
+        sourceDocumentId: session.document_id || null,
+        sourceObjectId: pending?.formulaId || null,
+        formulaId: pending?.formulaId || null,
+        action: pending?.action === "edit" ? "update" : "insert",
+        requestedMode,
+        numbering: this.officeNumberingOptions(requestedMode),
+        originalRevision: pending?.revision ?? null,
+        originalMetadata: null,
+        draftLatex: latex,
+      },
+    });
+    this._pendingOfficeEditorRequest = {
+      ...(pending || {}),
+      sessionId: session.session_id,
+      sourceHost: session.host_type,
+      action: pending?.action || "insert",
+      transactionId: transaction.transactionId,
+      requestedMode: transaction.requestedMode,
+      formulaId: transaction.formulaId,
+      receivedAt: pending?.receivedAt || Date.now(),
+    };
+    this.updateFormulaInsertModeUi(transaction.requestedMode);
+    return transaction;
+  }
+
+  async prepareOfficeEditTransaction(invoke, transaction, mode, latex) {
+    const prepared = await invoke("prepare_office_edit_commit", {
+      request: {
+        transactionId: transaction.transactionId,
+        draftLatex: latex,
+        requestedMode: normalizeOfficeInsertMode(mode),
+        numbering: this.officeNumberingOptions(mode),
+        renderedAsset: null,
+      },
+    });
+    await invoke("mark_office_edit_committing", {
+      transactionId: prepared.transactionId,
+    });
+    return prepared;
+  }
+
+  async completeOfficeEditTransaction(success, errorCode, message) {
+    const pending = this._pendingOfficeEditorRequest;
+    if (!pending?.transactionId) return;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("complete_office_edit_transaction", {
+        request: {
+          transactionId: pending.transactionId,
+          success,
+          error: success
+            ? null
+            : {
+                errorCode: errorCode || "HOST_COMMIT_FAILED",
+                operation: pending.action || "insert",
+                host: pending.sourceHost || "office",
+                message: message || "Office host commit failed",
+              },
+        },
+      });
+    } catch (transactionError) {
+      Logger.error("Office transaction completion failed:", transactionError);
+    }
+  }
+
+  async restoreRecoverableOfficeTransaction() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const transactions = await invoke("list_recoverable_office_transactions");
+      const transaction = transactions?.[0];
+      if (!transaction) return;
+      this._pendingOfficeEditorRequest = {
+        transactionId: transaction.transactionId,
+        sessionId: transaction.sourceSessionId,
+        sourceHost: transaction.host,
+        action: transaction.action === "update" ? "edit" : "insert",
+        requestedMode: transaction.requestedMode,
+        formulaId: transaction.formulaId,
+        revision: transaction.originalRevision,
+        receivedAt: transaction.updatedAtMs,
+      };
+      this.setFormulaInsertMode(transaction.requestedMode);
+      if (transaction.draftLatex) this.editor.setLatex(transaction.draftLatex);
+      Logger.info(
+        `[OfficeTransaction] recovered ${transaction.transactionId} state=${transaction.state}`,
+      );
+      this.showToast("已恢复未完成的 Office 公式编辑");
+    } catch (error) {
+      Logger.warn("Recoverable Office transaction lookup failed:", error);
+    }
   }
 
   initCustomSelects() {
@@ -1942,14 +2135,37 @@ class UIController {
       document.getElementById("fontColor")?.click();
     });
 
-    document.getElementById("displayMode")?.addEventListener("change", (e) => {
-      const display = e.target.checked;
-      Logger.info(`displayMode: ${display}`);
-      const latex = this.editor.getLatex();
-      if (latex) {
-        this.editor.updatePreview(latex);
-      }
-    });
+    document
+      .querySelectorAll('input[name="formulaInsertMode"]')
+      .forEach((input) => {
+        input.addEventListener("change", async (event) => {
+          if (!event.target.checked) return;
+          const mode = normalizeOfficeInsertMode(event.target.value);
+          if (this._pendingOfficeEditorRequest) {
+            this._pendingOfficeEditorRequest.requestedMode = mode;
+            if (this._pendingOfficeEditorRequest.transactionId) {
+              try {
+                const { invoke } = await import("@tauri-apps/api/core");
+                await invoke("update_office_edit_draft", {
+                  request: {
+                    transactionId:
+                      this._pendingOfficeEditorRequest.transactionId,
+                    draftLatex: this.editor.getLatex() || "",
+                    requestedMode: mode,
+                    numbering: this.officeNumberingOptions(mode),
+                  },
+                });
+              } catch (error) {
+                Logger.error("Office transaction mode update failed:", error);
+              }
+            }
+          }
+          this.updateFormulaInsertModeUi(mode);
+          Logger.info(`formulaInsertMode: ${mode}`);
+          const latex = this.editor.getLatex();
+          if (latex) this.editor.updatePreview(latex);
+        });
+      });
 
     document.getElementById("latexSource")?.addEventListener("input", (e) => {
       let latex = e.target.value;
@@ -2426,6 +2642,7 @@ class UIController {
 
     // Listen for session changes
     this.initNativeOfficeEvents();
+    void this.restoreRecoverableOfficeTransaction();
 
     // Initial selector update
     this.updateOfficeHostSelector();
@@ -2434,6 +2651,7 @@ class UIController {
     window.insertFormula = async () => {
       const latex = this.editor?.getLatex();
       if (!latex) return;
+      let officeTransaction = null;
       try {
         const { invoke } = await import("@tauri-apps/api/core");
 
@@ -2470,10 +2688,25 @@ class UIController {
         const shouldRenderPreview =
           !isWord || integrationMode === "ole" || integrationMode === "image";
 
-        // Render SVG for OLE/image previews. Word native mode uses OMML directly.
-        const isDisplayFormula =
-          document.getElementById("displayMode")?.checked === true;
+        const mode = normalizeOfficeInsertMode(
+          this._pendingOfficeEditorRequest?.requestedMode ??
+            this.getFormulaInsertMode(),
+        );
+        if (mode === FORMULA_INSERT_MODES.NUMBERED && !isWord) {
+          this.showToast(
+            "UNSUPPORTED_MODE：当前 Office 宿主不支持编号公式，请选择行内或行间模式。",
+          );
+          return;
+        }
+        const isDisplayFormula = officeInsertModeIsDisplay(mode);
+        officeTransaction = await this.ensureOfficeEditTransaction(
+          invoke,
+          session,
+          mode,
+          latex,
+        );
 
+        // Render SVG for OLE/image previews. Word native mode uses OMML directly.
         let svg = null;
         let widthPt = 0;
         let heightPt = 0;
@@ -2507,24 +2740,58 @@ class UIController {
         }
 
         console.log(
-          `[Insert] Sending to session ${sessionId} (${session.host_type}) display=${isDisplayFormula ? "block" : "inline"}`,
+          `[Insert] Sending to session ${sessionId} (${session.host_type}) mode=${mode}`,
         );
-        await invoke("native_office_insert_formula", {
-          sessionId: sessionId,
-          formulaId: crypto.randomUUID(),
-          latex: latex,
-          omml: omml,
-          display: isDisplayFormula ? "block" : "inline",
-          mode: isDisplayFormula ? "display" : "inline",
-          svg: shouldRenderPreview ? svg : null,
-          png: pngBase64,
-          widthPt: widthPt,
-          heightPt: heightPt,
-          integrationMode: integrationMode,
-        });
+        const formulaId = officeTransaction.formulaId;
+        if (this._pendingOfficeEditorRequest) {
+          this._pendingOfficeEditorRequest.requestedMode = mode;
+          this._pendingOfficeEditorRequest.formulaId = formulaId;
+        }
+        await this.prepareOfficeEditTransaction(
+          invoke,
+          officeTransaction,
+          mode,
+          latex,
+        );
+        if (this._pendingOfficeEditorRequest?.action === "edit") {
+          await invoke("native_office_replace_formula", {
+            sessionId: sessionId,
+            formulaId: formulaId,
+            latex: latex,
+            omml: omml,
+            display: mode,
+            svg: shouldRenderPreview ? svg : null,
+            png: pngBase64,
+            widthPt: widthPt,
+            heightPt: heightPt,
+            storageMode: integrationMode,
+            expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
+          });
+        } else {
+          await invoke("native_office_insert_formula", {
+            sessionId: sessionId,
+            formulaId: formulaId,
+            latex: latex,
+            omml: omml,
+            display: isDisplayFormula ? "block" : "inline",
+            mode: mode,
+            svg: shouldRenderPreview ? svg : null,
+            png: pngBase64,
+            widthPt: widthPt,
+            heightPt: heightPt,
+            integrationMode: integrationMode,
+          });
+        }
         this.showToast("正在发送到 Office，等待确认...");
         this.addHistoryItem(latex);
       } catch (e) {
+        if (officeTransaction) {
+          await this.completeOfficeEditTransaction(
+            false,
+            "DESKTOP_DISPATCH_FAILED",
+            e?.message || String(e),
+          );
+        }
         this.showToast("发送失败: " + e.message);
       }
     };
@@ -2596,13 +2863,12 @@ class UIController {
           response.diagnostic = error?.message || String(error);
         }
         try {
-          await fetch("http://127.0.0.1:19877/api/office/render-result", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(response),
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("submit_office_render_asset_result", {
+            result: response,
           });
         } catch (error) {
-          Logger.warn("Office.js render result callback failed:", error);
+          Logger.warn("Office render result internal callback failed:", error);
         }
       });
 
@@ -2676,14 +2942,28 @@ class UIController {
           Logger.info(
             `Native Office: formula inserted (id=${formulaId}, requested=${requestedStorageMode}, actual=${actualStorageMode}, fallback=${fallbackReason || "none"})`,
           );
+          await this.completeOfficeEditTransaction(true, null, null);
           this.showToast(
             fallbackReason
               ? `公式已通过兼容图像插入：${fallbackReason}`
               : "公式插入成功",
           );
+          const pending = this._pendingOfficeEditorRequest;
+          if (
+            pending &&
+            pending.sessionId === sessionId &&
+            (!pending.formulaId || pending.formulaId === formulaId)
+          ) {
+            this.clearPendingOfficeEditorRequest();
+          }
         } else {
           Logger.error(
             `Native Office: insert failed code=${errorCode || "UNKNOWN"} session=${sessionId} detail=${error || "none"}`,
+          );
+          await this.completeOfficeEditTransaction(
+            false,
+            errorCode || "HOST_COMMIT_FAILED",
+            error || "Office host commit failed",
           );
           const messages = {
             OLE_NOT_REGISTERED:
@@ -2709,6 +2989,33 @@ class UIController {
         }
       });
 
+      listen("native-office-replace-result", async (event) => {
+        const { success, error, sessionId } = event.payload;
+        const pending = this._pendingOfficeEditorRequest;
+        if (
+          !pending ||
+          pending.sessionId !== sessionId ||
+          pending.action !== "edit"
+        ) {
+          Logger.warn(
+            `Ignoring unmatched Native Office replacement ACK for session=${sessionId}`,
+          );
+          return;
+        }
+        if (success) {
+          await this.completeOfficeEditTransaction(true, null, null);
+          this.showToast("公式已更新");
+          this.clearPendingOfficeEditorRequest();
+          return;
+        }
+        await this.completeOfficeEditTransaction(
+          false,
+          "HOST_REPLACE_FAILED",
+          error || "Office host replacement failed",
+        );
+        this.showToast(`公式更新失败：${error || "宿主提交未完成"}`);
+      });
+
       // Office error
       listen("native-office-error", async (event) => {
         const { error, errorCode, sessionId } = event.payload;
@@ -2718,7 +3025,15 @@ class UIController {
 
       // Open editor requested from Office
       listen("native-office-open-editor", async (event) => {
-        const { sessionId, action, display, omml, sourceHost } = event.payload;
+        const {
+          sessionId,
+          action,
+          display,
+          omml,
+          latex: sourceLatex,
+          sourceHost,
+          transaction,
+        } = event.payload;
         Logger.info(
           `Native Office: open editor requested from ${sessionId} action=${action}`,
         );
@@ -2753,24 +3068,34 @@ class UIController {
         await win.setFocus();
 
         // If action=edit and omml is provided, load formula into editor
-        if (action === "edit" && omml) {
+        if (action === "edit" && (sourceLatex || omml)) {
           try {
             // ommlToLatex is a module-level function in this file
             const latex =
-              typeof ommlToLatex === "function" ? ommlToLatex(omml) : omml;
+              sourceLatex ||
+              (typeof ommlToLatex === "function" ? ommlToLatex(omml) : omml);
             this.editor.setLatex(latex);
           } catch (e) {
             Logger.error("Failed to load OMML into editor:", e);
           }
         }
 
-        // Track display mode for insert
-        if (action === "insert" && display) {
-          const modeSelect = document.getElementById("displayMode");
-          if (modeSelect) {
-            modeSelect.checked =
-              display === "display" || display === "displayNumbered";
-          }
+        // The Rust transaction is authoritative; this object is only a UI mirror.
+        if (matchesOfficeEditAction(action) && transaction) {
+          const requestedMode = normalizeOfficeInsertMode(
+            transaction.requestedMode || display,
+          );
+          this._pendingOfficeEditorRequest = {
+            sessionId,
+            sourceHost: String(sourceHost || "").toLowerCase(),
+            action,
+            requestedMode,
+            receivedAt: transaction.updatedAtMs || Date.now(),
+            formulaId: transaction.formulaId,
+            revision: transaction.originalRevision,
+            transactionId: transaction.transactionId,
+          };
+          this.setFormulaInsertMode(requestedMode);
         }
       });
 
@@ -4300,8 +4625,9 @@ class UIController {
         const result = await this._renderLatexSvg(latex, false);
         textToCopy = result.svg || latex;
       } else if (format === "md") {
-        const isDisplay =
-          document.getElementById("displayMode")?.checked || false;
+        const isDisplay = officeInsertModeIsDisplay(
+          this.getFormulaInsertMode(),
+        );
         textToCopy = isDisplay ? `$$\n${latex}\n$$` : `$${latex}$`;
       }
 
@@ -4349,10 +4675,14 @@ class UIController {
       return;
     }
 
+    let officeTransaction = null;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const isDisplay =
-        document.getElementById("displayMode")?.checked || false;
+      const mode = normalizeOfficeInsertMode(
+        this._pendingOfficeEditorRequest?.requestedMode ??
+          this.getFormulaInsertMode(),
+      );
+      const isDisplay = officeInsertModeIsDisplay(mode);
 
       // Refresh sessions before insert to avoid selecting stale entries
       await this.updateOfficeHostSelector();
@@ -4369,6 +4699,21 @@ class UIController {
         this.showToast("所选会话不存在");
         return;
       }
+      if (
+        mode === FORMULA_INSERT_MODES.NUMBERED &&
+        session.host_type !== "word"
+      ) {
+        this.showToast(
+          "UNSUPPORTED_MODE：当前 Office 宿主不支持编号公式，请选择行内或行间模式。",
+        );
+        return;
+      }
+      officeTransaction = await this.ensureOfficeEditTransaction(
+        invoke,
+        session,
+        mode,
+        latex,
+      );
 
       console.log("[Insert] Converting LaTeX to OMML...");
       const omml = await invoke("latex_to_omml", { latex });
@@ -4415,23 +4760,52 @@ class UIController {
         }
       }
 
-      await invoke("native_office_insert_formula", {
-        sessionId: sessionId,
-        formulaId: crypto.randomUUID(),
-        latex: latex,
-        omml: omml,
-        display: isDisplay ? "block" : "inline",
-        mode: isDisplay ? "display" : "inline",
-        svg: shouldRenderPreview ? svg : null,
-        png: pngBase64,
-        widthPt: widthPt,
-        heightPt: heightPt,
-        integrationMode: integrationMode,
-      });
+      await this.prepareOfficeEditTransaction(
+        invoke,
+        officeTransaction,
+        mode,
+        latex,
+      );
+      if (this._pendingOfficeEditorRequest?.action === "edit") {
+        await invoke("native_office_replace_formula", {
+          sessionId,
+          formulaId: officeTransaction.formulaId,
+          latex,
+          omml,
+          display: mode,
+          svg: shouldRenderPreview ? svg : null,
+          png: pngBase64,
+          widthPt,
+          heightPt,
+          storageMode: integrationMode,
+          expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
+        });
+      } else {
+        await invoke("native_office_insert_formula", {
+          sessionId: sessionId,
+          formulaId: officeTransaction.formulaId,
+          latex: latex,
+          omml: omml,
+          display: isDisplay ? "block" : "inline",
+          mode,
+          svg: shouldRenderPreview ? svg : null,
+          png: pngBase64,
+          widthPt: widthPt,
+          heightPt: heightPt,
+          integrationMode: integrationMode,
+        });
+      }
       console.log("[Insert] Success");
       this.addHistoryItem(latex);
       // The INSERT_RESULT event handler will show the actual success/failure toast.
     } catch (error) {
+      if (officeTransaction) {
+        await this.completeOfficeEditTransaction(
+          false,
+          "DESKTOP_DISPATCH_FAILED",
+          error?.message || String(error),
+        );
+      }
       this.showToast(`插入失败: ${error.message || error}`);
     }
   }
@@ -4477,7 +4851,7 @@ class UIController {
   }
 
   async _saveOleEditOnly(latex) {
-    const isDisplay = document.getElementById("displayMode")?.checked || false;
+    const isDisplay = officeInsertModeIsDisplay(this.getFormulaInsertMode());
     const sessionToken = this._oleSessionToken;
     if (!sessionToken) {
       this.showToast("No active OLE session");
@@ -4586,33 +4960,25 @@ class UIController {
       return;
     }
 
-    const display = document.getElementById("displayMode")?.checked || false;
+    const display = officeInsertModeIsDisplay(this.getFormulaInsertMode());
 
     try {
-      const res = await fetch(
-        "http://127.0.0.1:19877/api/ecosystem/actions/push",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            target,
-            action: {
-              type: "InsertFormula",
-              latex,
-              display,
-              format: "markdown",
-            },
-          }),
+      const { invoke } = await import("@tauri-apps/api/core");
+      const actionId = await invoke("push_ecosystem_action_internal", {
+        request: {
+          target,
+          action: {
+            type: "InsertFormula",
+            latex,
+            display,
+            format: "markdown",
+          },
         },
-      );
-
-      if (res.ok) {
-        this.showToast(`公式已发送到 ${target}，请在对应应用查看`);
-      } else {
-        this.showToast(`发送失败: ${res.status}`);
-      }
+      });
+      Logger.info(`Ecosystem action queued: ${actionId}`);
+      this.showToast(`公式已发送到 ${target}，请在对应应用查看`);
     } catch (e) {
-      this.showToast(`桥接服务未运行: ${e.message}`);
+      this.showToast(`发送失败: ${e.message || e}`);
     }
   }
 
@@ -5297,41 +5663,33 @@ class UIController {
       // Check ecosystem client status for VS Code, Obsidian, Browser
       const ecosystemTargets = ["vscode", "obsidian", "browser"];
       try {
-        const res = await fetch(
-          "http://127.0.0.1:19877/api/ecosystem/clients",
-          {
-            signal: AbortSignal.timeout(3000),
-          },
-        );
-        if (res.ok) {
-          const data = await res.json();
-          const clients = data.clients || [];
-          for (const id of ecosystemTargets) {
-            const p = this.platforms.find((pl) => pl.id === id);
-            if (p && p.enabled) {
-              const client = clients.find(
-                (c) =>
-                  c.clientType === id ||
-                  (c.clientId && c.clientId.startsWith(id)),
-              );
-              if (client) {
-                const lastSeen = new Date(client.lastSeen).getTime();
-                const now = Date.now();
-                const connected = now - lastSeen < 30000; // 30s heartbeat threshold
-                p.desc = connected
-                  ? `已连接 (${client.clientName || id})`
-                  : "未连接";
-              } else {
-                p.desc = "等待插件连接...";
-              }
+        const { invoke } = await import("@tauri-apps/api/core");
+        const clients = await invoke("list_ecosystem_clients_internal");
+        for (const id of ecosystemTargets) {
+          const p = this.platforms.find((pl) => pl.id === id);
+          if (p && p.enabled) {
+            const client = clients.find(
+              (c) =>
+                c.clientType === id ||
+                (c.clientId && c.clientId.startsWith(id)),
+            );
+            if (client) {
+              const lastSeen = new Date(client.lastSeen).getTime();
+              const now = Date.now();
+              const connected = now - lastSeen < 30000;
+              p.desc = connected
+                ? `已连接 (${client.clientName || id})`
+                : "未连接";
+            } else {
+              p.desc = "等待插件连接...";
             }
           }
         }
-      } catch {
-        // Bridge not available — show "离线" for ecosystem platforms
+      } catch (error) {
+        Logger.warn("Internal ecosystem status command failed:", error);
         for (const id of ecosystemTargets) {
           const p = this.platforms.find((pl) => pl.id === id);
-          if (p) p.desc = "桌面端未运行";
+          if (p) p.desc = "内部状态读取失败";
         }
       }
     }
@@ -5607,18 +5965,16 @@ class UIController {
 
   async refreshEcosystemClients() {
     try {
-      const resp = await fetch("http://127.0.0.1:19877/api/ecosystem/clients", {
-        signal: AbortSignal.timeout(3000),
-      });
-      const data = await resp.json();
+      const { invoke } = await import("@tauri-apps/api/core");
+      const clients = await invoke("list_ecosystem_clients_internal");
       const listEl = document.getElementById("ecosystemClientList");
       if (!listEl) return;
-      if (!data.ok || !data.clients || data.clients.length === 0) {
+      if (!clients || clients.length === 0) {
         listEl.innerHTML =
           '<span style="color:var(--muted);">暂无已连接客户端</span>';
         return;
       }
-      listEl.innerHTML = data.clients
+      listEl.innerHTML = clients
         .map((c) => {
           const lastSeen = new Date(c.lastSeen).toLocaleString("zh-CN");
           const svgIcon =
@@ -5643,11 +5999,10 @@ class UIController {
         })
         .join("");
     } catch (e) {
-      Logger.warn("Failed to fetch ecosystem clients:", e);
+      Logger.warn("Failed to list ecosystem clients internally:", e);
       const listEl = document.getElementById("ecosystemClientList");
       if (listEl)
-        listEl.innerHTML =
-          '<span style="color:var(--error);">无法连接 Bridge 服务</span>';
+        listEl.textContent = `内部客户端状态读取失败：${e?.message || e}`;
     }
   }
 
@@ -5715,19 +6070,13 @@ class UIController {
   async connectBridge() {
     Logger.info("Connecting to LaTeXSnipper Bridge...");
     try {
-      const response = await fetch("/bridge/config", {
-        signal: AbortSignal.timeout(3000),
-      });
-      const data = await response.json();
-      const result = data.result || data;
-      this.bridgeConfig = {
-        url: result.bridge_url || result.baseUrl || "http://127.0.0.1:19877",
-        token: result.token,
-      };
+      const { invoke } = await import("@tauri-apps/api/core");
+      const diagnostics = await invoke("get_bridge_runtime_diagnostics");
+      this.bridgeConfig = diagnostics;
       Logger.info(
-        `Bridge connected, token: ${this.bridgeConfig.token?.substring(0, 10)}...`,
+        `Bridge runtime: http=${diagnostics.httpListening}, https=${diagnostics.httpsListening}`,
       );
-      return true;
+      return diagnostics.httpListening || diagnostics.httpsListening;
     } catch (e) {
       Logger.warn("Bridge connection failed:", e.message);
       Logger.warn("Make sure LaTeXSnipper desktop app is running");
@@ -5746,38 +6095,11 @@ class UIController {
     }
 
     try {
-      await fetch("/bridge/recognize/screenshot/cancel", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.bridgeConfig.token}`,
-        },
-        body: "{}",
-      });
-      Logger.debug("Cancelled previous screenshot request");
-    } catch (e) {
-      Logger.debug("No previous request to cancel");
-    }
-
-    this.showStatus("已发起截图请求，请切换到桌面端操作截图");
-
-    try {
-      const response = await fetch("/bridge/recognize/screenshot", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.bridgeConfig.token}`,
-        },
-        body: JSON.stringify({ timeout: 120 }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.ok && data.result) {
-        this.ocrLatex = data.result.latex || "";
+      const { invoke } = await import("@tauri-apps/api/core");
+      const imageData = await invoke("screenshot_capture");
+      const result = await invoke("ocr_recognize", { imageData });
+      if (result) {
+        this.ocrLatex = result.latex || "";
         const ocrResult = document.getElementById("ocrResult");
         const ocrInsertBtn = document.getElementById("ocrInsertBtn");
         const ocrCopyBtn = document.getElementById("ocrCopyBtn");
@@ -5789,7 +6111,7 @@ class UIController {
         this.showStatus(this.ocrLatex ? "识别完成" : "未识别到公式");
         Logger.info(`OCR result: ${this.ocrLatex}`);
       } else {
-        const errMsg = data.error?.message || "识别失败";
+        const errMsg = "识别失败";
         this.showStatus(errMsg);
         Logger.error("OCR failed:", errMsg);
       }
@@ -5824,10 +6146,7 @@ class UIController {
       bridgeInput.value = settings.bridgeUrl;
     }
 
-    const displayMode = document.getElementById("displayMode");
-    if (displayMode) {
-      displayMode.checked = settings.displayMode === "display";
-    }
+    this.setFormulaInsertMode(settings.displayMode);
 
     const officeToggle = document.getElementById("officeEnabledToggle");
     if (officeToggle) {
@@ -5843,11 +6162,254 @@ class UIController {
 }
 
 // ═══════════════════════════════════════════
+async function setupBrowserImportInbox(controller) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const { listen } = await import("@tauri-apps/api/event");
+  const modal = document.getElementById("browserImportsModal");
+  const list = document.getElementById("browserImportsList");
+  const preview = document.getElementById("browserImportPreview");
+  const badge = document.getElementById("browserImportsBadge");
+  const button = document.getElementById("browserImportsButton");
+  let records = [];
+
+  const node = (tag, text, className) => {
+    const element = document.createElement(tag);
+    if (text !== undefined) element.textContent = text;
+    if (className) element.className = className;
+    return element;
+  };
+
+  async function refresh() {
+    records = await invoke("list_browser_imports");
+    const pending = records.filter(
+      (record) =>
+        !["completed", "cancelled", "expired"].includes(record.status),
+    );
+    badge.textContent = String(pending.length);
+    list.replaceChildren();
+    for (const record of [...records].reverse()) {
+      const item = node("button", undefined, "browser-import-item");
+      item.type = "button";
+      item.append(
+        node("strong", record.document.sourceTitle || record.document.provider),
+        node(
+          "div",
+          `${record.sourceBrowser} · ${record.document.messages.length} messages`,
+        ),
+        node("small", record.status),
+      );
+      item.addEventListener("click", () => void showRecord(record));
+      list.append(item);
+    }
+  }
+
+  async function showRecord(record) {
+    preview.replaceChildren();
+    preview.append(
+      node("h3", record.document.sourceTitle || "Conversation import"),
+    );
+    preview.append(
+      node("p", `${record.document.provider} · ${record.document.sourceUrl}`),
+    );
+    if (record.document.truncated)
+      preview.append(
+        node(
+          "p",
+          "The provider DOM was truncated or virtualized; unloaded history is not included.",
+          "browser-import-warning",
+        ),
+      );
+    const checkboxes = [];
+    for (const message of record.document.messages) {
+      const card = node("label", undefined, "browser-import-message");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = record.selectedMessageIds.includes(message.id);
+      checkbox.value = message.id;
+      checkboxes.push(checkbox);
+      const blockCount = message.blocks.length;
+      card.append(
+        checkbox,
+        node("strong", ` ${message.sequence + 1}. ${message.role}`),
+        node("div", `${blockCount} structured blocks`),
+      );
+      preview.append(card);
+    }
+    const mode = document.createElement("select");
+    for (const value of [
+      "formulas-only",
+      "current-message",
+      "question-and-answer",
+      "selected-message-range",
+      "full-loaded-conversation",
+      "structured-notes",
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      option.selected = record.importMode === value;
+      mode.append(option);
+    }
+    const template = document.createElement("select");
+    for (const value of [
+      "clean-notes",
+      "conversation-transcript",
+      "compact-qa",
+      "academic-excerpt",
+      "formulas-only",
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      option.selected = record.template === value;
+      template.append(option);
+    }
+    const sessions = (await invoke("native_office_sessions")).filter(
+      (session) => session.host_type === "word" && session.document_id,
+    );
+    const destination = document.createElement("select");
+    destination.append(new Option("Select connected Native Word document", ""));
+    for (const session of sessions)
+      destination.append(
+        new Option(
+          session.document_title || session.document_id,
+          session.session_id,
+        ),
+      );
+    preview.append(
+      node("h4", "Import mode"),
+      mode,
+      node("h4", "Template"),
+      template,
+      node("h4", "Destination"),
+      destination,
+    );
+    const diagnostics = node("div");
+    const actions = node("div", undefined, "browser-import-actions");
+    const planButton = node("button", "Build trusted Word plan");
+    planButton.type = "button";
+    const commitButton = node("button", "Commit to Word");
+    commitButton.type = "button";
+    commitButton.disabled = true;
+    const cancelButton = node("button", "Cancel import");
+    cancelButton.type = "button";
+    actions.append(planButton, commitButton, cancelButton);
+    preview.append(diagnostics, actions);
+    let planned = false;
+    planButton.addEventListener("click", async () => {
+      const session = sessions.find(
+        (item) => item.session_id === destination.value,
+      );
+      if (!session) {
+        diagnostics.textContent =
+          "Select an exact Word document before planning.";
+        diagnostics.className = "browser-import-warning";
+        return;
+      }
+      const selected = checkboxes
+        .filter((item) => item.checked)
+        .map((item) => item.value);
+      await invoke("update_browser_import_preview", {
+        request: {
+          actionId: record.actionId,
+          selectedMessageIds: selected,
+          importMode: mode.value,
+          template: template.value,
+          formulaNumbering: "none",
+          destinationSessionId: session.session_id,
+          expectedDocumentId: session.document_id,
+        },
+      });
+      const plan = await invoke("build_browser_word_import_plan", {
+        actionId: record.actionId,
+      });
+      const formulas = plan.operations.filter(
+        (operation) => operation.kind === "formula",
+      ).length;
+      diagnostics.textContent = `${plan.operations.length} native Word operations · ${formulas} OMML formulas · ${plan.diagnostics.length} diagnostics`;
+      diagnostics.className = plan.canCommit
+        ? "browser-import-success"
+        : "browser-import-warning";
+      planned = plan.canCommit;
+      commitButton.disabled = !planned;
+    });
+    commitButton.addEventListener("click", async () => {
+      if (!planned) return;
+      commitButton.disabled = true;
+      diagnostics.textContent =
+        "Committing through the selected Native Word session…";
+      try {
+        await invoke("native_office_import_conversation", {
+          actionId: record.actionId,
+        });
+      } catch (error) {
+        diagnostics.textContent = String(error);
+        diagnostics.className = "browser-import-warning";
+        commitButton.disabled = false;
+      }
+    });
+    cancelButton.addEventListener("click", async () => {
+      await invoke("cancel_browser_import", { actionId: record.actionId });
+      await refresh();
+      preview.replaceChildren(
+        node("p", "Import cancelled. The document was not modified."),
+      );
+    });
+  }
+
+  button.addEventListener("click", async () => {
+    modal.hidden = false;
+    await refresh();
+  });
+  document
+    .getElementById("browserImportsClose")
+    .addEventListener("click", () => {
+      modal.hidden = true;
+    });
+  await listen("browser-import-received", async () => {
+    modal.hidden = false;
+    await refresh();
+  });
+  await listen("browser-formula-import-received", async (event) => {
+    const formula = event.payload?.payload?.formulas?.[0];
+    const latex = formula?.normalizedLatex || formula?.rawSource;
+    if (latex) {
+      controller.editor.setLatex(latex);
+      controller.switchSection("editor");
+      controller.showToast(
+        "Browser formula received. Review it and choose a destination before insertion.",
+      );
+    }
+  });
+  await listen("native-word-conversation-import-result", async (event) => {
+    const record = records.find(
+      (item) => item.document.importId === event.payload?.importId,
+    );
+    if (record)
+      await invoke("complete_browser_import", {
+        actionId: record.actionId,
+        success: !!event.payload.success,
+        errorCode: event.payload.errorCode || null,
+        error: event.payload.error || null,
+      });
+    await refresh();
+    controller.showToast(
+      event.payload?.success
+        ? "Conversation imported into Word."
+        : `Conversation import failed: ${event.payload?.errorCode || "unknown"}`,
+    );
+  });
+  await refresh();
+}
+
 // Initialize App
 // ═══════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
-  new UIController();
+  const controller = new UIController();
+  setupBrowserImportInbox(controller).catch((error) =>
+    Logger.error("Browser import inbox setup failed", error),
+  );
   Logger.info("App ready");
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
 

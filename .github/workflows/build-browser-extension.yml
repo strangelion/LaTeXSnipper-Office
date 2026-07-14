@@ -13,7 +13,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 defaults:
   run:
@@ -44,11 +44,7 @@ jobs:
         shell: bash
         working-directory: apps/browser-extension
         run: |
-          mkdir -p dist-chrome
-          cp dist/*.js dist-chrome/
-          cp manifest.chrome.json dist-chrome/manifest.json
-          cp popup.html dist-chrome/
-          cd dist-chrome && zip -r ../latexsnipper-browser-chrome.zip .
+          cd dist/chrome && zip -r ../../latexsnipper-browser-chrome.zip .
 
       - name: Build Firefox extension
         working-directory: apps/browser-extension
@@ -58,11 +54,10 @@ jobs:
         shell: bash
         working-directory: apps/browser-extension
         run: |
-          mkdir -p dist-firefox
-          cp dist/*.js dist-firefox/
-          cp manifest.firefox.json dist-firefox/manifest.json
-          cp popup.html dist-firefox/
-          cd dist-firefox && zip -r ../latexsnipper-browser-firefox.zip .
+          cd dist/firefox && zip -r ../../latexsnipper-browser-firefox.zip .
+
+      - name: Verify packaged manifests, locales, provenance, and CSP
+        run: node scripts/verify-browser-packages.mjs
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,15 +66,24 @@ jobs:
             apps/browser-extension/latexsnipper-browser-chrome.zip
             apps/browser-extension/latexsnipper-browser-firefox.zip
 
+  release-browser:
+    if: startsWith(github.ref, 'refs/tags/browser-v')
+    needs: build-browser
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: browser-extension
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/browser-v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           files: |
-            apps/browser-extension/latexsnipper-browser-chrome.zip
-            apps/browser-extension/latexsnipper-browser-firefox.zip
+            latexsnipper-browser-chrome.zip
+            latexsnipper-browser-firefox.zip
           generate_release_notes: true
           body: |
             ## LaTeXSnipper Browser Extension ${{ github.ref_name }}

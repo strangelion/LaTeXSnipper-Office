@@ -1,0 +1,7 @@
+import type { BrowserSettings } from "./schema";
+export const DEFAULT_SETTINGS: BrowserSettings = {
+  schemaVersion: 1, locale: "auto", defaultScope: "selection-only", roles: ["user", "assistant"],
+  filters: { text: true, markdown: true, formulas: true, renderedMath: true, code: true, tables: true, lists: true, links: true, imageAlt: false, attachmentLabels: true },
+  limits: { maxMessages: 20, maxCharacters: 50_000, maxFormulas: 100, maxCodeBytes: 512 * 1024, maxTableCells: 2_000, maxDomNodes: 50_000, contextCharacters: 80 },
+  formulaConfidence: 0.55, sites: {}, retention: "transient",
+};

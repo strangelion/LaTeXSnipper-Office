@@ -201,6 +201,7 @@
     <Compile Include="Host\WordAdapter.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="Host\ConversationImporter.cs" />
     <Compile Include="Metadata\FormulaMetadata.cs">
       <SubType>Code</SubType>
     </Compile>

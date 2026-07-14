@@ -1,0 +1,2 @@
+import { createProviderAdapter } from "./base";
+export const qwenAdapter = createProviderAdapter({ id: "qwen", displayNameKey: "providerQwen", hosts: ["chat.qwen.ai", "tongyi.aliyun.com"], roots: ["main", '[role="main"]'], messages: ['[data-message-id]', '[data-role="user"], [data-role="assistant"]', "article"], user: ['[data-role="user"]'], assistant: ['[data-role="assistant"]'], composer: ["textarea", '[contenteditable="true"]'] });

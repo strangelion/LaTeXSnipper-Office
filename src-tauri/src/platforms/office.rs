@@ -406,6 +406,7 @@ pub async fn register_office() -> RegisterResult {
         mode: "command".to_string(),
         message: format!("Office installation task failed: {err}"),
         restart_required: false,
+        details: None,
     });
     RegisterResult {
         success: result.success,
@@ -425,6 +426,7 @@ pub async fn unregister_office() -> RegisterResult {
         mode: "command".to_string(),
         message: format!("Office uninstallation task failed: {err}"),
         restart_required: false,
+        details: None,
     });
     RegisterResult {
         success: result.success,
@@ -444,6 +446,7 @@ pub async fn check_office_registration() -> RegisterResult {
         mode: "command".to_string(),
         message: format!("Office check task failed: {err}"),
         restart_required: false,
+        details: None,
     });
     RegisterResult {
         success: result.success,

@@ -6,7 +6,11 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$diagnostics = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $DiagnosticsDirectory))
+$diagnostics = if ([System.IO.Path]::IsPathRooted($DiagnosticsDirectory)) {
+    [System.IO.Path]::GetFullPath($DiagnosticsDirectory)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $DiagnosticsDirectory))
+}
 New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $probeRoot = Join-Path $root "apps\native-office\OleActivationProbe\bin"

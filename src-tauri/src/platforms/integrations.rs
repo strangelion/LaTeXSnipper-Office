@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const TASKPANE_HEARTBEAT_TTL_MS: u64 = 30_000;
@@ -123,6 +125,8 @@ pub struct PlatformIntegrationResult {
     pub mode: String,
     pub message: String,
     pub restart_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -159,6 +163,7 @@ impl PlatformIntegrationResult {
             mode: mode.to_string(),
             message: message.into(),
             restart_required,
+            details: None,
         }
     }
 
@@ -169,6 +174,7 @@ impl PlatformIntegrationResult {
             mode: mode.to_string(),
             message: message.into(),
             restart_required: false,
+            details: None,
         }
     }
 }
@@ -237,6 +243,29 @@ pub struct WpsLedger {
     pub publish_entry_owner: Option<String>,
     pub started_pids: Vec<u32>,
     pub shortcuts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WpsHostStatus {
+    pub host: String,
+    pub installed: bool,
+    pub executable: Option<String>,
+    pub registered: bool,
+    pub heartbeat_fresh: bool,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WpsIntegrationStatus {
+    pub state: String,
+    pub payload_present: bool,
+    pub static_route_ready: bool,
+    pub publish_xml_valid: bool,
+    pub hosts: Vec<WpsHostStatus>,
+    pub bridge_http_ready: bool,
+    pub repair_required: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -619,17 +648,25 @@ fn uninstall_hybrid_office_integration() -> PlatformIntegrationResult {
 }
 
 #[tauri::command]
-pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrationResult {
+pub async fn check_platform_integration(
+    platform_id: String,
+    bridge_state: tauri::State<'_, Arc<super::office_bridge::BridgeRuntimeState>>,
+) -> Result<PlatformIntegrationResult, String> {
+    if platform_id == "wps" {
+        return Ok(check_wps_with_runtime(&bridge_state).await);
+    }
     let fallback_platform = platform_id.clone();
-    tauri::async_runtime::spawn_blocking(move || check_platform_integration_sync(platform_id))
-        .await
-        .unwrap_or_else(|err| {
-            PlatformIntegrationResult::fail(
-                &fallback_platform,
-                "command",
-                format!("Check task failed: {err}"),
-            )
-        })
+    Ok(
+        tauri::async_runtime::spawn_blocking(move || check_platform_integration_sync(platform_id))
+            .await
+            .unwrap_or_else(|err| {
+                PlatformIntegrationResult::fail(
+                    &fallback_platform,
+                    "command",
+                    format!("Check task failed: {err}"),
+                )
+            }),
+    )
 }
 
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
@@ -750,7 +787,7 @@ pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIn
             vscode_extension_dir(),
             "VS Code extension is installed.",
         ),
-        "wps" => check_wps(),
+        "wps" => check_wps_without_runtime(),
         "typora" => check_path(
             "typora",
             "clipboard",
@@ -3218,22 +3255,26 @@ fn wps_addin_source_dir() -> Option<PathBuf> {
             }
         }
     }
-    // Secondary: LaTeXSnipper-Office repo (monorepo layout)
+    // Secondary: deterministic production build from the repository.
     if let Some(root) = repo_root_from_manifest() {
-        let dir = root.join("apps").join("wps").join("installer");
-        if dir.exists() {
-            return Some(dir);
+        let dist = root.join("apps").join("wps").join("dist");
+        if let Ok(entries) = fs::read_dir(&dist) {
+            let mut candidates = entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_dir() && wps_payload_complete(path))
+                .collect::<Vec<_>>();
+            candidates.sort();
+            if let Some(candidate) = candidates.pop() {
+                return Some(candidate);
+            }
+        }
+        let source = root.join("apps").join("wps");
+        if wps_payload_complete(&source) {
+            return Some(source);
         }
     }
-    // Fallback: old layout for backward compatibility
-    let github_root = github_root_from_manifest()?;
-    let dir = github_root
-        .join("LaTeXSnipper")
-        .join("office_plugin")
-        .join("hosts")
-        .join("WpsAddIn")
-        .join("installer");
-    dir.exists().then_some(dir)
+    None
 }
 
 fn wps_jsaddons_root() -> PathBuf {
@@ -3252,56 +3293,222 @@ fn wps_publish_file() -> PathBuf {
     wps_jsaddons_root().join("publish.xml")
 }
 
-fn write_wps_publish(enabled: bool) -> std::io::Result<()> {
-    let path = wps_publish_file();
-    fs::create_dir_all(wps_jsaddons_root())?;
+const WPS_PUBLISH_URL: &str = "http://127.0.0.1:19877/wps/";
+const WPS_OWNED_ENTRIES: [(&str, &str); 3] = [
+    ("latexsnipper-wps-writer", "wps"),
+    ("latexsnipper-wps-spreadsheets", "et"),
+    ("latexsnipper-wps-presentation", "wpp"),
+];
+const WPS_REQUIRED_FILES: [&str; 10] = [
+    "index.html",
+    "main.js",
+    "ribbon.xml",
+    "manifest.json",
+    "js/command-layer.js",
+    "js/host-detect.js",
+    "js/bridge-client.js",
+    "js/adapters.js",
+    "ui/taskpane.html",
+    "ui/taskpane.js",
+];
 
-    // Parse existing XML if present, otherwise create a new document
-    let mut xml = if path.exists() {
-        fs::read_to_string(&path).unwrap_or_default()
+fn wps_payload_complete(root: &Path) -> bool {
+    WPS_REQUIRED_FILES
+        .iter()
+        .all(|relative| root.join(relative).is_file())
+}
+
+fn event_attribute_value(event: &quick_xml::events::BytesStart<'_>, name: &[u8]) -> Option<String> {
+    event
+        .attributes()
+        .with_checks(false)
+        .filter_map(Result::ok)
+        .find(|attribute| attribute.key.as_ref() == name)
+        .and_then(|attribute| String::from_utf8(attribute.value.into_owned()).ok())
+}
+
+fn is_owned_wps_entry(event: &quick_xml::events::BytesStart<'_>) -> bool {
+    event_attribute_value(event, b"name").is_some_and(|value| {
+        WPS_OWNED_ENTRIES
+            .iter()
+            .any(|(owned_name, _)| value == *owned_name)
+    })
+}
+
+fn write_owned_wps_entries(
+    writer: &mut quick_xml::Writer<Vec<u8>>,
+) -> Result<(), quick_xml::Error> {
+    for (name, host_type) in WPS_OWNED_ENTRIES {
+        let mut entry = quick_xml::events::BytesStart::new("jspluginonline");
+        entry.push_attribute(("name", name));
+        entry.push_attribute(("type", host_type));
+        entry.push_attribute(("url", WPS_PUBLISH_URL));
+        entry.push_attribute(("debug", ""));
+        entry.push_attribute(("enable", "enable_dev"));
+        entry.push_attribute(("install", "null"));
+        writer.write_event(quick_xml::events::Event::Empty(entry))?;
+    }
+    Ok(())
+}
+
+fn transform_wps_publish(source: &str, enabled: bool) -> Result<String, String> {
+    let input = if source.trim().is_empty() {
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><jsplugins></jsplugins>"
+    } else {
+        source
+    };
+    let mut reader = quick_xml::Reader::from_str(input);
+    reader.config_mut().trim_text(false);
+    let mut writer = quick_xml::Writer::new(Vec::new());
+    let mut skip_depth = 0_u32;
+    let mut root_seen = false;
+    let mut entries_written = false;
+    loop {
+        let event = reader
+            .read_event()
+            .map_err(|error| format!("publish.xml parse failed: {error}"))?;
+        if skip_depth > 0 {
+            match &event {
+                quick_xml::events::Event::Start(_) => skip_depth += 1,
+                quick_xml::events::Event::End(_) => skip_depth -= 1,
+                quick_xml::events::Event::Eof => {
+                    return Err("publish.xml ended inside an owned entry".to_string())
+                }
+                _ => {}
+            }
+            continue;
+        }
+        match event {
+            quick_xml::events::Event::Start(ref start)
+                if start.name().as_ref() == b"jspluginonline" && is_owned_wps_entry(start) =>
+            {
+                skip_depth = 1;
+            }
+            quick_xml::events::Event::Empty(ref start)
+                if start.name().as_ref() == b"jspluginonline" && is_owned_wps_entry(start) => {}
+            quick_xml::events::Event::Start(ref start) if start.name().as_ref() == b"jsplugins" => {
+                root_seen = true;
+                writer
+                    .write_event(event.into_owned())
+                    .map_err(|error| error.to_string())?;
+            }
+            quick_xml::events::Event::End(ref end) if end.name().as_ref() == b"jsplugins" => {
+                if enabled {
+                    write_owned_wps_entries(&mut writer).map_err(|error| error.to_string())?;
+                }
+                entries_written = true;
+                writer
+                    .write_event(event.into_owned())
+                    .map_err(|error| error.to_string())?;
+            }
+            quick_xml::events::Event::Eof => break,
+            _ => writer
+                .write_event(event.into_owned())
+                .map_err(|error| error.to_string())?,
+        }
+    }
+    if !root_seen || !entries_written {
+        return Err("publish.xml root must be <jsplugins>".to_string());
+    }
+    String::from_utf8(writer.into_inner()).map_err(|error| error.to_string())
+}
+
+fn validate_wps_publish(source: &str, enabled: bool) -> Result<HashSet<String>, String> {
+    let mut reader = quick_xml::Reader::from_str(source);
+    reader.config_mut().trim_text(true);
+    let mut registrations = HashSet::new();
+    loop {
+        match reader
+            .read_event()
+            .map_err(|error| format!("publish.xml validation failed: {error}"))?
+        {
+            quick_xml::events::Event::Start(start) | quick_xml::events::Event::Empty(start)
+                if start.name().as_ref() == b"jspluginonline" =>
+            {
+                let Some(name) = event_attribute_value(&start, b"name") else {
+                    continue;
+                };
+                let Some((_, expected_type)) = WPS_OWNED_ENTRIES
+                    .iter()
+                    .find(|(owned_name, _)| name == *owned_name)
+                else {
+                    continue;
+                };
+                if !registrations.insert(name.clone()) {
+                    return Err(format!("duplicate owned WPS entry: {name}"));
+                }
+                if event_attribute_value(&start, b"type").as_deref() != Some(*expected_type)
+                    || event_attribute_value(&start, b"url").as_deref() != Some(WPS_PUBLISH_URL)
+                    || event_attribute_value(&start, b"addonType").is_some()
+                {
+                    return Err(format!("invalid owned WPS entry: {name}"));
+                }
+            }
+            quick_xml::events::Event::Eof => break,
+            _ => {}
+        }
+    }
+    if enabled && registrations.len() != WPS_OWNED_ENTRIES.len() {
+        return Err("not all three WPS host entries were registered".to_string());
+    }
+    if !enabled && !registrations.is_empty() {
+        return Err("owned WPS entries remain after uninstall".to_string());
+    }
+    Ok(registrations)
+}
+
+#[cfg(target_os = "windows")]
+fn replace_file_atomically(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(source.as_ptr()),
+            PCWSTR(destination.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+        .map_err(std::io::Error::from)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn replace_file_atomically(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
+}
+
+fn write_wps_publish(enabled: bool) -> Result<HashSet<String>, String> {
+    let path = wps_publish_file();
+    fs::create_dir_all(wps_jsaddons_root()).map_err(|error| error.to_string())?;
+    let current = if path.exists() {
+        fs::read_to_string(&path).map_err(|error| error.to_string())?
     } else {
         String::new()
     };
-
-    if enabled {
-        // Upsert: add LaTeXSnipper entry if not present
-        if !xml.contains("latexsnipper-wps") {
-            if xml.is_empty() {
-                xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<jsplugins>
-    <jspluginonline name="latexsnipper-wps" addonType="wps" online="false" enable="enable_dev"/>
-</jsplugins>
-"#
-                .to_string();
-            } else {
-                // Insert before closing </jsplugins>
-                if let Some(pos) = xml.rfind("</jsplugins>") {
-                    xml.insert_str(pos, "    <jspluginonline name=\"latexsnipper-wps\" addonType=\"wps\" online=\"false\" enable=\"enable_dev\"/>\n");
-                }
-            }
-        }
-    } else {
-        // Remove only our entry, preserve others
-        let mut result = String::new();
-        let mut in_plugin = false;
-        for line in xml.lines() {
-            if line.contains("latexsnipper-wps") {
-                in_plugin = true;
-                continue;
-            }
-            if in_plugin && line.trim().starts_with("</jspluginonline>") {
-                in_plugin = false;
-                continue;
-            }
-            if !in_plugin {
-                result.push_str(line);
-                result.push('\n');
-            }
-        }
-        xml = result;
+    let updated = transform_wps_publish(&current, enabled)?;
+    validate_wps_publish(&updated, enabled)?;
+    let temporary = path.with_extension(format!("tmp-{}", generate_install_id()));
+    fs::write(&temporary, updated.as_bytes()).map_err(|error| error.to_string())?;
+    let staged = fs::read_to_string(&temporary).map_err(|error| error.to_string())?;
+    validate_wps_publish(&staged, enabled)?;
+    if let Err(error) = replace_file_atomically(&temporary, &path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
     }
-
-    fs::write(&path, xml)
+    let persisted = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    validate_wps_publish(&persisted, enabled)
 }
 
 fn copy_dir_recursive(source: &Path, dest: &Path) -> std::io::Result<()> {
@@ -3325,9 +3532,16 @@ fn install_wps() -> PlatformIntegrationResult {
         return PlatformIntegrationResult::fail(
             "wps",
             "wps-jsaddin",
-            "WPS JSAddIn package was not found. Run a build (apps/wps/build.ps1) or keep the installer directory at apps/wps/installer.",
+            "WPS JSAddIn production payload was not found. Run npm run build:wps before packaging.",
         );
     };
+    if !wps_payload_complete(&source) {
+        return PlatformIntegrationResult::fail(
+            "wps",
+            "payload_missing",
+            "WPS JSAddIn production payload is incomplete.",
+        );
+    }
 
     let plugin_dir = wps_plugin_dir();
     if plugin_dir.exists() {
@@ -3346,23 +3560,41 @@ fn install_wps() -> PlatformIntegrationResult {
             format!("Failed to install WPS add-in files: {err}"),
         );
     }
-    if let Err(err) = write_wps_publish(true) {
+    let registrations = match write_wps_publish(true) {
+        Ok(registrations) => registrations,
+        Err(err) => {
+            return PlatformIntegrationResult::fail(
+                "wps",
+                "wps-jsaddin",
+                format!("Failed to update WPS publish.xml: {err}"),
+            );
+        }
+    };
+    if registrations.len() != 3 || !wps_payload_complete(&plugin_dir) {
         return PlatformIntegrationResult::fail(
             "wps",
-            "wps-jsaddin",
-            format!("Failed to update WPS publish.xml: {err}"),
+            "repair_required",
+            "WPS installation verification did not find all owned host entries and payload files.",
         );
     }
-
-    PlatformIntegrationResult::ok(
+    let mut ledger = IntegrationLedger::load();
+    ledger.wps.plugin_dir = Some(plugin_dir.to_string_lossy().to_string());
+    ledger.wps.publish_entry_owner = Some("latexsnipper-wps-three-host".to_string());
+    let _ = ledger.save();
+    let mut result = PlatformIntegrationResult::ok(
         "wps",
-        "wps-jsaddin",
+        "installed_waiting_for_restart",
         format!(
-            "Installed WPS JSAddIn at {}. Close and restart WPS to load LaTeXSnipper.",
+            "Registered WPS Writer, Spreadsheets, and Presentation at {}. Restart installed WPS hosts to load LaTeXSnipper.",
             plugin_dir.display()
         ),
         true,
-    )
+    );
+    result.details = Some(serde_json::json!({
+        "registeredHosts": ["wps", "et", "wpp"],
+        "url": WPS_PUBLISH_URL
+    }));
+    result
 }
 
 fn uninstall_wps() -> PlatformIntegrationResult {
@@ -3383,6 +3615,19 @@ fn uninstall_wps() -> PlatformIntegrationResult {
             format!("Failed to update WPS publish.xml: {err}"),
         );
     }
+    let temp_dir = super::office_bridge::wps_temp_dir();
+    if temp_dir.exists() {
+        if let Err(err) = fs::remove_dir_all(&temp_dir) {
+            return PlatformIntegrationResult::fail(
+                "wps",
+                "partial_failure",
+                format!("Owned registrations were removed, but WPS temp cleanup failed: {err}"),
+            );
+        }
+    }
+    let mut ledger = IntegrationLedger::load();
+    ledger.wps = WpsLedger::default();
+    let _ = ledger.save();
 
     PlatformIntegrationResult::ok(
         "wps",
@@ -3392,33 +3637,163 @@ fn uninstall_wps() -> PlatformIntegrationResult {
     )
 }
 
-fn check_wps() -> PlatformIntegrationResult {
+#[cfg(target_os = "windows")]
+fn detect_wps_host(host: &str, class_id: &str) -> WpsHostStatus {
+    let key = format!(r"HKCR\{}\shell\open\command", class_id);
+    for view in REGISTRY_VIEWS {
+        let mut command = Command::new("reg");
+        command.args(["query", &key, "/ve", view.as_reg_arg()]);
+        if let Ok(output) = run_windows_tool(&mut command, 5) {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let executable = text.lines().find_map(|line| {
+                    let value = line.split("REG_SZ").nth(1)?.trim();
+                    let value = value.trim_matches('"');
+                    let candidate = value.split("\" ").next().unwrap_or(value).trim_matches('"');
+                    (!candidate.is_empty()).then(|| candidate.to_string())
+                });
+                return WpsHostStatus {
+                    host: host.to_string(),
+                    installed: true,
+                    executable,
+                    registered: false,
+                    heartbeat_fresh: false,
+                    last_error: None,
+                };
+            }
+        }
+    }
+    WpsHostStatus {
+        host: host.to_string(),
+        installed: false,
+        executable: None,
+        registered: false,
+        heartbeat_fresh: false,
+        last_error: None,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn detect_wps_host(host: &str, _class_id: &str) -> WpsHostStatus {
+    WpsHostStatus {
+        host: host.to_string(),
+        installed: false,
+        executable: None,
+        registered: false,
+        heartbeat_fresh: false,
+        last_error: Some(
+            "WPS production registration is currently supported on Windows.".to_string(),
+        ),
+    }
+}
+
+fn base_wps_status(bridge_http_ready: bool) -> WpsIntegrationStatus {
     let plugin_dir = wps_plugin_dir();
     let publish = wps_publish_file();
-    let publish_enabled = fs::read_to_string(&publish)
-        .map(|content| content.contains("latexsnipper-wps"))
-        .unwrap_or(false);
-
-    if plugin_dir.exists() && publish_enabled {
-        PlatformIntegrationResult::ok(
-            "wps",
-            "wps-jsaddin",
-            "WPS JSAddIn appears to be installed.",
-            false,
-        )
-    } else if wps_addin_source_dir().is_some() {
-        PlatformIntegrationResult::fail(
-            "wps",
-            "wps-jsaddin",
-            "WPS JSAddIn package is available but not installed.",
-        )
+    let parsed = fs::read_to_string(&publish)
+        .ok()
+        .and_then(|content| validate_wps_publish(&content, true).ok());
+    let registrations = parsed.clone().unwrap_or_default();
+    let mut hosts = [
+        ("wps", "KWPS.Document.12", "latexsnipper-wps-writer"),
+        ("et", "KET.Sheet.12", "latexsnipper-wps-spreadsheets"),
+        (
+            "wpp",
+            "KWPP.Presentation.12",
+            "latexsnipper-wps-presentation",
+        ),
+    ]
+    .into_iter()
+    .map(|(host, class_id, entry)| {
+        let mut status = detect_wps_host(host, class_id);
+        status.registered = registrations.contains(entry);
+        status
+    })
+    .collect::<Vec<_>>();
+    hosts.sort_by(|left, right| left.host.cmp(&right.host));
+    let payload_present = wps_payload_complete(&plugin_dir);
+    let static_route_ready = wps_addin_source_dir().is_some_and(|path| wps_payload_complete(&path));
+    let publish_xml_valid = parsed.is_some();
+    let registered_count = hosts.iter().filter(|host| host.registered).count();
+    let repair_required =
+        (payload_present || registered_count > 0) && (!payload_present || registered_count != 3);
+    let state = if repair_required {
+        "repair_required"
+    } else if !payload_present && registered_count == 0 {
+        "not_installed"
+    } else if !bridge_http_ready {
+        "bridge_offline"
     } else {
-        PlatformIntegrationResult::fail(
-            "wps",
-            "wps-jsaddin",
-            "WPS JSAddIn is not installed and no source package was found.",
-        )
+        "installed_waiting_for_restart"
+    };
+    WpsIntegrationStatus {
+        state: state.to_string(),
+        payload_present,
+        static_route_ready,
+        publish_xml_valid,
+        hosts,
+        bridge_http_ready,
+        repair_required,
     }
+}
+
+fn wps_result(mut status: WpsIntegrationStatus) -> PlatformIntegrationResult {
+    let success = status.payload_present
+        && status.publish_xml_valid
+        && status.hosts.iter().all(|host| host.registered)
+        && status.bridge_http_ready
+        && !status.repair_required;
+    let loaded = status.hosts.iter().any(|host| host.heartbeat_fresh);
+    if loaded {
+        status.state = "loaded".to_string();
+    }
+    let message = match status.state.as_str() {
+        "loaded" => "WPS integration is loaded in at least one host.",
+        "installed_waiting_for_restart" => {
+            "WPS three-host integration is installed and waiting for host heartbeat."
+        }
+        "bridge_offline" => "WPS registration exists, but the local Bridge is offline.",
+        "repair_required" => "WPS integration is partially registered and requires repair.",
+        _ => "WPS three-host integration is not installed.",
+    };
+    let mut result = if success {
+        PlatformIntegrationResult::ok("wps", &status.state, message, false)
+    } else {
+        PlatformIntegrationResult::fail("wps", &status.state, message)
+    };
+    result.details = serde_json::to_value(&status).ok();
+    result
+}
+
+fn check_wps_without_runtime() -> PlatformIntegrationResult {
+    wps_result(base_wps_status(false))
+}
+
+async fn check_wps_with_runtime(
+    runtime: &super::office_bridge::BridgeRuntimeState,
+) -> PlatformIntegrationResult {
+    let diagnostics = runtime.diagnostics.read().await.clone();
+    let clients = runtime.ecosystem_queue.list_clients().await;
+    let now = chrono::Utc::now();
+    let mut status = base_wps_status(diagnostics.http_listening);
+    let client_ids = HashMap::from([
+        ("wps", "latexsnipper-wps-writer"),
+        ("et", "latexsnipper-wps-spreadsheets"),
+        ("wpp", "latexsnipper-wps-presentation"),
+    ]);
+    for host in &mut status.hosts {
+        let expected = client_ids.get(host.host.as_str()).copied().unwrap_or("");
+        host.heartbeat_fresh = clients.iter().any(|client| {
+            client.client_id == expected
+                && chrono::DateTime::parse_from_rfc3339(&client.last_seen)
+                    .map(|last_seen| {
+                        now.signed_duration_since(last_seen.with_timezone(&chrono::Utc))
+                            < chrono::Duration::seconds(30)
+                    })
+                    .unwrap_or(false)
+        });
+    }
+    wps_result(status)
 }
 
 fn install_libreoffice() -> PlatformIntegrationResult {
@@ -5556,5 +5931,68 @@ mod office_js_install_tests {
             word.id
         );
         assert!(validate_office_js_manifest(word, &wrong).is_err());
+    }
+
+    #[test]
+    fn wps_publish_empty_file_creates_three_valid_hosts() {
+        let output = transform_wps_publish("", true).unwrap();
+        let registrations = validate_wps_publish(&output, true).unwrap();
+        assert_eq!(registrations.len(), 3);
+        assert!(output.contains("type=\"wps\""));
+        assert!(output.contains("type=\"et\""));
+        assert!(output.contains("type=\"wpp\""));
+        assert!(output.contains(WPS_PUBLISH_URL));
+        assert!(!output.contains("addonType"));
+    }
+
+    #[test]
+    fn wps_publish_preserves_unrelated_non_ascii_entry() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<jsplugins><jspluginonline name="其他插件" type="wps" url="http://example.test/"/></jsplugins>"#;
+        let output = transform_wps_publish(input, true).unwrap();
+        validate_wps_publish(&output, true).unwrap();
+        assert!(output.contains("其他插件"));
+        assert!(output.contains("http://example.test/"));
+    }
+
+    #[test]
+    fn wps_publish_repairs_partial_and_malformed_owned_entries() {
+        let input = r#"<jsplugins>
+<jspluginonline name="latexsnipper-wps-writer" addonType="wps"/>
+<jspluginonline name="latexsnipper-wps-spreadsheets" type="wrong" url="bad"/>
+</jsplugins>"#;
+        let output = transform_wps_publish(input, true).unwrap();
+        let registrations = validate_wps_publish(&output, true).unwrap();
+        assert_eq!(registrations.len(), 3);
+        assert_eq!(output.matches("latexsnipper-wps-writer").count(), 1);
+        assert_eq!(output.matches("latexsnipper-wps-spreadsheets").count(), 1);
+        assert_eq!(output.matches("latexsnipper-wps-presentation").count(), 1);
+    }
+
+    #[test]
+    fn wps_publish_existing_valid_entries_do_not_duplicate() {
+        let first = transform_wps_publish("", true).unwrap();
+        let second = transform_wps_publish(&first, true).unwrap();
+        validate_wps_publish(&second, true).unwrap();
+        for (name, _) in WPS_OWNED_ENTRIES {
+            assert_eq!(second.matches(name).count(), 1);
+        }
+    }
+
+    #[test]
+    fn wps_uninstall_removes_only_owned_entries() {
+        let input = r#"<jsplugins>
+<jspluginonline name="unrelated" type="et" url="http://example.test/"/>
+<jspluginonline name="latexsnipper-wps-writer" type="wps" url="http://127.0.0.1:19877/wps/"/>
+</jsplugins>"#;
+        let output = transform_wps_publish(input, false).unwrap();
+        validate_wps_publish(&output, false).unwrap();
+        assert!(output.contains("unrelated"));
+        assert!(!output.contains("latexsnipper-wps-writer"));
+    }
+
+    #[test]
+    fn wps_publish_rejects_non_xml_input() {
+        assert!(transform_wps_publish("<jsplugins><broken>", true).is_err());
     }
 }
