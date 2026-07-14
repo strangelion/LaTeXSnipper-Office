@@ -153,3 +153,10 @@ test("DirectML staging is Windows-only", () => {
     /#\[cfg\(target_os = "windows"\)\]\s+fn copy_directml_dll/,
   );
 });
+
+test("prior NativeOffice resolver accepts an absolute destination", () => {
+  const resolver = read("scripts", "resolve-prior-native-office-msi.ps1");
+  assert.match(resolver, /\[System\.IO\.Path\]::IsPathRooted\(\$Destination\)/);
+  assert.match(resolver, /GetFullPath\(\$Destination\)/);
+  assert.match(resolver, /worktree add --quiet --detach/);
+});
