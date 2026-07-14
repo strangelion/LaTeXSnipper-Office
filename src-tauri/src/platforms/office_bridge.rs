@@ -112,7 +112,6 @@ struct BridgeState {
     pending_renders: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
     action_queue: Arc<Mutex<VecDeque<(String, OfficeAction)>>>,
     action_counter: Arc<std::sync::atomic::AtomicU64>,
-    heartbeat_received: Arc<std::sync::atomic::AtomicBool>,
     /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
     ecosystem_queue: super::ecosystem::EcosystemActionQueue,
 }
@@ -254,7 +253,6 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         pending_renders: Arc::new(Mutex::new(HashMap::new())),
         action_queue: Arc::new(Mutex::new(VecDeque::new())),
         action_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        heartbeat_received: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
     };
 
@@ -1086,11 +1084,7 @@ async fn handle_insert_direct(
     })
 }
 
-async fn handle_heartbeat(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
-    state
-        .heartbeat_received
-        .store(true, std::sync::atomic::Ordering::Relaxed);
-    // Also record in the integrations module so check_office_addin() sees it
+async fn handle_heartbeat() -> impl IntoResponse {
     super::integrations::record_taskpane_heartbeat();
     println!("[Bridge] Taskpane heartbeat received");
     Json(OfficeResponse {

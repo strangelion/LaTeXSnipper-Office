@@ -5,21 +5,38 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Tracks whether the Office.js Taskpane has reported a heartbeat.
-/// Set by the bridge's `/api/office/heartbeat` handler.
-static TASKPANE_HEARTBEAT: AtomicBool = AtomicBool::new(false);
+const TASKPANE_HEARTBEAT_TTL_MS: u64 = 30_000;
+
+/// Last Office.js task pane heartbeat as Unix epoch milliseconds.
+/// Zero means that no heartbeat has been observed in this process.
+static LAST_TASKPANE_HEARTBEAT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn current_unix_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
+}
+
+fn taskpane_heartbeat_is_fresh(last_ms: u64, now_ms: u64) -> bool {
+    last_ms != 0 && now_ms >= last_ms && now_ms - last_ms < TASKPANE_HEARTBEAT_TTL_MS
+}
 
 /// Record that the Taskpane has connected (called from bridge heartbeat handler).
 pub fn record_taskpane_heartbeat() {
-    TASKPANE_HEARTBEAT.store(true, Ordering::Relaxed);
+    LAST_TASKPANE_HEARTBEAT_MS.store(current_unix_epoch_ms(), Ordering::Relaxed);
 }
 
-/// Check whether the Taskpane has ever reported a heartbeat.
+/// Check whether the Taskpane has reported a heartbeat within the TTL.
 pub fn is_taskpane_connected() -> bool {
-    TASKPANE_HEARTBEAT.load(Ordering::Relaxed)
+    taskpane_heartbeat_is_fresh(
+        LAST_TASKPANE_HEARTBEAT_MS.load(Ordering::Relaxed),
+        current_unix_epoch_ms(),
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -91,13 +108,11 @@ fn run_windows_tool(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// DEPRECATION NOTICE — COM/VSTO/RegAsm/PowerShell routes
+// Office integration architecture
 //
-// These functions are retained for reference but are NOT used in the current
-// architecture. The Office integration now uses exclusively:
-//   Office.js manifest → Wef sideloading → Bridge HTTP API → Word Taskpane
-//
-// No COM, VSTO, RegAsm, or PowerShell is needed.
+// Windows defaults to Native Office VSTO + OLE. Office.js is used for macOS,
+// Office Web, and optional Windows web/hybrid modes. Legacy COM repair helpers
+// remain isolated behind Windows cfg gates.
 // See: docs/office-architecture.md or apps/office-addin/README.md
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2005,7 +2020,6 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
     }
 }
 
-#[allow(dead_code, reason = "Reserved for explicit VSTO repair diagnostics")]
 fn check_office_addin() -> PlatformIntegrationResult {
     let status = super::office::detect_office_cached();
     if !status.installed {
@@ -2033,7 +2047,12 @@ fn check_office_addin() -> PlatformIntegrationResult {
             .map(|host| host.name)
             .collect();
         if registered.len() == OFFICE_JS_HOSTS.len() {
-            return PlatformIntegrationResult::ok("office", "installed", "Office.js add-ins are registered. Restart Office apps and open the LaTeXSnipper task pane.", true);
+            return PlatformIntegrationResult::ok(
+                "office",
+                "installed",
+                "Office.js manifests are installed; the task pane is offline (no heartbeat within 30 seconds). Restart Office apps or open the LaTeXSnipper task pane.",
+                true,
+            );
         }
         if !registered.is_empty() {
             return PlatformIntegrationResult::fail(
@@ -2066,7 +2085,7 @@ fn check_office_addin() -> PlatformIntegrationResult {
             return PlatformIntegrationResult::ok(
                 "office",
                 "installed",
-                "Office.js add-ins are installed. Restart Office apps.",
+                "Office.js manifests are installed; the task pane is offline (no heartbeat within 30 seconds). Restart Office apps or open the LaTeXSnipper task pane.",
                 true,
             );
         }
@@ -5477,6 +5496,14 @@ mod office_js_install_tests {
         assert_eq!(default_office_platform_id(), Some("office-web"));
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         assert_eq!(default_office_platform_id(), None);
+    }
+
+    #[test]
+    fn taskpane_heartbeat_expires_after_thirty_seconds() {
+        assert!(!taskpane_heartbeat_is_fresh(0, 1_000));
+        assert!(taskpane_heartbeat_is_fresh(1_000, 30_999));
+        assert!(!taskpane_heartbeat_is_fresh(1_000, 31_000));
+        assert!(!taskpane_heartbeat_is_fresh(2_000, 1_999));
     }
 
     #[test]
