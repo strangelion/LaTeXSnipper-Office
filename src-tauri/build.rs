@@ -1,18 +1,19 @@
+#[cfg(target_os = "windows")]
 use std::path::PathBuf;
 
 fn main() {
     tauri_build::build();
 
-    // The ort crate (download-binaries feature) downloads DirectML.dll to
-    // $LOCALAPPDATA/ort.pyke.io/... but Tauri bundler doesn't know about it.
-    // We need to copy it next to the exe so it gets bundled into the installer.
+    // The ort crate downloads DirectML.dll to its cache, but the Tauri bundler
+    // does not discover that Windows runtime dependency automatically.
+    #[cfg(target_os = "windows")]
     copy_directml_dll();
 }
 
 /// Locate the directory where `latexsnipper-office.exe` will be placed.
+#[cfg(target_os = "windows")]
 fn exe_output_dir() -> Option<PathBuf> {
-    // OUT_DIR is like target/release/build/<crate>/out
-    // Walk up until we find target/release/ or target/debug/
+    // OUT_DIR resembles target/release/build/<crate>/out.
     let out_dir = std::env::var("OUT_DIR").ok()?;
     let out = PathBuf::from(out_dir);
     for ancestor in out.ancestors() {
@@ -28,6 +29,7 @@ fn exe_output_dir() -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "windows")]
 fn copy_directml_dll() {
     let Some(exe_dir) = exe_output_dir() else {
         println!("cargo:warning=Could not determine exe output directory");
@@ -35,13 +37,11 @@ fn copy_directml_dll() {
     };
 
     let dest = exe_dir.join("DirectML.dll");
-
-    // Already present — nothing to do
     if dest.exists() {
         return;
     }
 
-    // 1. Try the ORT download cache ($LOCALAPPDATA/ort.pyke.io/dfbin/...)
+    // Prefer the ORT download cache under LOCALAPPDATA.
     if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
         let ort_cache = PathBuf::from(local_appdata)
             .join("ort.pyke.io")
@@ -61,7 +61,7 @@ fn copy_directml_dll() {
         }
     }
 
-    // 2. Try the resources/ directory (bundled with repo)
+    // Fall back to the explicitly staged Windows resource.
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let resources_dll = manifest_dir.join("resources").join("DirectML.dll");
     if resources_dll.exists() && std::fs::copy(&resources_dll, &dest).is_ok() {
@@ -70,6 +70,6 @@ fn copy_directml_dll() {
     }
 
     println!(
-        "cargo:warning=DirectML.dll not found — ONNX Runtime DirectML backend will fail at runtime"
+        "cargo:warning=DirectML.dll not found; ONNX Runtime DirectML backend will fail at runtime"
     );
 }

@@ -181,7 +181,10 @@ function Assert-ResourcePayload([string]$PackageRoot) {
     if (-not (Test-Path -LiteralPath $sourceProvenance -PathType Leaf)) {
         throw "Resource provenance is missing: $sourceProvenance"
     }
-    $packagedProvenance = @(Get-ChildItem -LiteralPath $PackageRoot -Recurse -File -Filter "provenance.json")
+    $packagedProvenance = @(
+        Get-ChildItem -LiteralPath $PackageRoot -Recurse -File -Filter "provenance.json" |
+            Where-Object { $_.Directory.Name -eq "resources" }
+    )
     if ($packagedProvenance.Count -ne 1) {
         throw "Expected exactly one packaged provenance.json in $PackageRoot; found=$($packagedProvenance.Count)"
     }

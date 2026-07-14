@@ -133,10 +133,23 @@ test("browser inbox is durable and every Windows package carries provenance", ()
   assert.match(store, /persisted_import_survives_restart_and_update/);
   assert.match(windowsConfig, /resources\/provenance\.json/);
   assert.match(ciWindowsConfig, /resources\/provenance\.json/);
+  assert.match(verifier, /Directory\.Name -eq "resources"/);
   assert.match(verifier, /Legacy WPS runtime must not be packaged/);
   const requiredWpsFiles = verifier.slice(
     verifier.indexOf("foreach ($relative"),
     verifier.indexOf("foreach ($legacy"),
   );
   assert.doesNotMatch(requiredWpsFiles, /proxy\.js|server\.js/);
+});
+
+test("DirectML staging is Windows-only", () => {
+  const buildScript = read("src-tauri", "build.rs");
+  assert.match(
+    buildScript,
+    /#\[cfg\(target_os = "windows"\)\]\s+copy_directml_dll\(\)/,
+  );
+  assert.match(
+    buildScript,
+    /#\[cfg\(target_os = "windows"\)\]\s+fn copy_directml_dll/,
+  );
 });
