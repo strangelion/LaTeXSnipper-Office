@@ -1,26 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LaTeXSnipper</title>
-  <style>
-    body { width: 280px; margin: 0; padding: 12px; font-family: system-ui, -apple-system, sans-serif; font-size: 13px; }
-    h1 { font-size: 15px; margin: 0 0 8px; }
-    .status { color: #666; margin-bottom: 8px; }
-    .status.connected { color: #2e7d32; }
-    .status.disconnected { color: #c62828; }
-    button { display: block; width: 100%; padding: 6px; margin-bottom: 4px; cursor: pointer; }
-    .formulas { margin-top: 8px; }
-    .formula-item { padding: 4px 0; border-bottom: 1px solid #eee; word-break: break-all; font-family: monospace; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <h1>LaTeXSnipper</h1>
-  <div id="status" class="status">Checking connection...</div>
-  <button id="scanPage">Scan Page Formulas</button>
-  <button id="sendSelection">Send Selection to Desktop</button>
-  <div id="formulas" class="formulas"></div>
-  <script src="popup.js"></script>
-</body>
-</html>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LaTeXSnipper</title><style>
+body{width:320px;margin:0;padding:14px;font:13px system-ui;color:#1f2937}h1{font-size:16px;margin:0 0 8px}.status{margin-bottom:10px;color:#b91c1c}.connected{color:#15803d}button{width:100%;margin:3px 0;padding:8px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer}button:hover{background:#f8fafc}.result{padding:8px;margin-top:8px;background:#f1f5f9;border-radius:6px}
+</style></head><body><h1 data-i18n="extensionName"></h1><div id="status" class="status" data-i18n="checkingConnection"></div><button id="scanSelection" data-i18n="scanSelection"></button><button id="scanMessage" data-i18n="scanMessage"></button><button id="scanPage" data-i18n="scanPage"></button><button id="openPanel" data-i18n="openPanel"></button><div id="results"></div><script type="module" src="/src/popup.ts"></script></body></html>

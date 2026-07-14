@@ -73,7 +73,7 @@ pub async fn native_office_insert_formula(
     let insert_mode = match mode.as_str() {
         "inline" => InsertMode::Inline,
         "display" => InsertMode::Display,
-        "displayNumbered" => InsertMode::DisplayNumbered,
+        "numbered" | "displayNumbered" => InsertMode::DisplayNumbered,
         _ => InsertMode::Display,
     };
 
@@ -117,7 +117,13 @@ pub async fn native_office_replace_formula(
     width_pt: Option<f32>,
     height_pt: Option<f32>,
     storage_mode: Option<String>,
+    expected_revision: Option<u64>,
 ) -> Result<String, String> {
+    let revision = expected_revision
+        .map(i32::try_from)
+        .transpose()
+        .map_err(|_| "Expected formula revision exceeds the protocol limit".to_string())?
+        .unwrap_or(0);
     let payload = FormulaPayload {
         schema_version: Some(3),
         formula_id: formula_id.clone(),
@@ -142,7 +148,7 @@ pub async fn native_office_replace_formula(
             }),
         source: None,
         storage_mode,
-        revision: 0,
+        revision,
         created_utc_ticks: 0,
     };
 
@@ -598,6 +604,71 @@ pub async fn native_office_request_read_table(
         .map_err(|e| e.to_string())?;
 
     Ok("Read table request sent".to_string())
+}
+
+/// Commit a previously previewed browser conversation through the Native Word adapter.
+#[tauri::command]
+pub async fn native_office_import_conversation(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    store: State<'_, Arc<crate::platforms::conversation_import::ConversationImportStore>>,
+    action_id: String,
+) -> Result<String, String> {
+    let record = store
+        .get(&action_id)
+        .await
+        .ok_or("Browser import not found")?;
+    let session_id = record
+        .destination_session_id
+        .clone()
+        .ok_or("A Native Word destination must be selected")?;
+    let expected_document_id = record
+        .expected_document_id
+        .clone()
+        .ok_or("Destination document identity is missing")?;
+    let session = session_mgr
+        .list_sessions()
+        .await
+        .into_iter()
+        .find(|session| session.session_id == session_id)
+        .ok_or("Destination session is no longer connected")?;
+    if session.host_type != crate::platforms::session::HostType::Word {
+        return Err("STRUCTURED_IMPORT_DESTINATION_UNSUPPORTED".into());
+    }
+    if session.document_id.as_deref() != Some(expected_document_id.as_str()) {
+        return Err("DESTINATION_CHANGED".into());
+    }
+    let plan = crate::platforms::conversation_import::compile_word_plan(&record);
+    if !plan.can_commit {
+        return Err("WORD_IMPORT_PLAN_HAS_ERRORS".into());
+    }
+    store
+        .set_status(
+            &action_id,
+            crate::platforms::conversation_import::BrowserImportStatus::Committing,
+            None,
+        )
+        .await?;
+    let message = DesktopMessage::ImportConversation {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.clone(),
+        expectedContextId: expected_document_id,
+        plan,
+    };
+    if let Err(error) = session_mgr.send_to_session(&session_id, message).await {
+        let diagnostic = crate::platforms::conversation_import::ImportDiagnostic {
+            code: "WORD_IMPORT_SEND_FAILED".into(),
+            message: error.to_string(),
+        };
+        store
+            .set_status(
+                &action_id,
+                crate::platforms::conversation_import::BrowserImportStatus::Failed,
+                Some(diagnostic),
+            )
+            .await?;
+        return Err(error.to_string());
+    }
+    Ok("Conversation import commit requested".into())
 }
 
 fn uuid_simple() -> String {

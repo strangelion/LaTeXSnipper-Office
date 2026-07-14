@@ -297,27 +297,18 @@ jobs:
           mkdir -p release-components
 
           npm --prefix "$app" run typecheck
+          npm --prefix "$app" test
 
-          npm --prefix "$app" run build:chrome
-          rm -rf "$app/dist-chrome"
-          mkdir -p "$app/dist-chrome"
-          cp -R "$app/dist/." "$app/dist-chrome/"
-          cp "$app/manifest.chrome.json" "$app/dist-chrome/manifest.json"
-          cp "$app/popup.html" "$app/dist-chrome/"
+          npm --prefix "$app" run build
+          node scripts/verify-browser-packages.mjs
           (
-            cd "$app/dist-chrome"
-            zip -r "../../../release-components/latexsnipper-browser-chrome_${VERSION}.zip" .
+            cd "$app/dist/chrome"
+            zip -r "../../../../release-components/latexsnipper-browser-chrome_${VERSION}.zip" .
           )
 
-          npm --prefix "$app" run build:firefox
-          rm -rf "$app/dist-firefox"
-          mkdir -p "$app/dist-firefox"
-          cp -R "$app/dist/." "$app/dist-firefox/"
-          cp "$app/manifest.firefox.json" "$app/dist-firefox/manifest.json"
-          cp "$app/popup.html" "$app/dist-firefox/"
           (
-            cd "$app/dist-firefox"
-            zip -r "../../../release-components/latexsnipper-browser-firefox_${VERSION}.zip" .
+            cd "$app/dist/firefox"
+            zip -r "../../../../release-components/latexsnipper-browser-firefox_${VERSION}.zip" .
           )
 
       - name: Collect WPS package

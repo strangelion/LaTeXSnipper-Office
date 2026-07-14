@@ -1,0 +1,15 @@
+{
+  "chatgpt": "<main><article data-message-id='u1' data-message-author-role='user'><p>Question $x$</p></article><article data-message-id='a1' data-message-author-role='assistant'><p>Answer</p><pre><code>const x=1</code></pre><table><tr><td>A</td></tr></table></article><textarea id='prompt-textarea'></textarea></main>",
+  "gemini": "<main><user-query data-message-id='u1'>Question $x$</user-query><model-response data-message-id='a1'><p>Answer</p><pre><code>const x=1</code></pre></model-response><textarea></textarea></main>",
+  "deepseek": "<main><article data-message-id='u1' data-role='user'>问题 $x$</article><article data-message-id='a1' data-role='assistant'>回答</article><textarea></textarea></main>",
+  "claude": "<main><article data-testid='user-message'>Question $x$</article><article data-testid='assistant-message'>Answer</article><div contenteditable='true'></div></main>",
+  "copilot": "<main><article data-author='user'>Question $x$</article><article data-author='assistant'>Answer</article><textarea></textarea></main>",
+  "kimi": "<main><article data-message-id='u1' data-role='user'>问题 $x$</article><article data-message-id='a1' data-role='assistant'>回答</article><textarea></textarea></main>",
+  "doubao": "<main><article data-message-id='u1' data-role='user'>问题 $x$</article><article data-message-id='a1' data-role='assistant'>回答</article><textarea></textarea></main>",
+  "qwen": "<main><article data-message-id='u1' data-role='user'>问题 $x$</article><article data-message-id='a1' data-role='assistant'>回答</article><textarea></textarea></main>",
+  "yuanbao": "<main><article data-message-id='u1' data-role='user'>问题 $x$</article><article data-message-id='a1' data-role='assistant'>回答</article><textarea></textarea></main>",
+  "perplexity": "<main><article data-role='assistant'>Answer $x$</article><textarea></textarea></main>",
+  "grok": "<main><article data-role='assistant'>Answer $x$</article><textarea></textarea></main>",
+  "wenxin": "<main><article data-role='assistant'>回答 $x$</article><textarea></textarea></main>",
+  "zhipu": "<main><article data-message-id='a1' data-role='assistant'>回答 $x$</article><textarea></textarea></main>"
+}

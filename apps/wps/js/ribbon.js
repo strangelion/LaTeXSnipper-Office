@@ -1,262 +1,141 @@
-// LaTeXSnipper WPS Ribbon v3.0
-// All actions route through CommandLayer.dispatch().
+// LaTeXSnipper WPS Ribbon callbacks. Every callback returns a primitive value.
 
-function logWpsFailure(operation, formulaId, error) {
-    var hresult = error && (error.number || error.hresult || error.code) || 0
-    console.error('[WPS] operation=' + operation + ' host=wps formulaId=' +
-        (formulaId || '<unknown>') + ' hresult=' + hresult,
-        error && (error.name || 'Error'))
+function activeWpsAdapterKey() {
+  return window.CommandLayer ? window.CommandLayer.getActiveAdapterKey() : null;
 }
-// No direct WPS API calls — see command-layer.js for adapter logic.
+
+function activeWpsCapabilities() {
+  return window.CommandLayer ? window.CommandLayer.getCapabilities() : {};
+}
 
 function OnAddinLoad(ribbonUI) {
-    if (typeof (window.Application.ribbonUI) != "object") {
-        window.Application.ribbonUI = ribbonUI
+  try {
+    if (typeof window.Application.ribbonUI !== "object") {
+      window.Application.ribbonUI = ribbonUI;
     }
-    if (typeof (window.Application.Enum) != "object") {
-        window.Application.Enum = WPS_Enum
+    if (typeof window.Application.Enum !== "object") {
+      window.Application.Enum = WPS_Enum;
     }
-    try {
-        window.bridgeLog = function(msg) {
-            try {
-                var line = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z/, '') + ' ' + msg
-                console.log('[LaTeXSnipper] ' + line)
-                try { wps.OAAssist.HttpRequest('http://127.0.0.1:19876/log', 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ msg: line })) } catch(e) { logWpsFailure('send-bridge-log', null, e) }
-            } catch(e) { logWpsFailure('format-bridge-log', null, e) }
-        }
-
-        window.Application.bridgeRelay = function(url, method, headers, body, callbackId) {
-            try {
-                window.bridgeLog('RELAY ' + (method||'GET') + ' ' + url)
-                var result = wps.OAAssist.HttpRequest(url, method || "GET", headers || {}, body || "")
-                window.bridgeLog('RELAY OK ' + url + ' (' + (result||'').length + ' bytes)')
-                window.Application.PluginStorage.setItem("relay_" + callbackId, JSON.stringify({ ok: true, data: result }))
-            } catch(e) {
-                window.bridgeLog('RELAY ERROR ' + url + ': ' + e.message)
-                window.Application.PluginStorage.setItem("relay_" + callbackId, JSON.stringify({ ok: false, error: e.message }))
-            }
-        }
-        window.bridgeLog('OnAddinLoad called')
-    } catch(e) { logWpsFailure('addin-load', null, e) }
-    return true
+    window.bridgeLog = function (message) {
+      console.log("[LaTeXSnipper WPS] " + String(message));
+    };
+    window.bridgeLog("Loaded host=" + String(activeWpsAdapterKey()));
+  } catch (error) {
+    console.error("[LaTeXSnipper WPS] Ribbon load failed", error && error.name);
+    return false;
+  }
+  return true;
 }
 
-function OnAction(control) {
-    const eleId = control.Id
-    switch (eleId) {
-        case "btnInsertInline":
-            insertFromStorage("inline"); break
-        case "btnInsertDisplay":
-            insertFromStorage("block"); break
-        case "btnInsertNumbered":
-            insertFromStorage("numbered"); break
-        case "btnScreenshotOcr":
-            CommandLayer.dispatch("wps", { type: "OpenEditor" }); break
-        case "btnLoadSelected":
-            loadSelectedFormula(); break
-        case "btnDeleteSelected":
-            deleteSelectedFormula(); break
-        case "btnAutoNumber":
-            autoNumberFormulas(); break
-        case "btnRenumber":
-            renumberAll(); break
-        case "btnShowTaskPane":
-            CommandLayer.dispatch("wps", { type: "OpenEditor" }); break
-        case "btnSettings":
-            CommandLayer.dispatch("wps", { type: "OpenSettings" }); break
-        case "btnHelp":
-            window.open("https://latexsnipper.readthedocs.io/", "_blank"); break
-    }
-    return true
+function dispatchWps(command) {
+  if (!window.CommandLayer) {
+    return Promise.resolve({ ok: false, error: "CommandLayer unavailable" });
+  }
+  return window.CommandLayer.dispatch(activeWpsAdapterKey(), command);
 }
 
-function GetImage(control) {
-    const eleId = control.Id
-    switch (eleId) {
-        case "btnInsertInline": return "images/insert_inline.svg"
-        case "btnInsertDisplay": return "images/insert_display.svg"
-        case "btnInsertNumbered": return "images/insert_numbered.svg"
-        case "btnScreenshotOcr": return "images/screenshot_ocr.svg"
-        case "btnLoadSelected": return "images/load_selected.svg"
-        case "btnDeleteSelected": return "images/delete_selected.svg"
-        case "btnAutoNumber": return "images/auto_number.svg"
-        case "btnRenumber": return "images/renumber.svg"
-        case "btnShowTaskPane": return "images/task_pane.svg"
-        case "btnSettings": return "images/settings.svg"
-        case "btnHelp": return "images/help.svg"
-    }
-    return "images/insert_inline.svg"
-}
-
-function OnGetEnabled(control) { return true }
-function OnGetVisible(control) { return true }
-
-// ─── Dispatch helpers ────────────────────────────────────────────────
-
-function insertFromStorage(display) {
-    var latex = window.Application.PluginStorage.getItem("current_latex") || ""
-    if (!latex.trim()) { alert("请先在公式编辑器中输入 LaTeX 公式"); return }
-    CommandLayer.dispatch("wps", {
-        type: "InsertFormula",
-        payload: { latex: latex, display: display }
-    }).then(function(result) {
-        if (!result.ok) alert("插入失败: " + result.error)
-    })
+function insertFromStorage(mode) {
+  var latex = window.Application.PluginStorage.getItem("current_latex") || "";
+  if (!String(latex).trim()) {
+    alert("请先在公式编辑器中输入 LaTeX 公式");
+    return;
+  }
+  dispatchWps({
+    type: "InsertFormula",
+    payload: { latex: String(latex), mode: mode, display: mode },
+  }).then(function (result) {
+    if (!result.ok) alert("插入失败 [" + (result.errorCode || "UNKNOWN") + "]: " + result.error);
+  });
 }
 
 function loadSelectedFormula() {
-    CommandLayer.dispatch("wps", { type: "GetSelection" }).then(function(result) {
-        if (result.ok && result.data) {
-            window.Application.PluginStorage.setItem("current_latex", result.data)
-            window.bridgeLog("Loaded selection: " + result.data.substring(0, 60))
-            alert("已加载选中公式")
-        } else {
-            alert("请先选中一个公式")
-        }
-    })
+  dispatchWps({ type: "ReadFormula" }).then(function (result) {
+    if (!result.ok || !result.data) {
+      alert("加载失败 [" + (result.errorCode || "NO_FORMULA_SELECTED") + "]: " + result.error);
+      return;
+    }
+    window.Application.PluginStorage.setItem("current_latex", result.data.latex || "");
+    alert("已加载选中的 LaTeXSnipper 公式");
+  });
 }
 
 function deleteSelectedFormula() {
-    CommandLayer.dispatch("wps", { type: "ReplaceSelection", payload: { content: "" } }).then(function(result) {
-        if (result.ok) {
-            window.bridgeLog("Deleted selection")
-        } else {
-            alert("删除失败: " + result.error)
-        }
-    })
+  dispatchWps({ type: "DeleteFormula" }).then(function (result) {
+    if (!result.ok) alert("删除失败 [" + (result.errorCode || "UNKNOWN") + "]: " + result.error);
+  });
 }
 
-// ─── Numbering helpers ───────────────────────────────────────────────
-
-function getNextEquationNumber(doc) {
-    var storage = window.Application.PluginStorage
-    var counter = parseInt(storage.getItem("equation_counter") || "0") + 1
-    storage.setItem("equation_counter", String(counter))
-    return counter
+function renumberOwnedEquations() {
+  dispatchWps({ type: "RenumberEquations" }).then(function (result) {
+    if (!result.ok) {
+      alert("重新编号失败 [" + (result.errorCode || "UNKNOWN") + "]: " + result.error);
+    }
+  });
 }
 
-function renumberAll() {
-    var doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
-
-    var selection = window.Application.Selection
-    var savedRange = null
-    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) { logWpsFailure('save-selection', null, e) }
-
-    var fullRange = doc.Range(0, doc.Range().End)
-    var find = fullRange.Find
-    find.ClearFormatting()
-    find.Text = "\\([0-9]@\\)"
-    find.MatchWildcards = true
-    find.Forward = true
-    find.Wrap = 0
-
-    var matches = []
-    while (find.Execute()) {
-        matches.push({ start: find.Parent.Start, end: find.Parent.End })
-    }
-
-    for (var i = matches.length - 1; i >= 0; i--) {
-        var r = doc.Range(matches[i].start, matches[i].end)
-        r.Text = "(" + (i + 1) + ")"
-    }
-
-    if (matches.length === 0) {
-        alert("文档中未发现编号公式")
-    } else {
-        window.Application.PluginStorage.setItem("equation_counter", String(matches.length))
-        alert("重新编号完成，共 " + matches.length + " 个公式")
-    }
-
-    if (savedRange) { try { savedRange.Select() } catch(e) { logWpsFailure('restore-selection', null, e) } }
+function OnAction(control) {
+  var id = String(control && control.Id ? control.Id : "");
+  switch (id) {
+    case "btnInsertInline":
+      insertFromStorage("inline");
+      break;
+    case "btnInsertDisplay":
+      insertFromStorage("block");
+      break;
+    case "btnInsertNumbered":
+      insertFromStorage("numbered");
+      break;
+    case "btnLoadSelected":
+      loadSelectedFormula();
+      break;
+    case "btnDeleteSelected":
+      deleteSelectedFormula();
+      break;
+    case "btnAutoNumber":
+    case "btnRenumber":
+      renumberOwnedEquations();
+      break;
+    case "btnScreenshotOcr":
+    case "btnShowTaskPane":
+    case "btnSettings":
+      dispatchWps({ type: "OpenEditor" });
+      break;
+    case "btnHelp":
+      window.open("https://latexsnipper.readthedocs.io/", "_blank");
+      break;
+  }
+  return true;
 }
 
-function autoNumberFormulas() {
-    var doc = window.Application.ActiveDocument
-    if (!doc) { alert("请先打开一个文档"); return }
+function GetImage(control) {
+  var images = {
+    btnInsertInline: "images/insert_inline.svg",
+    btnInsertDisplay: "images/insert_display.svg",
+    btnInsertNumbered: "images/insert_numbered.svg",
+    btnScreenshotOcr: "images/screenshot_ocr.svg",
+    btnLoadSelected: "images/load_selected.svg",
+    btnDeleteSelected: "images/delete_selected.svg",
+    btnAutoNumber: "images/auto_number.svg",
+    btnRenumber: "images/renumber.svg",
+    btnShowTaskPane: "images/task_pane.svg",
+    btnSettings: "images/settings.svg",
+    btnHelp: "images/help.svg",
+  };
+  return images[String(control && control.Id)] || "images/insert_inline.svg";
+}
 
-    var selection = window.Application.Selection
-    var savedRange = null
-    try { savedRange = doc.Range(selection.Range.Start, selection.Range.End) } catch(e) { logWpsFailure('save-selection', null, e) }
+function OnGetEnabled(control) {
+  var id = String(control && control.Id ? control.Id : "");
+  var capabilities = activeWpsCapabilities();
+  if (id === "btnInsertNumbered" || id === "btnAutoNumber" || id === "btnRenumber") {
+    return capabilities.numberedEquation === true;
+  }
+  if (id === "btnLoadSelected") return capabilities.readFormula === true;
+  if (id === "btnDeleteSelected") return capabilities.deleteFormula === true;
+  if (id.indexOf("btnInsert") === 0) return capabilities.insertFormula === true;
+  return true;
+}
 
-    var paragraphs = doc.Paragraphs
-    var equations = []
-
-    for (var i = 1; i <= paragraphs.Count; i++) {
-        var para = paragraphs.Item(i)
-        var range = para.Range
-        var hasOMath = false
-        try { hasOMath = range.OMaths.Count > 0 } catch(e) { logWpsFailure('inspect-omath', null, e) }
-        if (!hasOMath) continue
-
-        var oMath = range.OMaths.Item(1)
-        var hasNumber = false
-
-        try {
-            var oRange = oMath.Range
-            var oFind = oRange.Find
-            oFind.ClearFormatting()
-            oFind.Text = "\\([0-9]@\\)"
-            oFind.MatchWildcards = true
-            oFind.Forward = true
-            hasNumber = oFind.Execute()
-        } catch(e) { logWpsFailure('find-equation-number', null, e) }
-
-        if (!hasNumber) {
-            try {
-                var paraFind = range.Find
-                paraFind.ClearFormatting()
-                paraFind.Text = "\\([0-9]@\\)"
-                paraFind.MatchWildcards = true
-                paraFind.Forward = true
-                hasNumber = paraFind.Execute()
-            } catch(e) { logWpsFailure('find-paragraph-number', null, e) }
-        }
-
-        equations.push({ paraIndex: i, hasNumber: hasNumber })
-    }
-
-    var fullRange = doc.Range(0, doc.Range().End)
-    var find = fullRange.Find
-    find.ClearFormatting()
-    find.Text = "\\([0-9]@\\)"
-    find.MatchWildcards = true
-    find.Forward = true
-    find.Wrap = 0
-
-    var existingMatches = []
-    while (find.Execute()) {
-        existingMatches.push({ start: find.Parent.Start, end: find.Parent.End })
-    }
-
-    for (var j = existingMatches.length - 1; j >= 0; j--) {
-        var r = doc.Range(existingMatches[j].start, existingMatches[j].end)
-        r.Text = "(" + (j + 1) + ")"
-    }
-
-    var nextNum = existingMatches.length + 1
-    var added = 0
-
-    for (var eq of equations) {
-        if (eq.hasNumber) continue
-        var para = paragraphs.Item(eq.paraIndex)
-        var range = para.Range
-        var oMath = range.OMaths.Item(1)
-        var oMathEnd = oMath.Range.End
-        var insertRange = doc.Range(oMathEnd, oMathEnd)
-        insertRange.InsertAfter("\t(" + nextNum + ")")
-        nextNum++
-        added++
-    }
-
-    var total = existingMatches.length + added
-    window.Application.PluginStorage.setItem("equation_counter", String(total))
-
-    if (total === 0) {
-        alert("文档中未发现公式")
-    } else {
-        alert("自动编号完成，共 " + total + " 个公式（" + existingMatches.length + " 个已有编号，" + added + " 个新增编号）")
-    }
-
-    if (savedRange) { try { savedRange.Select() } catch(e) { logWpsFailure('restore-selection', null, e) } }
+function OnGetVisible(_control) {
+  return true;
 }

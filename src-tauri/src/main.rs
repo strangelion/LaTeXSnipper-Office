@@ -6,7 +6,6 @@ mod engine;
 mod math;
 mod platforms;
 
-#[cfg(target_os = "windows")]
 use std::sync::Arc;
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -56,6 +55,22 @@ fn main() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .setup(|app| {
+            let transaction_store = Arc::new(
+                platforms::office_transactions::OfficeEditTransactionStore::new()
+                    .map_err(std::io::Error::other)?,
+            );
+            app.manage(transaction_store);
+            let conversation_import_store = Arc::new(
+                platforms::conversation_import::ConversationImportStore::new()
+                    .map_err(std::io::Error::other)?,
+            );
+            app.manage(conversation_import_store.clone());
+            let bridge_runtime = Arc::new(platforms::office_bridge::BridgeRuntimeState::new(
+                app.handle().clone(),
+                conversation_import_store,
+            ));
+            app.manage(bridge_runtime.clone());
+
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]
@@ -149,8 +164,9 @@ fn main() {
 
             // Start Office Bridge (HTTPS, port 19876) — always needed for rendering
             let bridge_handle = app.handle().clone();
+            let bridge_state = bridge_runtime.clone();
             tauri::async_runtime::spawn(async move {
-                platforms::office_bridge::start_bridge_server(bridge_handle).await;
+                platforms::office_bridge::start_bridge_server(bridge_handle, bridge_state).await;
             });
 
             // Handle OLE edit session (--ole-edit flag) within Tauri runtime
@@ -207,6 +223,25 @@ fn main() {
             platforms::office::unregister_office,
             platforms::office::check_office_registration,
             platforms::office::write_pending_formula,
+            platforms::office_bridge::get_bridge_runtime_diagnostics,
+            platforms::office_bridge::list_ecosystem_clients_internal,
+            platforms::office_bridge::submit_office_render_asset_result,
+            platforms::office_bridge::push_ecosystem_action_internal,
+            platforms::office_transactions::begin_office_edit_transaction,
+            platforms::office_transactions::get_office_edit_transaction,
+            platforms::office_transactions::update_office_edit_draft,
+            platforms::office_transactions::prepare_office_edit_commit,
+            platforms::office_transactions::mark_office_edit_committing,
+            platforms::office_transactions::complete_office_edit_transaction,
+            platforms::office_transactions::cancel_office_edit_transaction,
+            platforms::office_transactions::list_recoverable_office_transactions,
+            platforms::office_transactions::discard_stale_office_transaction,
+            platforms::conversation_import::list_browser_imports,
+            platforms::conversation_import::get_browser_import,
+            platforms::conversation_import::update_browser_import_preview,
+            platforms::conversation_import::build_browser_word_import_plan,
+            platforms::conversation_import::cancel_browser_import,
+            platforms::conversation_import::complete_browser_import,
             platforms::integrations::install_platform_integration,
             platforms::integrations::install_obsidian_to_vault,
             platforms::integrations::uninstall_platform_integration,
@@ -238,6 +273,8 @@ fn main() {
             commands::native_office::native_office_request_read_selection,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_table,
+            #[cfg(target_os = "windows")]
+            commands::native_office::native_office_import_conversation,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,
             #[cfg(target_os = "windows")]

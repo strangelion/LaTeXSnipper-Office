@@ -83,6 +83,12 @@ pub enum VstoMessage {
         display: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         omml: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        latex: Option<String>,
+        #[serde(rename = "formulaId", skip_serializing_if = "Option::is_none")]
+        formulaId: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        revision: Option<u64>,
         #[serde(rename = "sourceHost", skip_serializing_if = "Option::is_none")]
         sourceHost: Option<String>,
     },
@@ -150,6 +156,19 @@ pub enum VstoMessage {
         actualStorageMode: Option<String>,
         #[serde(rename = "fallbackReason", skip_serializing_if = "Option::is_none")]
         fallbackReason: Option<String>,
+        #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+        errorCode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
+    #[serde(rename = "CONVERSATION_IMPORT_RESULT")]
+    ConversationImportResult {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "importId")]
+        importId: String,
+        success: bool,
         #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
         errorCode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -248,6 +267,15 @@ pub enum DesktopMessage {
         #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
         expectedContextId: Option<String>,
         table: TablePayload,
+    },
+
+    #[serde(rename = "IMPORT_CONVERSATION")]
+    ImportConversation {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "expectedContextId")]
+        expectedContextId: String,
+        plan: super::conversation_import::WordImportPlan,
     },
 
     #[serde(rename = "REQUEST_READ_SELECTION")]

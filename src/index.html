@@ -62,11 +62,23 @@
             <span>选项</span>
           </div>
           <div class="options-row">
-            <label class="custom-toggle">
-              <input type="checkbox" id="displayMode">
-              <span class="toggle-track"></span>
-              <span>行间公式</span>
-            </label>
+            <fieldset id="formulaInsertMode" class="formula-mode-selector">
+              <legend>公式模式</legend>
+              <label><input type="radio" name="formulaInsertMode" value="inline" checked><span>行内公式</span></label>
+              <label><input type="radio" name="formulaInsertMode" value="display"><span>行间公式</span></label>
+              <label><input type="radio" name="formulaInsertMode" value="numbered"><span>编号公式</span></label>
+            </fieldset>
+
+            <div id="officeRequestContext" class="office-request-context" hidden></div>
+
+            <div id="numberingOptions" class="numbering-options" hidden>
+              <strong>编号方案</strong>
+              <label><input type="radio" name="equationNumberingScheme" value="global" checked> 全局 `(1)`</label>
+              <label title="Native Word 当前仅支持全局序列"><input type="radio" name="equationNumberingScheme" value="chapter-dot" disabled> 章节点号 `(2.1)`</label>
+              <label title="Native Word 当前仅支持全局序列"><input type="radio" name="equationNumberingScheme" value="chapter-hyphen" disabled> 章节连字符 `(2-1)`</label>
+              <input id="equationNumberingLabel" type="text" placeholder="标签/书签（当前 Native Word 暂不支持）" disabled>
+              <small>Native Word 当前仅支持全局编号；章节方案会在协议实现后开放。</small>
+            </div>
 
             <div class="custom-select" id="fontStyleSelect">
               <div class="custom-select-trigger" data-value="tex">
@@ -426,6 +438,21 @@
   <button class="sidebar-trigger" id="sidebarTrigger">
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
   </button>
+
+  <button id="browserImportsButton" class="browser-imports-button" type="button">
+    Browser Imports <span id="browserImportsBadge">0</span>
+  </button>
+  <div id="browserImportsModal" class="browser-imports-modal" hidden>
+    <section class="browser-imports-dialog" role="dialog" aria-modal="true" aria-labelledby="browserImportsTitle">
+      <header><h2 id="browserImportsTitle">Browser Imports</h2><button id="browserImportsClose" type="button">Close</button></header>
+      <div class="browser-imports-layout">
+        <aside id="browserImportsList"></aside>
+        <main id="browserImportPreview">
+          <p>Select an import to preview. No Office or WPS document is modified until you confirm.</p>
+        </main>
+      </div>
+    </section>
+  </div>
 
   <script type="module" src="./main.js"></script>
 </body>

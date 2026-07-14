@@ -1,11 +1,15 @@
 use axum::{
+    extract::DefaultBodyLimit,
     extract::State,
-    http::{header, HeaderValue, Method},
+    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::IntoResponse,
+    routing::delete,
     routing::get,
     routing::post,
     Json, Router,
 };
+use base64::Engine;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -13,10 +17,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tower_http::services::ServeDir;
 
 pub const BRIDGE_PORT: u16 = 19876;
+pub const BRIDGE_HTTP_PORT: u16 = 19877;
+const WPS_TEMP_ASSET_LIMIT: usize = 8 * 1024 * 1024;
+const WPS_TEMP_ASSET_TTL_SECONDS: i64 = 10 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConvertRequest {
@@ -106,14 +113,81 @@ pub struct OfficeActionResponse {
     pub action_id: Option<String>,
 }
 
-#[derive(Clone)]
-struct BridgeState {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeRuntimeDiagnostics {
+    pub http_port: u16,
+    pub https_port: u16,
+    pub http_listening: bool,
+    pub https_listening: bool,
+    pub started_at: Option<String>,
+    pub last_http_error: Option<String>,
+    pub last_https_error: Option<String>,
+    pub last_tls_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeRenderAssetResult {
+    pub id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub width_pt: Option<f64>,
+    #[serde(default)]
+    pub height_pt: Option<f64>,
+    #[serde(default)]
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct WpsTempAsset {
+    path: PathBuf,
+    expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+pub struct BridgeRuntimeState {
     app_handle: tauri::AppHandle,
-    pending_renders: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
-    action_queue: Arc<Mutex<VecDeque<(String, OfficeAction)>>>,
-    action_counter: Arc<std::sync::atomic::AtomicU64>,
+    pending_renders: Mutex<HashMap<String, oneshot::Sender<String>>>,
+    action_queue: Mutex<VecDeque<(String, OfficeAction)>>,
+    action_counter: std::sync::atomic::AtomicU64,
     /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
-    ecosystem_queue: super::ecosystem::EcosystemActionQueue,
+    pub ecosystem_queue: super::ecosystem::EcosystemActionQueue,
+    pub conversation_imports: Arc<super::conversation_import::ConversationImportStore>,
+    pub diagnostics: RwLock<BridgeRuntimeDiagnostics>,
+    wps_auth_token: String,
+    wps_temp_assets: Mutex<HashMap<String, WpsTempAsset>>,
+}
+
+impl BridgeRuntimeState {
+    pub fn new(
+        app_handle: tauri::AppHandle,
+        conversation_imports: Arc<super::conversation_import::ConversationImportStore>,
+    ) -> Self {
+        let mut token = [0_u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut token);
+        Self {
+            app_handle,
+            pending_renders: Mutex::new(HashMap::new()),
+            action_queue: Mutex::new(VecDeque::new()),
+            action_counter: std::sync::atomic::AtomicU64::new(0),
+            ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
+            conversation_imports,
+            diagnostics: RwLock::new(BridgeRuntimeDiagnostics {
+                http_port: BRIDGE_HTTP_PORT,
+                https_port: BRIDGE_PORT,
+                http_listening: false,
+                https_listening: false,
+                started_at: None,
+                last_http_error: None,
+                last_https_error: None,
+                last_tls_error: None,
+            }),
+            wps_auth_token: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token),
+            wps_temp_assets: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 fn fix_omml(omml: &str) -> String {
@@ -235,6 +309,107 @@ fn has_office_taskpane(dir: &std::path::Path) -> bool {
     dir.join("taskpane.html").exists() || dir.join("taskpane").join("index.html").exists()
 }
 
+fn has_wps_payload(dir: &std::path::Path) -> bool {
+    [
+        "index.html",
+        "main.js",
+        "ribbon.xml",
+        "js/command-layer.js",
+        "js/bridge-client.js",
+        "js/host-detect.js",
+        "ui/taskpane.html",
+    ]
+    .iter()
+    .all(|relative| dir.join(relative).is_file())
+}
+
+fn find_wps_dist(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        let bundled = resource_dir.join("WPS");
+        if has_wps_payload(&bundled) {
+            return Some(bundled);
+        }
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let bundled = exe_dir.join("resources").join("WPS");
+            if has_wps_payload(&bundled) {
+                return Some(bundled);
+            }
+        }
+    }
+
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        if let Some(root) = PathBuf::from(manifest_dir).parent() {
+            let dist = root.join("apps").join("wps").join("dist");
+            if let Ok(entries) = fs::read_dir(&dist) {
+                let mut candidates = entries
+                    .flatten()
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir() && has_wps_payload(path))
+                    .collect::<Vec<_>>();
+                candidates.sort();
+                if let Some(candidate) = candidates.pop() {
+                    return Some(candidate);
+                }
+            }
+
+            let source = root.join("apps").join("wps");
+            if has_wps_payload(&source) {
+                return Some(source);
+            }
+        }
+    }
+
+    None
+}
+
+pub fn wps_temp_dir() -> PathBuf {
+    std::env::temp_dir().join("latexsnipper").join("wps")
+}
+
+#[tauri::command]
+pub async fn get_bridge_runtime_diagnostics(
+    state: tauri::State<'_, Arc<BridgeRuntimeState>>,
+) -> Result<BridgeRuntimeDiagnostics, String> {
+    Ok(state.diagnostics.read().await.clone())
+}
+
+#[tauri::command]
+pub async fn list_ecosystem_clients_internal(
+    state: tauri::State<'_, Arc<BridgeRuntimeState>>,
+) -> Result<Vec<super::ecosystem::EcosystemClient>, String> {
+    Ok(state.ecosystem_queue.list_clients().await)
+}
+
+#[tauri::command]
+pub async fn submit_office_render_asset_result(
+    state: tauri::State<'_, Arc<BridgeRuntimeState>>,
+    result: OfficeRenderAssetResult,
+) -> Result<(), String> {
+    complete_office_render_asset(&state, result).await
+}
+
+async fn complete_office_render_asset(
+    state: &BridgeRuntimeState,
+    result: OfficeRenderAssetResult,
+) -> Result<(), String> {
+    if result.id.trim().is_empty() {
+        return Err("render result id is required".to_string());
+    }
+    let id = result.id.clone();
+    let encoded = serde_json::to_string(&result)
+        .map_err(|error| format!("render result serialization failed: {error}"))?;
+    let sender = state.pending_renders.lock().await.remove(&id);
+    match sender {
+        Some(tx) => tx
+            .send(encoded)
+            .map_err(|_| format!("render request {id} is no longer waiting")),
+        None => Err(format!("render request {id} was not found")),
+    }
+}
+
 fn latex_to_omml_core(latex: &str) -> Option<String> {
     latexsnipper_conversion::DocumentConverter::convert_latex_string(
         latex,
@@ -247,19 +422,11 @@ fn latex_to_omml_core(latex: &str) -> Option<String> {
 // Bridge Server
 // ═══════════════════════════════════════════
 
-pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
-    let state = BridgeState {
-        app_handle: app_handle.clone(),
-        pending_renders: Arc::new(Mutex::new(HashMap::new())),
-        action_queue: Arc::new(Mutex::new(VecDeque::new())),
-        action_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
-    };
-
+pub async fn start_bridge_server(app_handle: tauri::AppHandle, state: Arc<BridgeRuntimeState>) {
     // Try to serve Office.js taskpane files from resource dir
     let dist_path = find_office_js_dist(&app_handle);
     println!("[Bridge] Serving Office.js taskpane from: {}", dist_path);
-    let app = Router::new()
+    let mut app = Router::new()
         .route(
             "/health",
             get(|| async {
@@ -342,8 +509,15 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         )
         // ── WPS / cross-platform compatibility ──
         .route("/config", get(handle_config))
+        .route("/wps/health", get(handle_wps_health))
+        .route("/api/wps/temp-assets", post(handle_create_wps_temp_asset))
+        .route(
+            "/api/wps/temp-assets/{asset_id}",
+            delete(handle_delete_wps_temp_asset),
+        )
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
+        .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
         .layer(
             tower_http::cors::CorsLayer::new()
                 .allow_origin([
@@ -352,10 +526,30 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                     HeaderValue::from_static("http://127.0.0.1:19877"),
                     HeaderValue::from_static("https://latexsnipper.interknot.dpdns.org"),
                 ])
-                .allow_methods([Method::GET, Method::POST])
+                .allow_methods([Method::GET, Method::POST, Method::DELETE])
                 .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
-        )
-        .with_state(Arc::new(state));
+        );
+
+    if let Some(wps_dist) = find_wps_dist(&app_handle) {
+        println!("[Bridge] Serving WPS JSAddIn from: {}", wps_dist.display());
+        app = app.nest_service(
+            "/wps",
+            ServeDir::new(wps_dist).append_index_html_on_directories(true),
+        );
+    } else {
+        println!("[Bridge] WPS production payload was not found");
+    }
+
+    let app = app.with_state(state.clone());
+
+    let cleanup_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            cleanup_expired_wps_assets(&cleanup_state).await;
+        }
+    });
 
     // Poll for file-based communication from VBA
     let poll_handle = app_handle.clone();
@@ -529,7 +723,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
     // Certificate trust is handled separately (by install_office_js_addin / "启用 Word 集成").
 
     // ── HTTP server (ecosystem API / dev) ──
-    let http_port = BRIDGE_PORT + 1; // 19877
+    let http_port = BRIDGE_HTTP_PORT;
     let http_addr: std::net::SocketAddr = match format!("127.0.0.1:{}", http_port).parse() {
         Ok(a) => a,
         Err(e) => {
@@ -537,18 +731,41 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             return;
         }
     };
-    let http_app = app.clone();
-    let http_server = tokio::spawn(async move {
-        println!(
-            "[Bridge] Also listening on http://{} (ecosystem API)",
-            http_addr
-        );
-        if let Err(e) = axum_server::bind(http_addr)
-            .serve(http_app.into_make_service())
-            .await
-        {
-            println!("[Bridge] HTTP server error: {}", e);
+    let http_listener = match std::net::TcpListener::bind(http_addr) {
+        Ok(listener) => {
+            if let Err(error) = listener.set_nonblocking(true) {
+                state.diagnostics.write().await.last_http_error = Some(error.to_string());
+                None
+            } else {
+                let mut diagnostics = state.diagnostics.write().await;
+                diagnostics.http_listening = true;
+                diagnostics.started_at = Some(chrono::Utc::now().to_rfc3339());
+                Some(listener)
+            }
         }
+        Err(error) => {
+            state.diagnostics.write().await.last_http_error = Some(error.to_string());
+            None
+        }
+    };
+    let http_app = app.clone();
+    let http_state = state.clone();
+    let http_server = http_listener.map(|listener| {
+        tokio::spawn(async move {
+            println!(
+                "[Bridge] Also listening on http://{} (ecosystem API)",
+                http_addr
+            );
+            if let Err(e) = axum_server::from_tcp(listener)
+                .serve(http_app.into_make_service())
+                .await
+            {
+                println!("[Bridge] HTTP server error: {}", e);
+                let mut diagnostics = http_state.diagnostics.write().await;
+                diagnostics.http_listening = false;
+                diagnostics.last_http_error = Some(e.to_string());
+            }
+        })
     });
 
     // ── HTTPS server (Office.js) ──
@@ -565,25 +782,47 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
                     return;
                 }
             };
-            if let Err(e) = axum_server::bind_rustls(parsed_addr, rustls_config)
+            let listener = match std::net::TcpListener::bind(parsed_addr) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    let mut diagnostics = state.diagnostics.write().await;
+                    diagnostics.last_https_error = Some(error.to_string());
+                    return;
+                }
+            };
+            if let Err(error) = listener.set_nonblocking(true) {
+                state.diagnostics.write().await.last_https_error = Some(error.to_string());
+                return;
+            }
+            let mut diagnostics = state.diagnostics.write().await;
+            diagnostics.https_listening = true;
+            diagnostics.started_at = Some(chrono::Utc::now().to_rfc3339());
+            drop(diagnostics);
+            if let Err(e) = axum_server::from_tcp_rustls(listener, rustls_config)
                 .serve(app.into_make_service())
                 .await
             {
                 println!("[Bridge] HTTPS server error: {}", e);
+                let mut diagnostics = state.diagnostics.write().await;
+                diagnostics.https_listening = false;
+                diagnostics.last_https_error = Some(e.to_string());
             }
         }
         Err(e) => {
             println!("[Bridge] FATAL: TLS setup failed: {}", e);
             println!("[Bridge] Office.js requires HTTPS. Cannot start without TLS.");
+            state.diagnostics.write().await.last_tls_error = Some(e.to_string());
         }
     }
 
     // Keep HTTP server running even if HTTPS stops
-    let _ = http_server.await;
+    if let Some(http_server) = http_server {
+        let _ = http_server.await;
+    }
 }
 
 async fn handle_convert(
-    State(_state): State<Arc<BridgeState>>,
+    State(_state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<ConvertRequest>,
 ) -> impl IntoResponse {
     // OMML → LaTeX conversion
@@ -641,7 +880,7 @@ async fn handle_convert(
 }
 
 async fn handle_convert_v1(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<OfficeConvertV1Request>,
 ) -> Json<OfficeConvertV1Response> {
     const MAX_CONTENT_BYTES: usize = 256 * 1024;
@@ -710,7 +949,7 @@ async fn handle_convert_v1(
 }
 
 async fn handle_render_formula(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<ConvertRequest>,
 ) -> impl IntoResponse {
     let mathml = render_mathml(&state, &req.latex).await;
@@ -721,24 +960,20 @@ async fn handle_render_formula(
 }
 
 async fn handle_render_result(
-    State(state): State<Arc<BridgeState>>,
-    Json(req): Json<serde_json::Value>,
+    State(state): State<Arc<BridgeRuntimeState>>,
+    Json(result): Json<OfficeRenderAssetResult>,
 ) -> impl IntoResponse {
-    let id = req["id"].as_str().unwrap_or("");
-    let result = if let Some(mathml) = req["mathml"].as_str() {
-        mathml.to_string()
-    } else {
-        serde_json::to_string(&req).unwrap_or_default()
-    };
-    let mut pending = state.pending_renders.lock().await;
-    if let Some(tx) = pending.remove(id) {
-        let _ = tx.send(result);
+    match complete_office_render_asset(&state, result).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(error) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"success": false, "error": error})),
+        ),
     }
-    Json(serde_json::json!({"success": true}))
 }
 
 async fn render_office_asset(
-    state: &BridgeState,
+    state: &BridgeRuntimeState,
     latex: &str,
     display_mode: &str,
     target_format: &str,
@@ -791,7 +1026,7 @@ async fn render_office_asset(
 }
 
 async fn handle_load_selection(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<LoadSelectionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Load selection: {}", req.text);
@@ -814,7 +1049,7 @@ async fn handle_load_selection(
 }
 
 async fn handle_load_selection_latex(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<LoadLatexRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Load selection latex: {}", req.latex);
@@ -833,7 +1068,7 @@ async fn handle_load_selection_latex(
 }
 
 async fn handle_load_selection_omml(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<LoadOmmlRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Load selection OMML ({}b)", req.omml.len());
@@ -851,7 +1086,7 @@ async fn handle_load_selection_omml(
     })
 }
 
-async fn handle_show_app(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
+async fn handle_show_app(State(state): State<Arc<BridgeRuntimeState>>) -> impl IntoResponse {
     let _ = state.app_handle.emit("office-show-app", ());
     Json(OfficeResponse {
         success: true,
@@ -859,7 +1094,7 @@ async fn handle_show_app(State(state): State<Arc<BridgeState>>) -> impl IntoResp
     })
 }
 
-async fn render_mathml(state: &BridgeState, latex: &str) -> String {
+async fn render_mathml(state: &BridgeRuntimeState, latex: &str) -> String {
     let (tx, rx) = oneshot::channel::<String>();
     let request_id = format!(
         "rnd_{}",
@@ -895,7 +1130,7 @@ async fn render_mathml(state: &BridgeState, latex: &str) -> String {
 }
 
 async fn handle_delete_formula(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(_req): Json<FormulaActionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Delete formula");
@@ -907,7 +1142,7 @@ async fn handle_delete_formula(
 }
 
 async fn handle_auto_number(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(_req): Json<FormulaActionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Auto number");
@@ -919,7 +1154,7 @@ async fn handle_auto_number(
 }
 
 async fn handle_renumber(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(_req): Json<FormulaActionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Renumber");
@@ -931,7 +1166,7 @@ async fn handle_renumber(
 }
 
 async fn handle_format_selection(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(_req): Json<FormulaActionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Format selection");
@@ -943,7 +1178,7 @@ async fn handle_format_selection(
 }
 
 async fn handle_format_all(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(_req): Json<FormulaActionRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Format all");
@@ -973,7 +1208,7 @@ pub struct LoadTableResponse {
     pub table: Option<TableData>,
 }
 
-async fn handle_load_table(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
+async fn handle_load_table(State(state): State<Arc<BridgeRuntimeState>>) -> impl IntoResponse {
     println!("[Bridge] Load table");
     let _ = state.app_handle.emit("office-load-table", ());
     Json(LoadTableResponse {
@@ -1028,7 +1263,7 @@ pub struct TableDataRequest {
 }
 
 async fn handle_insert_table(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<TableDataRequest>,
 ) -> impl IntoResponse {
     println!("[Bridge] Insert table: {}", req.latex);
@@ -1052,7 +1287,7 @@ pub struct InsertDirectRequest {
 }
 
 async fn handle_insert_direct(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(req): Json<InsertDirectRequest>,
 ) -> impl IntoResponse {
     println!(
@@ -1093,7 +1328,7 @@ async fn handle_heartbeat() -> impl IntoResponse {
     })
 }
 
-async fn handle_actions_next(State(state): State<Arc<BridgeState>>) -> impl IntoResponse {
+async fn handle_actions_next(State(state): State<Arc<BridgeRuntimeState>>) -> impl IntoResponse {
     let action = {
         let mut queue = state.action_queue.lock().await;
         queue.pop_front()
@@ -1111,7 +1346,7 @@ async fn handle_actions_next(State(state): State<Arc<BridgeState>>) -> impl Into
 }
 
 async fn handle_actions_complete(
-    State(_state): State<Arc<BridgeState>>,
+    State(_state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let action_id = payload["action_id"].as_str().unwrap_or("unknown");
@@ -1130,7 +1365,7 @@ use super::ecosystem::{
     ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemClient,
 };
 
-fn _extract_queue(state: &BridgeState) -> &EcosystemActionQueue {
+fn _extract_queue(state: &BridgeRuntimeState) -> &EcosystemActionQueue {
     &state.ecosystem_queue
 }
 
@@ -1158,7 +1393,9 @@ impl EcoOkResponse {
     }
 }
 
-async fn handle_ecosystem_ping(State(_state): State<Arc<BridgeState>>) -> Json<serde_json::Value> {
+async fn handle_ecosystem_ping(
+    State(_state): State<Arc<BridgeRuntimeState>>,
+) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true,
         "service": "latexsnipper-ecosystem-bridge",
@@ -1168,7 +1405,7 @@ async fn handle_ecosystem_ping(State(_state): State<Arc<BridgeState>>) -> Json<s
 }
 
 async fn handle_ecosystem_client_register(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(client): Json<EcosystemClient>,
 ) -> Json<serde_json::Value> {
     state.ecosystem_queue.register_client(client).await;
@@ -1181,7 +1418,7 @@ async fn handle_ecosystem_client_register(
 }
 
 async fn handle_ecosystem_client_heartbeat(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     if let Some(client_id) = payload["clientId"].as_str() {
@@ -1191,16 +1428,22 @@ async fn handle_ecosystem_client_heartbeat(
 }
 
 async fn handle_ecosystem_clients(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
 ) -> Json<serde_json::Value> {
     let clients = state.ecosystem_queue.list_clients().await;
     Json(serde_json::json!({ "ok": true, "clients": clients }))
 }
 
 async fn handle_ecosystem_enqueue(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    let browser_source = payload
+        .get("source")
+        .and_then(|source| source.get("browser"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
     // Accept both full EcosystemActionEnvelope and simplified format from plugins.
     // If action_id is missing, treat as simplified and fill in defaults.
     let has_action_id = payload
@@ -1265,6 +1508,74 @@ async fn handle_ecosystem_enqueue(
         }
     };
 
+    if action.origin == "browser" && action.target == "desktop" {
+        if action.action_type == "ImportConversationSelection" {
+            let document = match serde_json::from_value::<
+                super::conversation_import::ConversationImportDocument,
+            >(action.payload.clone())
+            {
+                Ok(document) => document,
+                Err(error) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "errorCode": "INVALID_CONVERSATION_SCHEMA",
+                        "error": error.to_string(),
+                    }));
+                }
+            };
+            match state
+                .conversation_imports
+                .receive(action.action_id.clone(), browser_source.clone(), document)
+                .await
+            {
+                Ok(record) => {
+                    let _ = state.app_handle.emit("browser-import-received", &record);
+                }
+                Err(error) => {
+                    return Json(serde_json::json!({
+                        "ok": false,
+                        "errorCode": error.code,
+                        "error": error.message,
+                    }));
+                }
+            }
+        } else if action.action_type == "ImportWebFormula" {
+            let encoded = serde_json::to_vec(&action.payload).unwrap_or_default();
+            let valid = action
+                .payload
+                .get("schemaVersion")
+                .and_then(serde_json::Value::as_u64)
+                == Some(1)
+                && action
+                    .payload
+                    .get("formulas")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|items| !items.is_empty() && items.len() <= 500)
+                && encoded.len() <= 2 * 1024 * 1024;
+            if !valid {
+                return Json(serde_json::json!({
+                    "ok": false,
+                    "errorCode": "INVALID_FORMULA_IMPORT",
+                    "error": "Formula import schema or bounds are invalid.",
+                }));
+            }
+            let _ = state.app_handle.emit(
+                "browser-formula-import-received",
+                &serde_json::json!({
+                    "actionId": action.action_id,
+                    "sourceBrowser": browser_source,
+                    "payload": action.payload,
+                }),
+            );
+        } else {
+            return Json(serde_json::json!({
+                "ok": false,
+                "errorCode": "INVALID_BROWSER_ACTION_DIRECTION",
+                "error": "Browser-to-desktop actions must use a browser import schema.",
+            }));
+        }
+    }
+
     match state.ecosystem_queue.enqueue(action.clone()).await {
         Ok(()) => Json(serde_json::json!({
             "ok": true,
@@ -1278,7 +1589,7 @@ async fn handle_ecosystem_enqueue(
 }
 
 async fn handle_ecosystem_actions_next(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     let client_id = params.get("clientId").map(|s| s.as_str()).unwrap_or("");
@@ -1296,7 +1607,7 @@ async fn handle_ecosystem_actions_next(
 }
 
 async fn handle_ecosystem_ack(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let action_id = payload["actionId"].as_str().unwrap_or("");
@@ -1307,7 +1618,7 @@ async fn handle_ecosystem_ack(
 }
 
 async fn handle_ecosystem_actions_complete(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let action_id = payload["actionId"].as_str().unwrap_or("");
@@ -1328,7 +1639,7 @@ async fn handle_ecosystem_actions_complete(
 }
 
 async fn handle_ecosystem_action_status(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     axum::extract::Path(action_id): axum::extract::Path<String>,
 ) -> Json<serde_json::Value> {
     match state.ecosystem_queue.status(&action_id).await {
@@ -1346,27 +1657,62 @@ async fn handle_ecosystem_action_status(
     }
 }
 
-#[derive(Deserialize)]
-struct PushActionPayload {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushActionPayload {
     #[serde(rename = "type")]
-    action_type: String,
-    latex: String,
-    display: Option<bool>,
-    format: Option<String>,
+    pub action_type: String,
+    pub latex: String,
+    pub display: Option<bool>,
+    pub format: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct PushRequest {
-    target: String,
-    action: PushActionPayload,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushRequest {
+    pub target: String,
+    pub action: PushActionPayload,
 }
 
 /// Simplified push endpoint — wraps action into envelope automatically.
 /// Request: { target: "vscode", action: { type: "InsertFormula", latex: "...", display: true } }
 async fn handle_ecosystem_actions_push(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(push): Json<PushRequest>,
 ) -> Json<serde_json::Value> {
+    match enqueue_ecosystem_action(state.as_ref(), push).await {
+        Ok(action_id) => Json(serde_json::json!({
+            "ok": true,
+            "actionId": action_id,
+        })),
+        Err(error) => Json(serde_json::json!({
+            "ok": false,
+            "error": error,
+        })),
+    }
+}
+
+#[tauri::command]
+pub async fn push_ecosystem_action_internal(
+    state: tauri::State<'_, Arc<BridgeRuntimeState>>,
+    request: PushRequest,
+) -> Result<String, String> {
+    enqueue_ecosystem_action(state.inner().as_ref(), request).await
+}
+
+async fn enqueue_ecosystem_action(
+    state: &BridgeRuntimeState,
+    push: PushRequest,
+) -> Result<String, String> {
+    if push.action.latex.len() > 64 * 1024 {
+        return Err("ECOSYSTEM_ACTION_TOO_LARGE".to_string());
+    }
+    if !matches!(
+        push.target.as_str(),
+        "vscode" | "obsidian" | "browser" | "wps"
+    ) {
+        return Err("ECOSYSTEM_TARGET_UNSUPPORTED".to_string());
+    }
     let action_id = format!("act_{}", uuid_simple());
     let now = chrono::Utc::now();
     let expires = now + chrono::Duration::seconds(300);
@@ -1395,38 +1741,232 @@ async fn handle_ecosystem_actions_push(
         protocol_version: 1,
     };
 
-    match state.ecosystem_queue.enqueue(envelope).await {
-        Ok(()) => Json(serde_json::json!({
-            "ok": true,
-            "actionId": action_id,
-        })),
-        Err(e) => Json(serde_json::json!({
-            "ok": false,
-            "error": e,
-        })),
-    }
+    state.ecosystem_queue.enqueue(envelope).await?;
+    Ok(action_id)
 }
 
 /// WPS-compatible /config endpoint.
-async fn handle_config() -> Json<serde_json::Value> {
+async fn handle_config(State(state): State<Arc<BridgeRuntimeState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "ok": true,
         "result": {
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "baseUrl": "https://127.0.0.1:19876",
             "httpUrl": "http://127.0.0.1:19877",
+            "token": state.wps_auth_token,
             "capabilities": [
                 "latex_to_markdown",
                 "latex_to_svg",
                 "latex_to_png",
-                "insert_formula_action"
+                "insert_formula_action",
+                "wps_temp_assets"
             ]
         }
     }))
 }
 
+async fn handle_wps_health(
+    State(state): State<Arc<BridgeRuntimeState>>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "success": true,
+        "payloadPresent": find_wps_dist(&state.app_handle).is_some(),
+        "version": env!("CARGO_PKG_VERSION"),
+        "supportedHosts": ["wps", "et", "wpp"]
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WpsTempAssetRequest {
+    format: String,
+    base64: String,
+    #[serde(default)]
+    formula_id: Option<String>,
+}
+
+fn has_valid_wps_bearer(headers: &HeaderMap, state: &BridgeRuntimeState) -> bool {
+    let Some(value) = headers.get(header::AUTHORIZATION) else {
+        return false;
+    };
+    let Ok(value) = value.to_str() else {
+        return false;
+    };
+    value
+        .strip_prefix("Bearer ")
+        .is_some_and(|token| token == state.wps_auth_token)
+}
+
+fn random_wps_asset_id() -> String {
+    let mut bytes = [0_u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    bytes.iter().map(|value| format!("{value:02x}")).collect()
+}
+
+async fn cleanup_expired_wps_assets(state: &BridgeRuntimeState) {
+    let now = chrono::Utc::now();
+    let expired = {
+        let mut assets = state.wps_temp_assets.lock().await;
+        let ids = assets
+            .iter()
+            .filter(|(_, asset)| asset.expires_at <= now)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        ids.into_iter()
+            .filter_map(|id| assets.remove(&id))
+            .collect::<Vec<_>>()
+    };
+    for asset in expired {
+        let _ = fs::remove_file(asset.path);
+    }
+}
+
+async fn handle_create_wps_temp_asset(
+    State(state): State<Arc<BridgeRuntimeState>>,
+    headers: HeaderMap,
+    Json(request): Json<WpsTempAssetRequest>,
+) -> impl IntoResponse {
+    if !has_valid_wps_bearer(&headers, &state) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "AUTH_REQUIRED"
+            })),
+        );
+    }
+
+    let format = request.format.to_ascii_lowercase();
+    if format != "png" && format != "svg" {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "UNSUPPORTED_FORMAT"
+            })),
+        );
+    }
+    if request.base64.len() > WPS_TEMP_ASSET_LIMIT.saturating_mul(4) / 3 + 8 {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "PAYLOAD_TOO_LARGE"
+            })),
+        );
+    }
+    let decoded = match base64::engine::general_purpose::STANDARD.decode(&request.base64) {
+        Ok(value) if !value.is_empty() && value.len() <= WPS_TEMP_ASSET_LIMIT => value,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "INVALID_BASE64"
+                })),
+            )
+        }
+    };
+    let content_valid = if format == "png" {
+        decoded.starts_with(b"\x89PNG\r\n\x1a\n")
+    } else {
+        std::str::from_utf8(&decoded)
+            .map(|text| text.trim_start().starts_with("<svg"))
+            .unwrap_or(false)
+    };
+    if !content_valid {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "CONTENT_FORMAT_MISMATCH"
+            })),
+        );
+    }
+
+    cleanup_expired_wps_assets(&state).await;
+    let asset_id = random_wps_asset_id();
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(WPS_TEMP_ASSET_TTL_SECONDS);
+    let dir = wps_temp_dir();
+    if let Err(error) = fs::create_dir_all(&dir) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("TEMP_DIRECTORY_FAILED: {error}")
+            })),
+        );
+    }
+    let path = dir.join(format!("{asset_id}.{format}"));
+    if let Err(error) = fs::write(&path, decoded) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("TEMP_WRITE_FAILED: {error}")
+            })),
+        );
+    }
+    state.wps_temp_assets.lock().await.insert(
+        asset_id.clone(),
+        WpsTempAsset {
+            path: path.clone(),
+            expires_at,
+        },
+    );
+    let _ = request.formula_id;
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({
+            "success": true,
+            "assetId": asset_id,
+            "path": path.to_string_lossy(),
+            "expiresAt": expires_at.to_rfc3339()
+        })),
+    )
+}
+
+async fn handle_delete_wps_temp_asset(
+    State(state): State<Arc<BridgeRuntimeState>>,
+    headers: HeaderMap,
+    axum::extract::Path(asset_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if !has_valid_wps_bearer(&headers, &state) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "AUTH_REQUIRED"
+            })),
+        );
+    }
+    let asset = state.wps_temp_assets.lock().await.remove(&asset_id);
+    let Some(asset) = asset else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "ASSET_NOT_FOUND"
+            })),
+        );
+    };
+    match fs::remove_file(asset.path) {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"success": true}))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            (StatusCode::OK, Json(serde_json::json!({"success": true})))
+        }
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("TEMP_DELETE_FAILED: {error}")
+            })),
+        ),
+    }
+}
+
 async fn handle_ecosystem_formula_edit(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     // Parse the edit request into an action and forward it to the desktop
@@ -1496,7 +2036,7 @@ fn uuid_simple() -> String {
 }
 
 async fn handle_ecosystem_clipboard_write(
-    State(state): State<Arc<BridgeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let text = payload["text"].as_str().unwrap_or("").to_string();

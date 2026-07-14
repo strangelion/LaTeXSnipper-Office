@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "generated": false,
+  "notice": "Run the resource staging step before building distributable packages."
+}

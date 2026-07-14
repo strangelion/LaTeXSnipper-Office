@@ -1,14 +1,14 @@
 {
   "name": "latexsnipper-wps",
-  "version": "1.0.0",
-  "description": "LaTeX formula plugin for WPS Office",
+  "version": "1.3.0",
+  "description": "LaTeX formula JSAddIn for WPS Writer, Spreadsheets, and Presentation",
   "main": "index.html",
   "addonType": "wps",
   "scripts": {
-    "proxy": "node proxy.js",
-    "debug": "node start.js",
-    "build": "wpsjs build",
-    "publish": "wpsjs publish"
+    "debug": "npm run debug:wps",
+    "debug:wps": "node tools/debug-host.js wps",
+    "debug:et": "node tools/debug-host.js et",
+    "debug:wpp": "node tools/debug-host.js wpp"
   },
   "dependencies": {},
   "devDependencies": {}

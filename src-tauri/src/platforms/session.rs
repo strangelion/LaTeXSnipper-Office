@@ -5,9 +5,10 @@
 //! and tracks insertion anchors per session.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use tokio::sync::{mpsc, RwLock};
 
 use super::pipe_protocol::*;
@@ -433,6 +434,36 @@ impl SessionManager {
                 }
             }
 
+            VstoMessage::ConversationImportResult {
+                requestId,
+                sessionId,
+                importId,
+                success,
+                errorCode,
+                error,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                let _ = self.app_handle.emit(
+                    "native-word-conversation-import-result",
+                    serde_json::json!({
+                        "importId": importId,
+                        "success": success,
+                        "errorCode": errorCode,
+                        "error": error,
+                        "sessionId": sid,
+                    }),
+                );
+                ResponseEnvelope {
+                    requestId: rid.clone(),
+                    sessionId: sid.clone(),
+                    response: DesktopMessage::Ping {
+                        requestId: rid,
+                        sessionId: sid,
+                    },
+                }
+            }
+
             VstoMessage::InsertTableResult {
                 requestId,
                 sessionId,
@@ -562,11 +593,109 @@ impl SessionManager {
                 action,
                 display,
                 omml,
+                latex,
+                formulaId,
+                revision,
                 sourceHost,
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!("[Session] OPEN_EDITOR (session={}) action={}", sid, action);
+                let session_context = self.sessions.read().await.get(&sid).map(|session| {
+                    (
+                        session.host_type,
+                        session.document_id.clone(),
+                        session.document_title.clone(),
+                    )
+                });
+                let host = match sourceHost.as_deref().or_else(|| {
+                    session_context.as_ref().map(|context| match context.0 {
+                        HostType::Word => "word",
+                        HostType::Excel => "excel",
+                        HostType::PowerPoint => "powerpoint",
+                    })
+                }) {
+                    Some("excel") => super::office_transactions::OfficeHostKind::Excel,
+                    Some("powerpoint") => super::office_transactions::OfficeHostKind::PowerPoint,
+                    _ => super::office_transactions::OfficeHostKind::Word,
+                };
+                let transaction =
+                    if matches!(action.as_str(), "insert" | "edit") {
+                        let requested_mode =
+                            super::office_transactions::FormulaInsertMode::from_protocol(
+                                display.as_deref(),
+                            );
+                        let numbering = (requested_mode
+                            == super::office_transactions::FormulaInsertMode::Numbered)
+                            .then_some(super::office_transactions::EquationNumberingOptions {
+                                scheme: super::office_transactions::EquationNumberingScheme::Global,
+                                chapter_level: None,
+                                separator: None,
+                                label: None,
+                            });
+                        let transaction_store = self
+                            .app_handle
+                            .state::<Arc<super::office_transactions::OfficeEditTransactionStore>>();
+                        match transaction_store
+                        .begin(super::office_transactions::BeginOfficeEditTransactionRequest {
+                            integration:
+                                super::office_transactions::OfficeIntegrationKind::NativeOffice,
+                            host,
+                            source_session_id: Some(sid.clone()),
+                            source_document_id: session_context
+                                .as_ref()
+                                .and_then(|context| context.1.clone()),
+                            source_object_id: formulaId.clone(),
+                            formula_id: formulaId.clone(),
+                            action: if action == "edit" {
+                                super::office_transactions::OfficeEditAction::Update
+                            } else {
+                                super::office_transactions::OfficeEditAction::Insert
+                            },
+                            requested_mode,
+                            numbering,
+                            original_revision: revision,
+                            original_metadata: None,
+                            draft_latex: latex.clone().unwrap_or_default(),
+                        })
+                        .await
+                    {
+                        Ok(transaction) => Some(transaction),
+                        Err(error) => {
+                            log::error!(
+                                "[OfficeTransaction] OPEN_EDITOR rejected session={} error={}",
+                                sid,
+                                error
+                            );
+                            let error_code = if error.contains("OFFICE_TRANSACTION_CONFLICT") {
+                                "OFFICE_TRANSACTION_CONFLICT"
+                            } else {
+                                "OFFICE_TRANSACTION_BEGIN_FAILED"
+                            };
+                            let _ = self.app_handle.emit(
+                                "native-office-error",
+                                serde_json::json!({
+                                    "error": error,
+                                    "errorCode": error_code,
+                                    "sessionId": sid,
+                                }),
+                            );
+                            None
+                        }
+                    }
+                    } else {
+                        None
+                    };
+                if matches!(action.as_str(), "insert" | "edit") && transaction.is_none() {
+                    return ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    };
+                }
                 let _ = self.app_handle.emit(
                     "native-office-open-editor",
                     serde_json::json!({
@@ -574,7 +703,11 @@ impl SessionManager {
                         "action": action,
                         "display": display,
                         "omml": omml,
+                        "latex": latex,
+                        "formulaId": formulaId,
+                        "revision": revision,
                         "sourceHost": sourceHost,
+                        "transaction": transaction,
                     }),
                 );
                 ResponseEnvelope {

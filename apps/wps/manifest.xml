@@ -8,12 +8,14 @@
   <ProviderName>LaTeXSnipper</ProviderName>
   <DefaultLocale>zh-CN</DefaultLocale>
   <DisplayName DefaultValue="LaTeXSnipper"/>
-  <Description DefaultValue="LaTeX formula insertion for WPS Office (Document only)"/>
+  <Description DefaultValue="LaTeX formula integration for WPS Writer, Spreadsheets, and Presentation"/>
   <Hosts>
     <Host Name="Document"/>
+    <Host Name="Workbook"/>
+    <Host Name="Presentation"/>
   </Hosts>
   <DefaultSettings>
-    <SourceLocation DefaultValue="http://127.0.0.1:8080/taskpane.html"/>
+    <SourceLocation DefaultValue="http://127.0.0.1:19877/wps/ui/taskpane.html"/>
   </DefaultSettings>
   <Permissions>ReadWriteDocument</Permissions>
   <Ribbon>

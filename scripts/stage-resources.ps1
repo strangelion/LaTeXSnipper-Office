@@ -159,18 +159,52 @@ $wpsDest = Join-Path $resourcesDir "WPS"
 foreach ($file in @(
     "index.html",
     "main.js",
+    "manifest.json",
     "manifest.xml",
     "ribbon.xml",
-    "proxy.js",
-    "server.js",
     "js/command-layer.js",
+    "js/host-detect.js",
+    "js/bridge-client.js",
+    "js/adapters.js",
     "js/ribbon.js",
     "js/util.js",
-    "ui/taskpane.html"
+    "ui/taskpane.html",
+    "ui/taskpane.js"
 )) {
     Require-File (Resolve-RelativePath $wpsSource $file) "WPS payload"
 }
 Copy-CleanDir $wpsSource $wpsDest
+$wpsProductionText = Get-ChildItem -LiteralPath $wpsDest -Recurse -File |
+    Where-Object { $_.Extension -in @(".js", ".html", ".xml", ".json") } |
+    ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName } |
+    Out-String
+foreach ($forbidden in @(
+    "http://127.0.0.1:8080",
+    "127.0.0.1:28765",
+    "127.0.0.1:28766",
+    "http://127.0.0.1:19876",
+    "/convert/latex",
+    "Date.now() % 1000",
+    'addonType="wps"'
+)) {
+    if ($wpsProductionText.Contains($forbidden)) {
+        throw "WPS production payload contains forbidden legacy value: $forbidden"
+    }
+}
+
+function Get-PackageVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageJson,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+    Require-File $PackageJson "$Label package metadata"
+    $metadata = Get-Content -Raw -LiteralPath $PackageJson | ConvertFrom-Json
+    $version = [string]$metadata.version
+    if ($version -notmatch '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$') {
+        throw "$Label package version is invalid: $version"
+    }
+    return $version
+}
 $wpsCount = (Get-ChildItem -LiteralPath $wpsDest -Recurse -File).Count
 Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Green
 
@@ -257,6 +291,16 @@ foreach ($dir in @("OfficeJS", "WPS", "NativeOffice", "Obsidian")) {
     Write-Host "  $dir : $count files" -ForegroundColor Gray
 }
 
+$officeJsBundles = @(
+    Get-ChildItem -LiteralPath (Join-Path $officeJsDir "site\assets") `
+        -File `
+        -Filter "taskpane-*.js"
+)
+if ($officeJsBundles.Count -ne 1) {
+    throw "Expected exactly one Office.js taskpane bundle, found $($officeJsBundles.Count)."
+}
+$officeJsBundle = $officeJsBundles[0].FullName
+
 $provenance = [ordered]@{
     schemaVersion = 1
     workflowRunId = $env:GITHUB_RUN_ID
@@ -266,6 +310,18 @@ $provenance = [ordered]@{
     } else {
         (Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version
     }
+    officeJsVersion = "hosted/1"
+    officeJsSource = "https://appsforoffice.microsoft.com/lib/1/hosted/office.js"
+    officeJsSha256 = $null
+    officeJsTypingsVersion = Get-PackageVersion `
+        (Join-Path $ProjectRoot "apps/office-addin/node_modules/@types/office-js/package.json") `
+        "Office.js typings"
+    officeJsBundleSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $officeJsBundle).Hash
+    mathJaxVersion = Get-PackageVersion `
+        (Join-Path $ProjectRoot "node_modules/mathjax/package.json") `
+        "MathJax"
+    buildPlatform = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+    manifestVersion = if ($env:VERSION) { "$($env:VERSION).0" } else { "$((Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).version).0" }
     sources = [ordered]@{
         officeJs = [ordered]@{
             name = if ($OfficeJsSourceName) { $OfficeJsSourceName } elseif ($OfficeJsStaging) { "explicit-path" } else { "local-build" }

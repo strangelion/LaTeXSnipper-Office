@@ -1051,6 +1051,61 @@ a:hover {
   color: var(--fg);
 }
 
+.formula-mode-selector {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+}
+.formula-mode-selector legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.formula-mode-selector label {
+  cursor: pointer;
+}
+.formula-mode-selector input {
+  position: absolute;
+  opacity: 0;
+}
+.formula-mode-selector span {
+  display: inline-block;
+  padding: 0.3rem 0.65rem;
+  border-radius: calc(var(--btn-radius) - 2px);
+}
+.formula-mode-selector input:checked + span {
+  color: #fff;
+  background: var(--accent);
+}
+.office-request-context {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--btn-radius);
+  color: var(--accent);
+  font-weight: 600;
+}
+.numbering-options {
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--btn-radius);
+  background: var(--surface-2);
+}
+.numbering-options small {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.numbering-options input[type="text"] {
+  min-width: 240px;
+}
+
 /* ═══════════════════════════════════════════
    Buttons
    ═══════════════════════════════════════════ */
@@ -1789,4 +1844,96 @@ a:hover {
 
 .office-btn.danger svg {
   color: #ef4444;
+}
+.browser-imports-button {
+  position: fixed;
+  right: 18px;
+  bottom: 42px;
+  z-index: 90;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #4f46e5;
+  color: #fff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.2);
+}
+.browser-imports-button span {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 5px;
+  border-radius: 9px;
+  background: #fff;
+  color: #4f46e5;
+  text-align: center;
+}
+.browser-imports-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(15, 23, 42, 0.55);
+  padding: 4vh 4vw;
+}
+.browser-imports-dialog {
+  height: 92vh;
+  max-width: 1100px;
+  margin: auto;
+  background: var(--bg-primary, #fff);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.browser-imports-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-color, #ddd);
+}
+.browser-imports-dialog h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.browser-imports-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  min-height: 0;
+  flex: 1;
+}
+.browser-imports-layout aside {
+  overflow: auto;
+  border-right: 1px solid var(--border-color, #ddd);
+  padding: 10px;
+}
+.browser-imports-layout main {
+  overflow: auto;
+  padding: 18px;
+}
+.browser-import-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  margin-bottom: 7px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  background: transparent;
+}
+.browser-import-message {
+  padding: 8px;
+  margin: 6px 0;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+}
+.browser-import-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.browser-import-warning {
+  color: #b45309;
+}
+.browser-import-success {
+  color: #15803d;
 }
