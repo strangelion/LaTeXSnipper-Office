@@ -29,6 +29,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE IsInitialized(VARIANT_BOOL* result) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetExtentJson(BSTR* extentJson) = 0;
     virtual HRESULT STDMETHODCALLTYPE CompleteInsertion() = 0;
+    virtual HRESULT STDMETHODCALLTYPE SetDisplayExtentHimetric(LONG cx, LONG cy) = 0;
 };
 
 #endif

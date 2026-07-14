@@ -231,6 +231,11 @@ public static class OleFormulaInterop
         return checked((float)(value * PointsPerInch / HimetricPerInch));
     }
 
+    private static int PointsToHimetric(float value)
+    {
+        return checked((int)Math.Round(value * HimetricPerInch / PointsPerInch));
+    }
+
     public static bool TryGetExtentPoints(dynamic oleAutomationObject, out OleExtentPoints extent)
     {
         extent = default;
@@ -278,14 +283,43 @@ public static class OleFormulaInterop
         }
     }
 
-    public static OleExtentPoints GetInitialDisplayExtent(FormulaPayload payload, OleExtentPoints naturalExtent)
+    public static bool TrySetDisplayExtent(dynamic oleAutomationObject, OleExtentPoints extent)
+    {
+        if (extent.DisplayWidthPt <= 0 || extent.DisplayHeightPt <= 0)
+            return false;
+        try
+        {
+            oleAutomationObject.SetDisplayExtentHimetric(
+                PointsToHimetric(extent.DisplayWidthPt),
+                PointsToHimetric(extent.DisplayHeightPt));
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OleFormulaInterop] SetDisplayExtentHimetric failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public static bool DisplayExtentMatches(OleExtentPoints expected, OleExtentPoints actual, float tolerancePt = 0.75f)
+    {
+        return Math.Abs(expected.DisplayWidthPt - actual.DisplayWidthPt) <= tolerancePt &&
+               Math.Abs(expected.DisplayHeightPt - actual.DisplayHeightPt) <= tolerancePt;
+    }
+
+    public static OleExtentPoints GetInitialDisplayExtent(FormulaPayload payload, OleExtentPoints naturalExtent, OleHostKind host = OleHostKind.Word)
     {
         bool isDisplay = string.Equals(payload.Display, "block", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(payload.Display, "display", StringComparison.OrdinalIgnoreCase);
 
         // MathJax renders at ~10pt. Inline formulas match Word default 11pt;
         // display formulas scale up to ~15pt for independent formula appearance.
-        float scale = isDisplay ? 1.50f : 1.10f;
+        float scale = host switch
+        {
+            OleHostKind.PowerPoint => 1.0f,
+            OleHostKind.Excel => isDisplay ? 1.10f : 1.0f,
+            _ => isDisplay ? 1.50f : 1.10f,
+        };
 
         return new OleExtentPoints(
             naturalExtent.NaturalWidthPt,
@@ -309,6 +343,13 @@ public static class OleFormulaInterop
             extent.DisplayWidthPt * scale,
             extent.DisplayHeightPt * scale);
     }
+}
+
+public enum OleHostKind
+{
+    Word,
+    Excel,
+    PowerPoint,
 }
 
 public readonly struct OleExtentPoints

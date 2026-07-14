@@ -16,7 +16,85 @@
               "properties": {
                 "latex": { "type": "string", "description": "LaTeX source" },
                 "display": { "type": "string", "enum": ["inline", "block", "numbered"], "default": "inline" },
-                "formulaId": { "type": "string", "description": "Unique formula identifier for cross-host metadata roundtrip" }
+                "formulaId": { "type": "string", "description": "Unique formula identifier for cross-host metadata roundtrip" },
+                "layoutProfileId": { "type": "string" },
+                "equationLabel": { "type": "string" }
+              },
+              "required": ["latex"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "GetSelectedFormula",
+          "type": "object",
+          "properties": {
+            "type": { "const": "GetSelectedFormula" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "ReplaceSelectedFormula",
+          "type": "object",
+          "properties": {
+            "type": { "const": "ReplaceSelectedFormula" },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "latex": { "type": "string" },
+                "display": { "type": "string", "enum": ["inline", "block", "numbered"] },
+                "formulaId": { "type": "string" },
+                "layoutProfileId": { "type": "string" },
+                "equationLabel": { "type": "string" }
+              },
+              "required": ["latex"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "DeleteSelectedFormula",
+          "type": "object",
+          "properties": {
+            "type": { "const": "DeleteSelectedFormula" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "GetHostCapabilities",
+          "type": "object",
+          "properties": {
+            "type": { "const": "GetHostCapabilities" },
+            "payload": { "type": "object", "properties": {}, "required": [] }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "InsertEquationReference",
+          "type": "object",
+          "properties": {
+            "type": { "const": "InsertEquationReference" },
+            "payload": {
+              "type": "object",
+              "properties": { "formulaId": { "type": "string" } },
+              "required": ["formulaId"]
+            }
+          },
+          "required": ["type", "payload"]
+        },
+        {
+          "title": "RenderFormula",
+          "type": "object",
+          "properties": {
+            "type": { "const": "RenderFormula" },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "latex": { "type": "string" },
+                "display": { "type": "string", "enum": ["inline", "block", "numbered"] },
+                "format": { "type": "string", "enum": ["svg", "png"] }
               },
               "required": ["latex"]
             }
@@ -140,7 +218,7 @@
           "type": "object",
           "properties": {
             "ok": { "const": true },
-            "data": { "type": "string" }
+            "data": {}
           },
           "required": ["ok"]
         },
@@ -149,7 +227,8 @@
           "type": "object",
           "properties": {
             "ok": { "const": false },
-            "error": { "type": "string" }
+            "error": { "type": "string" },
+            "code": { "type": "string" }
           },
           "required": ["ok", "error"]
         }

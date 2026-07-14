@@ -1530,6 +1530,7 @@ STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT c
         { L"IsInitialized",      6 },
         { L"GetExtentJson",      7 },
         { L"CompleteInsertion",  8 },
+        { L"SetDisplayExtentHimetric", 9 },
     };
 
     for (const auto& entry : kDispatchTable)
@@ -1632,6 +1633,17 @@ STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wF
     case 8: // CompleteInsertion
         if (wFlags & DISPATCH_METHOD)
             return CompleteInsertion();
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 9: // SetDisplayExtentHimetric
+        if ((wFlags & DISPATCH_METHOD) && pDispParams->cArgs == 2)
+        {
+            const VARIANT& cyArg = pDispParams->rgvarg[0];
+            const VARIANT& cxArg = pDispParams->rgvarg[1];
+            if (cxArg.vt != VT_I4 || cyArg.vt != VT_I4)
+                return DISP_E_TYPEMISMATCH;
+            return SetDisplayExtentHimetric(cxArg.lVal, cyArg.lVal);
+        }
         return DISP_E_MEMBERNOTFOUND;
 
     default:
@@ -1874,6 +1886,27 @@ STDMETHODIMP FormulaOleObject::CompleteInsertion()
     hasContainerExtent_ = true;
     WriteNativeOleLog(L"FormulaOleObject: insertion completed.");
     // View refresh happens in SetExtent when the host sets the final display size.
+    return S_OK;
+}
+
+STDMETHODIMP FormulaOleObject::SetDisplayExtentHimetric(LONG cx, LONG cy)
+{
+    if (cx <= 0 || cy <= 0)
+        return E_INVALIDARG;
+    if (!initializedFromRealPayload_ || presentation_.himetricSize.cx <= 0 || presentation_.himetricSize.cy <= 0)
+        return OLE_E_BLANK;
+
+    const bool changed = !hasContainerExtent_ || containerExtent_.cx != cx || containerExtent_.cy != cy;
+    containerExtent_.cx = cx;
+    containerExtent_.cy = cy;
+    hasContainerExtent_ = true;
+    insertionComplete_.store(true, std::memory_order_release);
+    dirty_ = true;
+    if (changed)
+    {
+        WriteNativeOleLog(L"FormulaOleObject: explicit display extent synchronized.");
+        RequestLayoutAndNotify();
+    }
     return S_OK;
 }
 

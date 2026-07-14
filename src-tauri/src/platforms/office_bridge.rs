@@ -1,4 +1,11 @@
-use axum::{extract::State, response::IntoResponse, routing::get, routing::post, Json, Router};
+use axum::{
+    extract::State,
+    http::{header, HeaderValue, Method},
+    response::IntoResponse,
+    routing::get,
+    routing::post,
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -51,6 +58,30 @@ pub struct ConvertResponse {
     pub omml: String,
     #[serde(default)]
     pub latex: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeConvertV1Request {
+    pub source_format: String,
+    pub target_format: String,
+    pub content: String,
+    pub display_mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeConvertV1Response {
+    pub success: bool,
+    pub content: String,
+    pub format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width_pt: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height_pt: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_format: Option<String>,
+    pub diagnostic: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -238,6 +269,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
             }),
         )
         .route("/api/office/convert", post(handle_convert))
+        .route("/api/office/convert/v1", post(handle_convert_v1))
         // Compatible routes for Obsidian and WPS plugins that call /convert/latex and /convert/omml
         .route("/convert/latex", post(handle_convert))
         .route("/convert/omml", post(handle_convert))
@@ -316,9 +348,14 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle) {
         .fallback_service(ServeDir::new(&dist_path))
         .layer(
             tower_http::cors::CorsLayer::new()
-                .allow_origin(tower_http::cors::Any)
-                .allow_methods(tower_http::cors::Any)
-                .allow_headers(tower_http::cors::Any),
+                .allow_origin([
+                    HeaderValue::from_static("https://127.0.0.1:19876"),
+                    HeaderValue::from_static("https://localhost:19876"),
+                    HeaderValue::from_static("http://127.0.0.1:19877"),
+                    HeaderValue::from_static("https://latexsnipper.interknot.dpdns.org"),
+                ])
+                .allow_methods([Method::GET, Method::POST])
+                .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]),
         )
         .with_state(Arc::new(state));
 
@@ -605,6 +642,75 @@ async fn handle_convert(
     })
 }
 
+async fn handle_convert_v1(
+    State(state): State<Arc<BridgeState>>,
+    Json(req): Json<OfficeConvertV1Request>,
+) -> Json<OfficeConvertV1Response> {
+    const MAX_CONTENT_BYTES: usize = 256 * 1024;
+    if req.content.trim().is_empty() || req.content.len() > MAX_CONTENT_BYTES {
+        return Json(OfficeConvertV1Response {
+            success: false,
+            content: String::new(),
+            format: req.target_format,
+            width_pt: None,
+            height_pt: None,
+            fallback_format: None,
+            diagnostic: Some("Conversion content is empty or exceeds 256 KiB.".into()),
+        });
+    }
+
+    let result = match (req.source_format.as_str(), req.target_format.as_str()) {
+        ("latex", "omml") => {
+            let latex = req.content.clone();
+            tokio::task::spawn_blocking(move || latex_to_omml_core(&latex))
+                .await
+                .ok()
+                .flatten()
+                .map(|value| (fix_omml(&value), None, None))
+        }
+        ("omml", "latex") => {
+            let omml = req.content.clone();
+            tokio::task::spawn_blocking(move || {
+                latexsnipper_conversion::omml_parser::parse_omml_to_latex(&omml).ok()
+            })
+            .await
+            .ok()
+            .flatten()
+            .map(|value| (value, None, None))
+        }
+        ("latex", "svg") | ("latex", "png") => {
+            render_office_asset(&state, &req.content, &req.display_mode, &req.target_format).await
+        }
+        _ => None,
+    };
+
+    match result {
+        Some((content, width_pt, height_pt)) if !content.is_empty() => {
+            Json(OfficeConvertV1Response {
+                success: true,
+                content,
+                format: req.target_format,
+                width_pt,
+                height_pt,
+                fallback_format: None,
+                diagnostic: None,
+            })
+        }
+        _ => Json(OfficeConvertV1Response {
+            success: false,
+            content: String::new(),
+            format: req.target_format.clone(),
+            width_pt: None,
+            height_pt: None,
+            fallback_format: None,
+            diagnostic: Some(format!(
+                "Bridge could not convert {} to {}.",
+                req.source_format, req.target_format
+            )),
+        }),
+    }
+}
+
 async fn handle_render_formula(
     State(state): State<Arc<BridgeState>>,
     Json(req): Json<ConvertRequest>,
@@ -621,12 +727,69 @@ async fn handle_render_result(
     Json(req): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let id = req["id"].as_str().unwrap_or("");
-    let result = req["mathml"].as_str().unwrap_or("");
+    let result = if let Some(mathml) = req["mathml"].as_str() {
+        mathml.to_string()
+    } else {
+        serde_json::to_string(&req).unwrap_or_default()
+    };
     let mut pending = state.pending_renders.lock().await;
     if let Some(tx) = pending.remove(id) {
-        let _ = tx.send(result.to_string());
+        let _ = tx.send(result);
     }
     Json(serde_json::json!({"success": true}))
+}
+
+async fn render_office_asset(
+    state: &BridgeState,
+    latex: &str,
+    display_mode: &str,
+    target_format: &str,
+) -> Option<(String, Option<f64>, Option<f64>)> {
+    let (tx, rx) = oneshot::channel::<String>();
+    let request_id = format!(
+        "asset_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+    state
+        .pending_renders
+        .lock()
+        .await
+        .insert(request_id.clone(), tx);
+    if state
+        .app_handle
+        .emit(
+            "office-render-asset",
+            serde_json::json!({
+                "id": request_id,
+                "latex": latex,
+                "display": display_mode != "inline",
+                "format": target_format,
+            }),
+        )
+        .is_err()
+    {
+        state.pending_renders.lock().await.remove(&request_id);
+        return None;
+    }
+    let raw = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
+        Ok(Ok(value)) => value,
+        _ => {
+            state.pending_renders.lock().await.remove(&request_id);
+            return None;
+        }
+    };
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    if value["success"].as_bool() != Some(true) {
+        return None;
+    }
+    Some((
+        value["content"].as_str()?.to_string(),
+        value["widthPt"].as_f64(),
+        value["heightPt"].as_f64(),
+    ))
 }
 
 async fn handle_load_selection(

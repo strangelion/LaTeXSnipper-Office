@@ -2567,6 +2567,45 @@ class UIController {
     try {
       const { listen } = await import("@tauri-apps/api/event");
 
+      // Office.js Bridge rendering uses the same MathJax pipeline as Native Office.
+      // The Bridge owns the bounded request timeout; this listener only returns
+      // rendered content and dimensions and never accesses arbitrary files.
+      listen("office-render-asset", async (event) => {
+        const request = event.payload || {};
+        const response = { id: request.id, success: false };
+        try {
+          const rendered = await this._renderLatexSvg(
+            String(request.latex || ""),
+            Boolean(request.display),
+          );
+          response.widthPt = rendered.widthPt;
+          response.heightPt = rendered.heightPt;
+          if (request.format === "svg") {
+            response.content = rendered.svg;
+          } else if (request.format === "png") {
+            response.content = await this._svgToPngBase64(
+              rendered.svg,
+              rendered.widthPt,
+              rendered.heightPt,
+            );
+          } else {
+            throw new Error("Unsupported Office.js render format");
+          }
+          response.success = true;
+        } catch (error) {
+          response.diagnostic = error?.message || String(error);
+        }
+        try {
+          await fetch("http://127.0.0.1:19877/api/office/render-result", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(response),
+          });
+        } catch (error) {
+          Logger.warn("Office.js render result callback failed:", error);
+        }
+      });
+
       // Office loaded formula from selection
       listen("native-office-latex-loaded", async (event) => {
         const { latex, sessionId } = event.payload;

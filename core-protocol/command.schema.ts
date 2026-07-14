@@ -2,7 +2,13 @@
 // All hosts implement this interface.
 
 export type Command =
-  | { type: "InsertFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered"; formulaId?: string } }
+  | { type: "InsertFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered"; formulaId?: string; layoutProfileId?: string; equationLabel?: string } }
+  | { type: "GetSelectedFormula"; payload?: {} }
+  | { type: "ReplaceSelectedFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered"; formulaId?: string; layoutProfileId?: string; equationLabel?: string } }
+  | { type: "DeleteSelectedFormula"; payload?: {} }
+  | { type: "InsertEquationReference"; payload: { formulaId: string } }
+  | { type: "GetHostCapabilities"; payload?: {} }
+  | { type: "RenderFormula"; payload: { latex: string; display?: "inline" | "block" | "numbered"; format?: "svg" | "png" } }
   | { type: "ReplaceSelection"; payload: { content: string } }
   | { type: "GetSelection"; payload?: {} }
   | { type: "ConvertToOMML"; payload: { latex: string } }
@@ -14,8 +20,8 @@ export type Command =
   | { type: "OpenSettings"; payload?: {} };
 
 export type CommandResult =
-  | { ok: true; data?: string }
-  | { ok: false; error: string };
+  | { ok: true; data?: unknown }
+  | { ok: false; error: string; code?: string };
 
 export interface VstoInsertResult {
   type: "INSERT_RESULT";

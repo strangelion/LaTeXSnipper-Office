@@ -36,7 +36,7 @@
     }
     .toolbar {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
     }
     button, select {
@@ -50,9 +50,10 @@
     button {
       cursor: pointer;
     }
-    button:hover {
+    button:hover:not(:disabled) {
       background: #eef3f8;
     }
+    button:disabled, select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
     button.primary {
       background: #0f6cbd;
       border-color: #0f6cbd;
@@ -73,6 +74,10 @@
       resize: none;
       background: #fff;
     }
+    .field { display: grid; gap: 4px; }
+    .field label { color: #5f6368; font-size: 12px; }
+    input { min-height: 32px; border: 1px solid #c8ccd2; border-radius: 4px; padding: 0 8px; font: inherit; }
+    .connection { display: flex; gap: 8px; flex-wrap: wrap; color: #5f6368; font-size: 12px; }
     .status {
       min-height: 24px;
       padding: 5px 8px;
@@ -89,7 +94,7 @@
       background: #ecfdf3;
     }
   </style>
-  <script type="module" crossorigin src="./assets/taskpane-D-qz8LAS.js"></script>
+  <script type="module" crossorigin src="./assets/taskpane-Dgh0P7tU.js"></script>
 </head>
 <body>
   <div id="app">
@@ -100,13 +105,18 @@
     <div class="toolbar">
       <button id="loadBtn" title="Load the current selection">Load</button>
       <button id="insertBtn" class="primary" title="Insert into the current selection">Insert</button>
-      <button id="deleteBtn" title="Delete the current selection">Delete</button>
+      <button id="updateBtn" title="Update the selected formula in place">Update</button>
+      <button id="deleteBtn" title="Delete the selected formula object">Delete</button>
+      <button id="referenceBtn" title="Insert a Word REF field for the last loaded numbered formula">Insert reference</button>
     </div>
-    <select id="modeSelect" title="Formula mode">
-      <option value="inline">Inline</option>
-      <option value="display" selected>Display</option>
-      <option value="numbered">Numbered</option>
-    </select>
+    <div class="field"><label for="modeSelect">Formula mode</label><select id="modeSelect" title="Formula mode">
+      <option value="inline">Inline</option><option value="display" selected>Display</option><option value="numbered">Numbered</option>
+    </select></div>
+    <div class="field" id="layoutField"><label for="layoutProfile">Equation layout</label><select id="layoutProfile">
+      <option value="document-default">Document default (global)</option><option value="chapter-dot">Chapter dot</option><option value="chapter-hyphen">Chapter hyphen</option>
+    </select></div>
+    <div class="field" id="labelField"><label for="equationLabel">Equation label (optional)</label><input id="equationLabel" maxlength="80" placeholder="energy_identity"></div>
+    <div class="connection"><span id="capabilityStatus">Capabilities: checking</span><span id="bridgeStatus">Bridge: checking</span><span id="numberingPreview"></span></div>
     <textarea id="editor" spellcheck="false" placeholder="Enter LaTeX, for example: \frac{a}{b} + \sum_{i=0}^{n} x_i"></textarea>
     <div id="status" class="status info">Starting...</div>
   </div>

@@ -608,13 +608,29 @@ void TestCompletedExtentIsRetained(DllGetClassObjectFn getClassObject)
         L"CompleteInsertion failed");
 
     SIZEL resized{ 5000, 2000 };
-    Expect(SUCCEEDED(object.ole->SetExtent(DVASPECT_CONTENT, &resized)),
-        L"committed SetExtent failed");
+    Expect(SUCCEEDED(object.formula->SetDisplayExtentHimetric(resized.cx, resized.cy)),
+        L"explicit SetDisplayExtentHimetric failed");
+    Expect(object.formula->SetDisplayExtentHimetric(0, resized.cy) == E_INVALIDARG,
+        L"explicit display extent accepted a non-positive size");
 
     SIZEL actual{};
     object.ole->GetExtent(DVASPECT_CONTENT, &actual);
     Expect(actual.cx == resized.cx && actual.cy == resized.cy,
         L"completed object did not retain extent");
+
+    BSTR extentJson = nullptr;
+    Expect(SUCCEEDED(object.formula->GetExtentJson(&extentJson)) && extentJson != nullptr,
+        L"GetExtentJson failed after explicit synchronization");
+    if (extentJson != nullptr)
+    {
+        const std::wstring json(extentJson, SysStringLen(extentJson));
+        Expect(json.find(L"\"displayCxHimetric\":5000") != std::wstring::npos &&
+               json.find(L"\"displayCyHimetric\":2000") != std::wstring::npos,
+            L"GetExtentJson did not report the synchronized display extent");
+        Expect(json.find(L"\"naturalCxHimetric\":5000") == std::wstring::npos,
+            L"explicit display extent mutated the natural EMF extent");
+        SysFreeString(extentJson);
+    }
 }
 
 int wmain(int argc, wchar_t** argv)

@@ -22,6 +22,9 @@ interface ILatexSnipperFormula : IDispatch {
 
     // Called by the host after sizing, metadata wrapping, and deselection.
     [id(8)] HRESULT CompleteInsertion();
+
+    // Explicit host/server extent synchronization. The natural EMF extent is immutable.
+    [id(9)] HRESULT SetDisplayExtentHimetric([in] LONG cx, [in] LONG cy);
 };
 
 [

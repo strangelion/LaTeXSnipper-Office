@@ -291,25 +291,10 @@ pub(crate) fn install_platform_integration_sync(platform_id: String) -> Platform
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         match platform_id.as_str() {
         // Office install modes
-        "office" => install_native_office_stack(),
+        "office" => install_default_office_integration(),
         "office-web" => install_office_js_addin(),
-        "office-native" => install_native_office_stack(),
-        "office-hybrid" => {
-            let native = install_native_office_stack();
-            let web = install_office_js_addin();
-            if !native.success {
-                return native;
-            }
-            if !web.success {
-                return web;
-            }
-            PlatformIntegrationResult::ok(
-                "office",
-                "hybrid",
-                "Installed Office.js Add-in and the complete Native Office stack (VSTO and dual-bitness OLE).",
-                true,
-            )
-        }
+        "office-native" => install_native_office_integration(),
+        "office-hybrid" => install_hybrid_office_integration(),
         "obsidian" => install_obsidian(),
         "vscode" => install_vscode(),
         "wps" => install_wps(),
@@ -344,6 +329,79 @@ pub(crate) fn install_platform_integration_sync(platform_id: String) -> Platform
     }
 }
 
+fn install_default_office_integration() -> PlatformIntegrationResult {
+    match default_office_platform_id() {
+        Some("office-native") => install_native_office_stack(),
+        Some("office-web") => install_office_js_addin(),
+        _ => PlatformIntegrationResult::fail("office", "unsupported", "Desktop Microsoft Office integration is not supported on this operating system. Use copy/export or Office Web."),
+    }
+}
+
+fn default_office_platform_id() -> Option<&'static str> {
+    #[cfg(target_os = "windows")]
+    {
+        Some("office-native")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Some("office-web")
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
+fn install_native_office_integration() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        install_native_office_stack()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PlatformIntegrationResult::fail(
+            "office-native",
+            "unsupported",
+            "Native Office requires Windows, VSTO, and COM/OLE.",
+        )
+    }
+}
+
+fn install_hybrid_office_integration() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        let native = install_native_office_stack();
+        if !native.success {
+            return native;
+        }
+        let web = install_office_js_addin();
+        if !web.success {
+            return PlatformIntegrationResult::fail(
+                "office-hybrid",
+                "partial",
+                format!(
+                    "Native Office remains installed, but Office.js installation failed: {}",
+                    web.message
+                ),
+            );
+        }
+        PlatformIntegrationResult::ok(
+            "office-hybrid",
+            "hybrid",
+            "Installed Native Office and Office.js for Word, Excel, and PowerPoint.",
+            true,
+        )
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PlatformIntegrationResult::fail(
+            "office-hybrid",
+            "unsupported",
+            "Hybrid Office integration is available only on Windows.",
+        )
+    }
+}
+
 pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
     let vsto = install_native_office_vsto();
     if !vsto.success {
@@ -368,7 +426,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
         }
         let cleanup = uninstall_ole_component();
         return PlatformIntegrationResult::fail(
-            "office",
+            "office-web",
             "native-stack",
             format!(
                 "VSTO installation completed, but OLE installation failed: {} Cleanup: {}",
@@ -418,7 +476,8 @@ pub(crate) fn uninstall_platform_integration_sync(
 ) -> PlatformIntegrationResult {
     // Run the cleaner first to get audit information
     let cleaner_scope = match platform_id.as_str() {
-        "office" | "office-native" => "native-office",
+        "office-native" => "native-office",
+        "office" if cfg!(target_os = "windows") => "native-office",
         "office-hybrid" => "native-office",
         "obsidian" => "obsidian",
         _ => "",
@@ -436,13 +495,10 @@ pub(crate) fn uninstall_platform_integration_sync(
     }
 
     match platform_id.as_str() {
-        "office" => uninstall_native_office_vsto(),
+        "office" => uninstall_default_office_integration(),
         "office-web" => uninstall_office_addin(),
-        "office-native" => uninstall_native_office_vsto(),
-        "office-hybrid" => {
-            let _ = uninstall_native_office_vsto();
-            uninstall_office_addin()
-        }
+        "office-native" => uninstall_native_office_integration(),
+        "office-hybrid" => uninstall_hybrid_office_integration(),
         "obsidian" => uninstall_obsidian(),
         "vscode" => remove_generated_dir("vscode", "plugin", vscode_extension_dir()),
         "wps" => uninstall_wps(),
@@ -484,6 +540,69 @@ pub(crate) fn uninstall_platform_integration_sync(
     }
 }
 
+fn uninstall_default_office_integration() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        uninstall_native_office_vsto()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        uninstall_office_addin()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        PlatformIntegrationResult::fail(
+            "office",
+            "unsupported",
+            "Desktop Microsoft Office integration is not supported on this operating system.",
+        )
+    }
+}
+
+fn uninstall_native_office_integration() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        uninstall_native_office_vsto()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PlatformIntegrationResult::fail(
+            "office-native",
+            "unsupported",
+            "Native Office is available only on Windows.",
+        )
+    }
+}
+
+fn uninstall_hybrid_office_integration() -> PlatformIntegrationResult {
+    #[cfg(target_os = "windows")]
+    {
+        let native = uninstall_native_office_vsto();
+        let web = uninstall_office_addin();
+        if native.success && web.success {
+            return PlatformIntegrationResult::ok(
+                "office-hybrid",
+                "hybrid",
+                "Uninstalled Native Office and Office.js integrations.",
+                native.restart_required || web.restart_required,
+            );
+        }
+        PlatformIntegrationResult::fail(
+            "office-hybrid",
+            "partial",
+            format!("Native: {}; Office.js: {}", native.message, web.message),
+        )
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        PlatformIntegrationResult::fail(
+            "office-hybrid",
+            "unsupported",
+            "Hybrid Office integration is available only on Windows.",
+        )
+    }
+}
+
 #[tauri::command]
 pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrationResult {
     let fallback_platform = platform_id.clone();
@@ -500,7 +619,7 @@ pub async fn check_platform_integration(platform_id: String) -> PlatformIntegrat
 
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
     match platform_id.as_str() {
-        "office" => {
+        "office" if cfg!(target_os = "windows") => {
             let vsto_ok = check_native_office_vsto();
             let ole_status = check_ole_status();
 
@@ -517,6 +636,69 @@ pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIn
                     "office",
                     "not_installed",
                     "Native Office VSTO add-ins are not installed. Enable Office integration in settings.",
+                )
+            }
+        }
+        "office" => check_office_addin(),
+        "office-native" => {
+            #[cfg(target_os = "windows")]
+            {
+                let vsto_ok = check_native_office_vsto();
+                let ole_status = check_ole_status();
+                if vsto_ok && ole_status.available {
+                    PlatformIntegrationResult::ok(
+                        "office-native",
+                        "native-stack",
+                        "Native Office VSTO and dual-bitness OLE are installed.",
+                        false,
+                    )
+                } else {
+                    PlatformIntegrationResult::fail(
+                        "office-native",
+                        "not_installed",
+                        format!(
+                            "Native Office is incomplete. VSTO: {vsto_ok}; OLE: {}",
+                            ole_status.detail
+                        ),
+                    )
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                PlatformIntegrationResult::fail(
+                    "office-native",
+                    "unsupported",
+                    "Native Office is available only on Windows.",
+                )
+            }
+        }
+        "office-web" => check_office_addin(),
+        "office-hybrid" => {
+            #[cfg(target_os = "windows")]
+            {
+                let native = check_platform_integration_sync("office-native".to_string());
+                let web = check_office_addin();
+                if native.success && web.success {
+                    PlatformIntegrationResult::ok(
+                        "office-hybrid",
+                        "hybrid",
+                        "Native Office and Office.js are installed.",
+                        native.restart_required || web.restart_required,
+                    )
+                } else {
+                    PlatformIntegrationResult::fail(
+                        "office-hybrid",
+                        "partial",
+                        format!("Native: {}; Office.js: {}", native.message, web.message),
+                    )
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                PlatformIntegrationResult::fail(
+                    "office-hybrid",
+                    "unsupported",
+                    "Hybrid Office integration is available only on Windows.",
                 )
             }
         }
@@ -1452,48 +1634,95 @@ const OFFICE_DEVELOPER_KEY: &str = r"HKCU\Software\Microsoft\Office\16.0\WEF\Dev
 
 #[derive(Clone, Copy)]
 struct OfficeJsHost {
-    #[cfg(target_os = "windows")]
     id: &'static str,
     name: &'static str,
     manifest_file: &'static str,
     #[cfg(target_os = "windows")]
     refresh_key: &'static str,
-    #[cfg(target_os = "macos")]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     mac_container: &'static str,
 }
 
 const OFFICE_JS_HOSTS: &[OfficeJsHost] = &[
     OfficeJsHost {
-        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567890",
         name: "Word",
         manifest_file: "word.xml",
         #[cfg(target_os = "windows")]
         refresh_key: "Word_RequireForceRefreshAtBoot",
-        #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Word",
     },
     OfficeJsHost {
-        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567891",
         name: "Excel",
         manifest_file: "excel.xml",
         #[cfg(target_os = "windows")]
         refresh_key: "Excel_RequireForceRefreshAtBoot",
-        #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Excel",
     },
     OfficeJsHost {
-        #[cfg(target_os = "windows")]
         id: "9a7b3c4d-5e6f-7890-abcd-ef1234567892",
         name: "PowerPoint",
         manifest_file: "powerpoint.xml",
         #[cfg(target_os = "windows")]
         refresh_key: "PowerPoint_RequireForceRefreshAtBoot",
-        #[cfg(target_os = "macos")]
         mac_container: "com.microsoft.Powerpoint",
     },
 ];
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn validate_office_js_manifest(host: OfficeJsHost, content: &str) -> Result<(), String> {
+    let expected_host = match host.name {
+        "Word" => "Document",
+        "Excel" => "Workbook",
+        "PowerPoint" => "Presentation",
+        _ => return Err(format!("Unknown Office.js host: {}", host.name)),
+    };
+    if !content.contains(&format!("<Id>{}</Id>", host.id)) {
+        return Err(format!(
+            "{} manifest has an unexpected add-in ID",
+            host.name
+        ));
+    }
+
+    if !content.contains(&format!("<Host Name=\"{}\"", expected_host)) {
+        return Err(format!(
+            "{} manifest does not declare the {} host",
+            host.name, expected_host
+        ));
+    }
+    Ok(())
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn install_office_js_addin_at(
+    home: &Path,
+    manifests: &[(OfficeJsHost, PathBuf)],
+) -> Result<Vec<String>, String> {
+    let mut installed = Vec::new();
+    for (host, manifest) in manifests {
+        let content = std::fs::read_to_string(manifest)
+            .map_err(|error| format!("Failed to read {} manifest: {error}", host.name))?;
+        validate_office_js_manifest(*host, &content)?;
+        let wef_dir = home
+            .join("Library")
+            .join("Containers")
+            .join(host.mac_container)
+            .join("Data")
+            .join("Documents")
+            .join("wef");
+        std::fs::create_dir_all(&wef_dir)
+            .map_err(|error| format!("Failed to create {} WEF directory: {error}", host.name))?;
+        let target_path = wef_dir.join("LaTeXSnipper.xml");
+        std::fs::write(&target_path, &content)
+            .map_err(|error| format!("Failed to write {} manifest: {error}", host.name))?;
+        let written = std::fs::read_to_string(&target_path)
+            .map_err(|error| format!("Failed to verify {} manifest: {error}", host.name))?;
+        validate_office_js_manifest(*host, &written)?;
+        installed.push(format!("{}: {}", host.name, target_path.display()));
+    }
+    Ok(installed)
+}
 
 /// Register the add-in manifest in the Windows registry so Word finds it.
 #[cfg(target_os = "windows")]
@@ -1527,7 +1756,7 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
         ));
     }
 
-    let _ = run_windows_tool(
+    let refresh = run_windows_tool(
         super::process::background_command("reg.exe").args([
             "add",
             r"HKCU\Software\Microsoft\Office\16.0\WEF",
@@ -1540,7 +1769,31 @@ fn register_office_js_manifest(host: OfficeJsHost, manifest: &Path) -> Result<()
             "/f",
         ]),
         15,
-    );
+    )?;
+    if !refresh.status.success() {
+        return Err(format!(
+            "{} Office.js refresh marker could not be written",
+            host.name
+        ));
+    }
+
+    let verification = run_windows_tool(
+        super::process::background_command("reg.exe").args([
+            "query",
+            OFFICE_DEVELOPER_KEY,
+            "/v",
+            host.id,
+        ]),
+        10,
+    )?;
+    if !verification.status.success()
+        || !String::from_utf8_lossy(&verification.stdout).contains(&manifest_path)
+    {
+        return Err(format!(
+            "{} Office.js registry value could not be verified",
+            host.name
+        ));
+    }
 
     println!(
         "[Office] Registered {} in {} \\ {} = {}",
@@ -1651,13 +1904,13 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
         let mut installed = Vec::new();
         for (host, manifest) in manifests {
             if let Err(e) = register_office_js_manifest(host, &manifest) {
-                return PlatformIntegrationResult::fail("office", "office-js", e);
+                return PlatformIntegrationResult::fail("office-web", "office-js", e);
             }
             installed.push(host.name);
         }
 
         PlatformIntegrationResult::ok(
-            "office",
+            "office-web",
             "office-js",
             format!(
                 "Installed Office.js add-ins for {}. Restart Word, Excel, and PowerPoint to load LaTeXSnipper.",
@@ -1670,56 +1923,20 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        let mut installed = Vec::new();
-        for (host, manifest) in manifests {
-            let content = match std::fs::read_to_string(&manifest) {
-                Ok(c) => c,
-                Err(e) => {
-                    return PlatformIntegrationResult::fail(
-                        "office",
-                        "office-js",
-                        format!("Failed to read {} manifest: {e}", host.name),
-                    )
-                }
-            };
-            let wef_dir = PathBuf::from(&home)
-                .join("Library")
-                .join("Containers")
-                .join(host.mac_container)
-                .join("Data")
-                .join("Documents")
-                .join("wef");
-            if let Err(e) = std::fs::create_dir_all(&wef_dir) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "office-js",
-                    format!("Failed to create {} wef directory: {e}", host.name),
-                );
-            }
-            let target_path = wef_dir.join("LaTeXSnipper.xml");
-            if let Err(e) = std::fs::write(&target_path, &content) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "office-js",
-                    format!("Failed to write {} manifest: {e}", host.name),
-                );
-            }
-            installed.push(host.name);
-        }
-        PlatformIntegrationResult::ok(
-            "office",
-            "office-js",
-            format!(
-                "Installed Office.js add-ins for {}. Restart Office apps to load LaTeXSnipper.",
-                installed.join(", ")
+        match install_office_js_addin_at(Path::new(&home), &manifests) {
+            Ok(installed) => PlatformIntegrationResult::ok(
+                "office-web",
+                "office-js",
+                format!("Installed and verified Office.js manifests for {}. Restart Office apps. Certificate, Bridge, and taskpane heartbeat must still be checked separately.", installed.join(", ")),
+                true,
             ),
-            true,
-        )
+            Err(error) => PlatformIntegrationResult::fail("office-web", "office-js", error),
+        }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        PlatformIntegrationResult::fail("office", "office-js", "Unsupported operating system")
+        PlatformIntegrationResult::fail("office-web", "office-js", "Unsupported operating system")
     }
 }
 
@@ -1737,13 +1954,13 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
         }
         if errors.is_empty() {
             PlatformIntegrationResult::ok(
-                "office",
+                "office-web",
                 "office-js",
                 "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.",
                 true,
             )
         } else {
-            PlatformIntegrationResult::fail("office", "office-js", errors.join("; "))
+            PlatformIntegrationResult::fail("office-web", "office-js", errors.join("; "))
         }
     }
 
@@ -1767,14 +1984,14 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
         }
         if removed {
             PlatformIntegrationResult::ok(
-                "office",
+                "office-web",
                 "office-js",
                 "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.",
                 true,
             )
         } else {
             PlatformIntegrationResult::ok(
-                "office",
+                "office-web",
                 "office-js",
                 "No installed Office.js add-ins were found.",
                 false,
@@ -1784,7 +2001,7 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
-        PlatformIntegrationResult::fail("office", "office-js", "Unsupported operating system")
+        PlatformIntegrationResult::fail("office-web", "office-js", "Unsupported operating system")
     }
 }
 
@@ -5231,4 +5448,97 @@ pub async fn install_obsidian_to_vault(vault_path: String) -> PlatformIntegratio
     })
     .await
     .unwrap_or_else(|e| PlatformIntegrationResult::fail("obsidian", "panic", e.to_string()))
+}
+
+#[cfg(test)]
+mod office_js_install_tests {
+    use super::*;
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "latexsnipper-office-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn write_manifest(root: &Path, host: OfficeJsHost, host_name: &str) -> PathBuf {
+        let path = root.join(host.manifest_file);
+        std::fs::write(
+            &path,
+            format!(
+                "<OfficeApp><Id>{}</Id><Hosts><Host Name=\"{}\"/></Hosts></OfficeApp>",
+                host.id, host_name
+            ),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn generic_office_route_matches_operating_system() {
+        #[cfg(target_os = "windows")]
+        assert_eq!(default_office_platform_id(), Some("office-native"));
+        #[cfg(target_os = "macos")]
+        assert_eq!(default_office_platform_id(), Some("office-web"));
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        assert_eq!(default_office_platform_id(), None);
+    }
+
+    #[test]
+    fn fake_home_wef_install_is_host_specific_and_repairs_owned_files() {
+        let root = temp_root("wef");
+        let source = root.join("source");
+        let home = root.join("home");
+        std::fs::create_dir_all(&source).unwrap();
+        let declarations = ["Document", "Workbook", "Presentation"];
+        let manifests: Vec<_> = OFFICE_JS_HOSTS
+            .iter()
+            .zip(declarations)
+            .map(|(host, declaration)| (*host, write_manifest(&source, *host, declaration)))
+            .collect();
+
+        let installed = install_office_js_addin_at(&home, &manifests).unwrap();
+        assert_eq!(installed.len(), 3);
+        for ((host, _), declaration) in manifests.iter().zip(declarations) {
+            let target = home
+                .join("Library/Containers")
+                .join(host.mac_container)
+                .join("Data/Documents/wef/LaTeXSnipper.xml");
+            let content = std::fs::read_to_string(&target).unwrap();
+            assert!(content.contains(&format!("Host Name=\"{declaration}\"")));
+            std::fs::write(target.parent().unwrap().join("Unrelated.xml"), "keep").unwrap();
+            std::fs::write(&target, "damaged").unwrap();
+        }
+
+        install_office_js_addin_at(&home, &manifests).unwrap();
+        for (host, _) in &manifests {
+            let directory = home
+                .join("Library/Containers")
+                .join(host.mac_container)
+                .join("Data/Documents/wef");
+            assert!(directory.join("Unrelated.xml").exists());
+            validate_office_js_manifest(
+                *host,
+                &std::fs::read_to_string(directory.join("LaTeXSnipper.xml")).unwrap(),
+            )
+            .unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn manifest_validation_rejects_cross_host_installation() {
+        let word = OFFICE_JS_HOSTS[0];
+        let wrong = format!(
+            "<OfficeApp><Id>{}</Id><Hosts><Host Name=\"Workbook\"/></Hosts></OfficeApp>",
+            word.id
+        );
+        assert!(validate_office_js_manifest(word, &wrong).is_err());
+    }
 }

@@ -385,6 +385,14 @@ namespace LaTeXSnipper.Word.Host
                         }
 
                         OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent);
+                        if (!OleFormulaInterop.TrySetDisplayExtent(automationObject, targetExtent))
+                        {
+                            targetExtent = new OleExtentPoints(
+                                naturalExtent.NaturalWidthPt,
+                                naturalExtent.NaturalHeightPt,
+                                naturalExtent.NaturalWidthPt,
+                                naturalExtent.NaturalHeightPt);
+                        }
 
                         shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
                         shape.Width = targetExtent.DisplayWidthPt;
@@ -809,6 +817,18 @@ namespace LaTeXSnipper.Word.Host
                     catch (Exception rollbackError) { OfficeOperationLog.Failure("rollback-incomplete-ole", "word", payload.FormulaId, rollbackError); }
                     return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
                 }
+                if (!OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent) ||
+                    !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints synchronizedWordExtent) ||
+                    !OleFormulaInterop.DisplayExtentMatches(targetExtent, synchronizedWordExtent))
+                {
+                    targetExtent = new OleExtentPoints(
+                        targetExtent.NaturalWidthPt,
+                        targetExtent.NaturalHeightPt,
+                        targetExtent.NaturalWidthPt,
+                        targetExtent.NaturalHeightPt);
+                    OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent);
+                    System.Diagnostics.Debug.WriteLine("[WordAdapter] OLE extent synchronization failed; using natural size.");
+                }
 
                 // Now set final dimensions — SetExtent accepts them after CompleteInsertion
                 oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
@@ -824,12 +844,42 @@ namespace LaTeXSnipper.Word.Host
                 {
                     try
                     {
+                        var paragraph = oleShape.Range.Paragraphs[1];
+                        var paragraphFormat = paragraph.Format;
+                        float availableWidth;
+                        if ((bool)oleShape.Range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable))
+                        {
+                            var cell = oleShape.Range.Cells[1];
+                            availableWidth = cell.Width - cell.LeftPadding - cell.RightPadding;
+                        }
+                        else
+                        {
+                            var pageSetup = oleShape.Range.Sections[1].PageSetup;
+                            availableWidth = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin;
+                            try
+                            {
+                                var columns = oleShape.Range.Sections[1].PageSetup.TextColumns;
+                                if (columns.Count > 1)
+                                    availableWidth = columns[1].Width;
+                            }
+                            catch (Exception columnError)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[WordAdapter] Column width fallback: {columnError.Message}");
+                            }
+                        }
+                        availableWidth = Math.Max(72.0f, availableWidth - paragraphFormat.LeftIndent - paragraphFormat.RightIndent);
+                        paragraphFormat.TabStops.ClearAll();
+                        paragraphFormat.TabStops.Add(availableWidth / 2.0f, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
+                        paragraphFormat.TabStops.Add(availableWidth, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
+
+                        // The object starts at the explicit center tab. The number
+                        // starts at the explicit right tab for this actual container.
+                        var beforeOle = doc.Range(oleShape.Range.Start, oleShape.Range.Start);
+                        beforeOle.Text = "\t";
                         var numberedRange = cc?.Range ?? oleShape.Range;
                         numberedRange = numberedRange.Duplicate;
                         numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-
-                        // Insert tab before number
-                        numberedRange.Text = "\t";
+                        numberedRange.Text = "\t(";
                         numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
 
                         // Insert SEQ field for automatic number
@@ -839,10 +889,12 @@ namespace LaTeXSnipper.Word.Host
                             " SEQ LaTeXSnipperEquation \\* ARABIC ",
                             true);
                         field.Update();
-
-                        // Move past the field
-                        var fieldRange = field.Result;
-                        fieldRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                        var closingRange = doc.Range(field.Result.End, field.Result.End);
+                        closingRange.InsertAfter(")");
+                        var bookmarkName = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(payload.FormulaId, "[^A-Za-z0-9_]", "_");
+                        if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
+                        var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
+                        doc.Bookmarks.Add(bookmarkName, bookmarkRange);
                     }
                     catch (Exception ex)
                     {
@@ -1094,11 +1146,10 @@ namespace LaTeXSnipper.Word.Host
         {
             if (string.IsNullOrWhiteSpace(omml)) return "";
 
-            var clean = System.Text.RegularExpressions.Regex.Replace(
-                omml,
-                @"<m:rPr>.*?</m:rPr>",
-                "",
-                System.Text.RegularExpressions.RegexOptions.Singleline);
+            // Preserve semantic math run properties such as bold vectors,
+            // upright operators, accents, and script styles. The converter
+            // already produces valid OMML; removing every m:rPr is lossy.
+            var clean = omml;
 
             if (clean.Contains("<m:oMathPara"))
             {
@@ -1146,6 +1197,8 @@ namespace LaTeXSnipper.Word.Host
 
         private static string BuildNumberedEquationBody(string omml, string formulaId)
         {
+            var bookmark = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(formulaId, "[^A-Za-z0-9_]", "_");
+            if (bookmark.Length > 40) bookmark = bookmark.Substring(0, 40);
             return $@"<w:sdt>
   <w:sdtPr>
     <w:alias w:val=""LaTeXSnipper Numbered Formula""/>
@@ -1153,10 +1206,12 @@ namespace LaTeXSnipper.Word.Host
   </w:sdtPr>
   <w:sdtContent>
     <w:tbl>
-      <w:tr>
-        <w:tc><w:p/></w:tc>
-        <w:tc><w:p><w:pPr><w:jc w:val=""center""/></w:pPr>{omml}</w:p></w:tc>
-        <w:tc><w:p><w:pPr><w:jc w:val=""right""/></w:pPr><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r></w:p></w:tc>
+      <w:tblPr><w:tblW w:w=""5000"" w:type=""pct""/><w:tblLayout w:type=""fixed""/><w:tblBorders><w:top w:val=""nil""/><w:left w:val=""nil""/><w:bottom w:val=""nil""/><w:right w:val=""nil""/><w:insideH w:val=""nil""/><w:insideV w:val=""nil""/></w:tblBorders><w:tblCellMar><w:top w:w=""0"" w:type=""dxa""/><w:left w:w=""0"" w:type=""dxa""/><w:bottom w:w=""0"" w:type=""dxa""/><w:right w:w=""0"" w:type=""dxa""/></w:tblCellMar></w:tblPr>
+      <w:tblGrid><w:gridCol w:w=""1080""/><w:gridCol w:w=""7200""/><w:gridCol w:w=""1080""/></w:tblGrid>
+      <w:tr><w:trPr><w:cantSplit/></w:trPr>
+        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""7200"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""1"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""1""/></w:p></w:tc>
       </w:tr>
     </w:tbl>
   </w:sdtContent>
@@ -1192,10 +1247,7 @@ namespace LaTeXSnipper.Word.Host
     <w:tag w:val=""latexsnipper:formula:{formulaId}""/>
   </w:sdtPr>
   <w:sdtContent>
-    <w:p>
-      <w:pPr><w:jc w:val=""center""/></w:pPr>
-      {omml}
-    </w:p>
+    {omml}
   </w:sdtContent>
 </w:sdt>";
         }

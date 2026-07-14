@@ -1,234 +1,110 @@
-/**
- * LaTeXSnipper Office Web Add-in — Unified Adapter v3.0
- *
- * Implements the core-protocol HostAdapter interface for Microsoft Office.
- * Merges the OOXML construction from word.ts with the dispatch pattern
- * from adapter/office.adapter.ts into a single class supporting Word,
- * Excel, and PowerPoint via Office.js.
- *
- * Usage:
- *   import { OfficeHostAdapter } from "./adapters/unified-adapter";
- *   router.register("office", new OfficeHostAdapter());
- */
-
 import type { Command, CommandResult } from "core-protocol/command.schema";
 import type { HostAdapter } from "core-protocol/command.router";
-import { WordOoxmlHelper } from "./word-ooxml";
-
-declare const Word: any;
-declare const Excel: any;
-declare const Office: any;
+import { createFormulaId, validateFormulaPayload, type FormulaDisplayMode, type OfficeFormulaPayload } from "../model/formula-payload";
+import { detectOfficeHost } from "./host-detection";
+import type { OfficeFormulaHostAdapter } from "./office-host-adapter";
+import { WordFormulaAdapter } from "./word-adapter";
+import { ExcelFormulaAdapter } from "./excel-adapter";
+import { PowerPointFormulaAdapter } from "./powerpoint-adapter";
+import { OfficeBridgeClient } from "./bridge-client";
 
 export class OfficeHostAdapter implements HostAdapter {
-  private ooxml = new WordOoxmlHelper();
+  private readonly bridge = new OfficeBridgeClient();
+  private readonly adapters: Record<"word" | "excel" | "powerpoint", OfficeFormulaHostAdapter> = {
+    word: new WordFormulaAdapter(this.bridge),
+    excel: new ExcelFormulaAdapter(this.bridge),
+    powerpoint: new PowerPointFormulaAdapter(this.bridge),
+  };
 
-  async execute(cmd: Command): Promise<CommandResult> {
-    const host = await this.detectHost();
-    switch (cmd.type) {
-      // ── Formula insertion ─────────────────────────────────────────
-      case "InsertFormula": {
-        if (host === "word") return this._insertFormulaWord(cmd.payload);
-        return this._insertFormulaGeneric(cmd.payload);
+  async execute(command: Command): Promise<CommandResult> {
+    const adapter = this.currentAdapter();
+    if (!adapter) return { ok: false, code: "UNSUPPORTED_HOST", error: "This Microsoft Office host is not supported." };
+
+    switch (command.type) {
+      case "InsertFormula":
+        return this.toCommandResult(await adapter.insertFormula(this.payloadFromCommand(command.payload)));
+      case "GetSelectedFormula":
+        return this.toCommandResult(await adapter.getSelectedFormula());
+      case "ReplaceSelectedFormula": {
+        const selected = await adapter.getSelectedFormula();
+        if (!selected.ok || !selected.data) return this.toCommandResult(selected);
+        return this.toCommandResult(await adapter.replaceSelectedFormula(this.payloadFromCommand({ ...command.payload, formulaId: selected.data.formulaId })));
       }
-
-      // ── Selection ─────────────────────────────────────────────────
+      case "DeleteSelectedFormula":
+        return this.toCommandResult(await adapter.deleteSelectedFormula());
+      case "InsertEquationReference":
+        return this.toCommandResult(await adapter.insertEquationReference(command.payload.formulaId));
+      case "GetHostCapabilities":
+        return { ok: true, data: await adapter.getCapabilities() };
       case "GetSelection":
-        return this._getSelection(host);
-
+        return this.toCommandResult(await adapter.getSelectedFormula());
       case "ReplaceSelection":
-        return this._replaceSelection(host, cmd.payload.content);
-
-      // ── Conversion ────────────────────────────────────────────────
+        return { ok: false, code: "UNSAFE_GENERIC_REPLACE", error: "Generic selection replacement is disabled for formula operations. Use ReplaceSelectedFormula." };
       case "ConvertToLaTeX": {
-        if (cmd.payload.omml) {
-          return this._convertViaBridge("/api/office/convert", { omml: cmd.payload.omml });
+        try {
+          return { ok: true, data: await this.bridge.convert("omml", "latex", command.payload.omml, "inline") };
+        } catch (error) {
+          return this.bridgeFailure(error);
         }
-        return { ok: false, error: "No OMML provided" };
       }
-
       case "ConvertToOMML": {
-        if (cmd.payload.latex) {
-          return this._convertViaBridge("/api/office/convert", {
-            latex: cmd.payload.latex,
-            display: true,
-          });
+        try {
+          return { ok: true, data: await this.bridge.convert("latex", "omml", command.payload.latex, "block") };
+        } catch (error) {
+          return this.bridgeFailure(error);
         }
-        return { ok: false, error: "No LaTeX provided" };
       }
-
-      // ── Preview ───────────────────────────────────────────────────
+      case "RenderFormula":
       case "RenderPreview": {
-        return this._convertViaBridge("/api/office/convert", {
-          latex: cmd.payload.latex,
-          display: cmd.payload.format === "svg" ? true : false,
-        });
+        try {
+          const format = command.type === "RenderFormula" ? (command.payload.format ?? "png") : "svg";
+          const displayMode: FormulaDisplayMode = command.type === "RenderFormula" ? (command.payload.display ?? "block") : "block";
+          return { ok: true, data: await this.bridge.convert("latex", format, command.payload.latex, displayMode) };
+        } catch (error) {
+          return this.bridgeFailure(error);
+        }
       }
-
-      // ── Table ─────────────────────────────────────────────────────
       case "DetectTable":
-        return { ok: false, error: "DetectTable not implemented in Office.js (no table structure extraction available)" }; // placeholder, full table support TBD
-
-      // ── Formatting ────────────────────────────────────────────────
+        return { ok: false, code: "TABLE_UNSUPPORTED", error: "Table extraction is not supported by this Office.js adapter." };
       case "FormatContent":
-        return { ok: false, error: "FormatContent not implemented (formatting applied client-side via OOXML, not via adapter)" };
-
-      // ── UI ────────────────────────────────────────────────────────
+        return { ok: false, code: "FORMAT_UNSUPPORTED", error: "Global formatting is intentionally not applied by the Office.js formula adapter." };
       case "OpenEditor":
       case "OpenSettings":
         return { ok: true };
-
       default:
-        return { ok: false, error: `Unsupported: ${(cmd as any).type}` };
+        return { ok: false, error: `Unsupported command: ${(command as { type: string }).type}` };
     }
   }
 
-  // ─── Host detection ───────────────────────────────────────────────
-
-  private async detectHost(): Promise<"word" | "excel" | "powerpoint"> {
-    try {
-      if (typeof Word !== "undefined" && Word.run) return "word";
-      if (typeof Excel !== "undefined" && Excel.run) return "excel";
-    } catch { /* ignore */ }
-    return "powerpoint";
+  private currentAdapter(): OfficeFormulaHostAdapter | null {
+    const host = detectOfficeHost();
+    return host === "word" || host === "excel" || host === "powerpoint" ? this.adapters[host] : null;
   }
 
-  // ─── Word (OOXML via Word.run) — LaTeX → Bridge → OMML → insertOoxml ──
-
-  private async _insertFormulaWord(payload: {
+  private payloadFromCommand(input: {
     latex: string;
-    display?: string;
+    display?: FormulaDisplayMode;
     formulaId?: string;
-  }): Promise<CommandResult> {
-    try {
-      const isNumbered = payload.display === "numbered";
-      const display = payload.display === "block" || isNumbered;
-      const formulaId = payload.formulaId || crypto.randomUUID().substring(0, 12);
-
-      // Step 1: Convert LaTeX to OMML via Bridge
-      let omml: string | null = null;
-      try {
-        const base = this._bridgeBase();
-        const res = await fetch(`${base}/api/office/convert`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ latex: payload.latex, display }),
-        });
-        const data = await res.json();
-        if (data.success && data.omml) omml = data.omml;
-      } catch { /* fallback */ }
-
-      // Step 2: Build OOXML with formula ID in SDT tag
-      const ooxml = omml
-        ? (isNumbered
-            ? this.ooxml.buildNumberedEquationOoxmlFromOmml(omml, formulaId)
-            : this.ooxml.buildOoxmlFromOmml(omml, display, formulaId))
-        : this.ooxml.buildFormulaOoxml(payload.latex, display, formulaId);
-
-      return Word.run(async (context: any) => {
-        const sel = context.document.getSelection();
-        sel.insertOoxml(ooxml, "Replace");
-        await context.sync();
-        return { ok: true, data: formulaId };
-      });
-    } catch (e: any) {
-      return { ok: false, error: `Word insert failed: ${e.message}` };
-    }
-  }
-
-  // ─── Excel / PowerPoint (plain text) ──────────────────────────────
-
-  private _insertFormulaGeneric(payload: {
-    latex: string;
-    display?: string;
-  }): Promise<CommandResult> {
-    const delim = payload.display === "block" ? "$$" : "$";
-    const value = `${delim}${payload.latex}${delim}`;
-    return new Promise((resolve) => {
-      Office.context.document.setSelectedDataAsync(
-        value,
-        { coercionType: Office.CoercionType.Text },
-        (r: any) => {
-          if (r.status === Office.AsyncResultStatus.Succeeded) {
-            resolve({ ok: true });
-          } else {
-            resolve({ ok: false, error: r.error?.message || "Insert failed" });
-          }
-        },
-      );
+    layoutProfileId?: string;
+    equationLabel?: string;
+  }): OfficeFormulaPayload {
+    return validateFormulaPayload({
+      schemaVersion: 1,
+      formulaId: input.formulaId || createFormulaId(),
+      latex: input.latex,
+      displayMode: input.display ?? "inline",
+      layoutProfileId: input.layoutProfileId,
+      equationLabel: input.equationLabel,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
   }
 
-  // ─── Selection ────────────────────────────────────────────────────
-
-  private _getSelection(host: string): Promise<CommandResult> {
-    if (host === "word") return this._getSelectionWord();
-    return this._getSelectionOffice();
+  private toCommandResult(result: { ok: boolean; data?: unknown; error?: string; code?: string }): CommandResult {
+    return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error ?? "Office operation failed", code: result.code };
   }
 
-  private async _getSelectionWord(): Promise<CommandResult> {
-    try {
-      return Word.run(async (context: any) => {
-        const sel = context.document.getSelection();
-        const ooxml = sel.getOoxml();
-        await context.sync();
-        const text = this.ooxml.extractText(ooxml.value);
-        return { ok: true, data: text };
-      });
-    } catch (e: any) {
-      return { ok: false, error: e.message };
-    }
-  }
-
-  private _getSelectionOffice(): Promise<CommandResult> {
-    return new Promise((resolve) => {
-      Office.context.document.getSelectedDataAsync(
-        Office.CoercionType.Text,
-        (r: any) => resolve({ ok: true, data: r.value || "" }),
-      );
-    });
-  }
-
-  private _replaceSelection(host: string, content: string): Promise<CommandResult> {
-    return new Promise((resolve) => {
-      Office.context.document.setSelectedDataAsync(
-        content,
-        { coercionType: Office.CoercionType.Text },
-        (r: any) => {
-          if (r.status === Office.AsyncResultStatus.Succeeded) {
-            resolve({ ok: true });
-          } else {
-            resolve({ ok: false, error: r.error?.message || "Replace failed" });
-          }
-        },
-      );
-    });
-  }
-
-  // ─── Bridge API helper ────────────────────────────────────────────
-
-  private async _convertViaBridge(
-    path: string,
-    body: Record<string, unknown>,
-  ): Promise<CommandResult> {
-    const base = this._bridgeBase();
-    try {
-      const res = await fetch(`${base}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      return { ok: true, data: JSON.stringify(data) };
-    } catch (e: any) {
-      return { ok: false, error: `Bridge error: ${e.message}` };
-    }
-  }
-
-  private _bridgeBase(): string {
-    const { hostname, port } = window.location;
-    if ((hostname === "127.0.0.1" || hostname === "localhost") && port === "19876") {
-      return "";
-    }
-    return "https://127.0.0.1:19876";
+  private bridgeFailure(error: unknown): CommandResult {
+    return { ok: false, code: "BRIDGE_UNAVAILABLE", error: error instanceof Error ? error.message : String(error) };
   }
 }

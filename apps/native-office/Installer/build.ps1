@@ -609,6 +609,11 @@ Write-Host "`n[3/4] Building MSI installer..." -ForegroundColor Cyan
 $wixSrc = Join-Path $PSScriptRoot "WiX"
 $msiOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.msi"
 
+# Remove stale external cabinets so the post-build self-containment gate
+# evaluates only artifacts produced by this invocation.
+Get-ChildItem -LiteralPath $OutputDir -Filter '*.cab' -File -ErrorAction SilentlyContinue |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+
 # Resolve WiX
 if (-not $WixPath) {
     $resolvedWix = Get-Command "wix.exe" -ErrorAction SilentlyContinue

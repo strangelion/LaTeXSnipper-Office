@@ -45,6 +45,12 @@ try {
   const commandNames = commands.map((c) => c.title);
   const expectedCommands = [
     "InsertFormula",
+    "GetSelectedFormula",
+    "ReplaceSelectedFormula",
+    "DeleteSelectedFormula",
+    "InsertEquationReference",
+    "GetHostCapabilities",
+    "RenderFormula",
     "ReplaceSelection",
     "GetSelection",
     "ConvertToOMML",
@@ -74,6 +80,12 @@ try {
     "utf-8"
   );
   check(ts.includes("InsertFormula"), "TS defines InsertFormula");
+  check(ts.includes("GetSelectedFormula"), "TS defines GetSelectedFormula");
+  check(ts.includes("ReplaceSelectedFormula"), "TS defines ReplaceSelectedFormula");
+  check(ts.includes("DeleteSelectedFormula"), "TS defines DeleteSelectedFormula");
+  check(ts.includes("InsertEquationReference"), "TS defines InsertEquationReference");
+  check(ts.includes("GetHostCapabilities"), "TS defines GetHostCapabilities");
+  check(ts.includes("RenderFormula"), "TS defines RenderFormula");
   check(ts.includes("ReplaceSelection"), "TS defines ReplaceSelection");
   check(ts.includes("GetSelection"), "TS defines GetSelection");
   check(ts.includes("ConvertToOMML"), "TS defines ConvertToOMML");
@@ -156,6 +168,12 @@ try {
   // Validate fixture instances against schema structure
   const fixtures = [
     { type: "InsertFormula", payload: { latex: "x^2", display: "block", formulaId: "test-id" } },
+    { type: "GetSelectedFormula", payload: {} },
+    { type: "ReplaceSelectedFormula", payload: { latex: "x^3", display: "block" } },
+    { type: "DeleteSelectedFormula", payload: {} },
+    { type: "InsertEquationReference", payload: { formulaId: "test-id" } },
+    { type: "GetHostCapabilities", payload: {} },
+    { type: "RenderFormula", payload: { latex: "x^2", format: "png" } },
     { type: "ReplaceSelection", payload: { content: "$e^{i\\pi}$" } },
     { type: "GetSelection", payload: {} },
     { type: "ConvertToOMML", payload: { latex: "\\alpha" } },

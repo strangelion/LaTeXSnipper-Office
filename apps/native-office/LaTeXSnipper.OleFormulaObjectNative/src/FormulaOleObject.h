@@ -106,6 +106,7 @@ public:
     STDMETHOD(IsInitialized)(VARIANT_BOOL* result) override;
     STDMETHOD(GetExtentJson)(BSTR* extentJson) override;
     STDMETHOD(CompleteInsertion)() override;
+    STDMETHOD(SetDisplayExtentHimetric)(LONG cx, LONG cy) override;
 
     // IDispatch
     STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;

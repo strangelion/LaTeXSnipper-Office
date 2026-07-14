@@ -252,9 +252,9 @@ int wmain(int argc, wchar_t** argv)
     VARIANT result{};
     VariantInit(&result);
     hr = dispatch->Invoke(dispid, IID_NULL, LOCALE_INVARIANT, DISPATCH_METHOD, &parameters, &result, nullptr, nullptr);
-    dispatch->Release();
     if (FAILED(hr))
     {
+        dispatch->Release();
         VariantClear(&result);
         CoUninitialize();
         FreeLibrary(module);
@@ -265,6 +265,7 @@ int wmain(int argc, wchar_t** argv)
         const VARTYPE actualType = result.vt;
         const VARIANT_BOOL actualValue = result.boolVal;
         VariantClear(&result);
+        dispatch->Release();
         CoUninitialize();
         FreeLibrary(module);
         std::wostringstream detail;
@@ -272,6 +273,18 @@ int wmain(int argc, wchar_t** argv)
         return Fail(L"variant", detail.str());
     }
     VariantClear(&result);
+
+    wchar_t extentMethodName[] = L"SetDisplayExtentHimetric";
+    LPOLESTR extentNames[] = {extentMethodName};
+    DISPID extentDispid = DISPID_UNKNOWN;
+    hr = dispatch->GetIDsOfNames(IID_NULL, extentNames, 1, LOCALE_INVARIANT, &extentDispid);
+    dispatch->Release();
+    if (FAILED(hr) || extentDispid != 9)
+    {
+        CoUninitialize();
+        FreeLibrary(module);
+        return Fail(L"extent-contract", L"GetIDsOfNames(SetDisplayExtentHimetric) failed or returned the wrong DISPID", hr);
+    }
     CoUninitialize();
     FreeLibrary(module);
 

@@ -386,7 +386,7 @@ namespace LaTeXSnipper.Excel.Host
                         return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
 
-                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent, OleHostKind.Excel);
 
                     // Deselect the OLE object so the host can finalize it
                     cell.Select();
@@ -396,6 +396,18 @@ namespace LaTeXSnipper.Excel.Host
                     {
                         ole.Delete();
                         return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
+                    }
+                    if (!OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent) ||
+                        !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints synchronizedExcelExtent) ||
+                        !OleFormulaInterop.DisplayExtentMatches(targetExtent, synchronizedExcelExtent))
+                    {
+                        targetExtent = new OleExtentPoints(
+                            targetExtent.NaturalWidthPt,
+                            targetExtent.NaturalHeightPt,
+                            targetExtent.NaturalWidthPt,
+                            targetExtent.NaturalHeightPt);
+                        OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent);
+                        System.Diagnostics.Debug.WriteLine("[ExcelAdapter] OLE extent synchronization failed; using natural size.");
                     }
 
                     // Now set final dimensions — SetExtent accepts them after CompleteInsertion

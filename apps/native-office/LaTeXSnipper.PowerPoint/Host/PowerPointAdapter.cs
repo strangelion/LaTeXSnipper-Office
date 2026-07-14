@@ -277,7 +277,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                         return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
 
-                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                    OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent, OleHostKind.PowerPoint);
 
                     // Constrain to slide dimensions to prevent clipping at slide edges
                     float slideHeight = _application.ActivePresentation.PageSetup.SlideHeight;
@@ -297,6 +297,23 @@ namespace LaTeXSnipper.PowerPoint.Host
                         return new InsertResult { Success = false, ErrorCode = "OLE_COMPLETE_INSERTION_FAILED", Error = "OLE object did not complete insertion." };
                     }
 
+                    string? extentFallbackReason = null;
+                    bool synchronized = OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent) &&
+                        OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints synchronizedExtent) &&
+                        OleFormulaInterop.DisplayExtentMatches(targetExtent, synchronizedExtent);
+                    if (!synchronized)
+                    {
+                        targetExtent = new OleExtentPoints(
+                            naturalExtent.NaturalWidthPt,
+                            naturalExtent.NaturalHeightPt,
+                            naturalExtent.NaturalWidthPt,
+                            naturalExtent.NaturalHeightPt);
+                        OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent);
+                        extentFallbackReason = "OLE_EXTENT_SYNC_FALLBACK: native display extent synchronization failed; natural size was used.";
+                        System.Diagnostics.Debug.WriteLine(
+                            "[PPTAdapter] OLE_EXTENT_SYNC_FALLBACK: using natural-size host Shape because explicit server synchronization failed.");
+                    }
+
                     // Now set final dimensions — SetExtent accepts them after CompleteInsertion
                     shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
                     shape.Width = targetExtent.DisplayWidthPt;
@@ -304,8 +321,25 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                     shape.Left = (slideWidth - shape.Width) / 2f;
 
+                    if (OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints verifiedExtent) &&
+                        !OleFormulaInterop.DisplayExtentMatches(targetExtent, verifiedExtent))
+                    {
+                        shape.Width = naturalExtent.NaturalWidthPt;
+                        shape.Height = naturalExtent.NaturalHeightPt;
+                        shape.Left = (slideWidth - shape.Width) / 2f;
+                        extentFallbackReason = "OLE_EXTENT_VERIFY_FALLBACK: native display extent did not match the host Shape; natural size was used.";
+                        System.Diagnostics.Debug.WriteLine(
+                            "[PPTAdapter] OLE_EXTENT_VERIFY_FALLBACK: native display extent did not match the host Shape.");
+                    }
+
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                    return new InsertResult
+                    {
+                        Success = true,
+                        FormulaId = payload.FormulaId,
+                        ActualStorageMode = "ole",
+                        FallbackReason = extentFallbackReason,
+                    };
                 }
             }
             catch (Exception ex)
