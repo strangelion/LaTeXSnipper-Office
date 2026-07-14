@@ -53,6 +53,7 @@ pub enum FormulaInsertMode {
 }
 
 impl FormulaInsertMode {
+    #[cfg(target_os = "windows")]
     pub fn from_protocol(value: Option<&str>) -> Self {
         match value.unwrap_or("inline") {
             "numbered" | "displayNumbered" => Self::Numbered,
