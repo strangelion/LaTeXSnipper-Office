@@ -27,7 +27,7 @@
     xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
     xsi:type="VersionOverridesV1_0">
     <Requirements>
-      <bt:Sets DefaultMinVersion="1.1">
+      <bt:Sets DefaultMinVersion="1.10">
         <bt:Set Name="PowerPointApi"/>
       </bt:Sets>
     </Requirements>

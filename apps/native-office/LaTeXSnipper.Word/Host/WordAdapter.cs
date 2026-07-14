@@ -477,7 +477,7 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
 
                 var body = mode == InsertMode.DisplayNumbered
-                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId)
+                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId, GetContainerWidthTwips(range))
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
@@ -691,6 +691,58 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
+        /// <summary>
+        /// Numbered OLE formulas own an otherwise-empty paragraph so their local
+        /// tab stops disappear with the formula and never mutate a user paragraph.
+        /// </summary>
+        private static Microsoft.Office.Interop.Word.Range PrepareNumberedOleInsertionRange(
+            Microsoft.Office.Interop.Word.Document doc,
+            Microsoft.Office.Interop.Word.Range sourceRange)
+        {
+            var insertionRange = sourceRange.Duplicate;
+            if (insertionRange.Start != insertionRange.End)
+            {
+                insertionRange.Delete();
+                insertionRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
+            }
+
+            var paragraphRange = insertionRange.Paragraphs[1].Range.Duplicate;
+            bool paragraphIsEmpty = paragraphRange.End <= paragraphRange.Start + 1;
+            if (paragraphIsEmpty)
+            {
+                return doc.Range(paragraphRange.Start, paragraphRange.Start);
+            }
+
+            int dedicatedParagraphStart = paragraphRange.End;
+            paragraphRange.InsertParagraphAfter();
+            return doc.Range(dedicatedParagraphStart, dedicatedParagraphStart);
+        }
+
+        private static void ConfigureOleContentControl(
+            Microsoft.Office.Interop.Word.ContentControl control,
+            string formulaId,
+            string title,
+            string hideOperation)
+        {
+            control.Tag = $"latexsnipper:formula:{formulaId}";
+            control.Title = title;
+            control.LockContentControl = false;
+            control.LockContents = false;
+            try
+            {
+                control.Appearance =
+                    Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+            }
+            catch (Exception appearanceError)
+            {
+                OfficeOperationLog.Failure(
+                    hideOperation,
+                    "word",
+                    formulaId,
+                    appearanceError);
+            }
+        }
+
         private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload, InsertMode mode = InsertMode.Inline)
         {
             try
@@ -703,6 +755,11 @@ namespace LaTeXSnipper.Word.Host
                 catch (InvalidOperationException ex)
                 {
                     return new InsertResult { Success = false, Error = ex.Message };
+                }
+
+                if (mode == InsertMode.DisplayNumbered)
+                {
+                    range = PrepareNumberedOleInsertionRange(doc, range);
                 }
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
@@ -780,22 +837,33 @@ namespace LaTeXSnipper.Word.Host
                     cc = doc.ContentControls.Add(
                         Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
                         exactOleRange);
-                    cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
-                    cc.Title = "LaTeXSnipper Formula";
-                    cc.LockContentControl = false;
-                    cc.LockContents = false;
+                    ConfigureOleContentControl(
+                        cc,
+                        payload.FormulaId,
+                        "LaTeXSnipper Formula",
+                        "hide-ole-content-control");
+                }
+                catch (Exception wrapError)
+                {
+                    OfficeOperationLog.Failure("wrap-ole-content-control", "word", payload.FormulaId, wrapError);
                     try
                     {
-                        cc.Appearance = Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+                        oleShape.Delete();
                     }
-                    catch (Exception appearanceError)
+                    catch (Exception rollbackError)
                     {
-                        OfficeOperationLog.Failure("hide-ole-content-control", "word", payload.FormulaId, appearanceError);
+                        OfficeOperationLog.Failure(
+                            "rollback-unowned-ole",
+                            "word",
+                            payload.FormulaId,
+                            rollbackError);
                     }
-                }
-                catch
-                {
-                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap OLE with ContentControl");
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "OLE_CONTENT_CONTROL_REQUIRED",
+                        Error = "The OLE object could not be wrapped in its required content control."
+                    };
                 }
 
                 // Move cursor past the OLE object before CompleteInsertion
@@ -868,7 +936,6 @@ namespace LaTeXSnipper.Word.Host
                             }
                         }
                         availableWidth = Math.Max(72.0f, availableWidth - paragraphFormat.LeftIndent - paragraphFormat.RightIndent);
-                        paragraphFormat.TabStops.ClearAll();
                         paragraphFormat.TabStops.Add(availableWidth / 2.0f, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
                         paragraphFormat.TabStops.Add(availableWidth, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
 
@@ -895,11 +962,111 @@ namespace LaTeXSnipper.Word.Host
                         if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
                         var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
+
+                        // The dedicated paragraph is the ownership boundary. Its
+                        // paragraph mark carries the local tab stops, so deleting
+                        // the control also removes every layout mutation.
+                        var ownedRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                        if (cc == null)
+                        {
+                            throw new InvalidOperationException(
+                                "The original OLE content control is unavailable.");
+                        }
+                        var previousControl = cc;
+                        var recoveryRange = previousControl.Range.Duplicate;
+                        string recoveryTag = previousControl.Tag as string
+                            ?? $"latexsnipper:formula:{payload.FormulaId}";
+                        string recoveryTitle = previousControl.Title as string
+                            ?? "LaTeXSnipper Formula";
+                        bool recoveryLockControl = previousControl.LockContentControl;
+                        bool recoveryLockContents = previousControl.LockContents;
+                        previousControl.Delete(false);
+                        cc = null;
+                        try
+                        {
+                            cc = doc.ContentControls.Add(
+                                Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                                ownedRange);
+                            ConfigureOleContentControl(
+                                cc,
+                                payload.FormulaId,
+                                "LaTeXSnipper Numbered Formula",
+                                "hide-numbered-ole-content-control");
+                        }
+                        catch (Exception rewrapError)
+                        {
+                            OfficeOperationLog.Failure(
+                                "rewrap-numbered-ole-content-control",
+                                "word",
+                                payload.FormulaId,
+                                rewrapError);
+
+                            // Preserve FormulaId ownership while the outer failure
+                            // path rolls back the dedicated formula paragraph.
+                            try
+                            {
+                                cc = doc.ContentControls.Add(
+                                    Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                                    recoveryRange);
+                                ConfigureOleContentControl(
+                                    cc,
+                                    payload.FormulaId,
+                                    recoveryTitle,
+                                    "hide-recovered-ole-content-control");
+                                cc.Tag = recoveryTag;
+                                cc.LockContentControl = recoveryLockControl;
+                                cc.LockContents = recoveryLockContents;
+                            }
+                            catch (Exception recoveryError)
+                            {
+                                OfficeOperationLog.Failure(
+                                    "recover-numbered-ole-content-control",
+                                    "word",
+                                    payload.FormulaId,
+                                    recoveryError);
+                            }
+
+                            throw new InvalidOperationException(
+                                "The numbered OLE ownership range could not be created.",
+                                rewrapError);
+                        }
                     }
                     catch (Exception ex)
                     {
-                        // Numbering is best-effort — OLE object is still inserted
-                        System.Diagnostics.Debug.WriteLine($"[WordAdapter] OLE numbering failed: {ex.Message}");
+                        OfficeOperationLog.Failure(
+                            "number-ole-formula",
+                            "word",
+                            payload.FormulaId,
+                            ex);
+
+                        // Numbered insertion is transactional. The paragraph was
+                        // created exclusively for this formula, so rolling it back
+                        // cannot remove user content and also removes local tabs.
+                        try
+                        {
+                            var rollbackRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                            if (cc != null)
+                            {
+                                cc.Delete(false);
+                                cc = null;
+                            }
+                            rollbackRange.Delete();
+                        }
+                        catch (Exception rollbackError)
+                        {
+                            OfficeOperationLog.Failure(
+                                "rollback-numbered-ole",
+                                "word",
+                                payload.FormulaId,
+                                rollbackError);
+                        }
+
+                        return new InsertResult
+                        {
+                            Success = false,
+                            ErrorCode = "OLE_NUMBERING_FAILED",
+                            Error = $"Numbered OLE insertion failed: {ex.Message}"
+                        };
                     }
                 }
 
@@ -1195,10 +1362,51 @@ namespace LaTeXSnipper.Word.Host
 </w:sdt>";
         }
 
-        private static string BuildNumberedEquationBody(string omml, string formulaId)
+        private static int GetContainerWidthTwips(Microsoft.Office.Interop.Word.Range range)
+        {
+            try
+            {
+                float width;
+                if (Convert.ToBoolean(range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable)))
+                {
+                    var cell = range.Cells[1];
+                    width = cell.Width - cell.LeftPadding - cell.RightPadding;
+                }
+                else
+                {
+                    var pageSetup = range.Sections[1].PageSetup;
+                    width = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin;
+                    var columns = pageSetup.TextColumns;
+                    if (columns.Count > 1) width = columns[1].Width;
+                }
+                width -= Math.Max(0.0f, range.ParagraphFormat.LeftIndent) + Math.Max(0.0f, range.ParagraphFormat.RightIndent);
+                return Math.Max(2880, (int)Math.Round(width * 20.0f));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WordAdapter] Container width fallback: {ex.Message}");
+                return 9360;
+            }
+        }
+
+        private static int BookmarkNumericId(string formulaId)
+        {
+            uint hash = 2166136261;
+            foreach (byte value in System.Text.Encoding.UTF8.GetBytes(formulaId))
+            {
+                hash ^= value;
+                hash *= 16777619;
+            }
+            return (int)(0x40000000u | (hash & 0x3fffffffu));
+        }
+
+        private static string BuildNumberedEquationBody(string omml, string formulaId, int totalWidthTwips)
         {
             var bookmark = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(formulaId, "[^A-Za-z0-9_]", "_");
             if (bookmark.Length > 40) bookmark = bookmark.Substring(0, 40);
+            var sideWidth = Math.Max(720, Math.Min(totalWidthTwips / 4, (int)Math.Round(totalWidthTwips * 0.115)));
+            var centerWidth = Math.Max(1440, totalWidthTwips - sideWidth * 2);
+            var bookmarkId = BookmarkNumericId(formulaId);
             return $@"<w:sdt>
   <w:sdtPr>
     <w:alias w:val=""LaTeXSnipper Numbered Formula""/>
@@ -1207,11 +1415,11 @@ namespace LaTeXSnipper.Word.Host
   <w:sdtContent>
     <w:tbl>
       <w:tblPr><w:tblW w:w=""5000"" w:type=""pct""/><w:tblLayout w:type=""fixed""/><w:tblBorders><w:top w:val=""nil""/><w:left w:val=""nil""/><w:bottom w:val=""nil""/><w:right w:val=""nil""/><w:insideH w:val=""nil""/><w:insideV w:val=""nil""/></w:tblBorders><w:tblCellMar><w:top w:w=""0"" w:type=""dxa""/><w:left w:w=""0"" w:type=""dxa""/><w:bottom w:w=""0"" w:type=""dxa""/><w:right w:w=""0"" w:type=""dxa""/></w:tblCellMar></w:tblPr>
-      <w:tblGrid><w:gridCol w:w=""1080""/><w:gridCol w:w=""7200""/><w:gridCol w:w=""1080""/></w:tblGrid>
+      <w:tblGrid><w:gridCol w:w=""{sideWidth}""/><w:gridCol w:w=""{centerWidth}""/><w:gridCol w:w=""{sideWidth}""/></w:tblGrid>
       <w:tr><w:trPr><w:cantSplit/></w:trPr>
-        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w=""7200"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w=""1080"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""1"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""1""/></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{centerWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""{bookmarkId}"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""{bookmarkId}""/></w:p></w:tc>
       </w:tr>
     </w:tbl>
   </w:sdtContent>

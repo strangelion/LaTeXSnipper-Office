@@ -20,6 +20,9 @@ before(async () => {
         'export * from "./apps/office-addin/src/model/formula-payload.ts";',
         'export * from "./apps/office-addin/src/model/equation-layout.ts";',
         'export * from "./apps/office-addin/src/adapters/word-ooxml.ts";',
+        'export * from "./apps/office-addin/src/adapters/word-adapter.ts";',
+        'export * from "./apps/office-addin/src/adapters/excel-adapter.ts";',
+        'export * from "./apps/office-addin/src/adapters/powerpoint-adapter.ts";',
       ].join("\n"),
       resolveDir: process.cwd(),
       loader: "ts",
@@ -98,9 +101,9 @@ test("inline OOXML uses a run-level SDT and preserves semantic math properties",
     "inline SDT content must be run-level math",
   );
   assert.equal(
-    document.getElementsByTagName("lsn:payload").length,
-    1,
-    "persistent metadata must be present",
+    document.getElementsByTagName("w:p").length,
+    0,
+    "inline insertion fragment must not introduce a paragraph",
   );
   assert.equal(
     document.getElementsByTagName("w:temporary").length,
@@ -188,17 +191,321 @@ for (const [profileId, visible] of [
         .getAttribute("w:name"),
       "LSNEq_abc_123",
     );
+    const bookmarkStart = document.getElementsByTagName("w:bookmarkStart")[0];
+    const bookmarkEnd = document.getElementsByTagName("w:bookmarkEnd")[0];
+    assert.notEqual(bookmarkStart.getAttribute("w:id"), "1");
+    assert.equal(
+      bookmarkStart.getAttribute("w:id"),
+      bookmarkEnd.getAttribute("w:id"),
+    );
+    const cellWidths = [...document.getElementsByTagName("w:tcW")];
+    assert.ok(
+      cellWidths.every((node) => node.getAttribute("w:type") === "pct"),
+    );
   });
 }
 
-test("Excel and PowerPoint adapters contain no plain-text formula fallback", () => {
-  for (const file of ["excel-adapter.ts", "powerpoint-adapter.ts"]) {
-    const source = fs.readFileSync(
-      path.join("apps", "office-addin", "src", "adapters", file),
-      "utf8",
-    );
-    assert.doesNotMatch(source, /CoercionType\.Text|setSelectedDataAsync/);
-    assert.match(source, /addImage/);
-    assert.match(source, /encodeFormulaMetadata/);
-  }
+test("bookmark numeric IDs are stable per formula and distinct across formulas", () => {
+  assert.equal(
+    office.bookmarkNumericIdForFormula("abc_123"),
+    office.bookmarkNumericIdForFormula("abc_123"),
+  );
+  assert.notEqual(
+    office.bookmarkNumericIdForFormula("abc_123"),
+    office.bookmarkNumericIdForFormula("def_456"),
+  );
+});
+
+test("Excel adapter uses official active-shape API and split requirement gates", () => {
+  const source = fs.readFileSync(
+    path.join("apps", "office-addin", "src", "adapters", "excel-adapter.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /getSelectedShapes|declare const Excel:\s*any/);
+  assert.match(source, /getActiveShapeOrNullObject/);
+  assert.match(source, /EXCEL_INSERT_API = "1\.10"/);
+  assert.match(source, /EXCEL_LIFECYCLE_API = "1\.19"/);
+});
+
+test("PowerPoint adapter uses preview addPicture without unsupported shape properties", () => {
+  const source = fs.readFileSync(
+    path.join(
+      "apps",
+      "office-addin",
+      "src",
+      "adapters",
+      "powerpoint-adapter.ts",
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /\.addImage|lockAspectRatio|declare const PowerPoint:\s*any/,
+  );
+  assert.match(source, /addPicture/);
+  assert.match(source, /POWERPOINT_PREVIEW_API_REQUIRED/);
+});
+
+test("capabilities split Excel insertion from lifecycle support", async () => {
+  globalThis.Office = {
+    context: {
+      requirements: {
+        isSetSupported: (name, version) =>
+          name === "ExcelApi" && version === "1.10",
+      },
+    },
+  };
+  globalThis.Excel = {
+    run: async () => {
+      throw new Error("not called");
+    },
+  };
+  const capabilities = await new office.ExcelFormulaAdapter(
+    {},
+  ).getCapabilities();
+  assert.equal(capabilities.insertFormula, true);
+  assert.equal(capabilities.readFormula, false);
+  assert.equal(capabilities.replaceFormula, false);
+  assert.equal(capabilities.deleteFormula, false);
+});
+
+test("PowerPoint insert calls preview addPicture with aspect-preserving dimensions", async () => {
+  globalThis.Office = {
+    context: {
+      requirements: {
+        isSetSupported: (name, version) =>
+          name === "PowerPointApi" && version === "1.10",
+      },
+    },
+  };
+  const pictureCalls = [];
+  const shapes = {
+    addPicture(base64, options) {
+      pictureCalls.push({ base64, options });
+      return {};
+    },
+  };
+  globalThis.PowerPoint = {
+    run: async (callback) =>
+      callback({
+        presentation: {
+          slides: { getItemAt: () => ({ shapes }) },
+          getSelectedSlides: () => ({
+            items: [{ id: "slide-1", shapes }],
+            load() {},
+          }),
+        },
+        async sync() {},
+      }),
+  };
+  const adapter = new office.PowerPointFormulaAdapter({
+    convert: async () => ({
+      content: "iVBORw0KGgo=",
+      widthPt: 1200,
+      heightPt: 300,
+    }),
+  });
+  const result = await adapter.insertFormula(payload({ displayMode: "block" }));
+  assert.equal(result.ok, true);
+  assert.equal(pictureCalls.length, 1);
+  assert.equal(pictureCalls[0].options.width, 600);
+  assert.equal(pictureCalls[0].options.height, 150);
+});
+
+test("inline Word insertion keeps surrounding paragraph structure", async () => {
+  let inserted = "";
+  let stagedDeleted = false;
+  globalThis.Office = {
+    context: {
+      document: {
+        customXmlParts: {
+          addAsync: (_xml, callback) =>
+            callback({
+              status: "succeeded",
+              value: {
+                deleteAsync: (done) => {
+                  stagedDeleted = true;
+                  done({ status: "succeeded" });
+                },
+              },
+            }),
+        },
+      },
+    },
+  };
+  globalThis.Word = {
+    run: async (callback) =>
+      callback({
+        document: {
+          getSelection: () => ({
+            insertOoxml: (xml) => {
+              inserted = xml;
+            },
+          }),
+        },
+        async sync() {},
+      }),
+  };
+  const adapter = new office.WordFormulaAdapter({
+    convert: async () => ({
+      content: "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>",
+    }),
+  });
+  const result = await adapter.insertFormula(
+    payload({ displayMode: "inline" }),
+  );
+  assert.equal(result.ok, true);
+  assert.doesNotMatch(inserted, /<w:p[ >]/);
+  assert.match(inserted, /<w:sdt/);
+  assert.equal(stagedDeleted, false);
+});
+
+test("Word replacement failure removes staged metadata and preserves old metadata", async () => {
+  const current = payload({ displayMode: "inline" });
+  const encoded = office.encodeFormulaMetadata(current);
+  const currentXml = `<w:sdt xmlns:w="urn:w"><w:sdtPr><w:tag w:val="latexsnipper:formula:${current.formulaId}"/></w:sdtPr><w:sdtContent><m:oMath xmlns:m="urn:m"/></w:sdtContent><lsn:payload xmlns:lsn="urn:lsn">${encoded}</lsn:payload></w:sdt>`;
+  let oldDeletes = 0;
+  let stagedDeletes = 0;
+  const oldPart = {
+    getXmlAsync: (done) =>
+      done({
+        status: "succeeded",
+        value: `<lsn:formula formulaId="${current.formulaId}"><lsn:payload>${encoded}</lsn:payload></lsn:formula>`,
+      }),
+    deleteAsync: (done) => {
+      oldDeletes += 1;
+      done({ status: "succeeded" });
+    },
+  };
+  const stagedPart = {
+    deleteAsync: (done) => {
+      stagedDeletes += 1;
+      done({ status: "succeeded" });
+    },
+  };
+  globalThis.Office = {
+    context: {
+      document: {
+        customXmlParts: {
+          getByNamespaceAsync: (_namespace, done) =>
+            done({ status: "succeeded", value: [oldPart] }),
+          addAsync: (_xml, done) =>
+            done({ status: "succeeded", value: stagedPart }),
+        },
+      },
+    },
+  };
+  const parent = {
+    tag: `latexsnipper:formula:${current.formulaId}`,
+    title: "LaTeXSnipper Formula",
+    isNullObject: false,
+    load() {},
+    getOoxml: () => ({ value: currentXml }),
+    getRange: () => ({
+      insertOoxml: () => {
+        throw new Error("simulated replace failure");
+      },
+    }),
+  };
+  globalThis.Word = {
+    run: async (callback) =>
+      callback({
+        document: {
+          getSelection: () => ({
+            parentContentControlOrNullObject: parent,
+            contentControls: { items: [], load() {} },
+          }),
+        },
+        async sync() {},
+      }),
+  };
+  const adapter = new office.WordFormulaAdapter({
+    convert: async () => ({
+      content: "<m:oMath><m:r><m:t>y</m:t></m:r></m:oMath>",
+    }),
+  });
+  const result = await adapter.replaceSelectedFormula({
+    ...current,
+    latex: "y",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "WORD_REPLACE_FAILED");
+  assert.equal(stagedDeletes, 1);
+  assert.equal(oldDeletes, 0);
+});
+
+test("Native Word numbering owns a dedicated paragraph and is transactional", () => {
+  const source = fs.readFileSync(
+    path.join(
+      "apps",
+      "native-office",
+      "LaTeXSnipper.Word",
+      "Host",
+      "WordAdapter.cs",
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(source, /TabStops\.ClearAll\s*\(/);
+  assert.match(source, /PrepareNumberedOleInsertionRange\(doc, range\)/);
+  assert.match(
+    source,
+    /var ownedRange = oleShape\.Range\.Paragraphs\[1\]\.Range\.Duplicate/,
+  );
+  assert.match(source, /cc\.Delete\(false\)/);
+  assert.match(source, /hide-numbered-ole-content-control/);
+  assert.match(source, /recover-numbered-ole-content-control/);
+  assert.match(source, /rollback-numbered-ole/);
+  assert.match(source, /ErrorCode = "OLE_NUMBERING_FAILED"/);
+  assert.doesNotMatch(source, /Numbering is best-effort/);
+  assert.match(source, /BookmarkNumericId\(formulaId\)/);
+  assert.doesNotMatch(source, /w:bookmarkStart w:id=""1""/);
+  assert.match(source, /GetContainerWidthTwips\(range\)/);
+});
+
+test("Native Office install failure is attributed to office-native", () => {
+  const source = fs.readFileSync(
+    path.join("src-tauri", "src", "platforms", "integrations.rs"),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /if !ole\.success[\s\S]*?PlatformIntegrationResult::fail\(\s*"office-native",\s*"native-stack"/,
+  );
+});
+
+test("generic Office registration delegates operating-system routing to Rust", () => {
+  const source = fs.readFileSync(path.join("src", "main.js"), "utf8");
+  const registerStart = source.indexOf("  async registerPlatform(platform)");
+  const unregisterStart = source.indexOf(
+    "  async unregisterPlatform(platform)",
+    registerStart,
+  );
+  assert.notEqual(registerStart, -1);
+  assert.notEqual(unregisterStart, -1);
+  const registerSource = source.slice(registerStart, unregisterStart);
+
+  assert.match(
+    registerSource,
+    /invoke\("install_platform_integration",\s*\{\s*platformId: "office"/,
+  );
+  assert.doesNotMatch(registerSource, /getOfficeStatus\(\)/);
+  assert.doesNotMatch(registerSource, /detect_office/);
+  assert.doesNotMatch(registerSource, /if\s*\(\s*!status\.installed\s*\)/);
+});
+
+test("generic Office status and macOS host discovery are platform-aware", () => {
+  const frontend = fs.readFileSync(path.join("src", "main.js"), "utf8");
+  const officeBackend = fs.readFileSync(
+    path.join("src-tauri", "src", "platforms", "office.rs"),
+    "utf8",
+  );
+
+  assert.match(frontend, /getPlatformIntegrationStatus\("office"\)/);
+  assert.doesNotMatch(frontend, /invoke\("native_office_status"\)/);
+  assert.match(officeBackend, /fn detect_windows_office\(\)/);
+  assert.match(officeBackend, /fn detect_macos_office\(\)/);
+  assert.match(officeBackend, /Microsoft Word\.app/);
+  assert.match(officeBackend, /Microsoft Excel\.app/);
+  assert.match(officeBackend, /Microsoft PowerPoint\.app/);
+  assert.match(officeBackend, /home\.join\("Applications"\)/);
 });

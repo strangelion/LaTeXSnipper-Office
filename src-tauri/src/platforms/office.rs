@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +22,29 @@ pub struct OfficeAppStatus {
     pub plugin_installed: bool,
 }
 
+impl OfficeAppStatus {
+    fn unavailable() -> Self {
+        Self {
+            available: false,
+            install_path: None,
+            startup_path: None,
+            version: None,
+            plugin_installed: false,
+        }
+    }
+}
+
+impl OfficeStatus {
+    fn unavailable() -> Self {
+        Self {
+            installed: false,
+            word: OfficeAppStatus::unavailable(),
+            excel: OfficeAppStatus::unavailable(),
+            powerpoint: OfficeAppStatus::unavailable(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterResult {
     pub success: bool,
@@ -35,30 +60,7 @@ static CACHED_STATUS: Mutex<Option<OfficeStatus>> = Mutex::new(None);
 pub async fn detect_office() -> OfficeStatus {
     tauri::async_runtime::spawn_blocking(detect_office_cached)
         .await
-        .unwrap_or_else(|_| OfficeStatus {
-            installed: false,
-            word: OfficeAppStatus {
-                available: false,
-                install_path: None,
-                startup_path: Some(word_startup_dir()),
-                version: None,
-                plugin_installed: false,
-            },
-            excel: OfficeAppStatus {
-                available: false,
-                install_path: None,
-                startup_path: None,
-                version: None,
-                plugin_installed: false,
-            },
-            powerpoint: OfficeAppStatus {
-                available: false,
-                install_path: None,
-                startup_path: Some(word_startup_dir()),
-                version: None,
-                plugin_installed: false,
-            },
-        })
+        .unwrap_or_else(|_| OfficeStatus::unavailable())
 }
 
 /// Clear the cached Office status so the next `detect_office()` call re-detects.
@@ -86,6 +88,20 @@ pub(crate) fn detect_office_cached() -> OfficeStatus {
 }
 
 fn detect_office_impl() -> OfficeStatus {
+    #[cfg(target_os = "windows")]
+    let detected = detect_windows_office();
+
+    #[cfg(target_os = "macos")]
+    let detected = detect_macos_office();
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let detected = OfficeStatus::unavailable();
+
+    detected
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_office() -> OfficeStatus {
     let word_status = detect_word();
     let excel_status = detect_excel();
     let ppt_status = detect_powerpoint();
@@ -98,6 +114,50 @@ fn detect_office_impl() -> OfficeStatus {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn detect_macos_office() -> OfficeStatus {
+    let word_status = detect_macos_app("Microsoft Word.app", "com.microsoft.Word");
+    let excel_status = detect_macos_app("Microsoft Excel.app", "com.microsoft.Excel");
+    let ppt_status = detect_macos_app("Microsoft PowerPoint.app", "com.microsoft.Powerpoint");
+
+    OfficeStatus {
+        installed: word_status.available || excel_status.available || ppt_status.available,
+        word: word_status,
+        excel: excel_status,
+        powerpoint: ppt_status,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn detect_macos_app(app_bundle: &str, container_id: &str) -> OfficeAppStatus {
+    let home = dirs_next::home_dir().unwrap_or_default();
+    let candidates = [
+        PathBuf::from("/Applications").join(app_bundle),
+        home.join("Applications").join(app_bundle),
+    ];
+    let install_path = candidates
+        .iter()
+        .find(|path| path.is_dir())
+        .map(|path| path.to_string_lossy().to_string());
+    let manifest = home
+        .join("Library")
+        .join("Containers")
+        .join(container_id)
+        .join("Data")
+        .join("Documents")
+        .join("wef")
+        .join("LaTeXSnipper.xml");
+
+    OfficeAppStatus {
+        available: install_path.is_some(),
+        install_path,
+        startup_path: None,
+        version: None,
+        plugin_installed: manifest.is_file(),
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn detect_excel() -> OfficeAppStatus {
     let mut status = OfficeAppStatus {
         available: false,
@@ -149,6 +209,7 @@ fn detect_excel() -> OfficeAppStatus {
     status
 }
 
+#[cfg(target_os = "windows")]
 fn detect_word() -> OfficeAppStatus {
     let mut status = OfficeAppStatus {
         available: false,
@@ -202,6 +263,7 @@ fn detect_word() -> OfficeAppStatus {
     status
 }
 
+#[cfg(target_os = "windows")]
 fn detect_powerpoint() -> OfficeAppStatus {
     let mut status = OfficeAppStatus {
         available: false,
@@ -245,6 +307,7 @@ fn detect_powerpoint() -> OfficeAppStatus {
 }
 
 #[allow(dead_code, reason = "Reserved for standalone WPS diagnostics")]
+#[cfg(target_os = "windows")]
 fn detect_wps() -> bool {
     // Check registry
     if query_reg(r"HKLM\SOFTWARE\Kingsoft\Office", "InstallPath").is_some() {
@@ -271,6 +334,7 @@ fn detect_wps() -> bool {
     wps_addin.exists()
 }
 
+#[cfg(target_os = "windows")]
 fn word_startup_dir() -> String {
     dirs_next::data_dir()
         .unwrap_or_else(std::env::temp_dir)
@@ -281,6 +345,7 @@ fn word_startup_dir() -> String {
         .to_string()
 }
 
+#[cfg(target_os = "windows")]
 fn query_reg(key: &str, value_name: &str) -> Option<String> {
     for view in ["/reg:64", "/reg:32"] {
         if let Ok(output) = super::process::run_with_timeout(
@@ -307,6 +372,7 @@ fn query_reg(key: &str, value_name: &str) -> Option<String> {
     None
 }
 
+#[cfg(target_os = "windows")]
 fn office_addin_registered(app: &str) -> bool {
     let names = [
         "LaTeXSnipper.OfficePlugin.WordVstoAddIn",
