@@ -298,7 +298,6 @@ fn ledger_path() -> PathBuf {
     app_data_dir().join("integration-ledger.v1.json")
 }
 
-#[cfg(target_os = "windows")]
 fn generate_install_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()
