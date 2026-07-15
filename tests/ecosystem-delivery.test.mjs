@@ -147,13 +147,19 @@ describe("Desktop ecosystem target selector", () => {
       content.includes("公式已成功插入") || content.includes("插入成功"),
       "Should have success message",
     );
-    // The success message should only appear after waiting for completion
-    const insertToEcosystemMatch = content.match(
-      /async insertToEcosystem\(\)[^}]*?公式已成功插入/s,
+    // Verify success message appears after waitForEcosystemAction
+    const methodStart = content.indexOf("async insertToEcosystem()");
+    const waitIndex = content.indexOf(
+      "await this.waitForEcosystemAction",
+      methodStart,
     );
+    const successIndex = content.indexOf("公式已成功插入", methodStart);
+
+    assert(methodStart >= 0, "insertToEcosystem should exist");
+    assert(waitIndex > methodStart, "Should wait for action completion");
     assert(
-      insertToEcosystemMatch,
-      "Success message should be in insertToEcosystem",
+      successIndex > waitIndex,
+      "Success message must appear after action completion",
     );
   });
 
