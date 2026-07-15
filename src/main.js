@@ -2636,7 +2636,9 @@ class UIController {
         event.stopPropagation();
         // Refresh clients when opening dropdown
         if (!container.classList.contains("open")) {
-          this.refreshEcosystemTargetSelector().catch(() => {});
+          this.refreshEcosystemTargetSelector().catch((e) =>
+            Logger.warn("Ecosystem selector refresh failed:", e),
+          );
         }
         container.classList.toggle("open");
       };
@@ -2645,10 +2647,14 @@ class UIController {
     // Initial ecosystem host selector setup
     this.updateEcosystemHostSelector();
     // Immediately fetch online clients and populate selector
-    this.refreshEcosystemTargetSelector().catch(() => {});
+    this.refreshEcosystemTargetSelector().catch((e) =>
+      Logger.warn("Ecosystem selector refresh failed:", e),
+    );
     // Periodically refresh ecosystem target selector
     setInterval(() => {
-      this.refreshEcosystemTargetSelector().catch(() => {});
+      this.refreshEcosystemTargetSelector().catch((e) =>
+        Logger.warn("Ecosystem selector refresh failed:", e),
+      );
     }, 10000);
 
     // Close dropdown on outside click
@@ -6081,6 +6087,9 @@ class UIController {
 
     if (!dropdown || !trigger) return;
 
+    const previousClientId =
+      trigger.dataset.clientId || this._selectedEcosystemClientId || "";
+
     const freshClients = (clients || []).filter((client) => {
       return (
         this.ecosystemClientIsFresh(client) &&
@@ -6089,6 +6098,7 @@ class UIController {
     });
 
     dropdown.replaceChildren();
+    const options = [];
 
     for (const client of freshClients) {
       const target = this.ecosystemTargetFromClient(client);
@@ -6100,11 +6110,34 @@ class UIController {
       option.textContent = client.clientName || client.clientId;
 
       dropdown.appendChild(option);
+      options.push(option);
     }
 
-    if (freshClients.length === 0) {
+    // Auto-select: keep previous selection if still online, otherwise select first
+    const selectedOption =
+      options.find((opt) => opt.dataset.clientId === previousClientId) ||
+      options[0] ||
+      null;
+
+    if (selectedOption) {
+      for (const option of options) {
+        option.classList.toggle("selected", option === selectedOption);
+      }
+
+      const target = selectedOption.dataset.value || "";
+      const clientId = selectedOption.dataset.clientId || "";
+
+      trigger.querySelector("span").textContent =
+        selectedOption.textContent || clientId;
+      trigger.dataset.value = target;
+      trigger.dataset.clientId = clientId;
+      this._selectedEcosystemTarget = target;
+      this._selectedEcosystemClientId = clientId;
+    } else {
       trigger.dataset.value = "";
       trigger.dataset.clientId = "";
+      this._selectedEcosystemTarget = "";
+      this._selectedEcosystemClientId = "";
       trigger.querySelector("span").textContent = "暂无在线插件";
     }
   }
@@ -6119,27 +6152,30 @@ class UIController {
           listEl.innerHTML =
             '<span style="color:var(--muted);">暂无已连接客户端</span>';
         } else {
+          const svgIcons = {
+            vscode:
+              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17.5 2.5L8 12l9.5 9.5 2-2L12 12l7.5-7.5-2-2z" fill="currentColor"/><path d="M7 6.5L2 12l5 5.5 2-2L6 12l3-3.5-2-2z" fill="currentColor"/></svg>',
+            obsidian:
+              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 7h8M8 11h6M8 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+            browser:
+              '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>',
+          };
+          const defaultIcon =
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';
+
           listEl.innerHTML = clients
             .map((c) => {
               const lastSeen = new Date(c.lastSeen).toLocaleString("zh-CN");
-              const svgIcon =
-                {
-                  vscode:
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17.5 2.5L8 12l9.5 9.5 2-2L12 12l7.5-7.5-2-2z" fill="currentColor"/><path d="M7 6.5L2 12l5 5.5 2-2L6 12l3-3.5-2-2z" fill="currentColor"/></svg>',
-                  obsidian:
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 7h8M8 11h6M8 15h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-                  browser:
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z" stroke="currentColor" stroke-width="2"/></svg>',
-                  typora:
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M8 12l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-                  notion:
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 7h10M7 12h10M7 17h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
-                }[c.clientType] ||
-                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';
-              return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color);">
+              const isFresh = this.ecosystemClientIsFresh(c);
+              const statusStyle = isFresh
+                ? "color:var(--muted)"
+                : "color:#ef4444";
+              const statusText = isFresh ? lastSeen : `${lastSeen} (离线)`;
+              const svgIcon = svgIcons[c.clientType] || defaultIcon;
+              return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border-color);${isFresh ? "" : "opacity:0.6;"}">
               <span style="width:16px;height:16px;display:flex;align-items:center;">${svgIcon}</span>
               <span style="flex:1;"><strong>${c.clientName}</strong> (${c.clientId})</span>
-              <span style="color:var(--muted);font-size:0.75rem;">${lastSeen}</span>
+              <span style="${statusStyle};font-size:0.75rem;">${statusText}</span>
             </div>`;
             })
             .join("");
