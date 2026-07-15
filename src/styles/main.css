@@ -1890,6 +1890,18 @@ a:hover {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border-color, #ddd);
 }
+.browser-imports-dialog > header button {
+  padding: 6px 16px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 6px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary, #1f2937);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+.browser-imports-dialog > header button:hover {
+  background: var(--bg-hover, #f1f5f9);
+}
 .browser-imports-dialog h2 {
   margin: 0;
   font-size: 1.1rem;
@@ -1936,4 +1948,9 @@ a:hover {
 }
 .browser-import-success {
   color: #15803d;
+}
+.browser-import-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted, #64748b);
 }

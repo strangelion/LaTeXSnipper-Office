@@ -5,7 +5,7 @@
  * Settings and preview are provided via Obsidian's native API.
  */
 
-import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal } from "obsidian";
+import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal, requestUrl } from "obsidian";
 import { ObsidianAdapter, ObsidianEditorAPI, ObsidianBridgeAPI } from "./obsidian.adapter";
 import { router } from "../../core-protocol/command.router";
 import { setupEcosystemBridge } from "./src/editor-adapter";
@@ -275,32 +275,31 @@ export default class LaTeXSnipperPlugin extends Plugin {
       displayMode: "inline" | "block",
     ): Promise<string | null> => {
       try {
-        const response = await fetch(
-          `${url}/api/office/convert/v1`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              sourceFormat,
-              targetFormat,
-              content,
-              displayMode,
-            }),
+        const response = await requestUrl({
+          url: `${url}/api/office/convert/v1`,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify({
+            sourceFormat,
+            targetFormat,
+            content,
+            displayMode,
+          }),
+        });
 
-        if (!response.ok) return null;
+        if (response.status < 200 || response.status >= 300) return null;
 
-        const data = await response.json();
+        const data = response.json;
 
         if (data?.success !== true) return null;
 
         return typeof data.content === "string"
           ? data.content
           : null;
-      } catch {
+      } catch (error) {
+        console.error("[LaTeXSnipper] Bridge convert failed:", error);
         return null;
       }
     };

@@ -30,17 +30,21 @@ export function setupEcosystemBridge(
   const clientName = `Obsidian · ${plugin.app.vault.getName()}`;
 
   // Register initially, then auto-re-register if heartbeat shows not registered
-  bridge.register(clientName).catch(() => {});
+  bridge.register(clientName).catch((error) => {
+    console.error("[LaTeXSnipper] Ecosystem registration failed:", error);
+  });
 
   const heartbeatTimer = setInterval(async () => {
     try {
       const result: any = await bridge.heartbeat();
       if (result?.registered === false) {
         // Desktop restarted or client was lost, re-register
-        await bridge.register(clientName).catch(() => {});
+        await bridge.register(clientName).catch((error) => {
+          console.error("[LaTeXSnipper] Ecosystem re-registration failed:", error);
+        });
       }
-    } catch {
-      // Desktop offline, will retry next heartbeat
+    } catch (error) {
+      console.warn("[LaTeXSnipper] Bridge heartbeat failed:", error);
     }
   }, 10000);
 

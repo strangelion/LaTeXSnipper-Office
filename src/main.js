@@ -2646,6 +2646,10 @@ class UIController {
     this.updateEcosystemHostSelector();
     // Immediately fetch online clients and populate selector
     this.refreshEcosystemTargetSelector().catch(() => {});
+    // Periodically refresh ecosystem target selector
+    setInterval(() => {
+      this.refreshEcosystemTargetSelector().catch(() => {});
+    }, 10000);
 
     // Close dropdown on outside click
     document.addEventListener("click", () => {
@@ -6333,6 +6337,12 @@ async function setupBrowserImportInbox(controller) {
     );
     badge.textContent = String(pending.length);
     list.replaceChildren();
+    if (records.length === 0) {
+      list.append(
+        node("div", t("browserImports.empty"), "browser-import-empty"),
+      );
+      return;
+    }
     for (const record of [...records].reverse()) {
       const item = node("button", undefined, "browser-import-item");
       item.type = "button";
@@ -6340,7 +6350,7 @@ async function setupBrowserImportInbox(controller) {
         node("strong", record.document.sourceTitle || record.document.provider),
         node(
           "div",
-          `${record.sourceBrowser} · ${record.document.messages.length} messages`,
+          `${record.sourceBrowser} · ${record.document.messages.length} ${t("browserImports.messages")}`,
         ),
         node("small", record.status),
       );
@@ -6352,7 +6362,7 @@ async function setupBrowserImportInbox(controller) {
   async function showRecord(record) {
     preview.replaceChildren();
     preview.append(
-      node("h3", record.document.sourceTitle || "Conversation import"),
+      node("h3", record.document.sourceTitle || t("browserImports.title")),
     );
     preview.append(
       node("p", `${record.document.provider} · ${record.document.sourceUrl}`),
@@ -6361,7 +6371,7 @@ async function setupBrowserImportInbox(controller) {
       preview.append(
         node(
           "p",
-          "The provider DOM was truncated or virtualized; unloaded history is not included.",
+          t("browserImports.truncatedWarning"),
           "browser-import-warning",
         ),
       );
@@ -6392,7 +6402,8 @@ async function setupBrowserImportInbox(controller) {
     ]) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = value;
+      const modeKey = `browserImports.mode${value.charAt(0).toUpperCase() + value.slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
+      option.textContent = t(modeKey) || value;
       option.selected = record.importMode === value;
       mode.append(option);
     }
@@ -6406,7 +6417,8 @@ async function setupBrowserImportInbox(controller) {
     ]) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = value;
+      const templateKey = `browserImports.template${value.charAt(0).toUpperCase() + value.slice(1).replace(/-([a-z])/g, (_, c) => c.toUpperCase())}`;
+      option.textContent = t(templateKey) || value;
       option.selected = record.template === value;
       template.append(option);
     }
@@ -6414,7 +6426,7 @@ async function setupBrowserImportInbox(controller) {
       (session) => session.host_type === "word" && session.document_id,
     );
     const destination = document.createElement("select");
-    destination.append(new Option("Select connected Native Word document", ""));
+    destination.append(new Option(t("browserImports.selectDocument"), ""));
     for (const session of sessions)
       destination.append(
         new Option(
@@ -6423,21 +6435,21 @@ async function setupBrowserImportInbox(controller) {
         ),
       );
     preview.append(
-      node("h4", "Import mode"),
+      node("h4", t("browserImports.importMode")),
       mode,
-      node("h4", "Template"),
+      node("h4", t("browserImports.template")),
       template,
-      node("h4", "Destination"),
+      node("h4", t("browserImports.destination")),
       destination,
     );
     const diagnostics = node("div");
     const actions = node("div", undefined, "browser-import-actions");
-    const planButton = node("button", "Build trusted Word plan");
+    const planButton = node("button", t("browserImports.buildPlan"));
     planButton.type = "button";
-    const commitButton = node("button", "Commit to Word");
+    const commitButton = node("button", t("browserImports.commitToWord"));
     commitButton.type = "button";
     commitButton.disabled = true;
-    const cancelButton = node("button", "Cancel import");
+    const cancelButton = node("button", t("browserImports.cancelImport"));
     cancelButton.type = "button";
     actions.append(planButton, commitButton, cancelButton);
     preview.append(diagnostics, actions);
@@ -6447,8 +6459,7 @@ async function setupBrowserImportInbox(controller) {
         (item) => item.session_id === destination.value,
       );
       if (!session) {
-        diagnostics.textContent =
-          "Select an exact Word document before planning.";
+        diagnostics.textContent = t("browserImports.noDocumentSelected");
         diagnostics.className = "browser-import-warning";
         return;
       }
@@ -6482,14 +6493,15 @@ async function setupBrowserImportInbox(controller) {
     commitButton.addEventListener("click", async () => {
       if (!planned) return;
       commitButton.disabled = true;
-      diagnostics.textContent =
-        "Committing through the selected Native Word session…";
+      diagnostics.textContent = t("browserImports.commitSuccess") + "...";
       try {
         await invoke("native_office_import_conversation", {
           actionId: record.actionId,
         });
+        diagnostics.textContent = t("browserImports.commitSuccess");
+        diagnostics.className = "browser-import-success";
       } catch (error) {
-        diagnostics.textContent = String(error);
+        diagnostics.textContent = `${t("browserImports.commitFailed")}: ${String(error)}`;
         diagnostics.className = "browser-import-warning";
         commitButton.disabled = false;
       }
@@ -6498,7 +6510,7 @@ async function setupBrowserImportInbox(controller) {
       await invoke("cancel_browser_import", { actionId: record.actionId });
       await refresh();
       preview.replaceChildren(
-        node("p", "Import cancelled. The document was not modified."),
+        node("p", t("browserImports.cancelImport") + "."),
       );
     });
   }

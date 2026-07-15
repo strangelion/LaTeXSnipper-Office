@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { Plugin, requestUrl, RequestUrlResponse } from "obsidian";
 import { normalizeBridgeUrl } from "./settings";
 
 export class BridgeClient {
@@ -12,26 +12,39 @@ export class BridgeClient {
     return normalizeBridgeUrl(settings?.bridgeUrl);
   }
 
-  get token(): string {
-    return "";
-  }
-
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const res = await fetch(`${this.bridgeUrl}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.token}`,
-        ...(init.headers || {}),
-      },
-    });
-    if (!res.ok) throw new Error(`Bridge error: ${res.status}`);
-    return (await res.json()) as T;
+    const url = `${this.bridgeUrl}${path}`;
+    const method = init.method ?? "GET";
+
+    let response: RequestUrlResponse;
+    try {
+      response = await requestUrl({
+        url,
+        method,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: typeof init.body === "string" ? init.body : undefined,
+      });
+    } catch (error) {
+      console.error("[LaTeXSnipper] Bridge request failed:", url, error);
+      throw error;
+    }
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Bridge error: ${response.status}`);
+    }
+
+    return response.json as T;
   }
 
   async ping(): Promise<boolean> {
-    try { await this.request("/api/ecosystem/ping"); return true; }
-    catch { return false; }
+    try {
+      await this.request("/api/ecosystem/ping");
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async register(clientName: string) {
@@ -61,9 +74,7 @@ export class BridgeClient {
 
   async next(target = "obsidian") {
     return this.request(
-      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(
-        this.clientId,
-      )}&target=${encodeURIComponent(target)}`,
+      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(this.clientId)}&target=${encodeURIComponent(target)}`,
     );
   }
 
