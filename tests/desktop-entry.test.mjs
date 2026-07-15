@@ -29,12 +29,20 @@ describe("Desktop entry point integrity", () => {
   });
 
   it("should contain #ecosystemHostSelector", () => {
-    assert.match(html, /id="ecosystemHostSelector"/, "Missing #ecosystemHostSelector");
+    assert.match(
+      html,
+      /id="ecosystemHostSelector"/,
+      "Missing #ecosystemHostSelector",
+    );
   });
 
   it("should NOT be sidebar prototype", () => {
     // The sidebar prototype only has <aside class="sidebar"> without #app
-    assert.match(html, /id="app"/, "Entry point appears to be sidebar prototype");
+    assert.match(
+      html,
+      /id="app"/,
+      "Entry point appears to be sidebar prototype",
+    );
     assert.match(html, /<main/, "Entry point missing <main> element");
   });
 });
