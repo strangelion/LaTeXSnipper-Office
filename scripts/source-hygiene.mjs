@@ -160,6 +160,46 @@ const conversationImport = readFileSync(
 if (/insertHtml|providerHtml|rawOoxml/i.test(conversationImport))
   failures.push("conversation import accepts browser HTML or raw OOXML");
 
+// Ecosystem plugin files (Obsidian, VS Code, staged Ecosystem resources)
+const ecosystemProduction = tracked.filter(
+  (file) =>
+    /^(apps\/obsidian-plugin|apps\/vscode-extension|src-tauri\/resources\/Ecosystem)\//.test(
+      file.replaceAll("\\", "/"),
+    ) &&
+    /\.(js|ts|json|html)$/i.test(file),
+);
+
+for (const file of ecosystemProduction) {
+  if (!existsSync(resolve(root, file))) continue;
+
+  const text = readFileSync(resolve(root, file), "utf8");
+
+  for (const needle of [
+    "127.0.0.1:28765",
+    "127.0.0.1:28766",
+    "http://127.0.0.1:19876",
+  ]) {
+    if (text.includes(needle)) {
+      failures.push(
+        `legacy ecosystem Bridge value ${needle}: ${file}`,
+      );
+    }
+  }
+}
+
+if (
+  existsSync(
+    resolve(
+      root,
+      "src-tauri/resources/Ecosystem/wps",
+    ),
+  )
+) {
+  failures.push(
+    "duplicate legacy Ecosystem/wps payload must not be bundled; use resources/WPS",
+  );
+}
+
 const desktopSource = readFileSync(resolve(root, "src/main.js"), "utf8");
 if (/fetch\s*\(\s*["']http:\/\/127\.0\.0\.1:19877/.test(desktopSource))
   failures.push(

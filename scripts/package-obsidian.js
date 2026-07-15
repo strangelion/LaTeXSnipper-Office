@@ -10,12 +10,9 @@ const { execSync } = require("child_process");
 const pluginDir = path.join(__dirname, "..", "apps", "obsidian-plugin");
 const outputDir = path.join(__dirname, "..", "dist", "ecosystem", "obsidian");
 
-// Ensure plugin is built
-const mainJs = path.join(pluginDir, "main.js");
-if (!fs.existsSync(mainJs)) {
-  console.log("[package-obsidian] main.js not found, building...");
-  execSync("npm run build -- --production", { cwd: pluginDir, stdio: "inherit" });
-}
+// Always build to ensure fresh main.js
+console.log("[package-obsidian] Building plugin...");
+execSync("npm run build -- --production", { cwd: pluginDir, stdio: "inherit" });
 
 // Ensure output dir
 if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });

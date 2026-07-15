@@ -160,6 +160,145 @@
     });
   }
 
+  var actionPollTimer = null;
+  var actionPollRunning = false;
+
+  function nextAction(registration) {
+    return request(
+      "/api/ecosystem/actions/next?clientId=" +
+        encodeURIComponent(registration.clientId) +
+        "&target=wps",
+    );
+  }
+
+  function completeAction(
+    registration,
+    actionId,
+    ok,
+    result,
+    error,
+  ) {
+    return request(
+      "/api/ecosystem/actions/complete",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actionId: actionId,
+          clientId: registration.clientId,
+          ok: !!ok,
+          result: result || null,
+          error: error || null,
+        }),
+      },
+    );
+  }
+
+  function startActionPoller(
+    registration,
+    dispatch,
+  ) {
+    if (actionPollTimer) {
+      window.clearInterval(actionPollTimer);
+    }
+
+    function tick() {
+      if (actionPollRunning) return;
+
+      actionPollRunning = true;
+
+      nextAction(registration)
+        .then(function (data) {
+          if (
+            !data ||
+            !data.found ||
+            !data.action ||
+            !data.action.actionId
+          ) {
+            return null;
+          }
+
+          var action = data.action;
+          var payload = action.payload || {};
+
+          if (action.actionType !== "InsertFormula") {
+            return completeAction(
+              registration,
+              action.actionId,
+              false,
+              null,
+              {
+                code: "UNSUPPORTED_WPS_ACTION",
+                message:
+                  "Unsupported WPS ecosystem action: " +
+                  action.actionType,
+              },
+            );
+          }
+
+          var mode =
+            payload.mode ||
+            (payload.display ? "block" : "inline");
+
+          return Promise.resolve(
+            dispatch({
+              type: "InsertFormula",
+              payload: {
+                latex: payload.latex || "",
+                mode: mode,
+                display: mode,
+                formulaId: payload.formulaId || null,
+              },
+            }),
+          ).then(function (result) {
+            return completeAction(
+              registration,
+              action.actionId,
+              result && result.ok === true,
+              result && result.ok
+                ? {
+                    inserted: true,
+                    data: result.data || null,
+                  }
+                : null,
+              result && result.ok
+                ? null
+                : {
+                    code:
+                      (result && result.errorCode) ||
+                      "WPS_ACTION_FAILED",
+                    message:
+                      (result && result.error) ||
+                      "WPS rejected the action.",
+                  },
+            );
+          });
+        })
+        .catch(function (error) {
+          console.warn(
+            "[LaTeXSnipper WPS] action poll failed",
+            error,
+          );
+        })
+        .then(function () {
+          actionPollRunning = false;
+        });
+    }
+
+    actionPollTimer = window.setInterval(
+      tick,
+      1500,
+    );
+
+    tick();
+
+    return function () {
+      if (actionPollTimer) {
+        window.clearInterval(actionPollTimer);
+        actionPollTimer = null;
+      }
+    };
+  }
+
   window.WpsBridgeClient = {
     baseUrl: baseUrl,
     connect: connect,
@@ -169,5 +308,8 @@
     register: register,
     heartbeat: heartbeat,
     startHeartbeat: startHeartbeat,
+    nextAction: nextAction,
+    completeAction: completeAction,
+    startActionPoller: startActionPoller,
   };
 })();

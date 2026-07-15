@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:2100",
     "beforeDevCommand": "npm run dev:vite",
-    "beforeBuildCommand": "npm run build:office-addin && npm run build:wps && npm run prepare:native-office && npm run build:vite && npm run stage:resources"
+    "beforeBuildCommand": "npm run build:office-addin && npm run build:wps && npm run build:ecosystem && npm run stage:ecosystem && npm run prepare:native-office && npm run build:vite && npm run stage:resources"
   },
   "app": {
     "windows": [

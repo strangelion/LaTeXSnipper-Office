@@ -149,30 +149,60 @@ impl EcosystemActionQueue {
         Ok(())
     }
 
+    fn action_is_expired(
+        action: &EcosystemActionEnvelope,
+    ) -> bool {
+        chrono::DateTime::parse_from_rfc3339(
+            &action.expires_at,
+        )
+        .map(|value| {
+            value.with_timezone(&chrono::Utc)
+                <= chrono::Utc::now()
+        })
+        .unwrap_or(true)
+    }
+
     /// Dequeue the next pending action for a client (by clientId or target).
     pub async fn next(&self, client_id: &str, target: &str) -> Option<EcosystemActionEnvelope> {
         let mut inner = self.inner.lock().await;
 
-        // Prefer client-specific queue
-        if let Some(q) = inner.queues.get_mut(client_id) {
-            if let Some(action) = q.pop_front() {
-                let id = action.action_id.clone();
-                if let Some(record) = inner.statuses.get_mut(&id) {
-                    record.status = EcosystemActionStatus::Dispatched;
-                    record.updated_at = chrono::Utc::now().to_rfc3339();
-                }
-                return Some(action);
-            }
-        }
+        for key in [client_id, target] {
+            loop {
+                let action = {
+                    inner
+                        .queues
+                        .get_mut(key)
+                        .and_then(|queue| queue.pop_front())
+                };
 
-        // Fallback to target-based queue
-        if let Some(q) = inner.queues.get_mut(target) {
-            if let Some(action) = q.pop_front() {
+                let Some(action) = action else {
+                    break;
+                };
+
                 let id = action.action_id.clone();
-                if let Some(record) = inner.statuses.get_mut(&id) {
-                    record.status = EcosystemActionStatus::Dispatched;
-                    record.updated_at = chrono::Utc::now().to_rfc3339();
+
+                if Self::action_is_expired(&action) {
+                    if let Some(record) =
+                        inner.statuses.get_mut(&id)
+                    {
+                        record.status =
+                            EcosystemActionStatus::Expired;
+                        record.updated_at =
+                            chrono::Utc::now().to_rfc3339();
+                    }
+
+                    continue;
                 }
+
+                if let Some(record) =
+                    inner.statuses.get_mut(&id)
+                {
+                    record.status =
+                        EcosystemActionStatus::Dispatched;
+                    record.updated_at =
+                        chrono::Utc::now().to_rfc3339();
+                }
+
                 return Some(action);
             }
         }
