@@ -1,0 +1,58 @@
+{
+  "name": "latexsnipper-vscode",
+  "displayName": "LaTeXSnipper",
+  "description": "Insert, edit and replace LaTeX formulas with LaTeXSnipper desktop app",
+  "version": "0.1.0",
+  "publisher": "strangelion",
+  "license": "AGPL-3.0",
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["Other"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:latexsnipper.insertInlineFormula",
+    "onCommand:latexsnipper.insertDisplayFormula",
+    "onCommand:latexsnipper.openSelectionInDesktop"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "latexsnipper.insertInlineFormula",
+        "title": "LaTeXSnipper: Insert Inline Formula"
+      },
+      {
+        "command": "latexsnipper.insertDisplayFormula",
+        "title": "LaTeXSnipper: Insert Display Formula"
+      },
+      {
+        "command": "latexsnipper.openSelectionInDesktop",
+        "title": "LaTeXSnipper: Edit Selection in Desktop"
+      }
+    ],
+    "configuration": {
+      "title": "LaTeXSnipper",
+      "properties": {
+        "latexsnipper.bridgeUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:19877",
+          "description": "LaTeXSnipper Bridge URL"
+        },
+        "latexsnipper.bridgeToken": {
+          "type": "string",
+          "default": "",
+          "description": "Bridge authentication token"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "package": "vsce package",
+    "dev": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --watch"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "vsce": "^2.15.0"
+  }
+}

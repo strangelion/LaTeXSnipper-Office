@@ -1106,6 +1106,54 @@ a:hover {
   min-width: 240px;
 }
 
+/* Numbering options row */
+.numbering-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.numbering-option {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.numbering-option input[type="radio"] {
+  cursor: pointer;
+}
+
+.numbering-option code {
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+/* Numbering disabled row */
+.numbering-disabled-row {
+  margin-top: 0.5rem;
+}
+
+.numbering-disabled-option {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  padding: 0.35rem 0.65rem;
+  font: inherit;
+  font-size: 0.85rem;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ═══════════════════════════════════════════
    Buttons
    ═══════════════════════════════════════════ */

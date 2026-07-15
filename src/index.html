@@ -36,6 +36,28 @@
           <button id="insertBlock" class="sidebar-btn" data-i18n="office.insert"></button>
         </div>
       </div>
+      <div class="sidebar-section" id="numberingOptions" hidden>
+        <label class="sidebar-label">编号方案</label>
+        <div class="numbering-options-row">
+          <label class="numbering-option">
+            <input type="radio" name="numberingScheme" value="global" checked />
+            <span>全局 <code>(1)</code></span>
+          </label>
+          <label class="numbering-option">
+            <input type="radio" name="numberingScheme" value="chapter" />
+            <span>章节点号 <code>(2.1)</code></span>
+          </label>
+          <label class="numbering-option">
+            <input type="radio" name="numberingScheme" value="chapter-hyphen" />
+            <span>章节连字符 <code>(2-1)</code></span>
+          </label>
+        </div>
+        <div class="numbering-disabled-row">
+          <button class="numbering-disabled-option" disabled>
+            标签/书签（当前 Native Word 暂不支持）
+          </button>
+        </div>
+      </div>
       <div class="sidebar-section">
         <button id="openEditor" class="sidebar-btn sidebar-btn-secondary" data-i18n="office.openEditor"></button>
       </div>

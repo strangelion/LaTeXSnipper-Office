@@ -102,6 +102,16 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package.json
+      - run: npm ci
+      - name: Build ecosystem resources for Tauri
+        run: |
+          npm run build:ecosystem
+          npm run stage:ecosystem
       - run: cargo fmt --check
       - run: cargo clippy -- -D warnings
       - run: cargo test
