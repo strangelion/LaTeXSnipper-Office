@@ -2,27 +2,65 @@ import * as vscode from "vscode";
 import { BridgeClient } from "./bridge-client";
 import { insertText } from "./editor-adapter";
 
-export function startActionPoller(bridge: BridgeClient, statusBar: vscode.StatusBarItem) {
-  const timer = setInterval(async () => {
+export function startActionPoller(
+  bridge: BridgeClient,
+  statusBar: vscode.StatusBarItem,
+) {
+  let running = false;
+
+  const tick = async () => {
+    if (running) return;
+
+    running = true;
+    let actionId: string | null = null;
+
     try {
-      const data: any = await bridge.next("vscode-default");
+      const data: any = await bridge.next();
+
       if (!data?.found || !data.action?.actionId) return;
 
       const action = data.action;
-      if (action.actionType === "InsertFormula" || action.actionType === "ReplaceSelection") {
-        const latex = action.payload?.latex ?? "";
-        const display = !!action.payload?.display;
-        const markdown = action.payload?.markdown ?? (display ? `$$\n${latex}\n$$` : `$${latex}$`);
+      actionId = action.actionId;
 
-        await insertText(markdown);
-        await bridge.complete(action.actionId, true, { inserted: true });
-        statusBar.text = "$(check) LaTeXSnipper: formula inserted";
-        setTimeout(() => { statusBar.text = "$(symbol-event) LaTeXSnipper"; }, 3000);
+      const latex = action.payload?.latex ?? "";
+      const display = !!action.payload?.display;
+      const markdown =
+        action.payload?.markdown ??
+        (display ? `$$\n${latex}\n$$` : `$${latex}$`);
+
+      await insertText(markdown);
+
+      await bridge.complete(actionId, true, {
+        inserted: true,
+      });
+
+      statusBar.text = "$(check) LaTeXSnipper: formula inserted";
+      setTimeout(() => {
+        statusBar.text = "$(symbol-event) LaTeXSnipper";
+      }, 3000);
+    } catch (error) {
+      if (actionId) {
+        await bridge
+          .complete(actionId, false, null, {
+            code: "VSCODE_ACTION_FAILED",
+            message:
+              error instanceof Error
+                ? error.message
+                : String(error),
+          })
+          .catch(() => {});
       }
-    } catch {
-      // Silent — background polling should not spam the user
+
+      console.error(
+        "[LaTeXSnipper] VS Code ecosystem action failed",
+        error,
+      );
+    } finally {
+      running = false;
     }
-  }, 1500);
+  };
+
+  const timer = setInterval(() => void tick(), 1500);
 
   return () => clearInterval(timer);
 }

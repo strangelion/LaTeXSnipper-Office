@@ -1362,7 +1362,7 @@ async fn handle_actions_complete(
 // ═══════════════════════════════════════════════════════════════
 
 use super::ecosystem::{
-    ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemClient,
+    ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemActionStatus, EcosystemClient,
 };
 
 fn _extract_queue(state: &BridgeRuntimeState) -> &EcosystemActionQueue {
@@ -1662,15 +1662,36 @@ async fn handle_ecosystem_action_status(
 pub struct PushActionPayload {
     #[serde(rename = "type")]
     pub action_type: String,
+
     pub latex: String,
+
+    #[serde(default)]
     pub display: Option<bool>,
+
+    #[serde(default)]
+    pub mode: Option<String>,
+
+    #[serde(default)]
     pub format: Option<String>,
+
+    #[serde(default)]
+    pub formula_id: Option<String>,
+
+    #[serde(default)]
+    pub display_mode: Option<String>,
+
+    #[serde(default)]
+    pub insertion_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PushRequest {
     pub target: String,
+
+    #[serde(default)]
+    pub target_client_id: Option<String>,
+
     pub action: PushActionPayload,
 }
 
@@ -1690,6 +1711,36 @@ async fn handle_ecosystem_actions_push(
             "error": error,
         })),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EcosystemActionStatusInternal {
+    pub action_id: String,
+    pub status: EcosystemActionStatus,
+    pub updated_at: String,
+    pub result: Option<serde_json::Value>,
+    pub error: Option<ActionError>,
+}
+
+#[tauri::command]
+pub async fn get_ecosystem_action_status_internal(
+    state: tauri::State<'_, Arc<BridgeRuntimeState>>,
+    action_id: String,
+) -> Result<EcosystemActionStatusInternal, String> {
+    let record = state
+        .ecosystem_queue
+        .status(&action_id)
+        .await
+        .ok_or_else(|| "ECOSYSTEM_ACTION_NOT_FOUND".to_string())?;
+
+    Ok(EcosystemActionStatusInternal {
+        action_id,
+        status: record.status,
+        updated_at: record.updated_at,
+        result: record.result,
+        error: record.error,
+    })
 }
 
 #[tauri::command]
@@ -1717,12 +1768,51 @@ async fn enqueue_ecosystem_action(
     let now = chrono::Utc::now();
     let expires = now + chrono::Duration::seconds(300);
 
+    let display = push.action.display.unwrap_or(false);
+
+    let mode = push
+        .action
+        .mode
+        .clone()
+        .unwrap_or_else(|| if display { "block".into() } else { "inline".into() });
+
+    let format = push
+        .action
+        .format
+        .clone()
+        .unwrap_or_else(|| "markdown".into());
+
+    let payload = if push.target == "browser" {
+        serde_json::json!({
+            "schemaVersion": 1,
+            "latex": push.action.latex,
+            "displayMode": push.action.display_mode.unwrap_or_else(|| {
+                if display { "display".into() } else { "inline".into() }
+            }),
+            "insertionFormat": push.action.insertion_format.unwrap_or_else(|| {
+                if display {
+                    "dollar-display".into()
+                } else {
+                    "dollar-inline".into()
+                }
+            })
+        })
+    } else {
+        serde_json::json!({
+            "latex": push.action.latex,
+            "display": display,
+            "mode": mode,
+            "format": format,
+            "formulaId": push.action.formula_id
+        })
+    };
+
     let envelope = EcosystemActionEnvelope {
         action_id: action_id.clone(),
         action_type: push.action.action_type,
         origin: "desktop".to_string(),
         target: push.target.clone(),
-        target_client_id: None,
+        target_client_id: push.target_client_id,
         created_at: now.to_rfc3339(),
         expires_at: expires.to_rfc3339(),
         timeout_ms: 300_000,
@@ -1731,11 +1821,7 @@ async fn enqueue_ecosystem_action(
         allow_fallback: true,
         priority: "normal".to_string(),
         reply_to: None,
-        payload: serde_json::json!({
-            "latex": push.action.latex,
-            "display": push.action.display.unwrap_or(false),
-            "format": push.action.format.unwrap_or_else(|| "markdown".to_string()),
-        }),
+        payload,
         trace_id: uuid_simple(),
         app_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         protocol_version: 1,

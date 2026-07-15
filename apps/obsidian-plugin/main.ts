@@ -9,44 +9,85 @@ import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal } f
 import { ObsidianAdapter, ObsidianEditorAPI, ObsidianBridgeAPI } from "./obsidian.adapter";
 import { router } from "../../core-protocol/command.router";
 import { setupEcosystemBridge } from "./src/editor-adapter";
-
-// ─── Settings ────────────────────────────────────────────────────────
-
-interface LaTeXSnipperSettings {
-  bridgeUrl: string;
-  defaultDisplay: "inline" | "block";
-  autoNumber: boolean;
-}
-
-const DEFAULT_SETTINGS: LaTeXSnipperSettings = {
-  bridgeUrl: "http://127.0.0.1:19877",
-  defaultDisplay: "inline",
-  autoNumber: false,
-};
+import {
+  DEFAULT_BRIDGE_URL,
+  LaTeXSnipperSettings,
+  PersistedPluginData,
+  migratePluginData,
+} from "./src/settings";
 
 // ─── Plugin ──────────────────────────────────────────────────────────
 
 export default class LaTeXSnipperPlugin extends Plugin {
   settings!: LaTeXSnipperSettings;
+  pluginData!: PersistedPluginData;
   adapter!: ObsidianAdapter;
 
+  private readonly CSS = `
+/* LaTeXSnipper formula numbering styles */
+.latexsnipper-number {
+  font-size: 0.9em;
+  color: var(--text-muted);
+  margin-left: 0.5em;
+  font-style: italic;
+}
+
+.latexsnipper-number.chapter {
+  font-variant-numeric: tabular-nums;
+}
+
+.latexsnipper-number.chapter-hyphen {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Formula container styles */
+.latexsnipper-formula {
+  position: relative;
+  display: inline-block;
+}
+
+.latexsnipper-formula.block {
+  display: block;
+  text-align: center;
+  margin: 1em 0;
+}
+
+.latexsnipper-formula.inline {
+  display: inline;
+}
+`;
+
   async onload() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const raw = (await this.loadData()) as
+      | Partial<PersistedPluginData>
+      | null;
+
+    this.pluginData = migratePluginData(raw);
+    this.settings = {
+      bridgeUrl: this.pluginData.bridgeUrl,
+      defaultDisplay: this.pluginData.defaultDisplay,
+      autoNumber: this.pluginData.autoNumber,
+    };
+
+    await this.saveData(this.pluginData);
 
     const editorFn = () => this.getEditor();
     const counterStore = {
-      load: async () => {
-        const data = await this.loadData();
-        return data?.equationCounter || 0;
-      },
+      load: async () => this.pluginData.equationCounter || 0,
+
       save: async (n: number) => {
-        const data = (await this.loadData()) || {};
-        data.equationCounter = n;
-        await this.saveData(data);
+        this.pluginData.equationCounter = n;
+        await this.saveData(this.pluginData);
       },
     };
-    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore);
+    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore, "global");
     router.register("obsidian", this.adapter);
+
+    // Inject CSS for formula styling
+    const styleEl = document.createElement("style");
+    styleEl.id = "latexsnipper-styles";
+    styleEl.textContent = this.CSS;
+    document.head.appendChild(styleEl);
 
     // ── Command palette entries ─────────────────────────────────────
     this.addCommand({
@@ -141,7 +182,20 @@ export default class LaTeXSnipperPlugin extends Plugin {
     // ── Ecosystem Bridge ────────────────────────────────────────────
     // Start the ecosystem action poller so the desktop app can push
     // InsertFormula/ReplaceSelection actions into this Obsidian editor.
-    setupEcosystemBridge(this);
+    setupEcosystemBridge(
+      this,
+      this.adapter,
+      this.pluginData.ecosystemClientId,
+    );
+  }
+
+  async persistSettings() {
+    this.pluginData = {
+      ...this.pluginData,
+      ...this.settings,
+    };
+
+    await this.saveData(this.pluginData);
   }
 
   // ─── Commands ──────────────────────────────────────────────────────
@@ -211,42 +265,73 @@ export default class LaTeXSnipperPlugin extends Plugin {
   }
 
   getBridge(): ObsidianBridgeAPI | null {
-    const url = this.settings.bridgeUrl;
-    return {
-      async convertLatex(latex: string, display: boolean): Promise<string | null> {
-        try {
-          const r = await fetch(`${url}/convert/latex`, {
+    const url = this.settings.bridgeUrl.replace(/\/+$/, "");
+
+    const convert = async (
+      sourceFormat: "latex" | "omml",
+      targetFormat: "latex" | "omml" | "svg",
+      content: string,
+      displayMode: "inline" | "block",
+    ): Promise<string | null> => {
+      try {
+        const response = await fetch(
+          `${url}/api/office/convert/v1`,
+          {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ latex, display, targets: ["omml"] }),
-          });
-          const d = await r.json();
-          return d.result?.omml || null;
-        } catch { return null; }
-      },
-      async convertOmml(omml: string): Promise<string | null> {
-        try {
-          const r = await fetch(`${url}/convert/omml`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ omml }),
-          });
-          const d = await r.json();
-          return d.result?.latex || null;
-        } catch { return null; }
-      },
-      async renderPreview(latex: string, display: boolean): Promise<string | null> {
-        try {
-          const r = await fetch(`${url}/convert/latex`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ latex, display, targets: ["svg"] }),
-          });
-          const d = await r.json();
-          return d.result?.svg_base64 || d.result?.svg || null;
-        } catch { return null; }
-      },
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              sourceFormat,
+              targetFormat,
+              content,
+              displayMode,
+            }),
+          },
+        );
+
+        if (!response.ok) return null;
+
+        const data = await response.json();
+
+        if (data?.success !== true) return null;
+
+        return typeof data.content === "string"
+          ? data.content
+          : null;
+      } catch {
+        return null;
+      }
     };
+
+    return {
+      convertLatex: (latex, display) =>
+        convert(
+          "latex",
+          "omml",
+          latex,
+          display ? "block" : "inline",
+        ),
+
+      convertOmml: (omml) =>
+        convert("omml", "latex", omml, "inline"),
+
+      renderPreview: (latex, display) =>
+        convert(
+          "latex",
+          "svg",
+          latex,
+          display ? "block" : "inline",
+        ),
+    };
+  }
+
+  onunload() {
+    // Remove injected CSS
+    const styleEl = document.getElementById("latexsnipper-styles");
+    if (styleEl) {
+      styleEl.remove();
+    }
   }
 }
 
@@ -354,11 +439,13 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
       .setDesc("LaTeXSnipper Desktop Bridge URL for formula conversion and preview")
       .addText((text) =>
         text
-          .setPlaceholder("http://127.0.0.1:19876")
+          .setPlaceholder(DEFAULT_BRIDGE_URL)
           .setValue(this.plugin.settings.bridgeUrl)
           .onChange(async (val) => {
-            this.plugin.settings.bridgeUrl = val || "http://127.0.0.1:19877";
-            await this.plugin.saveData(this.plugin.settings);
+            this.plugin.settings.bridgeUrl =
+              val.trim() || DEFAULT_BRIDGE_URL;
+
+            await this.plugin.persistSettings();
           }),
       );
 
@@ -372,7 +459,7 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.defaultDisplay)
           .onChange(async (val) => {
             this.plugin.settings.defaultDisplay = val as "inline" | "block";
-            await this.plugin.saveData(this.plugin.settings);
+            await this.plugin.persistSettings();
           }),
       );
 
@@ -384,7 +471,23 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.autoNumber)
           .onChange(async (val) => {
             this.plugin.settings.autoNumber = val;
-            await this.plugin.saveData(this.plugin.settings);
+            await this.plugin.persistSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Number format")
+      .setDesc("Choose how formulas are numbered")
+      .addDropdown((dd) =>
+        dd
+          .addOption("global", "Global (1)")
+          .addOption("chapter", "Chapter (2.1)")
+          .addOption("chapter-hyphen", "Chapter-hyphen (2-1)")
+          .setValue(this.plugin.settings.numberFormat)
+          .onChange(async (val) => {
+            this.plugin.settings.numberFormat = val as "global" | "chapter" | "chapter-hyphen";
+            this.plugin.adapter.setNumberFormat(this.plugin.settings.numberFormat);
+            await this.plugin.persistSettings();
           }),
       );
   }

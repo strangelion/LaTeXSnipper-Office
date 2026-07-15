@@ -1,6 +1,7 @@
 import { MarkdownView, Plugin } from "obsidian";
 import { BridgeClient } from "./bridge-client";
 import { startActionPoller } from "./action-poller";
+import type { ObsidianAdapter } from "../obsidian.adapter";
 
 export function getActiveEditor(plugin: Plugin) {
   const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
@@ -20,19 +21,26 @@ export function getSelectionLatex(plugin: Plugin): string {
   return editor?.getSelection() ?? "";
 }
 
-export function setupEcosystemBridge(plugin: Plugin) {
-  const bridge = new BridgeClient(plugin);
+export function setupEcosystemBridge(
+  plugin: Plugin,
+  adapter: ObsidianAdapter,
+  clientId: string,
+) {
+  const bridge = new BridgeClient(plugin, clientId);
 
-  // Register client and start heartbeat
-  bridge.register("obsidian-default", "Obsidian").catch(() => {});
+  bridge
+    .register(
+      `Obsidian · ${plugin.app.vault.getName()}`,
+    )
+    .catch(() => {});
+
   const heartbeatTimer = setInterval(() => {
-    bridge.heartbeat("obsidian-default").catch(() => {});
+    bridge.heartbeat().catch(() => {});
   }, 10000);
 
-  // Start action poller
-  const stopPoller = startActionPoller(plugin, bridge);
+  const stopPoller =
+    startActionPoller(bridge, adapter);
 
-  // Cleanup on unload
   plugin.register(() => {
     clearInterval(heartbeatTimer);
     stopPoller();

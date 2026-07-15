@@ -5,7 +5,9 @@ import { startActionPoller } from "./action-poller";
 
 let statusBarItem: vscode.StatusBarItem;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(
+  context: vscode.ExtensionContext,
+) {
   console.log("[LaTeXSnipper] Activating...");
 
   // Status bar
@@ -16,8 +18,23 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
+  // Generate stable client ID
+  let clientId =
+    context.globalState.get<string>(
+      "latexsnipper.ecosystemClientId",
+    );
+
+  if (!clientId) {
+    clientId = `vscode-${crypto.randomUUID()}`;
+
+    await context.globalState.update(
+      "latexsnipper.ecosystemClientId",
+      clientId,
+    );
+  }
+
   // Bridge client
-  const bridge = new BridgeClient();
+  const bridge = new BridgeClient(clientId);
 
   // Register commands
   registerCommands(context, bridge);
@@ -27,14 +44,14 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push({ dispose: stopPoller });
 
   // Register client
-  bridge.register("vscode-default", "VS Code").catch(() => {
+  bridge.register("VS Code").catch(() => {
     statusBarItem.text = "$(warning) LaTeXSnipper (offline)";
     statusBarItem.tooltip = "LaTeXSnipper desktop not running";
   });
 
   // Periodic heartbeat
   const heartbeatTimer = setInterval(() => {
-    bridge.heartbeat("vscode-default").catch(() => {});
+    bridge.heartbeat().catch(() => {});
   }, 10000);
   context.subscriptions.push({ dispose: () => clearInterval(heartbeatTimer) });
 

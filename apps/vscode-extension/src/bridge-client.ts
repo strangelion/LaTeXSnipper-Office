@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 
 export class BridgeClient {
+  constructor(private clientId: string) {}
+
   get bridgeUrl(): string {
     return vscode.workspace
       .getConfiguration("latexsnipper")
@@ -35,14 +37,19 @@ export class BridgeClient {
     }
   }
 
-  async register(clientId: string, clientName: string) {
+  async register(clientName: string) {
     return this.request("/api/ecosystem/clients/register", {
       method: "POST",
       body: JSON.stringify({
-        clientId,
+        clientId: this.clientId,
         clientType: "vscode",
         clientName,
-        capabilities: ["insert_formula", "replace_selection", "read_selection", "open_editor"],
+        capabilities: [
+          "insert_formula",
+          "replace_selection",
+          "read_selection",
+          "open_editor",
+        ],
         version: "0.1.0",
       }),
     });
@@ -55,23 +62,38 @@ export class BridgeClient {
     });
   }
 
-  async next(clientId: string) {
+  async next() {
     return this.request(
-      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(clientId)}&target=vscode`
+      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(
+        this.clientId,
+      )}&target=vscode`,
     );
   }
 
-  async complete(actionId: string, ok: boolean, result?: unknown, error?: { code: string; message: string } | null) {
+  async complete(
+    actionId: string,
+    ok: boolean,
+    result?: unknown,
+    error?: { code: string; message: string } | null,
+  ) {
     return this.request("/api/ecosystem/actions/complete", {
       method: "POST",
-      body: JSON.stringify({ actionId, clientId: "vscode-default", ok, result, error }),
+      body: JSON.stringify({
+        actionId,
+        clientId: this.clientId,
+        ok,
+        result,
+        error,
+      }),
     });
   }
 
-  async heartbeat(clientId: string) {
+  async heartbeat() {
     return this.request("/api/ecosystem/clients/heartbeat", {
       method: "POST",
-      body: JSON.stringify({ clientId }),
+      body: JSON.stringify({
+        clientId: this.clientId,
+      }),
     });
   }
 }

@@ -16,7 +16,7 @@ async function scan(message: unknown): Promise<void> {
   const payload = response.action.payload;
   const formulaCount = "formulas" in payload ? payload.formulas.length : payload.messages.reduce((total, item) => total + item.blocks.filter((block) => block.type === "formula").length, 0);
   const messageCount = "messages" in payload ? payload.messages.length : 0;
-  const preview = document.createElement("div"); preview.className = "result"; preview.textContent = `${messageCount} messages · ${formulaCount} formulas`;
+  const preview = document.createElement("div"); preview.className = "result"; preview.textContent = `${t("messagesCount", String(messageCount))} · ${t("formulasCount", String(formulaCount))}`;
   const confirm = document.createElement("button"); confirm.textContent = t("sendSelection");
   confirm.addEventListener("click", async () => { const sent = await background({ type: "SEND_IMPORT", action: response.action }); if (!sent.ok) throw new Error(sent.error); setStatus(t("sentToDesktop"), true); confirm.disabled = true; });
   results.append(preview, confirm);

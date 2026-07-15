@@ -1,16 +1,15 @@
-import { Plugin, Platform } from "obsidian";
+import { Plugin } from "obsidian";
+import { normalizeBridgeUrl } from "./settings";
 
 export class BridgeClient {
-  private plugin: Plugin;
-
-  constructor(plugin: Plugin) {
-    this.plugin = plugin;
-  }
+  constructor(
+    private plugin: Plugin,
+    private clientId: string,
+  ) {}
 
   get bridgeUrl(): string {
-    // Read from plugin settings if available, fall back to default
     const settings = (this.plugin as any).settings;
-    return settings?.bridgeUrl || "http://127.0.0.1:19876";
+    return normalizeBridgeUrl(settings?.bridgeUrl);
   }
 
   get token(): string {
@@ -35,14 +34,19 @@ export class BridgeClient {
     catch { return false; }
   }
 
-  async register(clientId: string, clientName: string) {
+  async register(clientName: string) {
     return this.request("/api/ecosystem/clients/register", {
       method: "POST",
       body: JSON.stringify({
-        clientId,
+        clientId: this.clientId,
         clientType: "obsidian",
         clientName,
-        capabilities: ["insert_formula", "replace_selection", "read_selection", "open_editor"],
+        capabilities: [
+          "insert_formula",
+          "replace_selection",
+          "read_selection",
+          "open_editor",
+        ],
         version: "0.1.0",
       }),
     });
@@ -55,23 +59,38 @@ export class BridgeClient {
     });
   }
 
-  async next(clientId: string, target: string) {
+  async next(target = "obsidian") {
     return this.request(
-      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(clientId)}&target=${encodeURIComponent(target)}`
+      `/api/ecosystem/actions/next?clientId=${encodeURIComponent(
+        this.clientId,
+      )}&target=${encodeURIComponent(target)}`,
     );
   }
 
-  async complete(actionId: string, ok: boolean, result?: unknown, error?: { code: string; message: string } | null) {
+  async complete(
+    actionId: string,
+    ok: boolean,
+    result?: unknown,
+    error?: { code: string; message: string } | null,
+  ) {
     return this.request("/api/ecosystem/actions/complete", {
       method: "POST",
-      body: JSON.stringify({ actionId, clientId: "obsidian-default", ok, result, error }),
+      body: JSON.stringify({
+        actionId,
+        clientId: this.clientId,
+        ok,
+        result,
+        error,
+      }),
     });
   }
 
-  async heartbeat(clientId: string) {
+  async heartbeat() {
     return this.request("/api/ecosystem/clients/heartbeat", {
       method: "POST",
-      body: JSON.stringify({ clientId }),
+      body: JSON.stringify({
+        clientId: this.clientId,
+      }),
     });
   }
 }

@@ -36,10 +36,10 @@
 | 端口 | 服务 | 协议 | 用途 |
 |------|------|------|------|
 | **19876** | Office Web Bridge | HTTPS (自签 TLS) | Office.js 静态文件托管 + LaTeX↔OMML 转换 API |
-| **28765** | LaTeXSnipper Desktop Bridge | HTTP | 公式转换/渲染核心 API（由 Tauri 桌面应用提供） |
-| **28766** | WPS CORS 代理 | HTTP | 转发请求到 28765 并添加 CORS 头，用于 WPS taskpane |
+| **19877** | LaTeXSnipper Desktop Bridge | HTTP | 公式转换/渲染核心 API（由 Tauri 桌面应用提供） |
+| **Named Pipe** | VSTO Native Office | - | Word/Excel/PPT 通过 Named Pipe 与桌面应用通信 |
 
-**设计说明**：三个端口服务于不同场景，暂不合并。`19876` 是 Office.js 宿主要求的 HTTPS 端点（需要 TLS），`28765` 是桌面应用内部 API，`28766` 是 WPS 专用的 CORS 代理。未来可通过统一网关层收敛。
+**设计说明**：`19876` 是 Office.js 宿主要求的 HTTPS 端点（需要 TLS），`19877` 是统一的 HTTP Bridge 端口，服务于 WPS、浏览器扩展、Obsidian 插件、VS Code 扩展等生态插件。`Named Pipe` 用于 VSTO 原生 Office 插件的本地通信。
 
 ## CI / 发布
 

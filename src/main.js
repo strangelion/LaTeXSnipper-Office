@@ -2600,32 +2600,38 @@ class UIController {
     };
 
     // Ecosystem target selector (VS Code / Obsidian / Browser / WPS)
+    this._selectedEcosystemTarget = "";
+    this._selectedEcosystemClientId = "";
+
     this.updateEcosystemHostSelector = () => {
       const selector = document.getElementById("ecosystemTargetHost");
       const container = document.getElementById("ecosystemHostSelector");
-      if (!selector || !container) return;
+      const trigger = container?.querySelector(".custom-select-trigger");
 
-      selector.querySelectorAll(".custom-select-option").forEach((opt) => {
-        opt.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const trigger = container.querySelector(".custom-select-trigger");
-          trigger.querySelector("span").textContent = opt.textContent;
-          trigger.dataset.value = opt.dataset.value;
-          this._selectedEcosystemTarget = opt.dataset.value;
-          container
-            .querySelectorAll(".custom-select-option")
-            .forEach((o) => o.classList.remove("selected"));
-          opt.classList.add("selected");
-          container.classList.remove("open");
-        });
-      });
+      if (!selector || !container || !trigger) return;
 
-      const trigger = container.querySelector(".custom-select-trigger");
-      trigger.onclick = (e) => {
-        e.stopPropagation();
-        document
-          .querySelectorAll(".custom-select.open")
-          .forEach((s) => s.classList.remove("open"));
+      selector.onclick = (event) => {
+        const option = event.target.closest(".custom-select-option");
+        if (!option) return;
+
+        event.stopPropagation();
+
+        trigger.querySelector("span").textContent = option.textContent;
+        trigger.dataset.value = option.dataset.value || "";
+        trigger.dataset.clientId = option.dataset.clientId || "";
+
+        this._selectedEcosystemTarget = trigger.dataset.value;
+        this._selectedEcosystemClientId = trigger.dataset.clientId;
+
+        selector
+          .querySelectorAll(".custom-select-option")
+          .forEach((item) => item.classList.toggle("selected", item === option));
+
+        container.classList.remove("open");
+      };
+
+      trigger.onclick = (event) => {
+        event.stopPropagation();
         container.classList.toggle("open");
       };
     };
@@ -4942,43 +4948,109 @@ class UIController {
     }
   }
 
+  async waitForEcosystemAction(actionId, timeoutMs = 15000) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const record = await invoke("get_ecosystem_action_status_internal", {
+        actionId,
+      });
+
+      const status = String(record?.status || "").toLowerCase();
+
+      if (status === "completed") {
+        return record;
+      }
+
+      if (
+        status === "failed" ||
+        status === "canceled" ||
+        status === "expired"
+      ) {
+        const error = new Error(
+          record?.error?.message || `Ecosystem action ${status}`,
+        );
+        error.code = record?.error?.code || `ECOSYSTEM_ACTION_${status.toUpperCase()}`;
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const error = new Error(
+      "目标插件未在规定时间内确认插入。请确认插件在线且存在活动编辑器。",
+    );
+    error.code = "ECOSYSTEM_ACTION_TIMEOUT";
+    throw error;
+  }
+
   /** Push formula to an ecosystem plugin (VS Code, Obsidian, Browser, WPS). */
   async insertToEcosystem() {
     const latex = this.editor.getLatex();
+
     if (!latex) {
       this.showStatus("请先输入公式");
       return;
     }
 
-    // Determine target from the selected ecosystem platform
-    const selectorContainer = document.getElementById("ecosystemHostSelector");
-    if (!selectorContainer) return;
-    const trigger = selectorContainer.querySelector(".custom-select-trigger");
-    const target = trigger?.dataset?.value;
-    if (!target) {
-      this.showToast("请先选择目标平台");
+    const container = document.getElementById("ecosystemHostSelector");
+    const trigger = container?.querySelector(".custom-select-trigger");
+
+    const target = trigger?.dataset?.value || "";
+    const targetClientId = trigger?.dataset?.clientId || "";
+
+    if (!target || !targetClientId) {
+      this.showToast("请先选择一个当前在线的目标插件");
       return;
     }
 
-    const display = officeInsertModeIsDisplay(this.getFormulaInsertMode());
+    const mode = normalizeOfficeInsertMode(this.getFormulaInsertMode());
+    const display = officeInsertModeIsDisplay(mode);
 
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const actionId = await invoke("push_ecosystem_action_internal", {
-        request: {
-          target,
-          action: {
+    const action =
+      target === "browser"
+        ? {
+            type: "InsertFormulaIntoBrowser",
+            latex,
+            display,
+            mode,
+            format: "markdown",
+            displayMode: display ? "display" : "inline",
+            insertionFormat: display
+              ? "dollar-display"
+              : "dollar-inline",
+          }
+        : {
             type: "InsertFormula",
             latex,
             display,
+            mode,
             format: "markdown",
-          },
+          };
+
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+
+      const actionId = await invoke("push_ecosystem_action_internal", {
+        request: {
+          target,
+          targetClientId,
+          action,
         },
       });
-      Logger.info(`Ecosystem action queued: ${actionId}`);
-      this.showToast(`公式已发送到 ${target}，请在对应应用查看`);
-    } catch (e) {
-      this.showToast(`发送失败: ${e.message || e}`);
+
+      this.showToast("已加入发送队列，等待目标插件确认...");
+
+      await this.waitForEcosystemAction(actionId, 15000);
+
+      this.showToast(`公式已成功插入 ${target}`);
+      this.addHistoryItem(latex);
+    } catch (error) {
+      const code = error?.code ? `[${error.code}] ` : "";
+      this.showToast(
+        `${code}发送失败：${error?.message || String(error)}`,
+      );
     }
   }
 
@@ -5963,6 +6035,74 @@ class UIController {
     return true;
   }
 
+  ecosystemTargetFromClient(client) {
+    const type = String(client?.clientType || "").toLowerCase();
+    const id = String(client?.clientId || "").toLowerCase();
+
+    if (type === "obsidian" || id.startsWith("obsidian-")) return "obsidian";
+    if (type === "vscode" || id.startsWith("vscode-")) return "vscode";
+
+    if (
+      type === "browser-extension" ||
+      type === "browser" ||
+      id.startsWith("browser-")
+    ) {
+      return "browser";
+    }
+
+    if (
+      type === "wps" ||
+      id.startsWith("latexsnipper-wps-")
+    ) {
+      return "wps";
+    }
+
+    return null;
+  }
+
+  ecosystemClientIsFresh(client, ttlMs = 30000) {
+    const lastSeen = Date.parse(client?.lastSeen || "");
+    return Number.isFinite(lastSeen) && Date.now() - lastSeen < ttlMs;
+  }
+
+  async refreshEcosystemTargetSelector() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const clients = await invoke("list_ecosystem_clients_internal");
+
+    const dropdown = document.getElementById("ecosystemTargetHost");
+    const container = document.getElementById("ecosystemHostSelector");
+    const trigger = container?.querySelector(".custom-select-trigger");
+
+    if (!dropdown || !trigger) return;
+
+    const freshClients = (clients || []).filter((client) => {
+      return (
+        this.ecosystemClientIsFresh(client) &&
+        this.ecosystemTargetFromClient(client)
+      );
+    });
+
+    dropdown.replaceChildren();
+
+    for (const client of freshClients) {
+      const target = this.ecosystemTargetFromClient(client);
+      const option = document.createElement("div");
+
+      option.className = "custom-select-option";
+      option.dataset.value = target;
+      option.dataset.clientId = client.clientId;
+      option.textContent = client.clientName || client.clientId;
+
+      dropdown.appendChild(option);
+    }
+
+    if (freshClients.length === 0) {
+      trigger.dataset.value = "";
+      trigger.dataset.clientId = "";
+      trigger.querySelector("span").textContent = "暂无在线插件";
+    }
+  }
+
   async refreshEcosystemClients() {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -6004,6 +6144,8 @@ class UIController {
       if (listEl)
         listEl.textContent = `内部客户端状态读取失败：${e?.message || e}`;
     }
+
+    await this.refreshEcosystemTargetSelector();
   }
 
   /** Show Obsidian vault/plugins selection dialog. Returns detected vault path or null. */

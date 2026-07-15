@@ -26,16 +26,20 @@ export class ObsidianAdapter implements HostAdapter {
   private _counter = 0;
   private _idCounter = 0;
   private _counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> };
+  private _numberFormat: "global" | "chapter" | "chapter-hyphen" = "global";
+  private _chapterCounters = new Map<number, number>();
 
   constructor(
     private editor: () => ObsidianEditorAPI | null,
     private bridge: () => ObsidianBridgeAPI | null = () => null,
     counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> },
+    numberFormat: "global" | "chapter" | "chapter-hyphen" = "global",
   ) {
     if (counterStore) {
       this._counterStore = counterStore;
       counterStore.load().then((n) => { this._counter = n; });
     }
+    this._numberFormat = numberFormat;
   }
 
   async execute(cmd: Command): Promise<CommandResult> {
@@ -123,5 +127,57 @@ export class ObsidianAdapter implements HostAdapter {
 
   private _nextId(): string {
     return `${Date.now().toString(36)}-${++this._idCounter}`;
+  }
+
+  setNumberFormat(format: "global" | "chapter" | "chapter-hyphen") {
+    this._numberFormat = format;
+  }
+
+  private nextNumber(): string {
+    this._counter++;
+    if (this._counterStore) {
+      this._counterStore.save(this._counter);
+    }
+
+    switch (this._numberFormat) {
+      case "global":
+        return `${this._counter}`;
+      case "chapter": {
+        // Parse current formula to detect chapter number
+        // For now, use a simple heuristic: detect patterns like "(2.1)" in document
+        const chapter = this._detectChapter();
+        const section = this._getChapterSection(chapter);
+        return `${chapter}.${section}`;
+      }
+      case "chapter-hyphen": {
+        const chapter = this._detectChapter();
+        const section = this._getChapterSection(chapter);
+        return `${chapter}-${section}`;
+      }
+      default:
+        return `${this._counter}`;
+    }
+  }
+
+  private _detectChapter(): number {
+    // Simple heuristic: detect chapter from document content
+    // Look for patterns like "# Chapter X" or "## X. " at the beginning of headings
+    const ed = this.editor();
+    if (!ed) return 1;
+    
+    const content = ed.getValue();
+    const chapterMatches = content.match(/^#{1,2}\s+(?:Chapter\s+)?(\d+)/im);
+    if (chapterMatches) {
+      return parseInt(chapterMatches[1], 10);
+    }
+    return 1;
+  }
+
+  private _getChapterSection(chapter: number): number {
+    // Get or initialize section counter for this chapter
+    const currentSection = this._chapterCounters.get(chapter) || 0;
+    const newSection = currentSection + 1;
+    this._chapterCounters.set(chapter, newSection);
+    return newSection;
   }
 }

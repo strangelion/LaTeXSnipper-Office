@@ -225,6 +225,7 @@ fn main() {
             platforms::office::write_pending_formula,
             platforms::office_bridge::get_bridge_runtime_diagnostics,
             platforms::office_bridge::list_ecosystem_clients_internal,
+            platforms::office_bridge::get_ecosystem_action_status_internal,
             platforms::office_bridge::submit_office_render_asset_result,
             platforms::office_bridge::push_ecosystem_action_internal,
             platforms::office_transactions::begin_office_edit_transaction,
