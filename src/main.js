@@ -6077,9 +6077,12 @@ class UIController {
     return Number.isFinite(lastSeen) && Date.now() - lastSeen < ttlMs;
   }
 
-  async refreshEcosystemTargetSelector() {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const clients = await invoke("list_ecosystem_clients_internal");
+  async refreshEcosystemTargetSelector(providedClients) {
+    let clients = providedClients;
+    if (!clients) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      clients = await invoke("list_ecosystem_clients_internal");
+    }
 
     const dropdown = document.getElementById("ecosystemTargetHost");
     const container = document.getElementById("ecosystemHostSelector");
