@@ -1,110 +1,459 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LaTeXSnipper Office</title>
-    <link rel="stylesheet" href="./styles/main.css" />
-    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
-  </head>
-  <body>
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-      <button class="sidebar-close" id="sidebarClose">×</button>
-      <div class="sidebar-section">
-        <label class="sidebar-label" data-i18n="settings.officeIntegration"></label>
-        <select id="officeHostSelect" class="sidebar-select">
-          <option value="">--</option>
-        </select>
-      </div>
-      <div class="sidebar-section">
-        <label class="sidebar-label" data-i18n="office.insert"></label>
-        <select id="formulaInsertMode" class="sidebar-select">
-          <option value="auto" data-i18n="officeIntegration.mode.auto"></option>
-          <option value="native" data-i18n="officeIntegration.mode.native"></option>
-          <option value="image" data-i18n="officeIntegration.mode.image"></option>
-          <option value="ole" data-i18n="officeIntegration.mode.ole"></option>
-        </select>
-      </div>
-      <div class="sidebar-section">
-        <div id="oleStatus" class="sidebar-status"></div>
-      </div>
-      <div class="sidebar-section sidebar-formula">
-        <textarea id="latexInput" placeholder="e^{i\pi} + 1 = 0" rows="3"></textarea>
-        <div class="sidebar-formula-actions">
-          <button id="insertInline" class="sidebar-btn" data-i18n="office.insert"></button>
-          <button id="insertBlock" class="sidebar-btn" data-i18n="office.insert"></button>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#2563eb">
+  <title>LaTeXSnipper Office</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="./styles/main.css">
+  <link rel="stylesheet" href="/fonts/katex-fonts.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ═══ Top Nav ═══ -->
+    <nav class="top-nav">
+      <div class="inner">
+        <span class="brand-link">LaTeXSnipper Office</span>
+        <div class="nav-tabs">
+          <button class="nav-tab active" id="editorBtn">编辑器</button>
+          <button class="nav-tab" id="historyBtn">历史</button>
+          <button class="nav-tab" id="ocrBtn">OCR</button>
+
+          <button class="nav-tab" id="settingsBtn">设置</button>
         </div>
+        <button class="theme-toggle" id="themeToggle">
+          <svg class="theme-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        </button>
       </div>
-      <div class="sidebar-section" id="numberingOptions" hidden>
-        <label class="sidebar-label">编号方案</label>
-        <div class="numbering-options-row">
-          <label class="numbering-option">
-            <input type="radio" name="numberingScheme" value="global" checked />
-            <span>全局 <code>(1)</code></span>
-          </label>
-          <label class="numbering-option">
-            <input type="radio" name="numberingScheme" value="chapter" />
-            <span>章节点号 <code>(2.1)</code></span>
-          </label>
-          <label class="numbering-option">
-            <input type="radio" name="numberingScheme" value="chapter-hyphen" />
-            <span>章节连字符 <code>(2-1)</code></span>
-          </label>
+    </nav>
+
+    <main class="main">
+      <!-- ═══ Editor Section ═══ -->
+      <section id="editorSection" class="section active">
+        <div class="editor-layout">
+          <!-- 编辑器主区域 -->
+          <div class="editor-main">
+            <div class="card">
+              <div class="card-title">公式编辑器</div>
+              <div id="mathfieldHost" class="mathfield-host"></div>
+              <textarea id="latexSource" class="latex-source" spellcheck="false" placeholder="输入 LaTeX 公式..."></textarea>
+            </div>
+
+        <div class="card">
+          <div class="card-title">预览</div>
+          <div id="previewHost" class="preview-host">
+            <span style="color: var(--muted);">输入公式后预览</span>
+          </div>
         </div>
-        <div class="numbering-disabled-row">
-          <button class="numbering-disabled-option" disabled>
-            标签/书签（当前 Native Word 暂不支持）
+
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>选项</span>
+          </div>
+          <div class="options-row">
+            <fieldset id="formulaInsertMode" class="formula-mode-selector">
+              <legend>公式模式</legend>
+              <label><input type="radio" name="formulaInsertMode" value="inline" checked><span>行内公式</span></label>
+              <label><input type="radio" name="formulaInsertMode" value="display"><span>行间公式</span></label>
+              <label><input type="radio" name="formulaInsertMode" value="numbered"><span>编号公式</span></label>
+            </fieldset>
+
+            <div id="officeRequestContext" class="office-request-context" hidden></div>
+
+            <div id="numberingOptions" class="numbering-options" hidden>
+              <strong>编号方案</strong>
+              <label><input type="radio" name="equationNumberingScheme" value="global" checked> 全局 `(1)`</label>
+              <label title="Native Word 当前仅支持全局序列"><input type="radio" name="equationNumberingScheme" value="chapter-dot" disabled> 章节点号 `(2.1)`</label>
+              <label title="Native Word 当前仅支持全局序列"><input type="radio" name="equationNumberingScheme" value="chapter-hyphen" disabled> 章节连字符 `(2-1)`</label>
+              <input id="equationNumberingLabel" type="text" placeholder="标签/书签（当前 Native Word 暂不支持）" disabled>
+              <small>Native Word 当前仅支持全局编号；章节方案会在协议实现后开放。</small>
+            </div>
+
+            <div class="custom-select" id="fontStyleSelect">
+              <div class="custom-select-trigger" data-value="tex">
+                <span>字体样式：TeX</span>
+              </div>
+              <div class="custom-select-dropdown">
+                <div class="custom-select-option selected" data-value="tex">TeX</div>
+                <div class="custom-select-option" data-value="roman">Roman</div>
+                <div class="custom-select-option" data-value="bold">Bold</div>
+                <div class="custom-select-option" data-value="italic">Italic</div>
+              </div>
+            </div>
+
+            <div class="custom-color-picker">
+              <span>字体颜色：</span>
+              <div class="color-preview" id="colorPreview" style="background: #000000;"></div>
+              <input type="color" id="fontColor" value="#000000">
+            </div>
+          </div>
+        </div>
+
+        <!-- 最近使用 -->
+        <div class="card">
+          <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>最近使用</span>
+            <button id="clearHistoryBtn" class="btn" style="padding:2px 8px;font-size:0.65rem;">清空</button>
+          </div>
+          <div id="historyGrid" class="history-grid">
+            <span style="color:var(--muted);font-size:0.75rem;">暂无历史记录</span>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button id="copyLatex" class="btn primary" title="复制 LaTeX 源码">复制 LaTeX</button>
+          <button id="copyMathml" class="btn" title="复制 MathML 格式">复制 MathML</button>
+          <button id="copySvg" class="btn" title="复制 SVG 渲染图">复制 SVG</button>
+          <button id="copyMd" class="btn md-copy-btn" title="复制为 Markdown 公式" style="display:none;">复制 MD</button>
+          <div id="officeHostSelector" class="custom-select dropup" style="display:none; margin-left: 8px;">
+            <div class="custom-select-trigger" data-value="">
+              <span>未连接 Office</span>
+            </div>
+            <div id="officeTargetHost" class="custom-select-dropdown"></div>
+          </div>
+          <button id="insertToWord" class="btn office-insert-btn" title="插入到 Office" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            插入
+          </button>
+          <div id="ecosystemHostSelector" class="custom-select dropup" style="display:none;margin-left:8px;">
+            <div class="custom-select-trigger" data-value="">
+              <span>插入到...</span>
+            </div>
+            <div id="ecosystemTargetHost" class="custom-select-dropdown">
+              <div class="custom-select-option" data-value="vscode">VS Code</div>
+              <div class="custom-select-option" data-value="obsidian">Obsidian</div>
+              <div class="custom-select-option" data-value="browser">Browser</div>
+              <div class="custom-select-option" data-value="wps">WPS</div>
+            </div>
+          </div>
+          <button id="insertToEcosystem" class="btn" title="插入到插件平台" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            推送
+          </button>
+          <button id="loadFromWord" class="btn office-insert-btn" title="从 Office 读取" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            读取
+          </button>
+          <button id="insertTableBtn" class="btn office-insert-btn" title="插入表格到 Office" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            插入表格
+          </button>
+          <button id="readTableBtn" class="btn office-insert-btn" title="从 Office 读取表格" style="display:none;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+            读取表格
           </button>
         </div>
-      </div>
-      <div class="sidebar-section">
-        <button id="openEditor" class="sidebar-btn sidebar-btn-secondary" data-i18n="office.openEditor"></button>
-      </div>
-      <div class="sidebar-section">
-        <button id="repairOle" class="sidebar-btn sidebar-btn-secondary" data-i18n="officeIntegration.repairOle"></button>
-      </div>
-    </aside>
+      </section>
 
-    <!-- Main Content -->
-    <main class="main-content">
-      <div id="connectionStatus" class="connection-status" data-i18n="common.unknown"></div>
-      <div id="formulaPreview" class="formula-preview"></div>
-      <div class="office-hosts">
-        <h3 data-i18n="settings.officeIntegration"></h3>
-        <div id="officeHostsList" class="office-hosts-list"></div>
-      </div>
-      <div class="history-section">
-        <h3 data-i18n="office.read"></h3>
-        <div id="formulaHistory" class="formula-history"></div>
-      </div>
-    </main>
+      <!-- ═══ History Section ═══ -->
+      <section id="historySection" class="section">
+        <div class="history-toolbar">
+          <button class="history-filter active" data-filter="all">全部</button>
+          <button class="history-filter" data-filter="favorites">收藏</button>
+          <div style="flex:1;"></div>
+          <button id="clearHistoryBtn2" class="btn" style="padding:4px 10px;font-size:0.7rem;">清空</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
 
-    <!-- Ecosystem Platform List -->
-    <div id="ecosystemPlatforms" class="ecosystem-platforms" hidden>
-      <h3 data-i18n="settings.officeIntegration"></h3>
-      <div id="ecosystemPlatformsList" class="ecosystem-platforms-list"></div>
-    </div>
-
-    <!-- Browser Imports -->
-    <button id="browserImportsButton" class="browser-imports-button" hidden>
-      <span data-i18n="browserImports.badge"></span> <span id="browserImportsBadge">0</span>
-    </button>
-    <div id="browserImportsModal" class="browser-imports-modal" hidden>
-      <section class="browser-imports-dialog" role="dialog" aria-modal="true" aria-labelledby="browserImportsTitle">
-        <header>
-          <h2 id="browserImportsTitle" data-i18n="browserImports.title"></h2>
-          <button id="browserImportsClose" type="button" data-i18n="common.close"></button>
-        </header>
-        <div class="browser-imports-layout">
-          <aside id="browserImportsList"></aside>
-          <main id="browserImportPreview">
-            <p data-i18n="browserImports.selectToPreview"></p>
-          </main>
+      <!-- ═══ OCR Section ═══ -->
+      <section id="ocrSection" class="section">
+        <div class="card">
+          <div class="card-title">截图识别</div>
+          <p style="font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem;">
+            点击按钮后，切换到桌面端 LaTeXSnipper 执行截图识别，结果自动返回
+          </p>
+          <button id="screenshotBtn" class="btn primary" style="width: 100%; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            开始截图
+          </button>
+          <div id="ocrBridgeStatus" style="font-size: 0.75rem; color: var(--muted); text-align: center; margin-bottom: 0.5rem;">检测桌面端连接中...</div>
+        </div>
+        <div class="card">
+          <div class="card-title">识别结果</div>
+          <div id="ocrResult" class="ocr-result">等待识别...</div>
+          <div class="btn-group" style="margin-top: 1rem;">
+            <button id="ocrInsertBtn" class="btn primary" disabled>插入到编辑器</button>
+            <button id="ocrCopyBtn" class="btn" disabled>复制 LaTeX</button>
+          </div>
         </div>
       </section>
-    </div>
 
-    <script type="module" src="./main.js"></script>
-  </body>
+      <!-- ═══ Settings Section ═══ -->
+      <section id="settingsSection" class="section">
+        <div id="settingsList" class="settings-list">
+          <div class="settings-item" data-page="settingsEditor">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            <span class="settings-item-label">编辑器</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" data-page="settingsBridge">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <span class="settings-item-label">连接</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" data-page="settingsPlatforms">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span class="settings-item-label">平台</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" data-page="settingsTabs">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+            <span class="settings-item-label">功能标签</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" data-page="settingsOfficeIntegration">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span class="settings-item-label" data-i18n="settings.officeIntegration"></span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="settings-item" data-page="settingsAbout">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <span class="settings-item-label">关于</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+
+        <div id="settingsEditor" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsEditorBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>编辑器设置</span>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label">默认显示模式</span>
+              <div class="custom-select" id="defaultDisplayModeSelect">
+                <div class="custom-select-trigger" data-value="inline"><span>行内</span></div>
+                <div class="custom-select-dropdown">
+                  <div class="custom-select-option selected" data-value="inline">行内</div>
+                  <div class="custom-select-option" data-value="display">行间</div>
+                </div>
+              </div>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">默认字体样式</span>
+              <div class="custom-select" id="defaultFontStyleSelect">
+                <div class="custom-select-trigger" data-value="tex"><span>TeX</span></div>
+                <div class="custom-select-dropdown">
+                  <div class="custom-select-option selected" data-value="tex">TeX</div>
+                  <div class="custom-select-option" data-value="roman">Roman</div>
+                  <div class="custom-select-option" data-value="bold">Bold</div>
+                  <div class="custom-select-option" data-value="italic">Italic</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsBridge" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsBridgeBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>连接设置</span>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label">Bridge 地址</span>
+              <input type="text" id="bridgeUrlInput" class="settings-input" value="http://127.0.0.1:19877">
+            </div>
+            <div class="settings-row">
+              <button id="testBridgeBtn" class="btn">测试连接</button>
+              <span id="bridgeTestResult" class="settings-hint"></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsPlatforms" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsPlatformsBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>平台插件</span>
+          </div>
+          <div class="settings-card" id="platformList"></div>
+          <p style="font-size:0.7rem;color:var(--muted);margin:0.5rem 1rem 0;">启用后可通过快捷键快速插入公式到对应平台</p>
+
+          <!-- Ecosystem clients -->
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label">已连接客户端</span>
+            </div>
+            <div class="settings-row">
+              <div id="ecosystemClientList" style="width:100%;font-size:0.8rem;color:var(--muted);">
+                <span>暂无已连接客户端</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <button id="refreshEcosystemBtn" class="btn secondary" style="flex:1;">刷新客户端列表</button>
+            </div>
+          </div>        </div>
+
+        <div id="settingsTabs" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsTabsBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>功能标签</span>
+          </div>
+          <div class="settings-card">
+            <p style="font-size:0.8rem;color:var(--muted);padding:0.7rem 1rem 0;margin:0;">启用后在顶部导航栏显示对应功能标签</p>
+            <div class="settings-row">
+              <span class="settings-label">Office 集成</span>
+              <label class="custom-toggle">
+                <input type="checkbox" id="officeEnabledToggle" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <div class="settings-row">
+              <span class="settings-label">OCR 截图识别</span>
+              <label class="custom-toggle">
+                <input type="checkbox" id="ocrEnabledToggle" checked>
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsOfficeIntegration" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsOfficeIntegrationBack" data-i18n-aria-label="common.back">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span data-i18n="officeIntegration.title"></span>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row settings-row-column">
+              <span class="settings-label" data-i18n="officeIntegration.mode.label"></span>
+              <div class="custom-select" id="officeIntegrationMode">
+                <div class="custom-select-trigger" data-value="auto"><span data-i18n="officeIntegration.mode.auto"></span></div>
+                <div class="custom-select-dropdown">
+                  <div class="custom-select-option selected" data-value="auto" data-i18n="officeIntegration.mode.auto"></div>
+                  <div class="custom-select-option" data-value="native" data-i18n="officeIntegration.mode.native"></div>
+                  <div class="custom-select-option" data-value="image" data-i18n="officeIntegration.mode.image"></div>
+                  <div class="custom-select-option" data-value="ole" data-i18n="officeIntegration.mode.ole"></div>
+                </div>
+              </div>
+              <p id="officeIntegrationModeHint" class="settings-hint"></p>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label" data-i18n="officeIntegration.oleStatus"></span>
+              <span id="officeOleStatus" class="settings-hint"></span>
+            </div>
+            <div class="settings-row" id="officeOleActionRow" style="display:none">
+              <button id="officeOleInstallBtn" class="btn secondary" style="display:none">安装 OLE 公式对象</button>
+              <button id="officeOleUninstallBtn" class="btn secondary" style="display:none">移除 OLE</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsAbout" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsAboutBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>关于</span>
+          </div>
+          <div class="settings-card" style="padding:0.7rem 1rem;">
+            <p style="margin:0;font-size: 0.8rem; color: var(--muted); line-height: 2;">
+              LaTeXSnipper Office <span class="app-version-text"></span><br>
+              Rust + Tauri 2.0 + MathLive + MathJax<br>
+              许可证：AGPL-3.0
+            </p>
+          </div>
+          <div class="settings-card" style="margin-top: 0.75rem;">
+            <div class="card-title" style="padding: 0.75rem 1rem 0;">更新</div>
+            <div class="settings-row">
+              <span class="settings-label">版本</span>
+              <span id="appVersion" style="font-size:0.8rem;color:var(--muted);"></span>
+            </div>
+            <div class="settings-row">
+              <button id="checkUpdateBtn" class="btn" style="flex:1;">检查更新</button>
+              <span id="updateStatus" class="settings-hint"></span>
+            </div>
+            <div id="releaseNotes" class="settings-card" style="display:none;margin-top:0.5rem;padding:0.7rem 1rem;font-size:0.75rem;color:var(--muted);line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:300px;overflow-y:auto;"></div>
+          </div>
+          <div class="settings-card" style="margin-top: 0.75rem;">
+            <div class="card-title" style="padding: 0.75rem 1rem 0;">快捷键</div>
+            <div style="padding: 0 1rem 0.75rem; font-size: 0.8rem; color: var(--muted); line-height: 2;">
+              <div><kbd style="background:var(--border-color);padding:2px 6px;border-radius:4px;font-size:0.7rem;">Ctrl/Cmd+Shift+L</kbd> 聚焦窗口</div>
+              <div><kbd style="background:var(--border-color);padding:2px 6px;border-radius:4px;font-size:0.7rem;">Ctrl/Cmd+Enter</kbd> 复制 LaTeX</div>
+              <div><kbd style="background:var(--border-color);padding:2px 6px;border-radius:4px;font-size:0.7rem;">Ctrl/Cmd+S</kbd> 导出 .tex</div>
+              <div><kbd style="background:var(--border-color);padding:2px 6px;border-radius:4px;font-size:0.7rem;">Esc</kbd> 关闭侧边栏</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══ Toast 通知 ═══ -->
+      <div id="toast" class="toast"></div>
+    </main>
+
+    <!-- ═══ Footer ═══ -->
+    <footer class="footer">
+      <span id="statusText">就绪</span>
+      <span class="app-version-text">LaTeXSnipper Office</span>
+    </footer>
+  </div>
+
+  <!-- ═══ 公式库侧边栏 ═══ -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  <div class="sidebar-panel" id="sidebarPanel">
+    <div class="sidebar-header">
+      <span class="sidebar-title">公式库</span>
+      <button class="sidebar-close" id="sidebarClose">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="sidebar-content">
+      <div class="library-search">
+        <input type="text" id="librarySearch" placeholder="搜索公式...">
+      </div>
+      <div class="custom-select wide" id="categorySelect">
+        <div class="custom-select-trigger" data-value="">
+          <span>选择分类...</span>
+        </div>
+        <div class="custom-select-dropdown" id="categoryDropdown"></div>
+      </div>
+      <div class="library-grid" id="libraryGrid"></div>
+    </div>
+  </div>
+  <button class="sidebar-trigger" id="sidebarTrigger">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+  </button>
+
+  <button id="browserImportsButton" class="browser-imports-button" type="button">
+    Browser Imports <span id="browserImportsBadge">0</span>
+  </button>
+  <div id="browserImportsModal" class="browser-imports-modal" hidden>
+    <section class="browser-imports-dialog" role="dialog" aria-modal="true" aria-labelledby="browserImportsTitle">
+      <header><h2 id="browserImportsTitle">Browser Imports</h2><button id="browserImportsClose" type="button">Close</button></header>
+      <div class="browser-imports-layout">
+        <aside id="browserImportsList"></aside>
+        <main id="browserImportPreview">
+          <p>Select an import to preview. No Office or WPS document is modified until you confirm.</p>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
 </html>
