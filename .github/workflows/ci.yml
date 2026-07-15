@@ -76,6 +76,11 @@ jobs:
         run: |
           npm --prefix apps/browser-extension run build
           node scripts/verify-browser-packages.mjs
+      - name: Verify ecosystem staged artifact freshness
+        run: |
+          npm run build:ecosystem
+          npm run stage:ecosystem
+          npm run check:ecosystem-drift
 
   rust:
     runs-on: ubuntu-24.04

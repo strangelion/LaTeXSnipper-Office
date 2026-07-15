@@ -34,7 +34,10 @@ document.getElementById("openPanel")!.addEventListener("click", async () => {
 (async () => {
   localizeDocument();
   await background({ type: "UI_ACTIVE" });
-  const tab = await background({ type: "GET_ACTIVE_TAB" }); tabId = tab.tabId;
+  const tab = await background({ type: "GET_ACTIVE_TAB" });
+  if (tab.ok && tab.tabId) {
+    tabId = tab.tabId;
+  }
   const bridge = await background({ type: "BRIDGE_PING" }); setStatus(bridge.ok ? t("connected") : t("desktopOffline"), !!bridge.ok);
 })().catch(() => setStatus(t("desktopOffline")));
 window.addEventListener("unload", () => { void background({ type: "UI_INACTIVE" }); });

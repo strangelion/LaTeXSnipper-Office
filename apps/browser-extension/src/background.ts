@@ -99,7 +99,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
     if (request.type === "UI_ACTIVE") { activeUiCount += 1; const client = await bridge(); await client.register(VERSION); sendResponse({ ok: true }); return; }
     if (request.type === "UI_INACTIVE") { activeUiCount = Math.max(0, activeUiCount - 1); sendResponse({ ok: true }); return; }
     if (request.type === "BRIDGE_PING") { try { await (await bridge()).ping(); sendResponse({ ok: true }); } catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }); } return; }
-    if (request.type === "GET_ACTIVE_TAB") { try { const tab = await activeTab(); sendResponse({ ok: true, tabId: tab.id, url: tab.url, title: tab.title }); } catch (error) { sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }); } return; }
+    if (request.type === "GET_ACTIVE_TAB") {
+      try {
+        const tab = await activeTab();
+        if (!tab?.id) {
+          sendResponse({ ok: false, error: "NO_ACTIVE_TAB" });
+          return;
+        }
+        sendResponse({ ok: true, tabId: tab.id, url: tab.url, title: tab.title });
+      } catch (error) {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      }
+      return;
+    }
     if (request.type === "SEND_IMPORT" && request.action) { await enqueueImport(request.action); sendResponse({ ok: true }); return; }
     sendResponse({ ok: false, error: "UNSUPPORTED_BACKGROUND_MESSAGE" });
   })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
