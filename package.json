@@ -33,6 +33,7 @@
     "build:browser": "npm --prefix apps/browser-extension ci && npm --prefix apps/browser-extension run build",
     "build:ecosystem": "npm run build:obsidian && npm run build:vscode && npm run build:browser",
     "stage:ecosystem": "node scripts/stage-ecosystem-resources.js",
+    "check:ecosystem-drift": "node scripts/check-ecosystem-drift.mjs",
     "package:vscode": "npm --prefix apps/vscode-extension run package",
     "package:obsidian": "node scripts/package-obsidian.js"
   },

@@ -2625,7 +2625,9 @@ class UIController {
 
         selector
           .querySelectorAll(".custom-select-option")
-          .forEach((item) => item.classList.toggle("selected", item === option));
+          .forEach((item) =>
+            item.classList.toggle("selected", item === option),
+          );
 
         container.classList.remove("open");
       };
@@ -4977,7 +4979,8 @@ class UIController {
         const error = new Error(
           record?.error?.message || `Ecosystem action ${status}`,
         );
-        error.code = record?.error?.code || `ECOSYSTEM_ACTION_${status.toUpperCase()}`;
+        error.code =
+          record?.error?.code || `ECOSYSTEM_ACTION_${status.toUpperCase()}`;
         throw error;
       }
 
@@ -5023,9 +5026,7 @@ class UIController {
             mode,
             format: "markdown",
             displayMode: display ? "display" : "inline",
-            insertionFormat: display
-              ? "dollar-display"
-              : "dollar-inline",
+            insertionFormat: display ? "dollar-display" : "dollar-inline",
           }
         : {
             type: "InsertFormula",
@@ -5054,9 +5055,7 @@ class UIController {
       this.addHistoryItem(latex);
     } catch (error) {
       const code = error?.code ? `[${error.code}] ` : "";
-      this.showToast(
-        `${code}发送失败：${error?.message || String(error)}`,
-      );
+      this.showToast(`${code}发送失败：${error?.message || String(error)}`);
     }
   }
 
@@ -6056,10 +6055,7 @@ class UIController {
       return "browser";
     }
 
-    if (
-      type === "wps" ||
-      id.startsWith("latexsnipper-wps-")
-    ) {
+    if (type === "wps" || id.startsWith("latexsnipper-wps-")) {
       return "wps";
     }
 

@@ -180,14 +180,8 @@ for (const file of ecosystemProduction) {
 
   // Skip legacy migration file but verify it defaults to 19877
   if (file === legacyMigrationFile) {
-    if (
-      !text.includes(
-        'DEFAULT_BRIDGE_URL = "http://127.0.0.1:19877"',
-      )
-    ) {
-      failures.push(
-        "Obsidian migration file must default to Bridge 19877",
-      );
+    if (!text.includes('DEFAULT_BRIDGE_URL = "http://127.0.0.1:19877"')) {
+      failures.push("Obsidian migration file must default to Bridge 19877");
     }
     continue;
   }
@@ -198,21 +192,12 @@ for (const file of ecosystemProduction) {
     "http://127.0.0.1:19876",
   ]) {
     if (text.includes(needle)) {
-      failures.push(
-        `legacy ecosystem Bridge value ${needle}: ${file}`,
-      );
+      failures.push(`legacy ecosystem Bridge value ${needle}: ${file}`);
     }
   }
 }
 
-if (
-  existsSync(
-    resolve(
-      root,
-      "src-tauri/resources/Ecosystem/wps",
-    ),
-  )
-) {
+if (existsSync(resolve(root, "src-tauri/resources/Ecosystem/wps"))) {
   failures.push(
     "duplicate legacy Ecosystem/wps payload must not be bundled; use resources/WPS",
   );

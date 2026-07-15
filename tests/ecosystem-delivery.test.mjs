@@ -28,7 +28,7 @@ describe("Obsidian legacy Bridge URL migration", () => {
     assert(content.includes("19877"), "Should include 19877");
     assert(
       /DEFAULT_BRIDGE_URL\s*=\s*"http:\/\/127\.0\.0\.1:19877"/.test(content),
-      "DEFAULT_BRIDGE_URL should be http://127.0.0.1:19877"
+      "DEFAULT_BRIDGE_URL should be http://127.0.0.1:19877",
     );
   });
 });
@@ -39,32 +39,45 @@ describe("Obsidian no active editor returns failed", () => {
 
   it("should complete with failed status on error", () => {
     assert(
-      content.includes("OBSIDIAN_ACTION_FAILED") || content.includes("OBSIDIAN_POLLER_ERROR"),
-      "Should report failure status"
+      content.includes("OBSIDIAN_ACTION_FAILED") ||
+        content.includes("OBSIDIAN_POLLER_ERROR"),
+      "Should report failure status",
     );
   });
 
   it("should not have silent catch", () => {
-    assert(!/catch\s*\(\s*\)\s*\{\s*\}/.test(content), "Should not have empty catch blocks");
+    assert(
+      !/catch\s*\(\s*\)\s*\{\s*\}/.test(content),
+      "Should not have empty catch blocks",
+    );
   });
 });
 
 describe("Obsidian bridge-client uses dynamic clientId", () => {
-  const bridgeClientFile = resolve(root, "apps/obsidian-plugin/src/bridge-client.ts");
+  const bridgeClientFile = resolve(
+    root,
+    "apps/obsidian-plugin/src/bridge-client.ts",
+  );
   const content = readFileSync(bridgeClientFile, "utf8");
 
   it("should not have hardcoded obsidian-default", () => {
-    assert(!content.includes("obsidian-default"), "Should not have hardcoded clientId");
+    assert(
+      !content.includes("obsidian-default"),
+      "Should not have hardcoded clientId",
+    );
   });
 
   it("should not have 19876 fallback", () => {
-    assert(!content.includes("19876"), "Should not have 19876 in bridge-client.ts");
+    assert(
+      !content.includes("19876"),
+      "Should not have 19876 in bridge-client.ts",
+    );
   });
 
   it("should accept clientId in constructor", () => {
     assert(
       /constructor\s*\(\s*[^)]*clientId/.test(content),
-      "Constructor should accept clientId parameter"
+      "Constructor should accept clientId parameter",
     );
   });
 });
@@ -78,33 +91,40 @@ describe("VS Code uses persistent clientId", () => {
   it("should generate stable clientId", () => {
     assert(
       content.includes("globalState") && content.includes("ecosystemClientId"),
-      "Should store clientId in globalState"
+      "Should store clientId in globalState",
     );
   });
 
   it("should not have hardcoded vscode-default", () => {
-    assert(!content.includes("vscode-default"), "Should not have hardcoded clientId");
+    assert(
+      !content.includes("vscode-default"),
+      "Should not have hardcoded clientId",
+    );
   });
 });
 
 // ─── Browser tests ───────────────────────────────────────────────────
 
 describe("Browser desktop action type", () => {
-  const backgroundFile = resolve(root, "apps/browser-extension/src/background.ts");
+  const backgroundFile = resolve(
+    root,
+    "apps/browser-extension/src/background.ts",
+  );
   const content = readFileSync(backgroundFile, "utf8");
 
   it("should use InsertFormulaIntoBrowser", () => {
     assert(
       content.includes("InsertFormulaIntoBrowser"),
-      "Should use versioned browser action type"
+      "Should use versioned browser action type",
     );
   });
 
   it("should not use plain InsertFormula", () => {
     // Should not have InsertFormula as action type for browser
     assert(
-      !/actionType.*InsertFormula[^I]/.test(content) || content.includes("InsertFormulaIntoBrowser"),
-      "Should not use plain InsertFormula for browser"
+      !/actionType.*InsertFormula[^I]/.test(content) ||
+        content.includes("InsertFormulaIntoBrowser"),
+      "Should not use plain InsertFormula for browser",
     );
   });
 });
@@ -118,33 +138,36 @@ describe("Desktop ecosystem target selector", () => {
   it("should have waitForEcosystemAction method", () => {
     assert(
       content.includes("waitForEcosystemAction"),
-      "Should have waitForEcosystemAction method"
+      "Should have waitForEcosystemAction method",
     );
   });
 
   it("should check completed status before showing success", () => {
     assert(
       content.includes("公式已成功插入") || content.includes("插入成功"),
-      "Should have success message"
+      "Should have success message",
     );
     // The success message should only appear after waiting for completion
     const insertToEcosystemMatch = content.match(
-      /async insertToEcosystem\(\)[^}]*?公式已成功插入/s
+      /async insertToEcosystem\(\)[^}]*?公式已成功插入/s,
     );
-    assert(insertToEcosystemMatch, "Success message should be in insertToEcosystem");
+    assert(
+      insertToEcosystemMatch,
+      "Success message should be in insertToEcosystem",
+    );
   });
 
   it("should use InsertFormulaIntoBrowser for browser target", () => {
     assert(
       content.includes("InsertFormulaIntoBrowser"),
-      "Should use versioned browser action type"
+      "Should use versioned browser action type",
     );
   });
 
   it("should pass targetClientId", () => {
     assert(
       content.includes("targetClientId"),
-      "Should pass targetClientId to push_ecosystem_action_internal"
+      "Should pass targetClientId to push_ecosystem_action_internal",
     );
   });
 });
@@ -152,27 +175,31 @@ describe("Desktop ecosystem target selector", () => {
 // ─── Rust backend tests ──────────────────────────────────────────────
 
 describe("Rust ecosystem action status", () => {
-  const officeBridgeFile = resolve(root, "src-tauri/src/platforms/office_bridge.rs");
+  const officeBridgeFile = resolve(
+    root,
+    "src-tauri/src/platforms/office_bridge.rs",
+  );
   const content = readFileSync(officeBridgeFile, "utf8");
 
   it("should have get_ecosystem_action_status_internal", () => {
     assert(
       content.includes("get_ecosystem_action_status_internal"),
-      "Should have status query command"
+      "Should have status query command",
     );
   });
 
   it("should support target_client_id in PushRequest", () => {
     assert(
       content.includes("target_client_id"),
-      "Should support target_client_id in PushRequest"
+      "Should support target_client_id in PushRequest",
     );
   });
 
   it("should generate browser-specific payload", () => {
     assert(
-      content.includes("InsertFormulaIntoBrowser") || content.includes("schemaVersion"),
-      "Should generate browser-specific payload"
+      content.includes("InsertFormulaIntoBrowser") ||
+        content.includes("schemaVersion"),
+      "Should generate browser-specific payload",
     );
   });
 });
@@ -184,14 +211,14 @@ describe("Rust ecosystem queue expiration", () => {
   it("should check action expiration", () => {
     assert(
       content.includes("action_is_expired") || content.includes("Expired"),
-      "Should handle expired actions"
+      "Should handle expired actions",
     );
   });
 
   it("should mark expired actions as Expired", () => {
     assert(
       content.includes("EcosystemActionStatus::Expired"),
-      "Should mark expired actions with Expired status"
+      "Should mark expired actions with Expired status",
     );
   });
 });
@@ -221,7 +248,7 @@ describe("Source hygiene - no legacy ecosystem values", () => {
       it(`${file} should not contain ${legacy}`, () => {
         assert(
           !content.includes(legacy),
-          `${file} contains legacy value ${legacy}`
+          `${file} contains legacy value ${legacy}`,
         );
       });
     }
@@ -231,9 +258,6 @@ describe("Source hygiene - no legacy ecosystem values", () => {
 describe("No duplicate Ecosystem/wps payload", () => {
   it("src-tauri/resources/Ecosystem/wps should not exist", () => {
     const wpsDir = resolve(root, "src-tauri/resources/Ecosystem/wps");
-    assert(
-      !existsSync(wpsDir),
-      "Ecosystem/wps directory should be deleted"
-    );
+    assert(!existsSync(wpsDir), "Ecosystem/wps directory should be deleted");
   });
 });
