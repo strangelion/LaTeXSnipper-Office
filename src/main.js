@@ -6146,9 +6146,10 @@ class UIController {
   }
 
   async refreshEcosystemClients() {
+    let clients = null;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const clients = await invoke("list_ecosystem_clients_internal");
+      clients = await invoke("list_ecosystem_clients_internal");
       const listEl = document.getElementById("ecosystemClientList");
       if (listEl) {
         if (!clients || clients.length === 0) {
@@ -6192,7 +6193,11 @@ class UIController {
     }
 
     // Always refresh target selector, even if list update failed
-    await this.refreshEcosystemTargetSelector();
+    try {
+      await this.refreshEcosystemTargetSelector(clients);
+    } catch (e) {
+      Logger.warn("Failed to refresh ecosystem target selector:", e);
+    }
   }
 
   /** Show Obsidian vault/plugins selection dialog. Returns detected vault path or null. */
