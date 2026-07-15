@@ -1,5 +1,5 @@
 {
-  "extensionVersion": "1.3.1",
+  "extensionVersion": "1.3.2",
   "target": "chrome",
   "commit": "local",
   "providers": [
