@@ -8,11 +8,14 @@ export function getActiveEditor(): vscode.TextEditor {
 
 export async function insertText(text: string) {
   const editor = getActiveEditor();
-  await editor.edit((builder) => {
+  const applied = await editor.edit((builder) => {
     for (const selection of editor.selections) {
       builder.replace(selection, text);
     }
   });
+  if (!applied) {
+    throw new Error("EDITOR_EDIT_REJECTED");
+  }
 }
 
 export function getSelectedText(): string {

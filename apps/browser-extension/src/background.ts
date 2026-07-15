@@ -40,11 +40,13 @@ async function enqueueImport(action: BrowserImportAction): Promise<unknown> {
 
 async function pollDesktopActions(preferredTabId?: number): Promise<void> {
   if (Date.now() < backoffUntil || activeUiCount === 0) return;
+  let actionId: string | null = null;
   try {
     const client = await bridge();
     const next = await client.next();
     if (!next.found || !next.action) return;
     const action = next.action;
+    actionId = action.actionId;
     if (!['InsertFormulaIntoBrowser', 'ReplaceBrowserSelection'].includes(action.actionType)) {
       await client.complete(action.actionId, false, undefined, { code: "UNSUPPORTED_BROWSER_ACTION", message: "Only versioned desktop-to-browser insertion actions are accepted." });
       return;
@@ -54,7 +56,19 @@ async function pollDesktopActions(preferredTabId?: number): Promise<void> {
     await ensureContentScript(tab.id);
     const result = await chrome.tabs.sendMessage(tab.id, { type: "INSERT_FORMULA", payload: action.payload });
     await client.complete(action.actionId, !!result?.ok, result, result?.ok ? undefined : { code: result?.errorCode || "BROWSER_INSERT_FAILED", message: result?.message || "Browser editor rejected insertion." });
-  } catch {
+  } catch (error) {
+    // Complete with failed status if we have an action
+    if (actionId) {
+      try {
+        const client = await bridge();
+        await client.complete(actionId, false, undefined, {
+          code: "BROWSER_POLLER_ERROR",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } catch {
+        // Best effort
+      }
+    }
     backoffUntil = Date.now() + 15_000;
   }
 }

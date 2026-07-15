@@ -20,6 +20,10 @@
     if (config && config.token) {
       init.headers.Authorization = "Bearer " + config.token;
     }
+    // Auto-add Content-Type for JSON requests
+    if (init.body && !init.headers["Content-Type"]) {
+      init.headers["Content-Type"] = "application/json";
+    }
     return fetch(baseUrl() + path, init).then(function (response) {
       return response.json().then(function (body) {
         if (!response.ok || body.success === false || body.ok === false) {

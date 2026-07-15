@@ -14,6 +14,7 @@ export interface LaTeXSnipperSettings {
   bridgeUrl: string;
   defaultDisplay: "inline" | "block";
   autoNumber: boolean;
+  numberFormat: "global" | "chapter" | "chapter-hyphen";
 }
 
 export interface PersistedPluginData extends LaTeXSnipperSettings {
@@ -40,12 +41,19 @@ export function normalizeBridgeUrl(value: unknown): string {
 export function migratePluginData(
   raw: Partial<PersistedPluginData> | null | undefined,
 ): PersistedPluginData {
+  const numberFormat = raw?.numberFormat;
+  const validNumberFormats = ["global", "chapter", "chapter-hyphen"];
+
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     bridgeUrl: normalizeBridgeUrl(raw?.bridgeUrl),
     defaultDisplay:
       raw?.defaultDisplay === "block" ? "block" : "inline",
     autoNumber: raw?.autoNumber === true,
+    numberFormat:
+      numberFormat && validNumberFormats.includes(numberFormat)
+        ? numberFormat
+        : "global",
     equationCounter:
       typeof raw?.equationCounter === "number"
         ? raw.equationCounter

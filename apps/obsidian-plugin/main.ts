@@ -67,6 +67,7 @@ export default class LaTeXSnipperPlugin extends Plugin {
       bridgeUrl: this.pluginData.bridgeUrl,
       defaultDisplay: this.pluginData.defaultDisplay,
       autoNumber: this.pluginData.autoNumber,
+      numberFormat: this.pluginData.numberFormat,
     };
 
     await this.saveData(this.pluginData);
@@ -80,7 +81,7 @@ export default class LaTeXSnipperPlugin extends Plugin {
         await this.saveData(this.pluginData);
       },
     };
-    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore, "global");
+    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore, this.pluginData.numberFormat);
     router.register("obsidian", this.adapter);
 
     // Inject CSS for formula styling

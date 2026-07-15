@@ -20,6 +20,30 @@ function OnAddinLoad(ribbonUI) {
       console.log("[LaTeXSnipper WPS] " + String(message));
     };
     window.bridgeLog("Loaded host=" + String(activeWpsAdapterKey()));
+
+    // Start ecosystem runtime (heartbeat + action poller)
+    if (window.WpsBridgeClient) {
+      var host = window.WpsHostDetection
+        ? window.WpsHostDetection.detectHost(window.Application)
+        : "unknown";
+      var capabilities = activeWpsCapabilities();
+
+      window.WpsBridgeClient.startHeartbeat(
+        host,
+        capabilities,
+        function () {},
+      )
+        .then(function (registration) {
+          window.WpsBridgeClient.startActionPoller(
+            registration,
+            dispatchWps,
+          );
+          window.bridgeLog("Ecosystem runtime started, clientId=" + registration.clientId);
+        })
+        .catch(function (error) {
+          window.bridgeLog("Ecosystem runtime failed: " + (error.message || error));
+        });
+    }
   } catch (error) {
     console.error("[LaTeXSnipper WPS] Ribbon load failed", error && error.name);
     return false;

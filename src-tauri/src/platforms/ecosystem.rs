@@ -262,11 +262,14 @@ impl EcosystemActionQueue {
         inner.clients.insert(c.client_id.clone(), c);
     }
 
-    /// Update client heartbeat timestamp.
-    pub async fn client_heartbeat(&self, client_id: &str) {
+    /// Update client heartbeat timestamp. Returns true if client exists.
+    pub async fn client_heartbeat(&self, client_id: &str) -> bool {
         let mut inner = self.inner.lock().await;
         if let Some(client) = inner.clients.get_mut(client_id) {
             client.last_seen = chrono::Utc::now().to_rfc3339();
+            true
+        } else {
+            false
         }
     }
 

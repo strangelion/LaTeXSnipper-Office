@@ -43,15 +43,23 @@ export async function activate(
   const stopPoller = startActionPoller(bridge, statusBarItem);
   context.subscriptions.push({ dispose: stopPoller });
 
-  // Register client
+  // Register client, then auto-re-register if heartbeat shows not registered
   bridge.register("VS Code").catch(() => {
     statusBarItem.text = "$(warning) LaTeXSnipper (offline)";
     statusBarItem.tooltip = "LaTeXSnipper desktop not running";
   });
 
-  // Periodic heartbeat
-  const heartbeatTimer = setInterval(() => {
-    bridge.heartbeat().catch(() => {});
+  // Periodic heartbeat with auto-reconnect
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const result: any = await bridge.heartbeat();
+      if (result?.registered === false) {
+        // Desktop restarted or client was lost, re-register
+        await bridge.register("VS Code").catch(() => {});
+      }
+    } catch {
+      // Desktop offline, will retry next heartbeat
+    }
   }, 10000);
   context.subscriptions.push({ dispose: () => clearInterval(heartbeatTimer) });
 

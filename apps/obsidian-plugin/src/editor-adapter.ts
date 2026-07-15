@@ -27,15 +27,21 @@ export function setupEcosystemBridge(
   clientId: string,
 ) {
   const bridge = new BridgeClient(plugin, clientId);
+  const clientName = `Obsidian · ${plugin.app.vault.getName()}`;
 
-  bridge
-    .register(
-      `Obsidian · ${plugin.app.vault.getName()}`,
-    )
-    .catch(() => {});
+  // Register initially, then auto-re-register if heartbeat shows not registered
+  bridge.register(clientName).catch(() => {});
 
-  const heartbeatTimer = setInterval(() => {
-    bridge.heartbeat().catch(() => {});
+  const heartbeatTimer = setInterval(async () => {
+    try {
+      const result: any = await bridge.heartbeat();
+      if (result?.registered === false) {
+        // Desktop restarted or client was lost, re-register
+        await bridge.register(clientName).catch(() => {});
+      }
+    } catch {
+      // Desktop offline, will retry next heartbeat
+    }
   }, 10000);
 
   const stopPoller =

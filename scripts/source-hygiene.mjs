@@ -161,6 +161,8 @@ if (/insertHtml|providerHtml|rawOoxml/i.test(conversationImport))
   failures.push("conversation import accepts browser HTML or raw OOXML");
 
 // Ecosystem plugin files (Obsidian, VS Code, staged Ecosystem resources)
+const legacyMigrationFile = "apps/obsidian-plugin/src/settings.ts";
+
 const ecosystemProduction = tracked.filter(
   (file) =>
     /^(apps\/obsidian-plugin|apps\/vscode-extension|src-tauri\/resources\/Ecosystem)\//.test(
@@ -173,6 +175,20 @@ for (const file of ecosystemProduction) {
   if (!existsSync(resolve(root, file))) continue;
 
   const text = readFileSync(resolve(root, file), "utf8");
+
+  // Skip legacy migration file but verify it defaults to 19877
+  if (file === legacyMigrationFile) {
+    if (
+      !text.includes(
+        'DEFAULT_BRIDGE_URL = "http://127.0.0.1:19877"',
+      )
+    ) {
+      failures.push(
+        "Obsidian migration file must default to Bridge 19877",
+      );
+    }
+    continue;
+  }
 
   for (const needle of [
     "127.0.0.1:28765",

@@ -1421,10 +1421,12 @@ async fn handle_ecosystem_client_heartbeat(
     State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
-    if let Some(client_id) = payload["clientId"].as_str() {
-        state.ecosystem_queue.client_heartbeat(client_id).await;
-    }
-    Json(serde_json::json!({ "ok": true }))
+    let registered = if let Some(client_id) = payload["clientId"].as_str() {
+        state.ecosystem_queue.client_heartbeat(client_id).await
+    } else {
+        false
+    };
+    Json(serde_json::json!({ "ok": true, "registered": registered }))
 }
 
 async fn handle_ecosystem_clients(
@@ -1470,7 +1472,7 @@ async fn handle_ecosystem_enqueue(
         // Simplified format — wrap into envelope
         let action_id = format!("act_{}", uuid_simple());
         let now = chrono::Utc::now();
-        let expires = now + chrono::Duration::seconds(300);
+        let expires = now + chrono::Duration::seconds(20);
         let action_type = payload["actionType"]
             .as_str()
             .or_else(|| payload["action_type"].as_str())
@@ -1766,7 +1768,7 @@ async fn enqueue_ecosystem_action(
     }
     let action_id = format!("act_{}", uuid_simple());
     let now = chrono::Utc::now();
-    let expires = now + chrono::Duration::seconds(300);
+    let expires = now + chrono::Duration::seconds(20);
 
     let display = push.action.display.unwrap_or(false);
 
@@ -1815,7 +1817,7 @@ async fn enqueue_ecosystem_action(
         target_client_id: push.target_client_id,
         created_at: now.to_rfc3339(),
         expires_at: expires.to_rfc3339(),
-        timeout_ms: 300_000,
+        timeout_ms: 20_000,
         nonce: uuid_simple(),
         require_ack: false,
         allow_fallback: true,
@@ -2062,7 +2064,7 @@ async fn handle_ecosystem_formula_edit(
 
     let action_id = format!("act_{}", uuid_simple());
     let now = chrono::Utc::now();
-    let expires = now + chrono::Duration::seconds(300);
+    let expires = now + chrono::Duration::seconds(20);
 
     let action = EcosystemActionEnvelope {
         action_id: action_id.clone(),
@@ -2072,7 +2074,7 @@ async fn handle_ecosystem_formula_edit(
         target_client_id: None,
         created_at: now.to_rfc3339(),
         expires_at: expires.to_rfc3339(),
-        timeout_ms: 300_000,
+        timeout_ms: 20_000,
         nonce: uuid_simple(),
         require_ack: false,
         allow_fallback: true,

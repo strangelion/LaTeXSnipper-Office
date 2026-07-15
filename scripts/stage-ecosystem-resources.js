@@ -111,46 +111,11 @@ function stageBrowser() {
   console.log("  [Browser] Staged verified Chrome and Firefox packages");
 }
 
-// ─── WPS ───────────────────────────────────────────────────────────────
-function stageWps() {
-  const distRoot = path.join(__dirname, "..", "apps", "wps", "dist");
-  const dstDir = path.join(ECO_ROOT, "wps");
-
-  if (!fs.existsSync(distRoot)) {
-    throw new Error("[WPS] Build output missing. Run npm run build:wps first.");
-  }
-  const builds = fs
-    .readdirSync(distRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("latexsnipper-wps_"))
-    .map((entry) => path.join(distRoot, entry.name))
-    .sort();
-  const appDir = builds.at(-1);
-  if (!appDir) throw new Error("[WPS] No complete production build was found.");
-
-  function copyDir(src, dest) {
-    if (!fs.existsSync(src)) return;
-    ensureDir(dest);
-    for (const entry of fs.readdirSync(src)) {
-      const s = path.join(src, entry);
-      const d = path.join(dest, entry);
-      if (fs.statSync(s).isDirectory()) {
-        copyDir(s, d);
-      } else {
-        fs.copyFileSync(s, d);
-      }
-    }
-  }
-
-  fs.rmSync(dstDir, { recursive: true, force: true });
-  copyDir(appDir, dstDir);
-  console.log("  [WPS] Staged resources");
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────
 console.log("[stage-ecosystem] Staging ecosystem plugin resources...");
 ensureDir(ECO_ROOT);
 stageObsidian();
 stageVscode();
 stageBrowser();
-stageWps();
+// WPS is staged separately via stage-resources.ps1 into resources/WPS
 console.log("[stage-ecosystem] Done.");
