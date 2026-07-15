@@ -1362,7 +1362,8 @@ async fn handle_actions_complete(
 // ═══════════════════════════════════════════════════════════════
 
 use super::ecosystem::{
-    ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemActionStatus, EcosystemClient,
+    ActionError, EcosystemActionEnvelope, EcosystemActionQueue, EcosystemActionStatus,
+    EcosystemClient,
 };
 
 fn _extract_queue(state: &BridgeRuntimeState) -> &EcosystemActionQueue {
@@ -1772,11 +1773,13 @@ async fn enqueue_ecosystem_action(
 
     let display = push.action.display.unwrap_or(false);
 
-    let mode = push
-        .action
-        .mode
-        .clone()
-        .unwrap_or_else(|| if display { "block".into() } else { "inline".into() });
+    let mode = push.action.mode.clone().unwrap_or_else(|| {
+        if display {
+            "block".into()
+        } else {
+            "inline".into()
+        }
+    });
 
     let format = push
         .action

@@ -160,14 +160,16 @@ const conversationImport = readFileSync(
 if (/insertHtml|providerHtml|rawOoxml/i.test(conversationImport))
   failures.push("conversation import accepts browser HTML or raw OOXML");
 
-// Ecosystem plugin files (Obsidian, VS Code, staged Ecosystem resources)
+// Ecosystem plugin source files (Obsidian, VS Code) — exclude staged Ecosystem resources
 const legacyMigrationFile = "apps/obsidian-plugin/src/settings.ts";
 
 const ecosystemProduction = tracked.filter(
   (file) =>
-    /^(apps\/obsidian-plugin|apps\/vscode-extension|src-tauri\/resources\/Ecosystem)\//.test(
+    /^(apps\/obsidian-plugin|apps\/vscode-extension)\//.test(
       file.replaceAll("\\", "/"),
     ) &&
+    // Exclude staged resources (build产物，not source code)
+    !file.replaceAll("\\", "/").startsWith("src-tauri/resources/Ecosystem/") &&
     /\.(js|ts|json|html)$/i.test(file),
 );
 
