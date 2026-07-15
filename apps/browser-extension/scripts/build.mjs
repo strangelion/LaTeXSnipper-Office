@@ -33,5 +33,6 @@ await cp(resolve(root, "_locales"), resolve(out, "_locales"), { recursive: true 
 const manifest = JSON.parse(await readFile(resolve(root, `manifest.${target}.json`), "utf8"));
 await writeFile(resolve(out, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 const providers = ["chatgpt", "gemini", "deepseek", "claude", "copilot", "kimi", "doubao", "qwen", "yuanbao", "perplexity", "grok", "wenxin", "zhipu"];
-await writeFile(resolve(out, "provenance.json"), `${JSON.stringify({ extensionVersion: manifest.version, target, commit: process.env.GITHUB_SHA || "local", providers, locales: ["en", "zh_CN", "zh_TW"], formulaDetectorSchema: 1, conversationSchema: 1 }, null, 2)}\n`);
+const provenanceCommit = process.env.LATEXSNIPPER_PROVENANCE_COMMIT || "local";
+await writeFile(resolve(out, "provenance.json"), `${JSON.stringify({ extensionVersion: manifest.version, target, commit: provenanceCommit, providers, locales: ["en", "zh_CN", "zh_TW"], formulaDetectorSchema: 1, conversationSchema: 1 }, null, 2)}\n`);
 await writeFile(resolve(out, "THIRD_PARTY_LICENSES.txt"), "Build dependencies are listed in package-lock.json. Runtime bundles contain no remote code.\n");

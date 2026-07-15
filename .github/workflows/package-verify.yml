@@ -270,6 +270,7 @@ jobs:
             Get-ChildItem -Path "apps\wps\dist" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
             throw "WPS build output missing: $wpsStaging"
           }
+          $env:LATEXSNIPPER_PROVENANCE_COMMIT = $env:GITHUB_SHA
           npm run build:ecosystem
           npm run stage:ecosystem
           npm run build:vite
