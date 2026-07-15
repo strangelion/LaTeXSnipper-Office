@@ -22,7 +22,12 @@ $files = @(
     "package-lock.json",
     "src-tauri/tauri.conf.json",
     "src-tauri/Cargo.toml",
-    "src-tauri/Cargo.lock"
+    "src-tauri/Cargo.lock",
+    "apps/browser-extension/package.json",
+    "apps/browser-extension/manifest.chrome.json",
+    "apps/browser-extension/manifest.firefox.json",
+    "apps/wps/manifest.json",
+    "apps/wps/package.json"
 )
 
 foreach ($file in $files) {
@@ -68,6 +73,21 @@ fs.writeFileSync(
 
     & node $tempScript "src-tauri/tauri.conf.json" $Version "false"
     if ($LASTEXITCODE -ne 0) { throw "Failed to update src-tauri/tauri.conf.json" }
+
+    & node $tempScript "apps/browser-extension/package.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update apps/browser-extension/package.json" }
+
+    & node $tempScript "apps/browser-extension/manifest.chrome.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update apps/browser-extension/manifest.chrome.json" }
+
+    & node $tempScript "apps/browser-extension/manifest.firefox.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update apps/browser-extension/manifest.firefox.json" }
+
+    & node $tempScript "apps/wps/manifest.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update apps/wps/manifest.json" }
+
+    & node $tempScript "apps/wps/package.json" $Version "false"
+    if ($LASTEXITCODE -ne 0) { throw "Failed to update apps/wps/package.json" }
 } finally {
     if (Test-Path -LiteralPath $tempScript) { Remove-Item -LiteralPath $tempScript -Force }
 }
@@ -137,6 +157,21 @@ if (tauri.version !== version) errors.push("tauri.conf.json: " + tauri.version);
 const cargo = fs.readFileSync("src-tauri/Cargo.toml", "utf8");
 const m = cargo.match(/^(version\s*=\s*)"([^"]+)"/m);
 if (!m || m[2] !== version) errors.push("Cargo.toml: " + (m ? m[2] : "not found"));
+
+const browserExt = JSON.parse(fs.readFileSync("apps/browser-extension/package.json", "utf8"));
+if (browserExt.version !== version) errors.push("browser-extension/package.json: " + browserExt.version);
+
+const chromeManifest = JSON.parse(fs.readFileSync("apps/browser-extension/manifest.chrome.json", "utf8"));
+if (chromeManifest.version !== version) errors.push("browser-extension/manifest.chrome.json: " + chromeManifest.version);
+
+const firefoxManifest = JSON.parse(fs.readFileSync("apps/browser-extension/manifest.firefox.json", "utf8"));
+if (firefoxManifest.version !== version) errors.push("browser-extension/manifest.firefox.json: " + firefoxManifest.version);
+
+const wpsManifest = JSON.parse(fs.readFileSync("apps/wps/manifest.json", "utf8"));
+if (wpsManifest.version !== version) errors.push("wps/manifest.json: " + wpsManifest.version);
+
+const wpsPkg = JSON.parse(fs.readFileSync("apps/wps/package.json", "utf8"));
+if (wpsPkg.version !== version) errors.push("wps/package.json: " + wpsPkg.version);
 
 if (errors.length) {
   console.error("Version mismatch: " + errors.join(", "));
