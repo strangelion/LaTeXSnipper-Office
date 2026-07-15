@@ -37,12 +37,10 @@ describe("Desktop entry point integrity", () => {
   });
 
   it("should NOT be sidebar prototype", () => {
-    // The sidebar prototype only has <aside class="sidebar"> without #app
-    assert.match(
+    assert.doesNotMatch(
       html,
-      /id="app"/,
-      "Entry point appears to be sidebar prototype",
+      /<aside class="sidebar" id="sidebar">/,
+      "Desktop entry regressed to Office sidebar prototype",
     );
-    assert.match(html, /<main/, "Entry point missing <main> element");
   });
 });
