@@ -64,7 +64,9 @@ for (const dir of stagedResources) {
   const statusOutput = run("git", ["status", "--porcelain", dir]);
   const modifiedFiles = statusOutput
     .split("\n")
-    .filter((line) => line.trim() && !line.startsWith("??") && !line.startsWith("A"));
+    .filter(
+      (line) => line.trim() && !line.startsWith("??") && !line.startsWith("A"),
+    );
 
   if (modifiedFiles.length > 0) {
     console.error(`[ecosystem-drift] MODIFIED FILES in ${dir} (not staged):`);
