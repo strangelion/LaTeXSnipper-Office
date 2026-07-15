@@ -8,13 +8,17 @@
  *
  * Exit codes:
  *   0 - No drift detected
- *   1 - Drift detected
+ *   1 - Drift detected (modified files don't match source)
  *
  * Note: This script assumes dependencies are already installed.
  * Run after: npm run build:ecosystem && npm run stage:ecosystem
+ *
+ * "Drift" means: committed files were modified by build but not staged.
+ * Untracked (??) files are normal after a fresh build and don't count as drift.
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,7 +44,6 @@ function run(cmd, args, options = {}) {
 // Main
 console.log("[ecosystem-drift] Checking for staged artifact drift...");
 
-// Check if there are uncommitted changes in ecosystem resources
 const stagedResources = [
   "src-tauri/resources/Ecosystem",
   "src-tauri/resources/Obsidian",
@@ -49,20 +52,23 @@ const stagedResources = [
 let hasDrift = false;
 
 for (const dir of stagedResources) {
-  const output = run("git", ["status", "--porcelain", dir]);
-  if (output.trim()) {
-    console.error(`[ecosystem-drift] DRIFT DETECTED in ${dir}:`);
-    console.error(output);
+  const fullDir = resolve(root, dir);
+  if (!existsSync(fullDir)) {
+    console.error(`[ecosystem-drift] DIRECTORY MISSING: ${dir}`);
     hasDrift = true;
+    continue;
   }
-}
 
-// Also check if there are unstaged changes
-for (const dir of stagedResources) {
-  const output = run("git", ["diff", "--name-only", dir]);
-  if (output.trim()) {
-    console.error(`[ecosystem-drift] UNSTAGED CHANGES in ${dir}:`);
-    console.error(output);
+  // Only check for MODIFIED files (M prefix), not untracked (??)
+  // Untracked files are normal after a fresh build
+  const statusOutput = run("git", ["status", "--porcelain", dir]);
+  const modifiedFiles = statusOutput
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("??") && !line.startsWith("A"));
+
+  if (modifiedFiles.length > 0) {
+    console.error(`[ecosystem-drift] MODIFIED FILES in ${dir} (not staged):`);
+    modifiedFiles.forEach((f) => console.error(f));
     hasDrift = true;
   }
 }
@@ -70,7 +76,7 @@ for (const dir of stagedResources) {
 if (hasDrift) {
   console.error("\n[ecosystem-drift] FAILED: Staged artifact drift detected");
   console.error(
-    "Run 'npm run build:ecosystem && npm run stage:ecosystem' to fix",
+    "Run 'npm run build:ecosystem && npm run stage:ecosystem' and commit the changes.",
   );
   process.exit(1);
 }
