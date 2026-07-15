@@ -25,9 +25,9 @@ async function ensureContentScript(tabId: number): Promise<void> {
   catch { await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] }); }
 }
 
-async function activeTab(): Promise<chrome.tabs.Tab> {
+async function activeTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url || !/^https?:/.test(tab.url)) throw new Error("UNSUPPORTED_TAB");
+  if (!tab?.id || !tab.url || !/^https?:/.test(tab.url)) return null;
   await ensureContentScript(tab.id);
   return tab;
 }
@@ -39,7 +39,7 @@ async function enqueueImport(action: BrowserImportAction): Promise<unknown> {
 }
 
 async function pollDesktopActions(preferredTabId?: number): Promise<void> {
-  if (Date.now() < backoffUntil || activeUiCount === 0) return;
+  if (Date.now() < backoffUntil) return;
   let actionId: string | null = null;
   try {
     const client = await bridge();
@@ -52,7 +52,7 @@ async function pollDesktopActions(preferredTabId?: number): Promise<void> {
       return;
     }
     const tab = preferredTabId ? await chrome.tabs.get(preferredTabId) : await activeTab();
-    if (!tab.id) throw new Error("NO_ACTIVE_TAB");
+    if (!tab?.id) throw new Error("NO_ACTIVE_TAB");
     await ensureContentScript(tab.id);
     const result = await chrome.tabs.sendMessage(tab.id, { type: "INSERT_FORMULA", payload: action.payload });
     await client.complete(action.actionId, !!result?.ok, result, result?.ok ? undefined : { code: result?.errorCode || "BROWSER_INSERT_FAILED", message: result?.message || "Browser editor rejected insertion." });
@@ -107,6 +107,14 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === HEARTBEAT_ALARM && activeUiCount > 0 && Date.now() >= backoffUntil) void bridge().then((client) => client.heartbeat()).catch(() => { backoffUntil = Date.now() + 15_000; });
+  if (alarm.name === HEARTBEAT_ALARM && activeUiCount > 0 && Date.now() >= backoffUntil) {
+    void bridge().then(async (client) => {
+      const result: any = await client.heartbeat();
+      // If desktop restarted, re-register
+      if (result?.registered === false) {
+        await client.register(VERSION).catch(() => {});
+      }
+    }).catch(() => { backoffUntil = Date.now() + 15_000; });
+  }
   if (alarm.name === ACTION_ALARM) void pollDesktopActions();
 });

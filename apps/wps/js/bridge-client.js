@@ -145,22 +145,62 @@
 
   function startHeartbeat(host, capabilities, onStatus) {
     if (heartbeatTimer) window.clearInterval(heartbeatTimer);
-    return register(host, capabilities).then(function (registration) {
-      var send = function () {
-        return heartbeat(registration)
-          .then(function () {
+
+    var currentRegistration = null;
+
+    // Try to register, retry if desktop is offline
+    function tryRegister() {
+      return register(host, capabilities)
+        .then(function (registration) {
+          currentRegistration = registration;
+          return registration;
+        })
+        .catch(function () {
+          // Desktop offline, will retry on next heartbeat
+          return null;
+        });
+    }
+
+    var send = function () {
+      // If not registered, try to register first
+      if (!currentRegistration) {
+        return tryRegister().then(function (reg) {
+          if (reg) {
             if (onStatus) onStatus(true, null);
-          })
-          .catch(function (error) {
-            if (onStatus) onStatus(false, error);
-          });
-      };
-      send();
+          } else {
+            if (onStatus) onStatus(false, new Error("BRIDGE_OFFLINE"));
+          }
+        });
+      }
+
+      return heartbeat(currentRegistration)
+        .then(function (result) {
+          // If desktop restarted, re-register
+          if (result && result.registered === false) {
+            currentRegistration = null;
+            return tryRegister().then(function (reg) {
+              if (onStatus) onStatus(!!reg, reg ? null : new Error("RE_REGISTER_FAILED"));
+            });
+          }
+          if (onStatus) onStatus(true, null);
+        })
+        .catch(function (error) {
+          // Desktop offline, will retry registration on next tick
+          currentRegistration = null;
+          if (onStatus) onStatus(false, error);
+        });
+    };
+
+    // Initial register attempt
+    return tryRegister().then(function (registration) {
+      if (registration) {
+        send();
+      }
       heartbeatTimer = window.setInterval(send, 12000);
       document.addEventListener("visibilitychange", function () {
         if (!document.hidden) send();
       });
-      return registration;
+      return currentRegistration || registration;
     });
   }
 
