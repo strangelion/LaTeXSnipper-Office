@@ -118,8 +118,7 @@
     };
   }
 
-  function register(host, capabilities) {
-    var registration = hostRegistration(host, capabilities);
+  function doRegister(registration) {
     return ensureConnected()
       .then(function () {
         return request("/api/ecosystem/clients/register", {
@@ -133,7 +132,7 @@
       });
   }
 
-  function heartbeat(registration) {
+  function doHeartbeat(registration) {
     return ensureConnected().then(function () {
       return request("/api/ecosystem/clients/heartbeat", {
         method: "POST",
@@ -146,61 +145,54 @@
   function startHeartbeat(host, capabilities, onStatus) {
     if (heartbeatTimer) window.clearInterval(heartbeatTimer);
 
-    var currentRegistration = null;
+    // Create stable registration object - persists clientId regardless of desktop state
+    var registration = hostRegistration(host, capabilities);
+    var isRegistered = false;
 
-    // Try to register, retry if desktop is offline
+    // Try to register with desktop
     function tryRegister() {
-      return register(host, capabilities)
-        .then(function (registration) {
-          currentRegistration = registration;
-          return registration;
+      return doRegister(registration)
+        .then(function () {
+          isRegistered = true;
+          if (onStatus) onStatus(true, null);
         })
         .catch(function () {
           // Desktop offline, will retry on next heartbeat
-          return null;
+          isRegistered = false;
+          if (onStatus) onStatus(false, new Error("BRIDGE_OFFLINE"));
         });
     }
 
     var send = function () {
-      // If not registered, try to register first
-      if (!currentRegistration) {
-        return tryRegister().then(function (reg) {
-          if (reg) {
-            if (onStatus) onStatus(true, null);
-          } else {
-            if (onStatus) onStatus(false, new Error("BRIDGE_OFFLINE"));
-          }
-        });
+      if (!isRegistered) {
+        // Not registered, try to register
+        return tryRegister();
       }
 
-      return heartbeat(currentRegistration)
+      return doHeartbeat(registration)
         .then(function (result) {
-          // If desktop restarted, re-register
+          // If desktop restarted (registered === false), re-register
           if (result && result.registered === false) {
-            currentRegistration = null;
-            return tryRegister().then(function (reg) {
-              if (onStatus) onStatus(!!reg, reg ? null : new Error("RE_REGISTER_FAILED"));
-            });
+            isRegistered = false;
+            return tryRegister();
           }
           if (onStatus) onStatus(true, null);
         })
-        .catch(function (error) {
-          // Desktop offline, will retry registration on next tick
-          currentRegistration = null;
-          if (onStatus) onStatus(false, error);
+        .catch(function () {
+          // Desktop offline, will retry on next tick
+          isRegistered = false;
+          if (onStatus) onStatus(false, new Error("BRIDGE_OFFLINE"));
         });
     };
 
     // Initial register attempt
-    return tryRegister().then(function (registration) {
-      if (registration) {
-        send();
-      }
-      heartbeatTimer = window.setInterval(send, 12000);
-      document.addEventListener("visibilitychange", function () {
-        if (!document.hidden) send();
-      });
-      return currentRegistration || registration;
+    heartbeatTimer = window.setInterval(send, 12000);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) send();
+    });
+
+    return tryRegister().then(function () {
+      return registration;
     });
   }
 
@@ -238,7 +230,7 @@
   }
 
   function startActionPoller(
-    registration,
+    getRegistration,
     dispatch,
   ) {
     if (actionPollTimer) {
@@ -247,6 +239,13 @@
 
     function tick() {
       if (actionPollRunning) return;
+
+      var registration = typeof getRegistration === "function"
+        ? getRegistration()
+        : getRegistration;
+
+      // If not registered yet, skip this tick
+      if (!registration) return;
 
       actionPollRunning = true;
 
@@ -349,11 +348,12 @@
     convert: convert,
     createTempAsset: createTempAsset,
     deleteTempAsset: deleteTempAsset,
-    register: register,
-    heartbeat: heartbeat,
+    register: doRegister,
+    heartbeat: doHeartbeat,
     startHeartbeat: startHeartbeat,
     nextAction: nextAction,
     completeAction: completeAction,
     startActionPoller: startActionPoller,
+    hostRegistration: hostRegistration,
   };
 })();

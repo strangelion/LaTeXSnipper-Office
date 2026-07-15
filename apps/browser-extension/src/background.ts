@@ -107,7 +107,8 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === HEARTBEAT_ALARM && activeUiCount > 0 && Date.now() >= backoffUntil) {
+  // Heartbeat always runs to maintain registration, regardless of UI state
+  if (alarm.name === HEARTBEAT_ALARM && Date.now() >= backoffUntil) {
     void bridge().then(async (client) => {
       const result: any = await client.heartbeat();
       // If desktop restarted, re-register
