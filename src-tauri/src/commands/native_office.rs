@@ -83,6 +83,7 @@ pub async fn native_office_insert_formula(
         "ole" => FormulaIntegrationMode::Ole,
         "native" => FormulaIntegrationMode::Native,
         "image" => FormulaIntegrationMode::Image,
+        "vector" => FormulaIntegrationMode::Vector,
         _ => FormulaIntegrationMode::Auto,
     });
 
