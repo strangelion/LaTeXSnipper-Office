@@ -390,6 +390,8 @@ jobs:
             if ($p.ExitCode -notin @(0, 3010)) { throw "MSI $($operation.Name) failed: $($p.ExitCode) file=$($operation.Path)" }
           }
           $installed = Join-Path $env:LOCALAPPDATA 'LaTeXSnipper\NativeOffice'
+          & scripts\smoke-office-registry.ps1 -Hosts Word,Excel,PowerPoint,Visio
+          if ($LASTEXITCODE -ne 0) { throw "Native Office four-host registry smoke failed" }
           & scripts\invoke-native-office-activation-gate.ps1 `
             -StagingRoot $installed `
             -ProbeConfiguration Release `
@@ -424,6 +426,15 @@ jobs:
           }
 
           foreach ($view in @('32', '64')) {
+            foreach ($hostName in @('Word', 'Excel', 'PowerPoint', 'Visio')) {
+              $errorMessage = Test-RegistryKeyAbsent `
+                -Key "HKCU\Software\Microsoft\Office\$hostName\Addins\LaTeXSnipper.NativeOffice.$hostName" `
+                -View $view `
+                -LogPath (Join-Path package-diagnostics "post-uninstall-vsto-$hostName-$view.txt") `
+                -Description "$hostName VSTO add-in"
+              if ($errorMessage) { $residueErrors += $errorMessage }
+            }
+
             $errorMessage = Test-RegistryKeyAbsent `
               -Key 'HKCU\Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}' `
               -View $view `

@@ -29,6 +29,7 @@
 | VSTO Word | ✅ Named Pipe，OMML 插入 | 签名依赖开发证书 |
 | VSTO Excel | ✅ SVG 图片插入 | 公式 ID 保持不完整 |
 | VSTO PowerPoint | ✅ SVG 图片插入 | 形状位置保持不完整 |
+| VSTO Visio | 🧪 SVG-first shape + PNG fallback | Beta；x86/x64 真实 Visio 尚待验收，OLE Experimental/unavailable |
 | Obsidian | ✅ Markdown `$...$` / `$$...$$` | 仅桌面端；编号为内存变量，重启后归零；不作为稳定功能 |
 
 ## Bridge 服务端口

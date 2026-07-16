@@ -38,6 +38,7 @@ $required = @(
     @{ RelPath = "Word\LaTeXSnipper.Word.vsto";           Desc = "Word VSTO manifest" }
     @{ RelPath = "Excel\LaTeXSnipper.Excel.vsto";         Desc = "Excel VSTO manifest" }
     @{ RelPath = "PowerPoint\LaTeXSnipper.PowerPoint.vsto"; Desc = "PowerPoint VSTO manifest" }
+    @{ RelPath = "Visio\LaTeXSnipper.Visio.vsto";         Desc = "Visio VSTO manifest" }
     @{ RelPath = "Shared\LaTeXSnipper.NativeOffice.Shared.dll"; Desc = "Shared assembly" }
     @{ RelPath = "OleFormulaObject.x64.dll";              Desc = "OLE x64 DLL" }
     @{ RelPath = "OleFormulaObject.x86.dll";              Desc = "OLE x86 DLL" }

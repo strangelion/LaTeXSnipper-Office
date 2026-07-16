@@ -11,7 +11,7 @@
 | 文件 | 用途 |
 |---|---|
 | `LaTeXSnipper.NativeOffice.exe` | Windows Native Office 引导安装器，推荐用于安装 VSTO、OLE 和必要运行库 |
-| `LaTeXSnipper.NativeOffice.msi` | Windows Native Office 独立 MSI，包含 Word、Excel、PowerPoint VSTO 与双位数 OLE 组件 |
+| `LaTeXSnipper.NativeOffice.msi` | Windows Native Office 独立 MSI，包含 Word、Excel、PowerPoint、Visio VSTO 与双位数 OLE 组件 |
 | `LaTeXSnipper-Office-VSTO_*.zip` | VSTO 独立部署包，适合高级用户和故障修复 |
 | `latexsnipper-obsidian_*.zip` | Obsidian 插件 |
 | `latexsnipper-wps_*.zip` | WPS 加载项 |
@@ -26,7 +26,7 @@
 ## 2. 安装前检查
 
 1. 从本仓库的 GitHub Release 下载文件，不要从不明镜像获取安装包。
-2. Windows 安装 Native Office 前，完全退出 Word、Excel、PowerPoint，并在任务管理器确认相关进程已经结束。
+2. Windows 安装 Native Office 前，完全退出 Word、Excel、PowerPoint、Visio，并在任务管理器确认相关进程已经结束。
 3. 更新 Native Office 或 OLE 组件后必须重新启动 Office；Office 进程不会自动卸载已经加载的旧 DLL。
 4. 插件与桌面应用联动时，需要先启动 LaTeXSnipper 桌面应用。
 
@@ -89,6 +89,7 @@ Native Office 安装包同时提供：
 - Word VSTO 加载项
 - Excel VSTO 加载项
 - PowerPoint VSTO 加载项
+- Visio VSTO 加载项（SVG/PNG shape，Beta）
 - 32 位 OLE 公式对象
 - 64 位 OLE 公式对象
 - VSTO 清单签名公钥证书
@@ -98,7 +99,7 @@ Native Office 安装包同时提供：
 1. 完全退出所有 Office 应用。
 2. 下载 `LaTeXSnipper.NativeOffice.exe`。
 3. 双击运行安装器。
-4. 安装完成后重新启动 Word、Excel 或 PowerPoint。
+4. 安装完成后重新启动 Word、Excel、PowerPoint 或 Visio。
 5. 检查功能区是否出现 **LaTeXSnipper**。
 
 引导安装器适合尚未安装 .NET Framework 4.8 或 VSTO Runtime 的系统。
@@ -188,6 +189,7 @@ Import-Certificate `
 Word\LaTeXSnipper.Word.vsto
 Excel\LaTeXSnipper.Excel.vsto
 PowerPoint\LaTeXSnipper.PowerPoint.vsto
+Visio\LaTeXSnipper.Visio.vsto
 ```
 
 安装完成后完全退出并重新启动对应 Office 应用。

@@ -216,7 +216,7 @@ if ($runningOnWindows) {
     } else {
         (Resolve-Path -LiteralPath $NativeOfficeStaging -ErrorAction Stop).Path
     }
-    foreach ($nativeHost in @("Word", "Excel", "PowerPoint")) {
+    foreach ($nativeHost in @("Word", "Excel", "PowerPoint", "Visio")) {
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll.manifest") "NativeOffice $nativeHost DLL manifest"
         Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll") "NativeOffice $nativeHost DLL"

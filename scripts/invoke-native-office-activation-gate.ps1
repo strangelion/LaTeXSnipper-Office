@@ -16,9 +16,38 @@ try {
 
     if ($ExistingRegistration) {
         $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+
+        function Get-RegisteredOleDll([Microsoft.Win32.RegistryView]$View) {
+            $baseKey = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+                [Microsoft.Win32.RegistryHive]::CurrentUser,
+                $View
+            )
+            try {
+                $key = $baseKey.OpenSubKey(
+                    "Software\Classes\CLSID\{B7F5B4AB-5F94-4D87-A29F-9A41D41B3B9F}\InprocServer32"
+                )
+                if (-not $key) {
+                    throw "Installed OLE registration is missing in registry view $View."
+                }
+                try {
+                    $path = [string]$key.GetValue("")
+                    if ([string]::IsNullOrWhiteSpace($path) -or -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                        throw "Installed OLE DLL is missing in registry view ${View}: $path"
+                    }
+                    return (Resolve-Path -LiteralPath $path).Path
+                }
+                finally {
+                    $key.Dispose()
+                }
+            }
+            finally {
+                $baseKey.Dispose()
+            }
+        }
+
         $pairs = @(
-            @((Join-Path $root "apps\native-office\OleActivationProbe\bin\x64\$ProbeConfiguration\OleActivationProbe.exe"), (Join-Path $StagingRoot "OleFormulaObject.x64.dll")),
-            @((Join-Path $root "apps\native-office\OleActivationProbe\bin\Win32\$ProbeConfiguration\OleActivationProbe.exe"), (Join-Path $StagingRoot "OleFormulaObject.x86.dll"))
+            @((Join-Path $root "apps\native-office\OleActivationProbe\bin\x64\$ProbeConfiguration\OleActivationProbe.exe"), (Get-RegisteredOleDll ([Microsoft.Win32.RegistryView]::Registry64))),
+            @((Join-Path $root "apps\native-office\OleActivationProbe\bin\Win32\$ProbeConfiguration\OleActivationProbe.exe"), (Get-RegisteredOleDll ([Microsoft.Win32.RegistryView]::Registry32)))
         )
         & (Join-Path $PSScriptRoot "smoke-ole-registration.ps1") *>&1 |
             Tee-Object -FilePath (Join-Path $DiagnosticsDirectory "registry-smoke.log")

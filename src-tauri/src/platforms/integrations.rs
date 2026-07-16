@@ -2144,7 +2144,7 @@ fn check_office_addin() -> PlatformIntegrationResult {
 // ═══════════════════════════════════════════════════════════════════════════
 // Native Office VSTO Add-in registration
 //
-// New VSTO add-ins for Word, Excel, and PowerPoint.
+// Native VSTO add-ins for Word, Excel, PowerPoint, and Visio.
 // Uses Named Pipe communication instead of HTTP bridge.
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2168,6 +2168,12 @@ const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
         "LaTeXSnipper.NativeOffice.PowerPoint",
         "LaTeXSnipper Native Office — PowerPoint",
         "LaTeXSnipper.PowerPoint.vsto",
+    ),
+    (
+        "Visio",
+        "LaTeXSnipper.NativeOffice.Visio",
+        "LaTeXSnipper Native Office - Visio",
+        "LaTeXSnipper.Visio.vsto",
     ),
 ];
 
@@ -2319,6 +2325,7 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
                     "Word" => "Word",
                     "Excel" => "Excel",
                     "PowerPoint" => "PowerPoint",
+                    "Visio" => "Visio",
                     _ => continue,
                 },
                 addin_id
@@ -2426,6 +2433,7 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
                         "Word" => "Word",
                         "Excel" => "Excel",
                         "PowerPoint" => "PowerPoint",
+                        "Visio" => "Visio",
                         _ => "Word",
                     },
                     addin_id
@@ -2521,6 +2529,7 @@ fn check_native_office_vsto() -> bool {
                 "Word" => "Word",
                 "Excel" => "Excel",
                 "PowerPoint" => "PowerPoint",
+                "Visio" => "Visio",
                 _ => continue,
             },
             addin_id
@@ -2616,6 +2625,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
                 "Word" => "Word",
                 "Excel" => "Excel",
                 "PowerPoint" => "PowerPoint",
+                "Visio" => "Visio",
                 _ => continue,
             },
             addin_id
@@ -3902,6 +3912,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
                     "Word" => "Word",
                     "Excel" => "Excel",
                     "PowerPoint" => "PowerPoint",
+                    "Visio" => "Visio",
                     _ => return false,
                 },
                 addin_id
@@ -3922,6 +3933,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
                         "Word" => "Word",
                         "Excel" => "Excel",
                         "PowerPoint" => "PowerPoint",
+                        "Visio" => "Visio",
                         _ => return false,
                     },
                     addin_id
@@ -3953,6 +3965,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
         check_host_status("Word", "Word"),
         check_host_status("Excel", "Excel"),
         check_host_status("PowerPoint", "PowerPoint"),
+        check_host_status("Visio", "Visio"),
     ];
 
     // Check pipe security
@@ -4029,6 +4042,7 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
         "Word" => "LaTeXSnipper.Word.vsto",
         "Excel" => "LaTeXSnipper.Excel.vsto",
         "PowerPoint" => "LaTeXSnipper.PowerPoint.vsto",
+        "Visio" => "LaTeXSnipper.Visio.vsto",
         _ => "",
     };
     let reg_key = format!(
@@ -4042,16 +4056,21 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     let any_reg_valid = reg_x64.valid || reg_x86.valid;
 
     // Check if Office is running
+    let office_executable = match office_app {
+        "Word" => "WINWORD.EXE",
+        "Excel" => "EXCEL.EXE",
+        "PowerPoint" => "POWERPNT.EXE",
+        "Visio" => "VISIO.EXE",
+        _ => "",
+    };
     let office_detected = run_windows_tool(
-        super::process::background_command("tasklist.exe").args([
-            "/FI",
-            &format!("IMAGENAME eq {}.exe", office_app.to_lowercase()),
-        ]),
+        super::process::background_command("tasklist.exe")
+            .args(["/FI", &format!("IMAGENAME eq {}", office_executable)]),
         5,
     )
     .map(|out| {
         let output = String::from_utf8_lossy(&out.stdout);
-        output.contains(&format!("{}.exe", office_app.to_lowercase()))
+        !office_executable.is_empty() && output.to_ascii_uppercase().contains(office_executable)
     })
     .unwrap_or(false);
 
@@ -5596,6 +5615,7 @@ fn check_office_processes() -> Vec<String> {
         ("Word", "WINWORD.EXE"),
         ("Excel", "EXCEL.EXE"),
         ("PowerPoint", "POWERPNT.EXE"),
+        ("Visio", "VISIO.EXE"),
     ] {
         let output = run_windows_tool(
             super::process::background_command("tasklist.exe")

@@ -128,7 +128,7 @@ jobs:
       run_windows: ${{ needs.detect-package-impact.outputs.windows_package == 'true' }}
       run_linux: ${{ needs.detect-package-impact.outputs.linux_package == 'true' }}
       run_macos: ${{ needs.detect-package-impact.outputs.macos_package == 'true' }}
-      full_upgrade: false
+      full_upgrade: true
     permissions:
       contents: read
 

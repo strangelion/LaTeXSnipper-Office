@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.PowerPoint", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Excel", "LaTeXSnipper.Excel\LaTeXSnipper.Excel.csproj", "{29F1E47A-7210-40ED-83B5-9603A86846B4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Visio", "LaTeXSnipper.Visio\LaTeXSnipper.Visio.csproj", "{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler", "LaTeXSnipper.OleFormulaObjectNative\LaTeXSnipper.OfficePlugin.OleFormulaObjectHandler.vcxproj", "{42A9F2F4-18F3-4A8B-A6F4-81217487956B}"
 EndProject
 Global
@@ -70,6 +72,18 @@ Global
 		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Release|Win32.Build.0 = Release|Any CPU
 		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Release|x64.ActiveCfg = Release|Any CPU
 		{29F1E47A-7210-40ED-83B5-9603A86846B4}.Release|x64.Build.0 = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|Win32.ActiveCfg = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|Win32.Build.0 = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Debug|x64.Build.0 = Debug|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|Win32.ActiveCfg = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|Win32.Build.0 = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|x64.ActiveCfg = Release|Any CPU
+		{36A5C6F7-14CB-40BD-A6A6-2868F4C50B0E}.Release|x64.Build.0 = Release|Any CPU
 		{42A9F2F4-18F3-4A8B-A6F4-81217487956B}.Debug|Any CPU.ActiveCfg = Debug|x64
 		{42A9F2F4-18F3-4A8B-A6F4-81217487956B}.Debug|Any CPU.Build.0 = Debug|x64
 		{42A9F2F4-18F3-4A8B-A6F4-81217487956B}.Debug|Win32.ActiveCfg = Debug|Win32

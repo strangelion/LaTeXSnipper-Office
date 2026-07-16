@@ -382,7 +382,7 @@ if ($SkipSigning) {
 if ($LASTEXITCODE -ne 0) { throw "MSBuild Build failed" }
 
 # ─── Publish each VSTO host to generate .vsto + .dll.manifest ─────
-$hosts = @("Word", "Excel", "PowerPoint")
+$hosts = @("Word", "Excel", "PowerPoint", "Visio")
 Write-Host "`n  Publishing VSTO hosts for manifest generation..." -ForegroundColor Cyan
 
 foreach ($hostName in $hosts) {
@@ -647,6 +647,7 @@ $env:SharedBinDir = $sharedDst
 $env:WordBinDir = $stagingAbs + "\Word"
 $env:ExcelBinDir = $stagingAbs + "\Excel"
 $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
+$env:VisioBinDir = $stagingAbs + "\Visio"
 $env:CertificateDir = $stagingAbs + "\certificates"
 
 & $WixPath build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
@@ -657,6 +658,7 @@ $env:CertificateDir = $stagingAbs + "\certificates"
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
     -d PowerPointBinDir=$env:PowerPointBinDir `
+    -d VisioBinDir=$env:VisioBinDir `
     -d OleBinDir=$env:OleBinDir `
     -d OleDllX86Sha256=$oleDllX86Sha256 `
     -d OleDllX64Sha256=$oleDllX64Sha256 `

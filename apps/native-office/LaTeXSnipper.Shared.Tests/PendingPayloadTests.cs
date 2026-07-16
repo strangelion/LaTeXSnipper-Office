@@ -227,6 +227,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += OleExtentTests.Run();
             Console.WriteLine("RUN OfficeStaDispatcherTests");
             failures += OfficeStaDispatcherTests.Run();
+            Console.WriteLine("RUN VisioIntegrationTests");
+            failures += VisioIntegrationTests.Run();
             Console.WriteLine("RUN FormulaIdTests");
             string formulaId = FormulaIdHelper.NewId();
             Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");

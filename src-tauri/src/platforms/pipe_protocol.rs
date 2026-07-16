@@ -4,6 +4,7 @@
 //!   [4 bytes LE payload length] [UTF-8 JSON payload]
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 pub const PROTOCOL_VERSION: u32 = 3;
 pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v3";
@@ -366,6 +367,8 @@ pub struct Capabilities {
     pub read_table: bool,
     #[serde(rename = "requiresSvgForFormula")]
     pub requires_svg_for_formula: bool,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub features: HashMap<String, bool>,
 }
 
 // ---------------------------------------------------------------------------

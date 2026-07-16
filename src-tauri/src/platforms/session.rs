@@ -1,6 +1,6 @@
 //! Session management for Native Office VSTO connections.
 //!
-//! Each VSTO Add-in (Word / Excel / PowerPoint) maintains one session.
+//! Each VSTO Add-in (Word / Excel / PowerPoint / Visio) maintains one session.
 //! The SessionManager routes incoming messages to the correct handler
 //! and tracks insertion anchors per session.
 
@@ -23,6 +23,7 @@ pub enum HostType {
     Word,
     Excel,
     PowerPoint,
+    Visio,
 }
 
 impl HostType {
@@ -31,6 +32,7 @@ impl HostType {
             "word" => Some(Self::Word),
             "excel" => Some(Self::Excel),
             "powerpoint" => Some(Self::PowerPoint),
+            "visio" => Some(Self::Visio),
             _ => None,
         }
     }
@@ -46,7 +48,7 @@ impl HostType {
                 "insert_table",
                 "read_table",
             ],
-            Self::Excel | Self::PowerPoint => {
+            Self::Excel | Self::PowerPoint | Self::Visio => {
                 vec!["insert_formula", "replace_formula", "read_selection"]
             }
         }
@@ -217,6 +219,12 @@ impl SessionManager {
                         if caps.read_table {
                             cap_list.push("read_table".to_string());
                         }
+                        cap_list.extend(
+                            caps.features
+                                .iter()
+                                .filter(|(_, enabled)| **enabled)
+                                .map(|(name, _)| name.clone()),
+                        );
                         session.capabilities = cap_list;
                     }
                     log::info!(
@@ -613,10 +621,12 @@ impl SessionManager {
                         HostType::Word => "word",
                         HostType::Excel => "excel",
                         HostType::PowerPoint => "powerpoint",
+                        HostType::Visio => "visio",
                     })
                 }) {
                     Some("excel") => super::office_transactions::OfficeHostKind::Excel,
                     Some("powerpoint") => super::office_transactions::OfficeHostKind::PowerPoint,
+                    Some("visio") => super::office_transactions::OfficeHostKind::Visio,
                     _ => super::office_transactions::OfficeHostKind::Word,
                 };
                 let transaction =

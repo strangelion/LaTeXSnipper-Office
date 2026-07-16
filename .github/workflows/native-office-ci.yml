@@ -77,7 +77,7 @@ jobs:
           /m /t:Restore,Build /p:RestorePackagesConfig=true
           /p:Configuration=Release /p:Platform=AnyCPU /p:WarningLevel=4
           /p:TreatWarningsAsErrors=true /v:minimal
-      - name: Run PendingPayload ACL/transport and strict Base64 tests
+      - name: Run PendingPayload, strict Base64, and Visio pure-logic tests
         shell: pwsh
         run: |
           & apps\native-office\LaTeXSnipper.Shared.Tests\bin\Release\LaTeXSnipper.Shared.Tests.exe

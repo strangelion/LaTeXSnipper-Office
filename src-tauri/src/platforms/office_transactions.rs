@@ -28,6 +28,7 @@ pub enum OfficeHostKind {
     Word,
     Excel,
     PowerPoint,
+    Visio,
     WpsWriter,
     WpsSpreadsheets,
     WpsPresentation,
@@ -940,11 +941,12 @@ mod tests {
     }
 
     #[test]
-    fn six_hosts_serialize_round_trip() {
+    fn seven_hosts_serialize_round_trip() {
         for host in [
             OfficeHostKind::Word,
             OfficeHostKind::Excel,
             OfficeHostKind::PowerPoint,
+            OfficeHostKind::Visio,
             OfficeHostKind::WpsWriter,
             OfficeHostKind::WpsSpreadsheets,
             OfficeHostKind::WpsPresentation,

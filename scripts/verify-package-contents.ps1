@@ -83,6 +83,30 @@ if ($WindowsPackageRoots.Count -gt 0) {
     }
     $dumpbin = Resolve-Dumpbin
     if ([string]::IsNullOrWhiteSpace($dumpbin)) { throw "dumpbin.exe is required for export and dependency verification" }
+
+    foreach ($hostName in @("Word", "Excel", "PowerPoint", "Visio")) {
+        foreach ($extension in @("dll", "vsto", "dll.manifest")) {
+            $fileName = "LaTeXSnipper.$hostName.$extension"
+            $source = Join-Path $staging "$hostName\$fileName"
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                throw "Native Office staging is missing $hostName payload: $source"
+            }
+            $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+            foreach ($rootValue in $WindowsPackageRoots) {
+                $root = (Resolve-Path -LiteralPath $rootValue).Path
+                $matches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter $fileName)
+                if ($matches.Count -eq 0) {
+                    throw "Packaged $hostName payload is missing from ${root}: $fileName"
+                }
+                foreach ($match in $matches) {
+                    $packageHash = (Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash
+                    if ($packageHash -ne $sourceHash) {
+                        throw "VSTO staging/package hash mismatch: host=$hostName file=$fileName staging=$sourceHash package=$packageHash path=$($match.FullName)"
+                    }
+                }
+            }
+        }
+    }
 }
 
 function Get-PeMachine([string]$Path) {
@@ -140,6 +164,7 @@ function Assert-WpsPayload([string]$PackageRoot) {
             throw "WPS manifest version mismatch in $wps; expected=$ExpectedVersion"
         }
     }
+
 }
 
 function Assert-ResourcePayload([string]$PackageRoot) {
