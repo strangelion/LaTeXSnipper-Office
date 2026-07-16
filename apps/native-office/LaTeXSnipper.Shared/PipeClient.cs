@@ -33,6 +33,7 @@ public class PipeClient : IDisposable
     private NamedPipeClientStream? _pipe;
     private readonly string _pipeName;
     private bool _connected;
+    private int _disconnectSignaled;
     private readonly object _writeLock = new();
 
     // Pending requests: requestId -> TaskCompletionSource
@@ -66,6 +67,7 @@ public class PipeClient : IDisposable
             );
 
             await _pipe.ConnectAsync(5000, ct);
+            Interlocked.Exchange(ref _disconnectSignaled, 0);
             _connected = true;
             return true;
         }
@@ -109,8 +111,7 @@ public class PipeClient : IDisposable
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[PipeClient] SendOnly failed: {ex.Message}");
-            _connected = false;
-            Disconnected?.Invoke(this, EventArgs.Empty);
+            SignalDisconnected();
         }
         return Task.CompletedTask;
     }
@@ -125,7 +126,7 @@ public class PipeClient : IDisposable
             return null;
 
         // Register pending request before sending
-        var tcs = new TaskCompletionSource<DesktopMessage>();
+        var tcs = new TaskCompletionSource<DesktopMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingRequests[message.RequestId] = tcs;
 
         try
@@ -164,8 +165,7 @@ public class PipeClient : IDisposable
         {
             System.Diagnostics.Debug.WriteLine($"[PipeClient] Send failed: {ex.Message}");
             _pendingRequests.TryRemove(message.RequestId, out _);
-            _connected = false;
-            Disconnected?.Invoke(this, EventArgs.Empty);
+            SignalDisconnected();
             return null;
         }
     }
@@ -219,8 +219,7 @@ public class PipeClient : IDisposable
         }
         finally
         {
-            _connected = false;
-            Disconnected?.Invoke(this, EventArgs.Empty);
+            SignalDisconnected();
         }
     }
 
@@ -285,7 +284,7 @@ public class PipeClient : IDisposable
     public void Disconnect()
     {
         _readerCts?.Cancel();
-        _connected = false;
+        SignalDisconnected();
 
         // Complete all pending requests with error
         foreach (var kvp in _pendingRequests)
@@ -300,6 +299,14 @@ public class PipeClient : IDisposable
             OfficeOperationLog.Failure("pipe-dispose", "shared", null, ex);
         }
         _pipe = null;
+    }
+
+    private void SignalDisconnected()
+    {
+        bool wasConnected = _connected;
+        _connected = false;
+        if (wasConnected && Interlocked.Exchange(ref _disconnectSignaled, 1) == 0)
+            Disconnected?.Invoke(this, EventArgs.Empty);
     }
 
     public void Dispose()

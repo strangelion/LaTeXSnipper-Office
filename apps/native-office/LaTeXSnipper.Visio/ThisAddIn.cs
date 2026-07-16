@@ -14,16 +14,22 @@ namespace LaTeXSnipper.Visio
     {
         private Host.VisioAdapter? _adapter;
         private PipeClient? _pipeClient;
+        private PipeReconnectCoordinator? _pipeReconnect;
         private OfficeStaDispatcher? _staDispatcher;
+        private VisioRibbonExtensibility? _ribbon;
         private string _sessionId = "";
-        private bool _pipeConnected;
+        private volatile bool _pipeConnected;
+        private string _hostVersion = "";
 
         internal Host.VisioAdapter? Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
         internal string SessionId => _sessionId;
 
-        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject() =>
-            new VisioRibbonExtensibility();
+        protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
+        {
+            _ribbon = new VisioRibbonExtensibility();
+            return _ribbon;
+        }
 
         internal void Send(VstoMessage message)
         {
@@ -34,48 +40,84 @@ namespace LaTeXSnipper.Visio
         {
             _staDispatcher = new OfficeStaDispatcher("visio");
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            _hostVersion = Application.Version;
             _adapter = new Host.VisioAdapter(Application);
             SubscribeApplicationEvents();
-            _ = InitializePipeAsync();
+            _pipeReconnect = new PipeReconnectCoordinator(
+                "visio",
+                ConnectPipeOnceAsync,
+                OnPipeConnectionChanged);
+            _pipeReconnect.Start();
         }
 
-        private async Task InitializePipeAsync()
+        private async Task<bool> ConnectPipeOnceAsync(Action disconnected, CancellationToken cancellationToken)
         {
-            for (int attempt = 1; attempt <= 60; attempt++)
+            try
             {
-                try
+                _pipeClient?.Dispose();
+                _pipeClient = new PipeClient();
+                _pipeClient.Disconnected += (_, __) => disconnected();
+                if (!await _pipeClient.ConnectAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    _pipeClient?.Dispose();
-                    _pipeClient = new PipeClient();
-                    if (!await _pipeClient.ConnectAsync())
-                    {
-                        await Task.Delay(3000).ConfigureAwait(false);
-                        continue;
-                    }
-                    _pipeClient.MessageReceived += OnMessageReceived;
-                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
-                    if (await _pipeClient.SendHelloAsync(_sessionId, Handshake.GetOrCreateSecret(), "visio", Application.Version))
-                    {
-                        _pipeConnected = true;
-                        _staDispatcher?.TryPost("visio-send-host-ready", SendHostReady);
-                        return;
-                    }
+                    _pipeClient.Dispose();
+                    _pipeClient = null;
+                    return false;
                 }
-                catch (Exception ex)
+
+                _pipeClient.MessageReceived += OnMessageReceived;
+                _ = _pipeClient.StartListeningAsync(cancellationToken);
+                bool helloOk = await _pipeClient.SendHelloAsync(
+                    _sessionId,
+                    Handshake.GetOrCreateSecret(),
+                    "visio",
+                    _hostVersion).ConfigureAwait(false);
+                if (!helloOk)
                 {
-                    OfficeOperationLog.Failure("connect-pipe", "visio", null, ex);
+                    _pipeClient.Dispose();
+                    _pipeClient = null;
+                    return false;
                 }
-                await Task.Delay(3000).ConfigureAwait(false);
+
+                PipeClient connectedClient = _pipeClient;
+                _staDispatcher?.TryPost("visio-send-host-ready", () => SendHostReady(connectedClient));
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("connect-pipe", "visio", null, ex);
+                _pipeClient?.Dispose();
+                _pipeClient = null;
+                return false;
             }
         }
 
-        private void SendHostReady()
+        private void OnPipeConnectionChanged(bool connected)
         {
-            if (_adapter == null || _pipeClient == null) return;
-            _ = _pipeClient.SendHostReadyAsync(
+            _pipeConnected = connected;
+            _staDispatcher?.TryPost("visio-refresh-ribbon-connection", () =>
+            {
+                try
+                {
+                    _ribbon?.NotifyConnectionChanged();
+                }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("refresh-ribbon-connection", "visio", null, ex);
+                }
+            });
+        }
+
+        private void SendHostReady(PipeClient connectedClient)
+        {
+            if (_adapter == null || !ReferenceEquals(_pipeClient, connectedClient)) return;
+            _ = connectedClient.SendHostReadyAsync(
                 _sessionId,
                 "visio",
-                Application.Version,
+                _hostVersion,
                 new Capabilities
                 {
                     InsertFormula = true,
@@ -249,8 +291,10 @@ namespace LaTeXSnipper.Visio
         private void ThisAddIn_Shutdown(object sender, EventArgs e)
         {
             UnsubscribeApplicationEvents();
+            _pipeReconnect?.Dispose();
             _pipeClient?.Disconnect();
             _staDispatcher?.Dispose();
+            _pipeConnected = false;
         }
 
         private void InternalStartup()

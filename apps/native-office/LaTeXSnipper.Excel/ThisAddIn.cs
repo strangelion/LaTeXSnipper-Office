@@ -12,14 +12,16 @@ namespace LaTeXSnipper.Excel
     public partial class ThisAddIn
     {
         private Host.ExcelAdapter _adapter;
-        private PipeClient _pipeClient;
+        private PipeClient? _pipeClient;
+        private PipeReconnectCoordinator? _pipeReconnect;
         private OfficeStaDispatcher? _staDispatcher;
+        private ExcelRibbonExtensibility? _ribbon;
         private string _sessionId;
-        private bool _pipeConnected;
+        private string _hostVersion = "";
+        private volatile bool _pipeConnected;
 
         internal Host.ExcelAdapter Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
-        internal PipeClient PipeClient => _pipeClient;
         internal string SessionId => _sessionId;
 
         internal void Send(VstoMessage msg)
@@ -30,7 +32,8 @@ namespace LaTeXSnipper.Excel
 
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
-            return new ExcelRibbonExtensibility();
+            _ribbon = new ExcelRibbonExtensibility();
+            return _ribbon;
         }
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
@@ -38,8 +41,13 @@ namespace LaTeXSnipper.Excel
             System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Startup reached.");
             _staDispatcher = new OfficeStaDispatcher("excel");
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            _hostVersion = Application.Version ?? "";
             _adapter = new Host.ExcelAdapter(Application);
-            _ = InitializePipeAsync();
+            _pipeReconnect = new PipeReconnectCoordinator(
+                "excel",
+                ConnectPipeOnceAsync,
+                OnPipeConnectionChanged);
+            _pipeReconnect.Start();
 
             // Track workbook/sheet changes
             Application.WorkbookActivate += OnWorkbookChange;
@@ -64,57 +72,90 @@ namespace LaTeXSnipper.Excel
             catch (Exception ex) { OfficeOperationLog.Failure("startup-dispatch", "excel", null, ex); }
         }
 
-        private async Task InitializePipeAsync()
+        private async Task<bool> ConnectPipeOnceAsync(Action disconnected, CancellationToken cancellationToken)
         {
-            for (int attempt = 1; attempt <= 60; attempt++)
+            try
+            {
+                _pipeClient?.Dispose();
+                var candidate = new PipeClient();
+                _pipeClient = candidate;
+                candidate.Disconnected += (_, __) => disconnected();
+                if (!await candidate.ConnectAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    candidate.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                candidate.MessageReceived += OnMessageReceived;
+                _ = candidate.StartListeningAsync(cancellationToken);
+                bool helloOk = await candidate.SendHelloAsync(
+                    _sessionId,
+                    Handshake.GetOrCreateSecret(),
+                    "excel",
+                    _hostVersion).ConfigureAwait(false);
+                if (!helloOk)
+                {
+                    candidate.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                PipeClient connectedClient = candidate;
+                _staDispatcher?.TryPost("send-host-ready", () =>
+                {
+                    if (!ReferenceEquals(_pipeClient, connectedClient)) return;
+                    try
+                    {
+                        var ctx = _adapter.GetCurrentContextId();
+                        _ = connectedClient.SendHostReadyAsync(
+                            _sessionId,
+                            "excel",
+                            _hostVersion,
+                            new Capabilities
+                            {
+                                InsertFormula = true,
+                                ReplaceFormula = true,
+                                ReadSelection = true,
+                                InsertTable = false,
+                                ReadTable = false,
+                            },
+                            ctx);
+                    }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure("send-host-ready", "excel", null, ex);
+                    }
+                });
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("connect-pipe", "excel", null, ex);
+                _pipeClient?.Dispose();
+                _pipeClient = null;
+                return false;
+            }
+        }
+
+        private void OnPipeConnectionChanged(bool connected)
+        {
+            _pipeConnected = connected;
+            _staDispatcher?.TryPost("refresh-ribbon-connection", () =>
             {
                 try
                 {
-                    if (_pipeClient != null) { _pipeClient.Dispose(); _pipeClient = null; }
-                    _pipeClient = new PipeClient();
-                    if (!await _pipeClient.ConnectAsync())
-                    {
-                        if (attempt == 1) System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Waiting for Desktop...");
-                        await Task.Delay(3000);
-                        continue;
-                    }
-                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Pipe connected.");
-                    _pipeClient.MessageReceived += OnMessageReceived;
-                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
-                    var secret = Handshake.GetOrCreateSecret();
-                    if (await _pipeClient.SendHelloAsync(_sessionId, secret, "excel", Application.Version))
-                    {
-                        _pipeConnected = true;
-                        _staDispatcher?.TryPost("send-host-ready", () =>
-                        {
-                            try
-                            {
-                                var ctx = _adapter.GetCurrentContextId();
-                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "excel", Application.Version,
-                                    new Capabilities
-                                    {
-                                        InsertFormula = true,
-                                        ReplaceFormula = true,
-                                        ReadSelection = true,
-                                        InsertTable = false,
-                                        ReadTable = false,
-                                    },
-                                    ctx);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] HOST_READY error: " + ex.Message);
-                            }
-                        });
-                        return;
-                    }
+                    _ribbon?.NotifyConnectionChanged();
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.Excel] Init " + attempt + ": " + ex.Message);
+                    OfficeOperationLog.Failure("refresh-ribbon-connection", "excel", null, ex);
                 }
-                await Task.Delay(3000);
-            }
+            });
         }
 
         private void OnMessageReceived(object sender, DesktopMessage message)
@@ -250,8 +291,10 @@ namespace LaTeXSnipper.Excel
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            _pipeReconnect?.Dispose();
             _pipeClient?.Disconnect();
             _staDispatcher?.Dispose();
+            _pipeConnected = false;
         }
 
         /// <summary>

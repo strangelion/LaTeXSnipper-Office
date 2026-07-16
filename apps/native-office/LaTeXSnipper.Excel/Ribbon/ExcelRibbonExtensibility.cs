@@ -110,7 +110,7 @@ namespace LaTeXSnipper.Excel
             }
         }
 
-        public void NotifyConnected()
+        public void NotifyConnectionChanged()
         {
             _ribbon?.Invalidate();
         }

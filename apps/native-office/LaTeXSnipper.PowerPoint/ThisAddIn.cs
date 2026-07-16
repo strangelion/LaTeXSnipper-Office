@@ -12,14 +12,16 @@ namespace LaTeXSnipper.PowerPoint
     public partial class ThisAddIn
     {
         private Host.PowerPointAdapter _adapter;
-        private PipeClient _pipeClient;
+        private PipeClient? _pipeClient;
+        private PipeReconnectCoordinator? _pipeReconnect;
         private OfficeStaDispatcher? _staDispatcher;
+        private PowerPointRibbonExtensibility? _ribbon;
         private string _sessionId;
-        private bool _pipeConnected;
+        private string _hostVersion = "";
+        private volatile bool _pipeConnected;
 
         internal Host.PowerPointAdapter Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
-        internal PipeClient PipeClient => _pipeClient;
         internal string SessionId => _sessionId;
 
         internal void Send(VstoMessage msg)
@@ -30,7 +32,8 @@ namespace LaTeXSnipper.PowerPoint
 
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
-            return new PowerPointRibbonExtensibility();
+            _ribbon = new PowerPointRibbonExtensibility();
+            return _ribbon;
         }
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
@@ -38,8 +41,13 @@ namespace LaTeXSnipper.PowerPoint
             System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Startup reached.");
             _staDispatcher = new OfficeStaDispatcher("powerpoint");
             _sessionId = Guid.NewGuid().ToString("N").Substring(0, 12);
+            _hostVersion = Application.Version ?? "";
             _adapter = new Host.PowerPointAdapter(Application);
-            _ = InitializePipeAsync();
+            _pipeReconnect = new PipeReconnectCoordinator(
+                "powerpoint",
+                ConnectPipeOnceAsync,
+                OnPipeConnectionChanged);
+            _pipeReconnect.Start();
 
             // Register activation events to keep document context fresh
             Application.PresentationOpen += OnPresentationOpen;
@@ -81,57 +89,90 @@ namespace LaTeXSnipper.PowerPoint
             catch (Exception ex) { OfficeOperationLog.Failure("startup-dispatch", "powerpoint", null, ex); }
         }
 
-        private async Task InitializePipeAsync()
+        private async Task<bool> ConnectPipeOnceAsync(Action disconnected, CancellationToken cancellationToken)
         {
-            for (int attempt = 1; attempt <= 60; attempt++)
+            try
+            {
+                _pipeClient?.Dispose();
+                var candidate = new PipeClient();
+                _pipeClient = candidate;
+                candidate.Disconnected += (_, __) => disconnected();
+                if (!await candidate.ConnectAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    candidate.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                candidate.MessageReceived += OnMessageReceived;
+                _ = candidate.StartListeningAsync(cancellationToken);
+                bool helloOk = await candidate.SendHelloAsync(
+                    _sessionId,
+                    Handshake.GetOrCreateSecret(),
+                    "powerpoint",
+                    _hostVersion).ConfigureAwait(false);
+                if (!helloOk)
+                {
+                    candidate.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                PipeClient connectedClient = candidate;
+                _staDispatcher?.TryPost("send-host-ready", () =>
+                {
+                    if (!ReferenceEquals(_pipeClient, connectedClient)) return;
+                    try
+                    {
+                        var ctx = _adapter.GetCurrentContextId();
+                        _ = connectedClient.SendHostReadyAsync(
+                            _sessionId,
+                            "powerpoint",
+                            _hostVersion,
+                            new Capabilities
+                            {
+                                InsertFormula = true,
+                                ReplaceFormula = true,
+                                ReadSelection = true,
+                                InsertTable = false,
+                                ReadTable = false,
+                            },
+                            ctx);
+                    }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure("send-host-ready", "powerpoint", null, ex);
+                    }
+                });
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("connect-pipe", "powerpoint", null, ex);
+                _pipeClient?.Dispose();
+                _pipeClient = null;
+                return false;
+            }
+        }
+
+        private void OnPipeConnectionChanged(bool connected)
+        {
+            _pipeConnected = connected;
+            _staDispatcher?.TryPost("refresh-ribbon-connection", () =>
             {
                 try
                 {
-                    if (_pipeClient != null) { _pipeClient.Dispose(); _pipeClient = null; }
-                    _pipeClient = new PipeClient();
-                    if (!await _pipeClient.ConnectAsync())
-                    {
-                        if (attempt == 1) System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Waiting for Desktop...");
-                        await Task.Delay(3000);
-                        continue;
-                    }
-                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Pipe connected.");
-                    _pipeClient.MessageReceived += OnMessageReceived;
-                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
-                    var secret = Handshake.GetOrCreateSecret();
-                    if (await _pipeClient.SendHelloAsync(_sessionId, secret, "powerpoint", Application.Version))
-                    {
-                        _pipeConnected = true;
-                        _staDispatcher?.TryPost("send-host-ready", () =>
-                        {
-                            try
-                            {
-                                var ctx = _adapter.GetCurrentContextId();
-                                _ = _pipeClient.SendHostReadyAsync(_sessionId, "powerpoint", Application.Version,
-                                    new Capabilities
-                                    {
-                                        InsertFormula = true,
-                                        ReplaceFormula = true,
-                                        ReadSelection = true,
-                                        InsertTable = false,
-                                        ReadTable = false,
-                                    },
-                                    ctx);
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] HOST_READY error: " + ex.Message);
-                            }
-                        });
-                        return;
-                    }
+                    _ribbon?.NotifyConnectionChanged();
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine("[LaTeXSnipper.PowerPoint] Init " + attempt + ": " + ex.Message);
+                    OfficeOperationLog.Failure("refresh-ribbon-connection", "powerpoint", null, ex);
                 }
-                await Task.Delay(3000);
-            }
+            });
         }
 
         private void OnMessageReceived(object sender, DesktopMessage message)
@@ -270,8 +311,10 @@ namespace LaTeXSnipper.PowerPoint
             Application.PresentationOpen -= OnPresentationOpen;
             Application.SlideShowBegin -= OnSlideShowBegin;
             Application.SlideShowEnd -= OnSlideShowEnd;
+            _pipeReconnect?.Dispose();
             _pipeClient?.Disconnect();
             _staDispatcher?.Dispose();
+            _pipeConnected = false;
         }
 
         /// <summary>

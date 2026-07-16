@@ -15,9 +15,11 @@ namespace LaTeXSnipper.Word
         private Host.WordAdapter _adapter;
         private Metadata.TableConverter _tableConverter;
         private PipeClient _pipeClient;
+        private PipeReconnectCoordinator _pipeReconnect;
         private OfficeStaDispatcher? _staDispatcher;
+        private WordRibbonExtensibility _ribbon;
         private string _sessionId;
-        private bool _pipeConnected;
+        private volatile bool _pipeConnected;
 
         internal Host.WordAdapter Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
@@ -32,7 +34,8 @@ namespace LaTeXSnipper.Word
 
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
-            return new WordRibbonExtensibility();
+            _ribbon = new WordRibbonExtensibility();
+            return _ribbon;
         }
 
         private void ThisAddIn_Startup(object sender, System.EventArgs e)
@@ -67,107 +70,95 @@ namespace LaTeXSnipper.Word
             // Subscribe to document change events for context tracking
             Application.DocumentChange += OnDocumentChange;
 
-            _ = InitializePipeAsync();
+            _pipeReconnect = new PipeReconnectCoordinator(
+                "word",
+                ConnectPipeOnceAsync,
+                OnPipeConnectionChanged);
+            _pipeReconnect.Start();
         }
 
-        private async Task InitializePipeAsync()
+        private async Task<bool> ConnectPipeOnceAsync(Action disconnected, CancellationToken cancellationToken)
         {
-            int retryDelay = 3000;
-            int maxRetries = 60;
-            for (int attempt = 1; attempt <= maxRetries; attempt++)
+            try
+            {
+                _pipeClient?.Dispose();
+                _pipeClient = new PipeClient();
+                _pipeClient.Disconnected += (_, __) => disconnected();
+                if (!await _pipeClient.ConnectAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    _pipeClient.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                _pipeClient.MessageReceived += OnMessageReceived;
+                _ = _pipeClient.StartListeningAsync(cancellationToken);
+                bool helloOk = await _pipeClient.SendHelloAsync(
+                    _sessionId,
+                    Handshake.GetOrCreateSecret(),
+                    "word",
+                    "1.0.0").ConfigureAwait(false);
+                if (!helloOk)
+                {
+                    _pipeClient.Dispose();
+                    _pipeClient = null;
+                    return false;
+                }
+
+                PipeClient connectedClient = _pipeClient;
+                _staDispatcher?.TryPost("send-host-ready", () =>
+                {
+                    if (!ReferenceEquals(_pipeClient, connectedClient)) return;
+                    try
+                    {
+                        var contextId = _adapter.GetCurrentContextId();
+                        var doc = Application.ActiveDocument;
+                        _ = connectedClient.SendHostReadyAsync(
+                            _sessionId, "word", "1.0.0",
+                            new Capabilities
+                            {
+                                InsertFormula = true,
+                                ReplaceFormula = true,
+                                ReadSelection = true,
+                                InsertTable = true,
+                                ReadTable = true,
+                            },
+                            contextId, doc?.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure("send-host-ready", "word", null, ex);
+                    }
+                });
+                return true;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("connect-pipe", "word", null, ex);
+                _pipeClient?.Dispose();
+                _pipeClient = null;
+                return false;
+            }
+        }
+
+        private void OnPipeConnectionChanged(bool connected)
+        {
+            _pipeConnected = connected;
+            _staDispatcher?.TryPost("refresh-ribbon-connection", () =>
             {
                 try
                 {
-                    if (_pipeClient != null)
-                    {
-                        _pipeClient.Dispose();
-                        _pipeClient = null;
-                    }
-
-                    _pipeClient = new PipeClient();
-
-                    var connected = await _pipeClient.ConnectAsync();
-                    if (!connected)
-                    {
-                        if (attempt == 1)
-                            System.Diagnostics.Debug.WriteLine(
-                                "[LaTeXSnipper.Word] Pipe connect failed (Desktop not running?). Retrying...");
-                        await Task.Delay(retryDelay);
-                        continue;
-                    }
-
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] Pipe connected.");
-
-                    _pipeClient.MessageReceived += OnMessageReceived;
-
-                    _ = _pipeClient.StartListeningAsync(CancellationToken.None);
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] Pipe reader loop started.");
-
-                    var dpapiSecret = Handshake.GetOrCreateSecret();
-                    var helloOk = await _pipeClient.SendHelloAsync(
-                        _sessionId, dpapiSecret, "word", "1.0.0");
-
-                    if (!helloOk)
-                    {
-                        System.Diagnostics.Debug.WriteLine(
-                            "[LaTeXSnipper.Word] HELLO handshake failed.");
-                        return;
-                    }
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] HELLO_ACK received.");
-
-                    _pipeConnected = true;
-
-                    if (_staDispatcher != null)
-                    {
-                        _staDispatcher.TryPost("send-host-ready", () =>
-                        {
-                            try
-                            {
-                                var contextId = _adapter.GetCurrentContextId();
-                                var doc = Application.ActiveDocument;
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"[LaTeXSnipper.Word] Sending HOST_READY...");
-
-                                _ = _pipeClient.SendHostReadyAsync(
-                                    _sessionId, "word", "1.0.0",
-                                    new Capabilities
-                                    {
-                                        InsertFormula = true,
-                                        ReplaceFormula = true,
-                                        ReadSelection = true,
-                                        InsertTable = true,
-                                        ReadTable = true,
-                                    },
-                                    contextId, doc?.Name);
-
-                                System.Diagnostics.Debug.WriteLine(
-                                    "[LaTeXSnipper.Word] HOST_READY sent.");
-                            }
-                            catch (Exception ex)
-                            {
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"[LaTeXSnipper.Word] HOST_READY error: {ex.Message}");
-                            }
-                        });
-                    }
-
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LaTeXSnipper.Word] Pipe initialization complete.");
-                    return; // Success - exit the retry loop
+                    _ribbon?.NotifyConnectionChanged();
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[LaTeXSnipper.Word] Pipe init attempt {attempt} failed: {ex.Message}");
-                    _pipeConnected = false;
-                    await Task.Delay(retryDelay);
+                    OfficeOperationLog.Failure("refresh-ribbon-connection", "word", null, ex);
                 }
-            }
-            System.Diagnostics.Debug.WriteLine(
-                "[LaTeXSnipper.Word] Pipe init failed after all retries.");
+            });
         }
 
         private void OnMessageReceived(object sender, DesktopMessage message)
@@ -417,6 +408,7 @@ namespace LaTeXSnipper.Word
                 "[LaTeXSnipper.Word] ThisAddIn_Shutdown reached.");
 
             Application.DocumentChange -= OnDocumentChange;
+            _pipeReconnect?.Dispose();
             _pipeClient?.Disconnect();
             _staDispatcher?.Dispose();
             _pipeConnected = false;
