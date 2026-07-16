@@ -11,6 +11,7 @@ pub struct OfficeStatus {
     pub word: OfficeAppStatus,
     pub excel: OfficeAppStatus,
     pub powerpoint: OfficeAppStatus,
+    pub visio: OfficeAppStatus,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +42,7 @@ impl OfficeStatus {
             word: OfficeAppStatus::unavailable(),
             excel: OfficeAppStatus::unavailable(),
             powerpoint: OfficeAppStatus::unavailable(),
+            visio: OfficeAppStatus::unavailable(),
         }
     }
 }
@@ -105,12 +107,17 @@ fn detect_windows_office() -> OfficeStatus {
     let word_status = detect_word();
     let excel_status = detect_excel();
     let ppt_status = detect_powerpoint();
+    let visio_status = detect_visio();
 
     OfficeStatus {
-        installed: word_status.available || excel_status.available || ppt_status.available,
+        installed: word_status.available
+            || excel_status.available
+            || ppt_status.available
+            || visio_status.available,
         word: word_status,
         excel: excel_status,
         powerpoint: ppt_status,
+        visio: visio_status,
     }
 }
 
@@ -125,6 +132,7 @@ fn detect_macos_office() -> OfficeStatus {
         word: word_status,
         excel: excel_status,
         powerpoint: ppt_status,
+        visio: OfficeAppStatus::unavailable(),
     }
 }
 
@@ -306,6 +314,49 @@ fn detect_powerpoint() -> OfficeAppStatus {
     status
 }
 
+#[cfg(target_os = "windows")]
+fn detect_visio() -> OfficeAppStatus {
+    let mut status = OfficeAppStatus::unavailable();
+    for version in ["16.0", "15.0"] {
+        let key = format!(
+            r"HKLM\SOFTWARE\Microsoft\Office\{}\Visio\InstallRoot",
+            version
+        );
+        if let Some(path) = query_reg(&key, "Path") {
+            status.available = true;
+            status.install_path = Some(path);
+            status.version = Some(version.to_string());
+            break;
+        }
+    }
+
+    if !status.available {
+        if let Some(root) = query_reg(
+            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+            "InstallationPath",
+        ) {
+            let candidates = [
+                PathBuf::from(&root)
+                    .join("root")
+                    .join("Office16")
+                    .join("VISIO.EXE"),
+                PathBuf::from(&root).join("Office16").join("VISIO.EXE"),
+            ];
+            if candidates.iter().any(|path| path.is_file()) {
+                status.available = true;
+                status.install_path = Some(root);
+                status.version = query_reg(
+                    r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
+                    "ClientVersionToReport",
+                );
+            }
+        }
+    }
+
+    status.plugin_installed = office_addin_registered("Visio");
+    status
+}
+
 #[allow(dead_code, reason = "Reserved for standalone WPS diagnostics")]
 #[cfg(target_os = "windows")]
 fn detect_wps() -> bool {
@@ -374,7 +425,9 @@ fn query_reg(key: &str, value_name: &str) -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn office_addin_registered(app: &str) -> bool {
+    let native_addin = format!("LaTeXSnipper.NativeOffice.{}", app);
     let names = [
+        native_addin.as_str(),
         "LaTeXSnipper.OfficePlugin.WordVstoAddIn",
         "LaTeXSnipper.OfficePlugin.PowerPointVstoAddIn",
         "LaTeXSnipper.Office",

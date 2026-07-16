@@ -60,7 +60,7 @@ PowerPointApi 没有在所有目标版本中可靠暴露当前幻灯片尺寸，
 
 ## Windows Native Office
 
-Word/Excel/PowerPoint VSTO 继续使用现有 Native 插入路径。OLE server 新增 `SetDisplayExtentHimetric(LONG cx, LONG cy)`：
+Word/Excel/PowerPoint VSTO 继续使用现有 Native 插入路径。Visio Windows Desktop 使用独立 VSTO 的 SVG-first vector shape 路径；PNG 是显式 fallback，OLE 仍为 Experimental/unavailable。Visio 不属于本项目的 Office.js 宿主。详细边界见 [Visio Native 集成](office/visio-native-integration.md)。OLE server 新增 `SetDisplayExtentHimetric(LONG cx, LONG cy)`：
 
 - natural extent 始终来自 EMF presentation；
 - host 计算 display extent 并显式写回 server；
@@ -79,7 +79,7 @@ Windows Office.js manifest 通过每宿主 WEF 注册项安装并写入 refresh 
 - installed：manifest/VSTO/OLE 文件与注册状态可验证；
 - trusted：生产证书链可信；本地自动生成证书仅用于开发；
 - connected：Office task pane 的 heartbeat 能连接正在运行的 Bridge；
-- loaded：需要在真实 Word/Excel/PowerPoint 中确认 add-in 启用和 UI 可见。
+- loaded：需要在真实 Word/Excel/PowerPoint/Visio 中确认 add-in 启用和 UI 可见。
 
 开发构建：
 
@@ -96,9 +96,10 @@ npm run build:native-office
 | Windows Word Native | VSTO 编译、manifest hash、C# tests、x86/x64 OLE tests、MSI/Bootstrapper | 插入/编辑/删除、编号重排、表格/分栏、安装后加载 |
 | Windows Excel Native | VSTO 编译、OLE extent 与打包 | 真实 workbook 插入/替换及缩放 |
 | Windows PowerPoint Native | VSTO 编译、显式 extent、双位数 OLE | 不同比例 slide 的插入/替换/移动后持久化 |
+| Windows Visio Native | VSTO 编译、protocol v3、metadata/placement/rollback tests、manifest/package hash | x86/x64 Visio 中安装加载、SVG/PNG、选择 CRUD、保存重开与页面切换 |
 | Office.js Word | TypeScript build、metadata/OOXML DOM tests、协议 schema | Windows、macOS、Web 中的真实 SDT/custom XML/REF 行为 |
 | Office.js Excel/PowerPoint | 官方 typings、requirement-set 测试、宿主接口 mock、禁止纯文本 fallback | ExcelApi 1.19 真机行为；PowerPoint Preview `addPicture` 与 metadata 生命周期 |
 | macOS WEF | fake HOME 三宿主安装/修复测试 | 真机 sandbox、证书信任与宿主加载 |
 | Linux | Rust 路由测试返回 unsupported | 无桌面 Microsoft Office 支持 |
 
-当前自动化不能替代真实 Office GUI。发布前必须用受支持的 Office 版本完成 Word、Excel、PowerPoint 安装/加载与文档往返测试，并使用正式代码签名证书重新构建安装器。
+当前自动化不能替代真实 Office GUI。发布前必须用受支持的 Office 版本完成 Word、Excel、PowerPoint、Visio 安装/加载与文档往返测试，并使用正式代码签名证书重新构建安装器。

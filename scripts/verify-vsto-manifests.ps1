@@ -92,7 +92,7 @@ function Assert-ClickOnceManifest {
     }
 }
 
-$hosts = @("Word", "Excel", "PowerPoint")
+$hosts = @("Word", "Excel", "PowerPoint", "Visio")
 foreach ($hostName in $hosts) {
     $hostDirectory = Join-Path $PayloadRoot $hostName
     if (-not (Test-Path -LiteralPath $hostDirectory -PathType Container)) {

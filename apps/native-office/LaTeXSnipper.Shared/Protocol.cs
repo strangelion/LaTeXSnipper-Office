@@ -117,6 +117,7 @@ public class Capabilities
     [JsonPropertyName("insertTable")] public bool InsertTable { get; set; } = true;
     [JsonPropertyName("readTable")] public bool ReadTable { get; set; } = true;
     [JsonPropertyName("requiresSvgForFormula")] public bool RequiresSvgForFormula { get; set; }
+    [JsonPropertyName("features")] public Dictionary<string, bool>? Features { get; set; }
 }
 
 public class VstoContextChanged : VstoMessage

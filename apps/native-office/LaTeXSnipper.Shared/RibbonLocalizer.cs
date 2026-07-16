@@ -60,7 +60,7 @@ public static class RibbonLocalizer
             ["ErrorFallbackImage"] = "Rendering unavailable; check Desktop is running.",
             ["ErrorContextChanged"] = "Document context changed — please retry.",
             ["ErrorNoRenderData"] = "No image data for the current storage mode.",
-            ["HelpText"] = "LaTeXSnipper v1.0.0\nNative Office plugin for Word, Excel, PowerPoint.",
+            ["HelpText"] = "LaTeXSnipper v1.0.0\nNative Office plugin for Word, Excel, PowerPoint, and Visio.",
             ["ReadFormulaPrefix"] = "LaTeX: ",
             ["ErrorPrefix"] = "Error: ",
         },

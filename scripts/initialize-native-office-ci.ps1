@@ -49,6 +49,26 @@ if ($LASTEXITCODE -ne 0) { throw "WiX version query failed with exit code $LASTE
     Tee-Object -FilePath (Join-Path $diagnostics "vsto-gac-status.log")
 if ($LASTEXITCODE -ne 0) { throw "VSTO runtime preparation failed with exit code $LASTEXITCODE." }
 
+$visioPiaCandidates = @(
+    (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Shared\Visual Studio Tools for Office\PIA\Office15\Microsoft.Office.Interop.Visio.dll"),
+    (Join-Path $env:ProgramFiles "Microsoft Visual Studio\Shared\Visual Studio Tools for Office\PIA\Office15\Microsoft.Office.Interop.Visio.dll")
+) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$visioPia = $visioPiaCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $visioPia) {
+    $visioPiaCandidates | Set-Content -LiteralPath (Join-Path $diagnostics "visio-pia-candidates.txt") -Encoding UTF8
+    throw "Microsoft.Office.Interop.Visio.dll was not found in the pinned VSTO PIA locations."
+}
+$visioPiaInfo = Get-Item -LiteralPath $visioPia
+@(
+    "Path=$($visioPiaInfo.FullName)"
+    "Version=$($visioPiaInfo.VersionInfo.FileVersion)"
+    "SHA256=$((Get-FileHash -LiteralPath $visioPiaInfo.FullName -Algorithm SHA256).Hash)"
+) | Set-Content -LiteralPath (Join-Path $diagnostics "visio-pia.txt") -Encoding UTF8
+$env:VisioPiaPath = $visioPiaInfo.FullName
+if ($env:GITHUB_ENV) {
+    "VisioPiaPath=$($visioPiaInfo.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+}
+
 & nuget restore $NuGetSolution *>&1 |
     Tee-Object -FilePath (Join-Path $diagnostics "nuget-restore.log")
 if ($LASTEXITCODE -ne 0) { throw "Native Office NuGet restore failed with exit code $LASTEXITCODE." }

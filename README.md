@@ -11,7 +11,7 @@
 | 前端 UI | HTML/CSS/JavaScript | Vite 构建 |
 | 公式编辑 | MathLive | WYSIWYG 编辑器 |
 | 公式渲染 | MathJax | LaTeX 转 SVG/MathML |
-| Office 集成 | OLE + VSTO | Word/Excel/PowerPoint 原生公式对象 |
+| Office 集成 | OLE + VSTO | Word/Excel/PowerPoint 原生公式对象；Visio 矢量 shape（Beta） |
 | Office 集成 | Web Add-in | Office.js 加载项 |
 
 ## 平台支持
@@ -59,6 +59,7 @@ LaTeXSnipper-Office/
 │   │   ├── LaTeXSnipper.Word/        # Word 插件
 │   │   ├── LaTeXSnipper.Excel/       # Excel 插件
 │   │   ├── LaTeXSnipper.PowerPoint/  # PowerPoint 插件
+│   │   ├── LaTeXSnipper.Visio/       # Visio Native VSTO（Beta）
 │   │   ├── LaTeXSnipper.Shared/      # 共享库
 │   │   ├── LaTeXSnipper.OleFormulaObjectNative/  # OLE DLL (C++)
 │   │   └── Installer/                # WiX 安装器
@@ -88,7 +89,7 @@ LaTeXSnipper-Office/
 内容包括：
 
 - Windows Desktop 安装
-- Word / Excel / PowerPoint Native Office (OLE + VSTO)
+- Word / Excel / PowerPoint Native Office (OLE + VSTO) 与 Visio Native vector VSTO（Beta）
 - Office.js Web Add-in
 - Obsidian Plugin
 - WPS Plugin
@@ -156,6 +157,7 @@ git push origin v1.2.2
 - Word: 行内/显示/编号公式
 - Excel: 单元格公式
 - PowerPoint: 幻灯片公式
+- Visio: SVG 优先、PNG fallback 的公式 shape（Beta；OLE Experimental/unavailable）
 
 ## 发布
 

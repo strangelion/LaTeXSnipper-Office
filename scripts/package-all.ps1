@@ -93,7 +93,7 @@ LaTeXSnipper Office v$Version — All-in-One Release
 
 Contents:
 $(if ($found["tauri-windows"]) { "- windows/  — Desktop application (MSI/NSIS installer)" })
-$(if ($found["vsto"]) { "- windows/vsto/ — Native Office VSTO add-in (Word/Excel/PowerPoint)" })
+$(if ($found["vsto"]) { "- windows/vsto/ — Native Office VSTO add-in (Word/Excel/PowerPoint/Visio)" })
 $(if ($found["wps"]) { "- plugins/ — WPS Office plugin (zip)" })
 $(if ($found["obsidian"]) { "- plugins/ — Obsidian plugin (zip)" })
 $(if ($found["tauri-macos"]) { "- macos/ — Desktop application for macOS (DMG)" })

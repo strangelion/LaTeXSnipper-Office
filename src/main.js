@@ -1800,6 +1800,7 @@ class UIController {
   officeHostKind(hostType) {
     if (hostType === "excel") return "excel";
     if (hostType === "powerpoint") return "powerPoint";
+    if (hostType === "visio") return "visio";
     return "word";
   }
 
@@ -5669,6 +5670,7 @@ class UIController {
         installed: false,
         word: { available: false },
         powerpoint: { available: false },
+        visio: { available: false },
       };
     }
   }
@@ -5709,6 +5711,8 @@ class UIController {
           parts.push("Excel");
         if (officeStatus.powerpoint && officeStatus.powerpoint.available)
           parts.push("PowerPoint");
+        if (officeStatus.visio && officeStatus.visio.available)
+          parts.push("Visio");
         officePlatform.desc = parts.join(" / ") || "Office detected";
       } else {
         officePlatform.desc = "未检测到 Office";

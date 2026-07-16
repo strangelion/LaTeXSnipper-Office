@@ -9,7 +9,7 @@
            UpgradeCode="E5F6A7B8-9999-AAAA-BBBB-CCCCCCCCCCCC"
            Scope="perUser">
 
-    <SummaryInformation Description="LaTeXSnipper Native Office VSTO Add-in for Word, Excel, and PowerPoint" />
+    <SummaryInformation Description="LaTeXSnipper Native Office VSTO Add-in for Word, Excel, PowerPoint, and Visio" />
 
     <!-- Produce one self-contained MSI. Do not require cab1.cab. -->
     <MediaTemplate EmbedCab="yes" />
@@ -24,6 +24,7 @@
           <Directory Id="WordDir" Name="Word" />
           <Directory Id="ExcelDir" Name="Excel" />
           <Directory Id="PowerPointDir" Name="PowerPoint" />
+          <Directory Id="VisioDir" Name="Visio" />
           <Directory Id="CertificateDir" Name="certificates" />
         </Directory>
       </Directory>
@@ -43,6 +44,22 @@
         <File Source="$(var.SharedBinDir)\System.Buffers.dll" />
         <File Source="$(var.SharedBinDir)\System.Runtime.CompilerServices.Unsafe.dll" />
         <File Source="$(var.SharedBinDir)\Microsoft.Bcl.AsyncInterfaces.dll" />
+      </Component>
+
+      <!-- Visio Add-in -->
+      <Component Id="VisioComponent" Directory="VisioDir" Guid="0A7ADDD0-AC39-4D56-B5A1-56A294D15D4F">
+        <File Source="$(var.VisioBinDir)\LaTeXSnipper.Visio.dll" />
+        <File Source="$(var.VisioBinDir)\LaTeXSnipper.Visio.vsto" />
+        <File Source="$(var.VisioBinDir)\LaTeXSnipper.Visio.dll.manifest" />
+        <File Source="$(var.SharedBinDir)\LaTeXSnipper.NativeOffice.Shared.dll" />
+        <File Source="$(var.SharedBinDir)\System.Text.Json.dll" />
+        <RegistryKey Root="HKCU" Key="Software\Microsoft\Office\Visio\Addins\LaTeXSnipper.NativeOffice.Visio">
+          <RegistryValue Type="string" Name="FriendlyName" Value="LaTeXSnipper Native Office - Visio" />
+          <RegistryValue Type="string" Name="Description" Value="Vector formula integration for Visio" />
+          <RegistryValue Type="integer" Name="LoadBehavior" Value="3" />
+          <RegistryValue Type="integer" Name="CommandLineSafe" Value="0" />
+          <RegistryValue Type="string" Name="Manifest" Value="file:///[NativeOfficeDir]Visio\LaTeXSnipper.Visio.vsto|vstolocal" />
+        </RegistryKey>
       </Component>
 
       <!-- Word Add-in -->
@@ -220,6 +237,7 @@
       <ComponentRef Id="WordComponent" />
       <ComponentRef Id="ExcelComponent" />
       <ComponentRef Id="PowerPointComponent" />
+      <ComponentRef Id="VisioComponent" />
       <ComponentRef Id="CertificateComponent" />
       <ComponentRef Id="OleRuntimeStateComponent" />
       <ComponentRef Id="OleComponentX86" />

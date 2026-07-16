@@ -41,6 +41,19 @@
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OfficeStaDispatcherTests.cs" />
+    <Compile Include="VisioIntegrationTests.cs" />
+    <Compile Include="..\LaTeXSnipper.Visio\Model\VisioFormulaMetadataCodec.cs">
+      <Link>Visio\VisioFormulaMetadataCodec.cs</Link>
+    </Compile>
+    <Compile Include="..\LaTeXSnipper.Visio\Model\VisioPlacement.cs">
+      <Link>Visio\VisioPlacement.cs</Link>
+    </Compile>
+    <Compile Include="..\LaTeXSnipper.Visio\Model\VisioReplacementTransaction.cs">
+      <Link>Visio\VisioReplacementTransaction.cs</Link>
+    </Compile>
+    <Compile Include="..\LaTeXSnipper.Visio\Model\VisioContextIdentity.cs">
+      <Link>Visio\VisioContextIdentity.cs</Link>
+    </Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

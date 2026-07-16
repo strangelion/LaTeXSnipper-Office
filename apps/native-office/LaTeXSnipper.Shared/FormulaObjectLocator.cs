@@ -9,7 +9,7 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 /// </summary>
 public class FormulaObjectLocator
 {
-    /// <summary>Word | excel | powerpoint</summary>
+    /// <summary>Word | excel | powerpoint | visio</summary>
     [JsonPropertyName("host")]
     public string Host { get; set; } = "";
 

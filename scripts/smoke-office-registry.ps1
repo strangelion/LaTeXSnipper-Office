@@ -6,8 +6,8 @@ Checks Native Office VSTO add-in registry entries after install.
 
 [CmdletBinding()]
 param(
-    [ValidateSet("Word", "Excel", "PowerPoint")]
-    [string[]]$Hosts = @("Word", "Excel", "PowerPoint")
+    [ValidateSet("Word", "Excel", "PowerPoint", "Visio")]
+    [string[]]$Hosts = @("Word", "Excel", "PowerPoint", "Visio")
 )
 
 $ErrorActionPreference = "Continue"
