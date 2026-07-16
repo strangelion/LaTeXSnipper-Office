@@ -64,6 +64,7 @@ pub async fn native_office_insert_formula(
             "ole" => "ole".to_string(),
             "image" => "image".to_string(),
             "native" => "native-omml".to_string(),
+            "vector" => "vector".to_string(),
             _ => "auto".to_string(),
         }),
         revision: 0,
