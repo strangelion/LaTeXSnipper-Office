@@ -62,6 +62,9 @@ impl HostType {
 #[derive(Debug)]
 pub struct OfficeSession {
     pub session_id: String,
+    /// Monotonically increasing counter identifying this particular connection.
+    /// Used to prevent a stale old connection from removing a newer one.
+    pub connection_id: u64,
     pub host_type: HostType,
     pub host_version: String,
     pub document_id: Option<String>,
@@ -80,6 +83,8 @@ pub struct OfficeSession {
 pub struct SessionManager {
     sessions: RwLock<HashMap<String, OfficeSession>>,
     app_handle: tauri::AppHandle,
+    /// Monotonically increasing connection counter.
+    connection_counter: std::sync::atomic::AtomicU64,
 }
 
 impl SessionManager {
@@ -87,6 +92,7 @@ impl SessionManager {
         Self {
             sessions: RwLock::new(HashMap::new()),
             app_handle,
+            connection_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -146,8 +152,10 @@ impl SessionManager {
 
                 // Register session with writer channel
                 let host = HostType::parse(&hostType).unwrap_or(HostType::Word);
+                let connection_id = self.connection_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let session = OfficeSession {
                     session_id: sessionId.clone(),
+                    connection_id,
                     host_type: host,
                     host_version: hostVersion.clone(),
                     document_id: None,
@@ -817,6 +825,12 @@ impl SessionManager {
             .collect()
     }
 
+    /// Get the connection_id for a session, if it exists.
+    pub async fn get_connection_id(&self, session_id: &str) -> Option<u64> {
+        let sessions = self.sessions.read().await;
+        sessions.get(session_id).map(|s| s.connection_id)
+    }
+
     /// Remove a disconnected session.
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
@@ -827,6 +841,26 @@ impl SessionManager {
             }),
         );
         log::info!("[Session] Removed session {}", session_id);
+    }
+
+    /// Remove a session only if it belongs to the specified connection.
+    /// This prevents a stale old connection from removing a newer one.
+    pub async fn remove_session_if_current(&self, session_id: &str, connection_id: u64) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(session) = sessions.get(session_id) {
+            if session.connection_id == connection_id {
+                sessions.remove(session_id);
+                let _ = self.app_handle.emit(
+                    "native-office-session-removed",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                    }),
+                );
+                log::info!("[Session] Removed session {} (connection_id={})", session_id, connection_id);
+            } else {
+                log::info!("[Session] Skipped stale cleanup for {} (connection_id={} != current={})", session_id, connection_id, sessions.get(session_id).map(|s| s.connection_id).unwrap_or(0));
+            }
+        }
     }
 
     /// Extract LaTeX text from Word OOXML (simplified parser).
