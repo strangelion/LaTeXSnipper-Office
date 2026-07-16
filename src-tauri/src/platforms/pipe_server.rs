@@ -177,30 +177,30 @@ async fn handle_client(
                                 }
 
                                 // Dispatch to session manager
-                                let response =
+                                let result =
                                     session_mgr.handle_message(msg, Some(tx.clone())).await;
 
-                                // Track authenticated session
+                                // Track authenticated session — connection_id comes directly from registration
                                 if let DesktopMessage::HelloAck { ref sessionId, .. } =
-                                    response.response
+                                    result.response.response
                                 {
                                     authenticated_session_id = Some(sessionId.clone());
-                                    authenticated_connection_id = session_mgr.get_connection_id(sessionId).await;
+                                    authenticated_connection_id = result.connection_id;
                                     log::info!("[Pipe] Session authenticated: {} (connection_id={:?})", sessionId, authenticated_connection_id);
                                 }
 
                                 // If HELLO_NACK, disconnect immediately
                                 if let DesktopMessage::HelloNack { ref error, .. } =
-                                    response.response
+                                    result.response.response
                                 {
                                     log::warn!("[Pipe] HELLO_NACK: {}. Disconnecting.", error);
-                                    let frame = encode_frame(&response.response);
+                                    let frame = encode_frame(&result.response);
                                     let _ = pipe.write_all(&frame).await;
                                     return Err(format!("HELLO_NACK: {}", error));
                                 }
 
                                 // Send response
-                                let frame = encode_frame(&response.response);
+                                let frame = encode_frame(&result.response);
                                 if let Err(e) = pipe.write_all(&frame).await {
                                     log::error!("[Pipe] Write error: {}", e);
                                     return Err(format!("Write error: {}", e));
