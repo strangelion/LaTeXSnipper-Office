@@ -55,14 +55,14 @@
       "native": "Prefer Host Native",
       "image": "Compatible Image",
       "ole": "Editable OLE Object",
-      "vector": "Strict Vector (SVG Only)"
+      "vector": "Strict Vector (Visio Only)"
     },
     "hint": {
       "auto": "Word uses native OMML. Excel and PowerPoint prefer editable OLE and fall back to compatible images when OLE is unavailable.",
       "native": "Word uses native OMML. Excel and PowerPoint use compatible images with metadata.",
       "image": "All hosts use compatible images. They remain visible and copyable; double-click editing depends on the Office add-in.",
       "ole": "All hosts embed editable OLE formula objects. Double-click opens LaTeXSnipper.",
-      "vector": "Force SVG vector EMF. Formulas that cannot be converted to SVG will fall back to PNG."
+      "vector": "Force SVG vector insertion; abort if SVG is missing or fails. Visio only."
     },
     "oleStatus": "OLE component status",
     "oleAvailable": "OLE component is available",
