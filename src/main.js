@@ -2713,9 +2713,7 @@ class UIController {
 
         // Vector mode is only supported by Visio currently.
         if (integrationMode === "vector" && session.host_type !== "visio") {
-          this.showToast(
-            "严格矢量模式当前仅支持 Native Visio",
-          );
+          this.showToast("严格矢量模式当前仅支持 Native Visio");
           return;
         }
         const shouldRenderPreview =

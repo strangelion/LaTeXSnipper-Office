@@ -186,7 +186,11 @@ async fn handle_client(
                                 {
                                     authenticated_session_id = Some(sessionId.clone());
                                     authenticated_connection_id = result.connection_id;
-                                    log::info!("[Pipe] Session authenticated: {} (connection_id={:?})", sessionId, authenticated_connection_id);
+                                    log::info!(
+                                        "[Pipe] Session authenticated: {} (connection_id={:?})",
+                                        sessionId,
+                                        authenticated_connection_id
+                                    );
                                 }
 
                                 // If HELLO_NACK, disconnect immediately
@@ -243,8 +247,12 @@ async fn handle_client(
     .await;
 
     // Clean up session on disconnect — only if this connection is still the current one
-    if let (Some(session_id), Some(connection_id)) = (&authenticated_session_id, authenticated_connection_id) {
-        session_mgr.remove_session_if_current(session_id, connection_id).await;
+    if let (Some(session_id), Some(connection_id)) =
+        (&authenticated_session_id, authenticated_connection_id)
+    {
+        session_mgr
+            .remove_session_if_current(session_id, connection_id)
+            .await;
     }
 
     result

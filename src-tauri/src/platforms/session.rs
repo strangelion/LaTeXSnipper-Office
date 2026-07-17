@@ -87,6 +87,12 @@ pub struct SessionManager {
     connection_counter: std::sync::atomic::AtomicU64,
 }
 
+/// Result of processing a message: the response plus the connection_id if a new session was registered.
+pub struct HandleMessageResult {
+    pub response: ResponseEnvelope,
+    pub connection_id: Option<u64>,
+}
+
 impl SessionManager {
     pub fn new(app_handle: tauri::AppHandle) -> Self {
         Self {
@@ -94,12 +100,6 @@ impl SessionManager {
             app_handle,
             connection_counter: std::sync::atomic::AtomicU64::new(0),
         }
-    }
-
-    /// Result of processing a message: the response plus the connection_id if a new session was registered.
-    pub struct HandleMessageResult {
-        pub response: ResponseEnvelope,
-        pub connection_id: Option<u64>,
     }
 
     /// Process an incoming VSTO message and produce a response.
@@ -165,7 +165,9 @@ impl SessionManager {
 
                 // Register session with writer channel
                 let host = HostType::parse(&hostType).unwrap_or(HostType::Word);
-                let connection_id = self.connection_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let connection_id = self
+                    .connection_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let session = OfficeSession {
                     session_id: sessionId.clone(),
                     connection_id,
@@ -884,13 +886,8 @@ impl SessionManager {
             .collect()
     }
 
-    /// Get the connection_id for a session, if it exists.
-    pub async fn get_connection_id(&self, session_id: &str) -> Option<u64> {
-        let sessions = self.sessions.read().await;
-        sessions.get(session_id).map(|s| s.connection_id)
-    }
-
     /// Remove a disconnected session.
+    #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
         let _ = self.app_handle.emit(
@@ -915,9 +912,21 @@ impl SessionManager {
                         "sessionId": session_id,
                     }),
                 );
-                log::info!("[Session] Removed session {} (connection_id={})", session_id, connection_id);
+                log::info!(
+                    "[Session] Removed session {} (connection_id={})",
+                    session_id,
+                    connection_id
+                );
             } else {
-                log::info!("[Session] Skipped stale cleanup for {} (connection_id={} != current={})", session_id, connection_id, sessions.get(session_id).map(|s| s.connection_id).unwrap_or(0));
+                log::info!(
+                    "[Session] Skipped stale cleanup for {} (connection_id={} != current={})",
+                    session_id,
+                    connection_id,
+                    sessions
+                        .get(session_id)
+                        .map(|s| s.connection_id)
+                        .unwrap_or(0)
+                );
             }
         }
     }
@@ -967,7 +976,7 @@ impl SessionManager {
 // Supporting types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[allow(
     non_snake_case,
     dead_code,
