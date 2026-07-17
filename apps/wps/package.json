@@ -1,6 +1,6 @@
 {
   "name": "latexsnipper-wps",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "description": "LaTeX formula JSAddIn for WPS Writer, Spreadsheets, and Presentation",
   "main": "index.html",
   "addonType": "wps",
