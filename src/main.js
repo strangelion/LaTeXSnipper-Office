@@ -5747,7 +5747,7 @@ class UIController {
 
     if (officePlatform && officeIntegrationStatus) {
       const detectedHosts =
-        officeStatus?.installed && officePlatform.desc !== "未检测到 Office"
+        officePlatform.desc && officePlatform.desc !== "未检测到 Office"
           ? officePlatform.desc
           : "";
       if (officeIntegrationStatus.success) {

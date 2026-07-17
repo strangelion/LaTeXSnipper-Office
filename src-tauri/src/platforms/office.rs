@@ -169,6 +169,7 @@ fn detect_macos_app(app_bundle: &str, container_id: &str) -> OfficeAppStatus {
 const OFFICE_C2R_CONFIGURATION_KEY: &str =
     r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration";
 
+#[cfg(target_os = "windows")]
 fn find_click_to_run_office_executable(executable_name: &str) -> Option<(PathBuf, Option<String>)> {
     let installation_root = query_reg(OFFICE_C2R_CONFIGURATION_KEY, "InstallationPath")?;
     let root = PathBuf::from(installation_root);
@@ -187,6 +188,7 @@ fn find_click_to_run_office_executable(executable_name: &str) -> Option<(PathBuf
     Some((executable, version))
 }
 
+#[cfg(target_os = "windows")]
 fn detect_windows_office_host(office_app_name: &str, executable_name: &str) -> OfficeAppStatus {
     let mut status = OfficeAppStatus::unavailable();
 
