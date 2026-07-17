@@ -166,195 +166,84 @@ fn detect_macos_app(app_bundle: &str, container_id: &str) -> OfficeAppStatus {
 }
 
 #[cfg(target_os = "windows")]
-fn detect_excel() -> OfficeAppStatus {
-    let mut status = OfficeAppStatus {
-        available: false,
-        install_path: None,
-        startup_path: None,
-        version: None,
-        plugin_installed: false,
-    };
+const OFFICE_C2R_CONFIGURATION_KEY: &str =
+    r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration";
 
-    // Try ClickToRun (Office 365 / 2016+)
-    if let Some(path) = query_reg(
-        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-        "InstallationPath",
-    ) {
+fn find_click_to_run_office_executable(executable_name: &str) -> Option<(PathBuf, Option<String>)> {
+    let installation_root = query_reg(OFFICE_C2R_CONFIGURATION_KEY, "InstallationPath")?;
+    let root = PathBuf::from(installation_root);
+
+    let candidates = [
+        root.join("root").join("Office16").join(executable_name),
+        root.join("Office16").join(executable_name),
+        root.join(executable_name),
+    ];
+
+    let executable = candidates.into_iter().find(|path| path.is_file())?;
+
+    let version = query_reg(OFFICE_C2R_CONFIGURATION_KEY, "ClientVersionToReport")
+        .or_else(|| query_reg(OFFICE_C2R_CONFIGURATION_KEY, "ProductReleaseIds"));
+
+    Some((executable, version))
+}
+
+fn detect_windows_office_host(office_app_name: &str, executable_name: &str) -> OfficeAppStatus {
+    let mut status = OfficeAppStatus::unavailable();
+
+    // 1. Microsoft 365 / Office Click-to-Run — check that the actual EXE exists
+    if let Some((executable, version)) = find_click_to_run_office_executable(executable_name) {
         status.available = true;
-        status.install_path = Some(path);
-        status.version = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-            "ProductReleaseIds",
-        );
+        status.install_path = executable.parent().map(|p| p.to_string_lossy().to_string());
+        status.version = version;
     }
 
-    // Try MSI install
+    // 2. MSI Office 2016+ / 2013
     if !status.available {
-        if let Some(path) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\16.0\Excel\InstallRoot",
-            "Path",
-        ) {
+        for (office_version, display_version) in [("16.0", "16.0"), ("15.0", "2013")] {
+            let key = format!(
+                r"HKLM\SOFTWARE\Microsoft\Office\{}\{}\InstallRoot",
+                office_version, office_app_name,
+            );
+            let Some(root) = query_reg(&key, "Path") else {
+                continue;
+            };
+            let executable = PathBuf::from(&root).join(executable_name);
+            if !executable.is_file() {
+                continue;
+            }
             status.available = true;
-            status.install_path = Some(path);
+            status.install_path = Some(root);
+            status.version = Some(display_version.to_string());
+            break;
         }
     }
 
-    // Try Office 15 (2013)
-    if !status.available {
-        if let Some(path) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\15.0\Excel\InstallRoot",
-            "Path",
-        ) {
-            status.available = true;
-            status.install_path = Some(path);
-            status.version = Some("2013".to_string());
-        }
-    }
-
-    // Check plugin registration
-    status.plugin_installed = office_addin_registered("Excel");
-
+    status.plugin_installed = office_addin_registered(office_app_name);
     status
 }
 
 #[cfg(target_os = "windows")]
 fn detect_word() -> OfficeAppStatus {
-    let mut status = OfficeAppStatus {
-        available: false,
-        install_path: None,
-        startup_path: None,
-        version: None,
-        plugin_installed: false,
-    };
-
-    // Try ClickToRun (Office 365 / 2016+)
-    if let Some(path) = query_reg(
-        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-        "InstallationPath",
-    ) {
-        status.available = true;
-        status.install_path = Some(path);
-        status.version = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-            "ProductReleaseIds",
-        );
+    let mut status = detect_windows_office_host("Word", "WINWORD.EXE");
+    if status.available {
+        status.startup_path = Some(word_startup_dir());
     }
-
-    // Try MSI install
-    if !status.available {
-        if let Some(path) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\16.0\Word\InstallRoot",
-            "Path",
-        ) {
-            status.available = true;
-            status.install_path = Some(path);
-        }
-    }
-
-    // Try Office 15 (2013)
-    if !status.available {
-        if let Some(path) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\15.0\Word\InstallRoot",
-            "Path",
-        ) {
-            status.available = true;
-            status.install_path = Some(path);
-            status.version = Some("2013".to_string());
-        }
-    }
-
-    // Detect STARTUP folder
-    let startup = word_startup_dir();
-    status.startup_path = Some(startup.clone());
-    status.plugin_installed = office_addin_registered("Word");
-
     status
+}
+
+#[cfg(target_os = "windows")]
+fn detect_excel() -> OfficeAppStatus {
+    detect_windows_office_host("Excel", "EXCEL.EXE")
 }
 
 #[cfg(target_os = "windows")]
 fn detect_powerpoint() -> OfficeAppStatus {
-    let mut status = OfficeAppStatus {
-        available: false,
-        install_path: None,
-        startup_path: None,
-        version: None,
-        plugin_installed: false,
-    };
-
-    if query_reg(
-        r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-        "InstallationPath",
-    )
-    .is_some()
-    {
-        status.available = true;
-        status.install_path = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-            "InstallationPath",
-        );
-        status.version = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-            "ProductReleaseIds",
-        );
-    }
-
-    if !status.available {
-        if let Some(path) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\16.0\PowerPoint\InstallRoot",
-            "Path",
-        ) {
-            status.available = true;
-            status.install_path = Some(path);
-        }
-    }
-
-    status.startup_path = Some(word_startup_dir());
-    status.plugin_installed = office_addin_registered("PowerPoint");
-
-    status
+    detect_windows_office_host("PowerPoint", "POWERPNT.EXE")
 }
 
 #[cfg(target_os = "windows")]
 fn detect_visio() -> OfficeAppStatus {
-    let mut status = OfficeAppStatus::unavailable();
-    for version in ["16.0", "15.0"] {
-        let key = format!(
-            r"HKLM\SOFTWARE\Microsoft\Office\{}\Visio\InstallRoot",
-            version
-        );
-        if let Some(path) = query_reg(&key, "Path") {
-            status.available = true;
-            status.install_path = Some(path);
-            status.version = Some(version.to_string());
-            break;
-        }
-    }
-
-    if !status.available {
-        if let Some(root) = query_reg(
-            r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-            "InstallationPath",
-        ) {
-            let candidates = [
-                PathBuf::from(&root)
-                    .join("root")
-                    .join("Office16")
-                    .join("VISIO.EXE"),
-                PathBuf::from(&root).join("Office16").join("VISIO.EXE"),
-            ];
-            if candidates.iter().any(|path| path.is_file()) {
-                status.available = true;
-                status.install_path = Some(root);
-                status.version = query_reg(
-                    r"HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration",
-                    "ClientVersionToReport",
-                );
-            }
-        }
-    }
-
-    status.plugin_installed = office_addin_registered("Visio");
-    status
+    detect_windows_office_host("Visio", "VISIO.EXE")
 }
 
 #[allow(dead_code, reason = "Reserved for standalone WPS diagnostics")]
@@ -398,28 +287,38 @@ fn word_startup_dir() -> String {
 
 #[cfg(target_os = "windows")]
 fn query_reg(key: &str, value_name: &str) -> Option<String> {
+    const REG_TYPES: [&str; 5] = ["REG_SZ", "REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_DWORD", "REG_QWORD"];
+
     for view in ["/reg:64", "/reg:32"] {
-        if let Ok(output) = super::process::run_with_timeout(
+        let output = super::process::run_with_timeout(
             super::process::background_command("reg.exe")
                 .args(["query", key, "/v", value_name, view]),
             Duration::from_secs(10),
-        ) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if output.status.success() && stdout.contains(value_name) {
-                // Parse "    LoadBehavior    REG_DWORD    0x3"
-                for line in stdout.lines() {
-                    let trimmed = line.trim();
-                    if trimmed.starts_with(value_name) {
-                        // Use whitespace splitting instead of fixed slice
-                        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                        if parts.len() >= 3 {
-                            return Some(parts[parts.len() - 1].to_string());
-                        }
+        )
+        .ok()?;
+
+        if !output.status.success() {
+            continue;
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with(value_name) {
+                continue;
+            }
+            for reg_type in REG_TYPES {
+                if let Some(pos) = trimmed.find(reg_type) {
+                    let value = trimmed[pos + reg_type.len()..].trim();
+                    if !value.is_empty() {
+                        return Some(value.to_string());
                     }
                 }
             }
         }
     }
+
     None
 }
 

@@ -5709,20 +5709,24 @@ class UIController {
         ? await this.getPlatformIntegrationStatus("office")
         : null;
     if (officePlatform && officeStatus) {
-      const parts = [];
-      if (officeStatus.installed) {
-        if (officeStatus.word && officeStatus.word.available)
-          parts.push("Word");
-        if (officeStatus.excel && officeStatus.excel.available)
-          parts.push("Excel");
-        if (officeStatus.powerpoint && officeStatus.powerpoint.available)
-          parts.push("PowerPoint");
-        if (officeStatus.visio && officeStatus.visio.available)
-          parts.push("Visio");
-        officePlatform.desc = parts.join(" / ") || "Office detected";
-      } else {
-        officePlatform.desc = "未检测到 Office";
+      const hosts = [
+        { name: "Word", status: officeStatus.word },
+        { name: "Excel", status: officeStatus.excel },
+        { name: "PowerPoint", status: officeStatus.powerpoint },
+        { name: "Visio", status: officeStatus.visio },
+      ];
+
+      const detected = [];
+      for (const host of hosts) {
+        if (!host.status) continue;
+        if (host.status.available && host.status.plugin_installed) {
+          detected.push(host.name);
+        } else if (host.status.available && !host.status.plugin_installed) {
+          detected.push(`${host.name}(需修复)`);
+        }
       }
+      officePlatform.desc =
+        detected.length > 0 ? detected.join(" / ") : "未检测到 Office";
     }
 
     if (officePlatform && officeIntegrationStatus) {
