@@ -290,12 +290,13 @@ fn query_reg(key: &str, value_name: &str) -> Option<String> {
     const REG_TYPES: [&str; 5] = ["REG_SZ", "REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_DWORD", "REG_QWORD"];
 
     for view in ["/reg:64", "/reg:32"] {
-        let output = super::process::run_with_timeout(
+        let Ok(output) = super::process::run_with_timeout(
             super::process::background_command("reg.exe")
                 .args(["query", key, "/v", value_name, view]),
             Duration::from_secs(10),
-        )
-        .ok()?;
+        ) else {
+            continue;
+        };
 
         if !output.status.success() {
             continue;

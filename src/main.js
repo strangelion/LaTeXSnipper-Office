@@ -5716,17 +5716,33 @@ class UIController {
         { name: "Visio", status: officeStatus.visio },
       ];
 
-      const detected = [];
+      const installed = [];
+      const preregistered = [];
+
       for (const host of hosts) {
         if (!host.status) continue;
-        if (host.status.available && host.status.plugin_installed) {
-          detected.push(host.name);
-        } else if (host.status.available && !host.status.plugin_installed) {
-          detected.push(`${host.name}(需修复)`);
+        const available = Boolean(host.status.available);
+        const registered = Boolean(host.status.plugin_installed);
+
+        if (available && registered) {
+          installed.push(host.name);
+        } else if (available && !registered) {
+          installed.push(`${host.name}(需修复)`);
+        } else if (!available && registered) {
+          preregistered.push(host.name);
         }
       }
-      officePlatform.desc =
-        detected.length > 0 ? detected.join(" / ") : "未检测到 Office";
+
+      if (installed.length > 0) {
+        officePlatform.desc = installed.join(" / ");
+        if (preregistered.length > 0) {
+          officePlatform.desc += ` · 已预注册：${preregistered.join("、")}`;
+        }
+      } else if (preregistered.length > 0) {
+        officePlatform.desc = `未检测到 Office · 已预注册：${preregistered.join("、")}`;
+      } else {
+        officePlatform.desc = "未检测到 Office";
+      }
     }
 
     if (officePlatform && officeIntegrationStatus) {
