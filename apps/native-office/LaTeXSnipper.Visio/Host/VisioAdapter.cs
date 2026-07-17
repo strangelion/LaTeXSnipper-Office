@@ -166,7 +166,20 @@ namespace LaTeXSnipper.Visio.Host
 
         private VisioInterop.Shape ImportCandidate(VisioInterop.Page page, FormulaPayload payload, out string actualStorage, out string? fallbackReason)
         {
-            bool requiresVector = string.Equals(payload.StorageMode, "vector", StringComparison.OrdinalIgnoreCase);
+            VisioRenderStrategy strategy = VisioStorageModePolicy.Resolve(payload.StorageMode);
+            if (strategy == VisioRenderStrategy.Image)
+            {
+                if (string.IsNullOrWhiteSpace(payload.Render?.Png))
+                    throw new InvalidDataException("VISIO_IMAGE_PNG_REQUIRED: image mode requires a PNG render payload.");
+                using (var temp = VisioOwnedTempFile.FromPng(payload.Render!.Png!))
+                {
+                    actualStorage = "image-png";
+                    fallbackReason = null;
+                    return page.Import(temp.Path);
+                }
+            }
+
+            bool requiresVector = strategy == VisioRenderStrategy.Vector;
             Exception? svgError = null;
             if (!string.IsNullOrWhiteSpace(payload.Render?.Svg))
             {

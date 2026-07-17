@@ -52,6 +52,7 @@
   <ItemGroup>
     <Compile Include="Protocol.cs" />
     <Compile Include="PipeClient.cs" />
+    <Compile Include="PipeReconnectCoordinator.cs" />
     <Compile Include="Handshake.cs" />
     <Compile Include="WindowsIdentityHelper.cs" />
     <Compile Include="CommandMessage.cs" />

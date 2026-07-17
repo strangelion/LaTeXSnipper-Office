@@ -38,8 +38,36 @@ namespace LaTeXSnipper.Visio
                     addIn.Send(new VstoOpenEditor { RequestId = requestId, SessionId = addIn.SessionId, Action = "insert", Display = "display", SourceHost = "visio" });
                     break;
                 case "readSelection":
-                    FormulaPayload? payload = addIn.Adapter?.ReadSelection();
-                    MessageBox.Show(payload == null ? RibbonLocalizer.GetString("NoFormulaSelected") : RibbonLocalizer.GetString("ReadFormulaPrefix") + payload.Latex, RibbonLocalizer.GetString("ErrorTitle"));
+                    try
+                    {
+                        FormulaPayload? payload = addIn.Adapter?.ReadSelection();
+                        if (payload != null &&
+                            (!string.IsNullOrWhiteSpace(payload.Latex) || !string.IsNullOrWhiteSpace(payload.Omml)))
+                        {
+                            addIn.Send(new VstoOpenEditor
+                            {
+                                RequestId = requestId,
+                                SessionId = addIn.SessionId,
+                                Action = "edit",
+                                Latex = payload.Latex,
+                                Omml = payload.Omml,
+                                FormulaId = payload.FormulaId,
+                                Revision = payload.Revision,
+                                SourceHost = "visio"
+                            });
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                RibbonLocalizer.GetString("NoFormulaSelected"),
+                                RibbonLocalizer.GetString("ErrorTitle"));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure("open-selected-formula", "visio", null, ex);
+                        MessageBox.Show("Error: " + ex.Message, RibbonLocalizer.GetString("ErrorTitle"));
+                    }
                     break;
                 case "delete":
                     bool deleted = addIn.Adapter?.DeleteCurrent() == true;
@@ -60,6 +88,6 @@ namespace LaTeXSnipper.Visio
             }
         }
 
-        public void NotifyConnected() => _ribbon?.Invalidate();
+        public void NotifyConnectionChanged() => _ribbon?.Invalidate();
     }
 }

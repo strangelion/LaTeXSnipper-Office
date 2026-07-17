@@ -583,6 +583,7 @@ pub enum FormulaIntegrationMode {
     Auto,
     Native,
     Image,
+    Vector,
     Ole,
 }
 

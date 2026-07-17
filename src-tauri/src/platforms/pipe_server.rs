@@ -124,8 +124,9 @@ async fn handle_client(
     // Create channel for outgoing messages (Desktop -> VSTO)
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(CHANNEL_BUFFER);
 
-    // Track authenticated session ID
+    // Track authenticated session ID and its connection generation
     let mut authenticated_session_id: Option<String> = None;
+    let mut authenticated_connection_id: Option<u64> = None;
 
     let mut read_buf = vec![0u8; 64 * 1024];
     let mut accum_buf = Vec::new();
@@ -176,29 +177,34 @@ async fn handle_client(
                                 }
 
                                 // Dispatch to session manager
-                                let response =
+                                let result =
                                     session_mgr.handle_message(msg, Some(tx.clone())).await;
 
-                                // Track authenticated session
+                                // Track authenticated session — connection_id comes directly from registration
                                 if let DesktopMessage::HelloAck { ref sessionId, .. } =
-                                    response.response
+                                    result.response.response
                                 {
                                     authenticated_session_id = Some(sessionId.clone());
-                                    log::info!("[Pipe] Session authenticated: {}", sessionId);
+                                    authenticated_connection_id = result.connection_id;
+                                    log::info!(
+                                        "[Pipe] Session authenticated: {} (connection_id={:?})",
+                                        sessionId,
+                                        authenticated_connection_id
+                                    );
                                 }
 
                                 // If HELLO_NACK, disconnect immediately
                                 if let DesktopMessage::HelloNack { ref error, .. } =
-                                    response.response
+                                    result.response.response
                                 {
                                     log::warn!("[Pipe] HELLO_NACK: {}. Disconnecting.", error);
-                                    let frame = encode_frame(&response.response);
+                                    let frame = encode_frame(&result.response);
                                     let _ = pipe.write_all(&frame).await;
                                     return Err(format!("HELLO_NACK: {}", error));
                                 }
 
                                 // Send response
-                                let frame = encode_frame(&response.response);
+                                let frame = encode_frame(&result.response);
                                 if let Err(e) = pipe.write_all(&frame).await {
                                     log::error!("[Pipe] Write error: {}", e);
                                     return Err(format!("Write error: {}", e));
@@ -240,10 +246,13 @@ async fn handle_client(
     }
     .await;
 
-    // Clean up session on disconnect
-    if let Some(session_id) = &authenticated_session_id {
-        session_mgr.remove_session(session_id).await;
-        log::info!("[Pipe] Cleaned up session: {}", session_id);
+    // Clean up session on disconnect — only if this connection is still the current one
+    if let (Some(session_id), Some(connection_id)) =
+        (&authenticated_session_id, authenticated_connection_id)
+    {
+        session_mgr
+            .remove_session_if_current(session_id, connection_id)
+            .await;
     }
 
     result

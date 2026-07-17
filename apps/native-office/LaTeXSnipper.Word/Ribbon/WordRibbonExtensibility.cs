@@ -148,7 +148,7 @@ namespace LaTeXSnipper.Word
             }
         }
 
-        public void NotifyConnected()
+        public void NotifyConnectionChanged()
         {
             _ribbon?.Invalidate();
         }

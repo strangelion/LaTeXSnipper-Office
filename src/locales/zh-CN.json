@@ -54,13 +54,15 @@
       "auto": "自动（推荐）",
       "native": "宿主原生优先",
       "image": "兼容图像",
-      "ole": "可编辑 OLE 对象"
+      "ole": "可编辑 OLE 对象",
+      "vector": "严格矢量（仅 Visio）"
     },
     "hint": {
       "auto": "Word 使用原生 OMML；Excel 和 PowerPoint 优先使用可编辑 OLE。OLE 不可用时自动改用兼容图像。",
       "native": "Word 使用原生 OMML；Excel 和 PowerPoint 使用带元数据的兼容图像。",
       "image": "三端使用兼容图像。可显示和复制，但双击编辑依赖 Office 加载项。",
-      "ole": "三端嵌入可编辑 OLE 公式对象。双击对象会打开 LaTeXSnipper。"
+      "ole": "三端嵌入可编辑 OLE 公式对象。双击对象会打开 LaTeXSnipper。",
+      "vector": "严格使用 SVG 矢量插入；SVG 缺失或导入失败时中止操作，不回退到 PNG。当前仅支持 Visio。"
     },
     "oleStatus": "OLE 组件状态",
     "oleAvailable": "OLE 组件可用",

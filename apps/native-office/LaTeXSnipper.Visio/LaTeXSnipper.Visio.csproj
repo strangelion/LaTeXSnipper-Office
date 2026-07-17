@@ -73,6 +73,7 @@
     <Compile Include="Model\VisioPlacement.cs" />
     <Compile Include="Model\VisioReplacementTransaction.cs" />
     <Compile Include="Model\VisioContextIdentity.cs" />
+    <Compile Include="Model\VisioStorageModePolicy.cs" />
     <Compile Include="Ribbon\VisioRibbonExtensibility.cs" />
     <EmbeddedResource Include="Ribbon\VisioRibbon.xml"><LogicalName>LaTeXSnipper.Visio.Ribbon.VisioRibbon.xml</LogicalName></EmbeddedResource>
     <AppDesigner Include="Properties\" />

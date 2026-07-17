@@ -20,6 +20,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += RunCase("copied formula identity repair", CopiedFormulaIdentity);
             failures += RunCase("replacement keeps original on validation failure", ReplacementRollback);
             failures += RunCase("replacement deletes original after validation", ReplacementCommitOrder);
+            failures += RunCase("storage modes select exact render strategy", StorageModeStrategy);
             return failures;
         }
 
@@ -123,6 +124,17 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 () => { Assert(validated, "original deleted before validation"); originalDeleted = true; },
                 _ => throw new InvalidOperationException("cleanup must not run"));
             Assert(result == "candidate" && originalDeleted, "replacement did not commit");
+        }
+
+        private static void StorageModeStrategy()
+        {
+            Assert(VisioStorageModePolicy.Resolve(null) == VisioRenderStrategy.Auto, "null mode is not auto");
+            Assert(VisioStorageModePolicy.Resolve("auto") == VisioRenderStrategy.Auto, "auto mode mismatch");
+            Assert(VisioStorageModePolicy.Resolve("vector") == VisioRenderStrategy.Vector, "vector mode mismatch");
+            Assert(VisioStorageModePolicy.Resolve("image") == VisioRenderStrategy.Image, "image mode mismatch");
+            ExpectThrows(() => VisioStorageModePolicy.Resolve("ole"));
+            ExpectThrows(() => VisioStorageModePolicy.Resolve("native-omml"));
+            ExpectThrows(() => VisioStorageModePolicy.Resolve("unexpected"));
         }
 
         private static void ExpectThrows(Action action)

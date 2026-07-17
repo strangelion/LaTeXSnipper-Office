@@ -227,6 +227,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += OleExtentTests.Run();
             Console.WriteLine("RUN OfficeStaDispatcherTests");
             failures += OfficeStaDispatcherTests.Run();
+            Console.WriteLine("RUN PipeReconnectCoordinatorTests");
+            failures += PipeReconnectCoordinatorTests.Run();
             Console.WriteLine("RUN VisioIntegrationTests");
             failures += VisioIntegrationTests.Run();
             Console.WriteLine("RUN FormulaIdTests");

@@ -58,7 +58,7 @@ test("Visio formulas use bounded checksummed ShapeSheet metadata", () => {
   assert.match(adapter, /ReadMetadata\(candidate\)/);
 });
 
-test("Visio insertion is vector-first with explicit PNG fallback and no OLE claim", () => {
+test("Visio storage modes select auto, vector, image, and unsupported paths", () => {
   const adapter = read(
     "apps",
     "native-office",
@@ -72,6 +72,13 @@ test("Visio insertion is vector-first with explicit PNG fallback and no OLE clai
     "LaTeXSnipper.Visio",
     "ThisAddIn.cs",
   );
+  const policy = read(
+    "apps",
+    "native-office",
+    "LaTeXSnipper.Visio",
+    "Model",
+    "VisioStorageModePolicy.cs",
+  );
   assert.match(adapter, /VisioOwnedTempFile\.FromSvg/);
   assert.match(adapter, /page\.Import\(temp\.Path\)/);
   assert.match(adapter, /VISIO_SVG_IMPORT_FAILED/);
@@ -79,10 +86,64 @@ test("Visio insertion is vector-first with explicit PNG fallback and no OLE clai
   assert.match(adapter, /VISIO_VECTOR_IMPORT_FAILED/);
   assert.match(adapter, /requiresVector/);
   assert.match(adapter, /VisioOwnedTempFile\.FromPng/);
+  assert.match(adapter, /strategy == VisioRenderStrategy\.Image/);
+  assert.match(adapter, /VISIO_IMAGE_PNG_REQUIRED/);
   assert.match(adapter, /VISIO_OLE_EXPERIMENTAL/);
   assert.doesNotMatch(adapter, /AddOLEObject|OLEFormat|OleFormulaInterop/);
+  assert.match(policy, /case "auto":\s*return VisioRenderStrategy\.Auto/s);
+  assert.match(policy, /case "vector":/);
+  assert.match(policy, /case "image":/);
+  assert.match(policy, /VISIO_OLE_UNSUPPORTED/);
+  assert.match(policy, /VISIO_NATIVE_UNSUPPORTED/);
   assert.match(addin, /\["visio\.ole"\] = false/);
   assert.match(addin, /"vector" => "vector"/);
+});
+
+test("Visio Ribbon opens a revision-aware desktop edit transaction", () => {
+  const ribbon = read(
+    "apps",
+    "native-office",
+    "LaTeXSnipper.Visio",
+    "Ribbon",
+    "VisioRibbonExtensibility.cs",
+  );
+  assert.match(ribbon, /case "readSelection":/);
+  assert.match(ribbon, /new VstoOpenEditor/);
+  assert.match(ribbon, /Action = "edit"/);
+  assert.match(ribbon, /Latex = payload\.Latex/);
+  assert.match(ribbon, /Omml = payload\.Omml/);
+  assert.match(ribbon, /FormulaId = payload\.FormulaId/);
+  assert.match(ribbon, /Revision = payload\.Revision/);
+  assert.match(ribbon, /SourceHost = "visio"/);
+  assert.doesNotMatch(ribbon, /ReadFormulaPrefix.*payload\.Latex/);
+});
+
+test("all Native Office hosts share reconnect and Ribbon refresh lifecycle", () => {
+  const coordinator = read(
+    "apps",
+    "native-office",
+    "LaTeXSnipper.Shared",
+    "PipeReconnectCoordinator.cs",
+  );
+  assert.match(
+    coordinator,
+    /while \(!cancellationToken\.IsCancellationRequested\)/,
+  );
+  assert.match(coordinator, /SetConnected\(true\)/);
+  assert.match(coordinator, /SetConnected\(false\)/);
+
+  for (const host of ["Word", "Excel", "PowerPoint", "Visio"]) {
+    const addin = read(
+      "apps",
+      "native-office",
+      `LaTeXSnipper.${host}`,
+      "ThisAddIn.cs",
+    );
+    assert.match(addin, /new PipeReconnectCoordinator\(/, host);
+    assert.match(addin, /\.Disconnected \+= .*disconnected\(\)/, host);
+    assert.match(addin, /NotifyConnectionChanged\(\)/, host);
+    assert.doesNotMatch(addin, /attempt <= 60/, host);
+  }
 });
 
 test("Visio mutation remains selection-scoped and replacement is candidate-first", () => {

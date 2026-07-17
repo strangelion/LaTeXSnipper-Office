@@ -62,6 +62,9 @@ impl HostType {
 #[derive(Debug)]
 pub struct OfficeSession {
     pub session_id: String,
+    /// Monotonically increasing counter identifying this particular connection.
+    /// Used to prevent a stale old connection from removing a newer one.
+    pub connection_id: u64,
     pub host_type: HostType,
     pub host_version: String,
     pub document_id: Option<String>,
@@ -80,6 +83,14 @@ pub struct OfficeSession {
 pub struct SessionManager {
     sessions: RwLock<HashMap<String, OfficeSession>>,
     app_handle: tauri::AppHandle,
+    /// Monotonically increasing connection counter.
+    connection_counter: std::sync::atomic::AtomicU64,
+}
+
+/// Result of processing a message: the response plus the connection_id if a new session was registered.
+pub struct HandleMessageResult {
+    pub response: ResponseEnvelope,
+    pub connection_id: Option<u64>,
 }
 
 impl SessionManager {
@@ -87,16 +98,18 @@ impl SessionManager {
         Self {
             sessions: RwLock::new(HashMap::new()),
             app_handle,
+            connection_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
     /// Process an incoming VSTO message and produce a response.
     /// The `writer` parameter is provided during HELLO handshake to register the channel.
+    /// Returns both the response and the connection_id (if a session was registered) to avoid TOCTOU races.
     pub async fn handle_message(
         &self,
         msg: VstoMessage,
         writer: Option<mpsc::Sender<Vec<u8>>>,
-    ) -> ResponseEnvelope {
+    ) -> HandleMessageResult {
         match msg {
             VstoMessage::Hello {
                 requestId,
@@ -114,40 +127,50 @@ impl SessionManager {
                         protocolVersion,
                         PROTOCOL_VERSION
                     );
-                    return ResponseEnvelope {
-                        requestId: requestId.clone(),
-                        sessionId: sessionId.clone(),
-                        response: DesktopMessage::HelloNack {
-                            requestId,
-                            sessionId,
-                            errorCode: "VERSION_MISMATCH".to_string(),
-                            error: format!(
-                                "Protocol version {} not supported, expected {}",
-                                protocolVersion, PROTOCOL_VERSION
-                            ),
+                    return HandleMessageResult {
+                        response: ResponseEnvelope {
+                            requestId: requestId.clone(),
+                            sessionId: sessionId.clone(),
+                            response: DesktopMessage::HelloNack {
+                                requestId,
+                                sessionId,
+                                errorCode: "VERSION_MISMATCH".to_string(),
+                                error: format!(
+                                    "Protocol version {} not supported, expected {}",
+                                    protocolVersion, PROTOCOL_VERSION
+                                ),
+                            },
                         },
+                        connection_id: None,
                     };
                 }
 
                 // Verify shared secret
                 if !super::handshake::verify_secret(&dpapiSecret) {
                     log::warn!("[Session] HELLO rejected: invalid secret");
-                    return ResponseEnvelope {
-                        requestId: requestId.clone(),
-                        sessionId: sessionId.clone(),
-                        response: DesktopMessage::HelloNack {
-                            requestId,
-                            sessionId,
-                            errorCode: "INVALID_SECRET".to_string(),
-                            error: "Shared secret verification failed".to_string(),
+                    return HandleMessageResult {
+                        response: ResponseEnvelope {
+                            requestId: requestId.clone(),
+                            sessionId: sessionId.clone(),
+                            response: DesktopMessage::HelloNack {
+                                requestId,
+                                sessionId,
+                                errorCode: "INVALID_SECRET".to_string(),
+                                error: "Shared secret verification failed".to_string(),
+                            },
                         },
+                        connection_id: None,
                     };
                 }
 
                 // Register session with writer channel
                 let host = HostType::parse(&hostType).unwrap_or(HostType::Word);
+                let connection_id = self
+                    .connection_counter
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let session = OfficeSession {
                     session_id: sessionId.clone(),
+                    connection_id,
                     host_type: host,
                     host_version: hostVersion.clone(),
                     document_id: None,
@@ -169,20 +192,24 @@ impl SessionManager {
                 );
 
                 log::info!(
-                    "[Session] HELLO from {} v{} (session={})",
+                    "[Session] HELLO from {} v{} (session={}, connection_id={})",
                     hostType,
                     hostVersion,
-                    sessionId
+                    sessionId,
+                    connection_id
                 );
 
-                ResponseEnvelope {
-                    requestId: requestId.clone(),
-                    sessionId: sessionId.clone(),
-                    response: DesktopMessage::HelloAck {
-                        requestId,
-                        sessionId,
-                        protocolVersion: PROTOCOL_VERSION,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: requestId.clone(),
+                        sessionId: sessionId.clone(),
+                        response: DesktopMessage::HelloAck {
+                            requestId,
+                            sessionId,
+                            protocolVersion: PROTOCOL_VERSION,
+                        },
                     },
+                    connection_id: Some(connection_id),
                 }
             }
 
@@ -241,13 +268,16 @@ impl SessionManager {
                         }),
                     );
                 }
-                ResponseEnvelope {
-                    requestId: requestId.clone(),
-                    sessionId: sessionId.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId,
-                        sessionId,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: requestId.clone(),
+                        sessionId: sessionId.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId,
+                            sessionId,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -282,13 +312,16 @@ impl SessionManager {
                         "documentTitle": title,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -342,13 +375,16 @@ impl SessionManager {
                     }
                 }
 
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -385,13 +421,16 @@ impl SessionManager {
                         );
                     }
                 }
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -432,13 +471,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -462,13 +504,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -496,13 +541,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -527,13 +575,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -558,13 +609,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -585,13 +639,16 @@ impl SessionManager {
                         "sessionId": sid,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -697,13 +754,16 @@ impl SessionManager {
                         None
                     };
                 if matches!(action.as_str(), "insert" | "edit") && transaction.is_none() {
-                    return ResponseEnvelope {
-                        requestId: rid.clone(),
-                        sessionId: sid.clone(),
-                        response: DesktopMessage::Ping {
-                            requestId: rid,
-                            sessionId: sid,
+                    return HandleMessageResult {
+                        response: ResponseEnvelope {
+                            requestId: rid.clone(),
+                            sessionId: sid.clone(),
+                            response: DesktopMessage::Ping {
+                                requestId: rid,
+                                sessionId: sid,
+                            },
                         },
+                        connection_id: None,
                     };
                 }
                 let _ = self.app_handle.emit(
@@ -720,13 +780,16 @@ impl SessionManager {
                         "transaction": transaction,
                     }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -741,13 +804,16 @@ impl SessionManager {
                     "native-office-focus-ocr",
                     serde_json::json!({ "sessionId": sid }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
 
@@ -762,13 +828,16 @@ impl SessionManager {
                     "native-office-focus-settings",
                     serde_json::json!({ "sessionId": sid }),
                 );
-                ResponseEnvelope {
-                    requestId: rid.clone(),
-                    sessionId: sid.clone(),
-                    response: DesktopMessage::Ping {
-                        requestId: rid,
-                        sessionId: sid,
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
                     },
+                    connection_id: None,
                 }
             }
         }
@@ -818,6 +887,7 @@ impl SessionManager {
     }
 
     /// Remove a disconnected session.
+    #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
         let _ = self.app_handle.emit(
@@ -827,6 +897,38 @@ impl SessionManager {
             }),
         );
         log::info!("[Session] Removed session {}", session_id);
+    }
+
+    /// Remove a session only if it belongs to the specified connection.
+    /// This prevents a stale old connection from removing a newer one.
+    pub async fn remove_session_if_current(&self, session_id: &str, connection_id: u64) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(session) = sessions.get(session_id) {
+            if session.connection_id == connection_id {
+                sessions.remove(session_id);
+                let _ = self.app_handle.emit(
+                    "native-office-session-removed",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                    }),
+                );
+                log::info!(
+                    "[Session] Removed session {} (connection_id={})",
+                    session_id,
+                    connection_id
+                );
+            } else {
+                log::info!(
+                    "[Session] Skipped stale cleanup for {} (connection_id={} != current={})",
+                    session_id,
+                    connection_id,
+                    sessions
+                        .get(session_id)
+                        .map(|s| s.connection_id)
+                        .unwrap_or(0)
+                );
+            }
+        }
     }
 
     /// Extract LaTeX text from Word OOXML (simplified parser).
@@ -874,7 +976,7 @@ impl SessionManager {
 // Supporting types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 #[allow(
     non_snake_case,
     dead_code,

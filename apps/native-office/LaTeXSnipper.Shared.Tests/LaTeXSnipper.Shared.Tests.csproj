@@ -41,6 +41,7 @@
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OfficeStaDispatcherTests.cs" />
+    <Compile Include="PipeReconnectCoordinatorTests.cs" />
     <Compile Include="VisioIntegrationTests.cs" />
     <Compile Include="..\LaTeXSnipper.Visio\Model\VisioFormulaMetadataCodec.cs">
       <Link>Visio\VisioFormulaMetadataCodec.cs</Link>
@@ -53,6 +54,9 @@
     </Compile>
     <Compile Include="..\LaTeXSnipper.Visio\Model\VisioContextIdentity.cs">
       <Link>Visio\VisioContextIdentity.cs</Link>
+    </Compile>
+    <Compile Include="..\LaTeXSnipper.Visio\Model\VisioStorageModePolicy.cs">
+      <Link>Visio\VisioStorageModePolicy.cs</Link>
     </Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
