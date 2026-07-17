@@ -1,5 +1,5 @@
 {
-  "extensionVersion": "1.3.2",
+  "extensionVersion": "1.4.0",
   "target": "firefox",
   "commit": "local",
   "providers": [
