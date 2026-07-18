@@ -86,6 +86,29 @@ test("macOS certificate trust targets the login keychain and verifies SSL trust"
   }
 });
 
+test("macOS Office.js uninstall removes only the recorded certificate fingerprint", () => {
+  const tls = read("src-tauri", "src", "platforms", "tls_cert.rs");
+  const integrations = read("src-tauri", "src", "platforms", "integrations.rs");
+
+  assert.match(tls, /trusted-certificate\.sha256/);
+  assert.match(tls, /fn certificate_sha256_from_pem_bytes/);
+  assert.match(tls, /"delete-certificate"\.into\(\)/);
+  assert.match(tls, /"-Z"\.into\(\)/);
+  assert.match(tls, /"-t"\.into\(\)/);
+  assert.match(tls, /pub fn remove_owned_macos_certificate_trust/);
+  assert.match(tls, /OFFICEJS_TLS_OWNERSHIP_MISMATCH/);
+  const deleteArgsStart = tls.indexOf("fn macos_delete_command_args");
+  const deleteArgsEnd = tls.indexOf("#[cfg", deleteArgsStart + 1);
+  assert.ok(deleteArgsStart >= 0 && deleteArgsEnd > deleteArgsStart);
+  assert.doesNotMatch(tls.slice(deleteArgsStart, deleteArgsEnd), /localhost/);
+  assert.match(
+    integrations,
+    /super::tls_cert::remove_owned_macos_certificate_trust\(\)/,
+  );
+  assert.match(integrations, /OFFICEJS_UNINSTALL_FAILED/);
+  assert.match(integrations, /office-js-uninstall/);
+});
+
 test("Office.js installation fails closed before manifest installation when TLS trust fails", () => {
   const source = read("src-tauri", "src", "platforms", "integrations.rs");
   const trust = source.indexOf("ensure_office_js_tls_trust()");

@@ -6,6 +6,9 @@ use rustls::pki_types::CertificateDer;
 use rustls::ServerConfig;
 use tauri::Manager;
 
+#[cfg(any(target_os = "macos", test))]
+const MACOS_CERT_OWNERSHIP_FILE: &str = "trusted-certificate.sha256";
+
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TlsCertificateStatus {
@@ -24,6 +27,134 @@ fn default_cert_dir() -> PathBuf {
 
 fn default_cert_path() -> PathBuf {
     default_cert_dir().join("localhost.crt")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_cert_ownership_path() -> PathBuf {
+    default_cert_dir().join(MACOS_CERT_OWNERSHIP_FILE)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn normalize_sha256_fingerprint(value: &str) -> Result<String, String> {
+    let fingerprint = value.trim();
+    if fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(
+            "OFFICEJS_TLS_OWNERSHIP_INVALID: certificate fingerprint must be 64 hexadecimal characters."
+                .to_string(),
+        );
+    }
+    Ok(fingerprint.to_ascii_uppercase())
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn certificate_sha256_from_pem_bytes(pem: &[u8]) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
+
+    let certificates = rustls_pemfile::certs(&mut pem.as_ref())
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Failed to parse TLS certificate for fingerprinting: {error}"))?;
+    if certificates.len() != 1 {
+        return Err(format!(
+            "Expected exactly one TLS certificate for fingerprinting, found {}.",
+            certificates.len()
+        ));
+    }
+
+    let digest = Sha256::digest(certificates[0].as_ref());
+    let mut fingerprint = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut fingerprint, "{byte:02X}")
+            .map_err(|error| format!("Failed to format certificate fingerprint: {error}"))?;
+    }
+    Ok(fingerprint)
+}
+
+#[cfg(target_os = "macos")]
+fn certificate_sha256(cert_path: &Path) -> Result<String, String> {
+    let pem = fs::read(cert_path).map_err(|error| {
+        format!(
+            "Failed to read TLS certificate for fingerprinting ({}): {error}",
+            cert_path.display()
+        )
+    })?;
+    certificate_sha256_from_pem_bytes(&pem)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn read_fingerprint_record_at(path: &Path) -> Result<Option<String>, String> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let value = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "OFFICEJS_TLS_OWNERSHIP_INVALID: failed to read {}: {error}",
+            path.display()
+        )
+    })?;
+    normalize_sha256_fingerprint(&value).map(Some)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn write_fingerprint_record_at(path: &Path, fingerprint: &str) -> Result<(), String> {
+    use std::io::Write as _;
+
+    let fingerprint = normalize_sha256_fingerprint(fingerprint)?;
+    let parent = path.parent().ok_or_else(|| {
+        "OFFICEJS_TLS_OWNERSHIP_INVALID: fingerprint record has no parent directory.".to_string()
+    })?;
+    fs::create_dir_all(parent).map_err(|error| {
+        format!(
+            "Failed to create TLS certificate ownership directory ({}): {error}",
+            parent.display()
+        )
+    })?;
+
+    let temp_path = path.with_extension(format!(
+        "tmp-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let write_result = (|| -> Result<(), String> {
+        let mut file = options.open(&temp_path).map_err(|error| {
+            format!(
+                "Failed to create TLS certificate ownership record ({}): {error}",
+                temp_path.display()
+            )
+        })?;
+        writeln!(file, "{fingerprint}").map_err(|error| {
+            format!("Failed to write TLS certificate ownership record: {error}")
+        })?;
+        file.sync_all().map_err(|error| {
+            format!("Failed to flush TLS certificate ownership record: {error}")
+        })?;
+        fs::rename(&temp_path, path).map_err(|error| {
+            format!(
+                "Failed to publish TLS certificate ownership record ({}): {error}",
+                path.display()
+            )
+        })?;
+        Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    write_result?;
+
+    match read_fingerprint_record_at(path)? {
+        Some(recorded) if recorded == fingerprint => Ok(()),
+        _ => Err("TLS certificate ownership record verification failed.".to_string()),
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -262,6 +393,112 @@ fn macos_trust_command_args(cert: &Path, keychain: &Path) -> Vec<String> {
 }
 
 #[cfg(target_os = "macos")]
+fn macos_delete_command_args(fingerprint: &str, keychain: &Path) -> Vec<String> {
+    vec![
+        "delete-certificate".into(),
+        "-Z".into(),
+        fingerprint.into(),
+        "-t".into(),
+        keychain.to_string_lossy().into_owned(),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn macos_keychain_contains_fingerprint(fingerprint: &str, keychain: &Path) -> Result<bool, String> {
+    let fingerprint = normalize_sha256_fingerprint(fingerprint)?;
+    let mut command = std::process::Command::new("/usr/bin/security");
+    command
+        .arg("find-certificate")
+        .arg("-a")
+        .arg("-Z")
+        .arg(keychain);
+    let output = crate::platforms::process::run_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(|error| format!("Failed to inspect the macOS login keychain: {error}"))?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if !output.status.success() {
+        if combined.contains("The specified item could not be found in the keychain") {
+            return Ok(false);
+        }
+        return Err(format!(
+            "Failed to inspect the macOS login keychain (exit code {:?}).",
+            output.status.code()
+        ));
+    }
+    Ok(combined.to_ascii_uppercase().contains(&fingerprint))
+}
+
+#[cfg(target_os = "macos")]
+fn delete_macos_certificate_by_fingerprint(
+    fingerprint: &str,
+    keychain: &Path,
+) -> Result<bool, String> {
+    let fingerprint = normalize_sha256_fingerprint(fingerprint)?;
+    if !macos_keychain_contains_fingerprint(&fingerprint, keychain)? {
+        return Ok(false);
+    }
+
+    let mut command = std::process::Command::new("/usr/bin/security");
+    command.args(macos_delete_command_args(&fingerprint, keychain));
+    let output = crate::platforms::process::run_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(|error| format!("Failed to execute macOS certificate removal command: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "macOS certificate removal failed (exit code {:?}).",
+            output.status.code()
+        ));
+    }
+    if macos_keychain_contains_fingerprint(&fingerprint, keychain)? {
+        return Err(
+            "macOS certificate removal command completed but the exact fingerprint is still present in the login keychain."
+                .to_string(),
+        );
+    }
+    Ok(true)
+}
+
+/// Remove only the canonical certificate whose exact SHA-256 fingerprint was recorded by this app.
+#[cfg(target_os = "macos")]
+pub fn remove_owned_macos_certificate_trust() -> Result<bool, String> {
+    let ownership_path = macos_cert_ownership_path();
+    let Some(recorded_fingerprint) = read_fingerprint_record_at(&ownership_path)? else {
+        return Ok(false);
+    };
+
+    let cert_path = default_cert_path();
+    let current_fingerprint = certificate_sha256(&cert_path).map_err(|error| {
+        format!(
+            "OFFICEJS_TLS_OWNERSHIP_INVALID: cannot verify the recorded certificate before removal: {error}"
+        )
+    })?;
+    if recorded_fingerprint != current_fingerprint {
+        return Err(
+            "OFFICEJS_TLS_OWNERSHIP_MISMATCH: recorded fingerprint does not match the canonical LaTeXSnipper certificate; refusing to delete any keychain certificate."
+                .to_string(),
+        );
+    }
+
+    let keychain = macos_login_keychain()?;
+    let removed = delete_macos_certificate_by_fingerprint(&recorded_fingerprint, &keychain)?;
+    fs::remove_file(&ownership_path).map_err(|error| {
+        format!(
+            "Certificate trust was removed, but the ownership record could not be deleted ({}): {error}",
+            ownership_path.display()
+        )
+    })?;
+    Ok(removed)
+}
+
+#[cfg(target_os = "macos")]
 fn trust_cert_macos(cert_path: &Path) -> Result<bool, String> {
     if !cert_path.is_file() {
         return Err(format!(
@@ -269,28 +506,51 @@ fn trust_cert_macos(cert_path: &Path) -> Result<bool, String> {
             cert_path.display()
         ));
     }
-    if is_macos_cert_trusted(cert_path)? {
-        return Ok(true);
-    }
+
+    let fingerprint = certificate_sha256(cert_path)?;
+    let already_trusted = is_macos_cert_trusted(cert_path)?;
+    let mut added_by_this_call = false;
 
     let keychain = macos_login_keychain()?;
-    let mut command = std::process::Command::new("/usr/bin/security");
-    command.args(macos_trust_command_args(cert_path, &keychain));
-    let output = crate::platforms::process::run_with_timeout(
-        &mut command,
-        std::time::Duration::from_secs(30),
-    )
-    .map_err(|error| format!("Failed to execute macOS certificate trust command: {error}"))?;
+    if !already_trusted {
+        let mut command = std::process::Command::new("/usr/bin/security");
+        command.args(macos_trust_command_args(cert_path, &keychain));
+        let output = crate::platforms::process::run_with_timeout(
+            &mut command,
+            std::time::Duration::from_secs(30),
+        )
+        .map_err(|error| format!("Failed to execute macOS certificate trust command: {error}"))?;
 
-    if !output.status.success() {
-        return Err(format!(
-            "macOS certificate trust failed: {}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        ));
+        if !output.status.success() {
+            return Err(format!(
+                "macOS certificate trust failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            ));
+        }
+        added_by_this_call = true;
     }
     if !is_macos_cert_trusted(cert_path)? {
         return Err("Certificate was imported into the macOS keychain but TLS trust verification still failed.".to_string());
+    }
+
+    if cert_path == default_cert_path() {
+        if let Err(record_error) =
+            write_fingerprint_record_at(&macos_cert_ownership_path(), &fingerprint)
+        {
+            if added_by_this_call {
+                let rollback = delete_macos_certificate_by_fingerprint(&fingerprint, &keychain)
+                    .map(|_| "rollback succeeded".to_string())
+                    .unwrap_or_else(|error| format!("rollback failed: {error}"));
+                return Err(format!(
+                    "Failed to record ownership of the trusted TLS certificate; {rollback}: {record_error}"
+                ));
+            }
+            return Err(format!(
+                "Failed to record ownership of the trusted TLS certificate: {record_error}"
+            ));
+        }
+        println!("[TLS] Trusted certificate SHA-256: {fingerprint}");
     }
     Ok(true)
 }
@@ -446,6 +706,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn generated_certificate_has_stable_sha256_fingerprint() {
+        let certificate =
+            rcgen::generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()])
+                .expect("test certificate should be generated");
+        let pem = certificate.cert.pem();
+        let first = certificate_sha256_from_pem_bytes(pem.as_bytes())
+            .expect("certificate should be fingerprinted");
+        let second = certificate_sha256_from_pem_bytes(pem.as_bytes())
+            .expect("certificate fingerprint should be repeatable");
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 64);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(first, first.to_ascii_uppercase());
+    }
+
+    #[test]
+    fn fingerprint_record_round_trips_and_rejects_invalid_content() {
+        let test_dir = std::env::temp_dir().join(format!(
+            "latexsnipper-tls-ownership-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after the Unix epoch")
+                .as_nanos()
+        ));
+        let record = test_dir.join(MACOS_CERT_OWNERSHIP_FILE);
+        let fingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        write_fingerprint_record_at(&record, fingerprint)
+            .expect("valid fingerprint record should be written");
+        assert_eq!(
+            read_fingerprint_record_at(&record).expect("record should be readable"),
+            Some(fingerprint.to_ascii_uppercase())
+        );
+
+        fs::write(&record, "localhost\n").expect("invalid test record should be written");
+        let error = read_fingerprint_record_at(&record)
+            .expect_err("invalid fingerprint must be rejected without deleting anything");
+        assert!(error.contains("OFFICEJS_TLS_OWNERSHIP_INVALID"));
+        fs::remove_dir_all(&test_dir).expect("test directory should be removed");
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_trust_command_targets_login_keychain() {
@@ -456,5 +759,20 @@ mod tests {
         assert_eq!(args[0], "add-trusted-cert");
         assert!(args.contains(&"trustRoot".to_string()));
         assert!(args.contains(&"ssl".to_string()));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_delete_command_uses_only_exact_fingerprint() {
+        let fingerprint = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+        let args = macos_delete_command_args(
+            fingerprint,
+            Path::new("/Users/test/Library/Keychains/login.keychain-db"),
+        );
+        assert_eq!(args[0], "delete-certificate");
+        assert_eq!(args[1], "-Z");
+        assert_eq!(args[2], fingerprint);
+        assert!(args.contains(&"-t".to_string()));
+        assert!(!args.iter().any(|arg| arg == "localhost"));
     }
 }

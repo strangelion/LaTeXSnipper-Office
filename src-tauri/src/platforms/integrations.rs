@@ -2274,7 +2274,8 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        let mut removed = false;
+        let mut removed_manifests = 0usize;
+        let mut errors = Vec::new();
         for host in OFFICE_JS_HOSTS {
             let wef_dir = PathBuf::from(&home)
                 .join("Library")
@@ -2284,16 +2285,44 @@ fn uninstall_office_addin() -> PlatformIntegrationResult {
                 .join("Documents")
                 .join("wef");
             let manifest_path = wef_dir.join("LaTeXSnipper.xml");
-            if manifest_path.exists() && std::fs::remove_file(&manifest_path).is_ok() {
-                println!("[Office] Removed manifest: {}", manifest_path.display());
-                removed = true;
+            if manifest_path.exists() {
+                match std::fs::remove_file(&manifest_path) {
+                    Ok(()) => {
+                        println!("[Office] Removed manifest: {}", manifest_path.display());
+                        removed_manifests += 1;
+                    }
+                    Err(error) => errors.push(format!(
+                        "{} manifest removal failed ({}): {error}",
+                        host.name,
+                        manifest_path.display()
+                    )),
+                }
             }
         }
-        if removed {
+
+        let removed_certificate = match super::tls_cert::remove_owned_macos_certificate_trust() {
+            Ok(removed) => removed,
+            Err(error) => {
+                errors.push(format!("TLS certificate trust removal failed: {error}"));
+                false
+            }
+        };
+
+        if !errors.is_empty() {
+            return PlatformIntegrationResult::fail(
+                "office-web",
+                "office-js-uninstall",
+                format!("OFFICEJS_UNINSTALL_FAILED: {}", errors.join("; ")),
+            );
+        }
+
+        if removed_manifests > 0 || removed_certificate {
             PlatformIntegrationResult::ok(
                 "office-web",
                 "office-js",
-                "Uninstalled Office.js add-ins. Restart Office apps to unload LaTeXSnipper.",
+                format!(
+                    "Uninstalled {removed_manifests} Office.js manifest(s) and removed_owned_tls_certificate={removed_certificate}. Restart Office apps to unload LaTeXSnipper."
+                ),
                 true,
             )
         } else {
