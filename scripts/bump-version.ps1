@@ -27,7 +27,9 @@ $files = @(
     "apps/browser-extension/manifest.chrome.json",
     "apps/browser-extension/manifest.firefox.json",
     "apps/wps/manifest.json",
-    "apps/wps/package.json"
+    "apps/wps/package.json",
+    "src-tauri/resources/Ecosystem",
+    "src-tauri/resources/Obsidian"
 )
 
 foreach ($file in $files) {
@@ -124,7 +126,35 @@ $cargo = $versionRegex.Replace(
     $utf8NoBom
 )
 
-# Ask Cargo to synchronize the root package entry in Cargo.lock.
+# Cargo metadata does not reliably rewrite the local root package version in Cargo.lock,
+# so update that exact package entry before asking Cargo to validate the manifest.
+$cargoLockPath = "src-tauri/Cargo.lock"
+$cargoLock = [System.IO.File]::ReadAllText(
+    $cargoLockPath,
+    [System.Text.Encoding]::UTF8
+)
+$cargoLockVersionRegex = [regex]::new(
+    '(?ms)(^\[\[package\]\]\r?\nname = "latexsnipper-office"\r?\nversion = ")[^"]+("$)'
+)
+$cargoLockMatches = $cargoLockVersionRegex.Matches($cargoLock)
+if ($cargoLockMatches.Count -ne 1) {
+    throw "Expected exactly one latexsnipper-office package entry in $cargoLockPath, found $($cargoLockMatches.Count)"
+}
+$cargoLock = $cargoLockVersionRegex.Replace(
+    $cargoLock,
+    {
+        param($match)
+        return $match.Groups[1].Value + $Version + $match.Groups[2].Value
+    },
+    1
+)
+[System.IO.File]::WriteAllText(
+    $cargoLockPath,
+    $cargoLock,
+    $utf8NoBom
+)
+
+# Ask Cargo to validate the synchronized manifest and lock file.
 & cargo metadata `
     --manifest-path "src-tauri/Cargo.toml" `
     --format-version 1 `
@@ -134,6 +164,13 @@ $cargo = $versionRegex.Replace(
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to synchronize src-tauri/Cargo.lock"
 }
+
+# Rebuild every staged ecosystem payload before version verification and commit.
+& npm run build:ecosystem
+if ($LASTEXITCODE -ne 0) { throw "Failed to build ecosystem resources" }
+
+& npm run stage:ecosystem
+if ($LASTEXITCODE -ne 0) { throw "Failed to stage ecosystem resources" }
 
 # Verify all version sources are consistent using Node (avoids PowerShell JSON limits).
 $verifyScript = @"
@@ -173,6 +210,18 @@ if (wpsManifest.version !== version) errors.push("wps/manifest.json: " + wpsMani
 const wpsPkg = JSON.parse(fs.readFileSync("apps/wps/package.json", "utf8"));
 if (wpsPkg.version !== version) errors.push("wps/package.json: " + wpsPkg.version);
 
+for (const target of ["chrome", "firefox"]) {
+  const root = "src-tauri/resources/Ecosystem/browser/" + target;
+  const manifest = JSON.parse(fs.readFileSync(root + "/manifest.json", "utf8"));
+  if (manifest.version !== version) {
+    errors.push(target + " staged manifest: " + manifest.version);
+  }
+  const provenance = JSON.parse(fs.readFileSync(root + "/provenance.json", "utf8"));
+  if (provenance.extensionVersion !== version) {
+    errors.push(target + " staged provenance: " + provenance.extensionVersion);
+  }
+}
+
 if (errors.length) {
   console.error("Version mismatch: " + errors.join(", "));
   process.exit(1);
@@ -200,6 +249,11 @@ if ($DryRun) {
 git add @files
 git commit -m "chore: bump version to $Version"
 Write-Host "`nCommitted." -ForegroundColor Green
+
+& npm run check:ecosystem-drift
+if ($LASTEXITCODE -ne 0) {
+    throw "Committed ecosystem resources do not match the generated payloads; refusing to tag or push."
+}
 
 # Tag
 if ($Tag) {
