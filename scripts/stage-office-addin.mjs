@@ -14,7 +14,7 @@ const root = path.resolve(__dirname, "..");
 const distDir = path.resolve(root, "apps", "office-addin", "dist");
 const manifestDir = path.resolve(root, "apps", "office-addin", "manifests");
 const hosts = ["word", "excel", "powerpoint"];
-const localOfficeBase = "https://localhost:19876";
+const localOfficeBase = "https://127.0.0.1:19876";
 const websiteOfficeBase = "https://latexsnipper.interknot.dpdns.org/office";
 const websiteAppDomain = "https://latexsnipper.interknot.dpdns.org";
 
@@ -72,7 +72,7 @@ for (const target of targets) {
     if (target.manifestBase === websiteOfficeBase) {
       manifest = manifest
         .replace(
-          /<AppDomains>\s*<AppDomain>https:\/\/localhost:19876<\/AppDomain>\s*(?:<AppDomain>https:\/\/localhost:19876<\/AppDomain>\s*)?<\/AppDomains>/,
+          /<AppDomains>\s*<AppDomain>https:\/\/127\.0\.0\.1:19876<\/AppDomain>\s*(?:<AppDomain>https:\/\/127\.0\.0\.1:19876<\/AppDomain>\s*)?<\/AppDomains>/,
           `<AppDomains>\n    <AppDomain>${websiteAppDomain}</AppDomain>\n  </AppDomains>`,
         )
         .replaceAll(localOfficeBase, websiteOfficeBase);

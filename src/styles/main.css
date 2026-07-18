@@ -1708,6 +1708,46 @@ a:hover {
   font-size: 0.65rem;
   color: var(--muted);
 }
+.office-web-diagnostics {
+  display: grid;
+  gap: 0.22rem;
+  margin-top: 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  font-size: 0.63rem;
+}
+.office-web-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.office-web-value.is-ok {
+  color: #1b8f4b;
+}
+.office-web-value.is-blocked,
+.office-web-blocker {
+  color: #c43b3b;
+}
+.office-web-blocker {
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.office-web-repair {
+  justify-self: start;
+  margin-top: 0.25rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.63rem;
+}
+.office-web-repair:hover {
+  filter: brightness(1.05);
+}
 .platform-item .custom-toggle {
   flex-shrink: 0;
 }

@@ -1,10 +1,35 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use rustls::pki_types::CertificateDer;
 use rustls::ServerConfig;
 use tauri::Manager;
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TlsCertificateStatus {
+    pub present: bool,
+    pub trusted: bool,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+fn default_cert_dir() -> PathBuf {
+    dirs_next::data_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("com.latexsnipper.office")
+        .join("localhost-certs")
+}
+
+fn default_cert_path() -> PathBuf {
+    default_cert_dir().join("localhost.crt")
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn default_key_path() -> PathBuf {
+    default_cert_dir().join("localhost.key")
+}
 
 /// Install the rustls crypto provider (ring) exactly once.
 fn ensure_crypto_provider() {
@@ -57,16 +82,43 @@ pub fn get_or_create_tls_config(app_handle: &tauri::AppHandle) -> Result<ServerC
     Ok(config)
 }
 
+/// Ensure the canonical application certificate exists before Office.js setup starts.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub fn ensure_default_tls_certificate() -> Result<PathBuf, String> {
+    let cert_dir = default_cert_dir();
+    fs::create_dir_all(&cert_dir)
+        .map_err(|error| format!("Failed to create TLS certificate directory: {error}"))?;
+
+    let cert_path = default_cert_path();
+    let key_path = default_key_path();
+    if !cert_path.is_file() || !key_path.is_file() {
+        generate_self_signed_cert(&cert_path, &key_path)?;
+    }
+
+    if !cert_path.is_file() {
+        return Err("TLS certificate was not created.".to_string());
+    }
+    if !key_path.is_file() {
+        return Err("TLS private key was not created.".to_string());
+    }
+
+    Ok(cert_path)
+}
+
 /// Try to trust the self-signed certificate by finding it in standard app data paths.
 /// On Windows, this runs certutil (UAC prompt will appear).
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
-    // Try standard app data paths
-    let candidates = [
-        dirs_next::data_dir().map(|d| {
-            d.join("com.latexsnipper.office")
-                .join("localhost-certs")
-                .join("localhost.crt")
-        }),
+    let primary = ensure_default_tls_certificate()?;
+    match try_trust_cert(&primary) {
+        Ok(true) => return Ok(true),
+        Ok(false) => {}
+        Err(primary_error) => {
+            log::warn!("[TLS] Primary certificate trust failed: {}", primary_error);
+        }
+    }
+
+    let legacy_candidates = [
         dirs_next::data_dir().map(|d| {
             d.join("latexsnipper-office")
                 .join("localhost-certs")
@@ -79,30 +131,42 @@ pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
                 .join("localhost.crt"),
         ),
     ];
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.exists() {
-            return try_trust_cert(&candidate);
+    for candidate in legacy_candidates.into_iter().flatten() {
+        if candidate.is_file() && try_trust_cert(&candidate)? {
+            return Ok(true);
         }
     }
-    Err("No certificate found to trust. Start the app first to generate one.".to_string())
+
+    Err("Unable to establish trust for the LaTeXSnipper local HTTPS certificate.".to_string())
 }
 
 /// Try to trust the certificate by path.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn try_trust_cert(cert_path: &std::path::Path) -> Result<bool, String> {
-    if !cert_path.exists() {
-        return Err("Certificate does not exist, generate first".to_string());
-    }
-
-    // Check if already trusted
-    if is_cert_trusted()? {
-        println!("[TLS] Certificate already trusted");
-        return Ok(true);
+    if !cert_path.is_file() {
+        return Err("Certificate does not exist.".to_string());
     }
 
     #[cfg(target_os = "windows")]
     {
-        let ps_script = format!(
-            r#"$certPath = '{path}'
+        trust_cert_windows(cert_path)
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        trust_cert_macos(cert_path)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn trust_cert_windows(cert_path: &Path) -> Result<bool, String> {
+    if is_windows_cert_trusted()? {
+        println!("[TLS] Certificate already trusted");
+        return Ok(true);
+    }
+
+    let ps_script = format!(
+        r#"$certPath = '{path}'
 certutil -addstore -user Root $certPath | Out-Null
 if ($LASTEXITCODE -eq 0) {{
     Write-Host "Certificate trusted successfully"
@@ -128,22 +192,107 @@ if ($LASTEXITCODE -eq 0) {{
     }}
 }}
 "#,
-            path = cert_path.to_string_lossy()
-        );
+        path = cert_path.to_string_lossy()
+    );
 
-        let script_path = std::env::temp_dir().join("latexsnipper_trust_cert.ps1");
-        fs::write(&script_path, ps_script)
-            .map_err(|e| format!("Failed to write trust script: {e}"))?;
+    let script_path = std::env::temp_dir().join("latexsnipper_trust_cert.ps1");
+    fs::write(&script_path, ps_script).map_err(|e| format!("Failed to write trust script: {e}"))?;
 
-        trust_cert_with_script(&script_path)
+    trust_cert_with_script(&script_path)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_login_keychain() -> Result<PathBuf, String> {
+    let home = dirs_next::home_dir()
+        .ok_or_else(|| "Cannot determine macOS home directory.".to_string())?;
+    let modern = home
+        .join("Library")
+        .join("Keychains")
+        .join("login.keychain-db");
+    if modern.is_file() {
+        return Ok(modern);
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = cert_path;
-        println!("[TLS] Cert trust not implemented for non-Windows");
-        Err("Not supported on this platform".to_string())
+    let legacy = home
+        .join("Library")
+        .join("Keychains")
+        .join("login.keychain");
+    if legacy.is_file() {
+        return Ok(legacy);
     }
+
+    Err("Cannot locate the user's login keychain.".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn is_macos_cert_trusted(cert_path: &Path) -> Result<bool, String> {
+    if !cert_path.is_file() {
+        return Ok(false);
+    }
+
+    let mut command = std::process::Command::new("/usr/bin/security");
+    command
+        .arg("verify-cert")
+        .arg("-c")
+        .arg(cert_path)
+        .arg("-p")
+        .arg("ssl")
+        .arg("-s")
+        .arg("127.0.0.1");
+    let output = crate::platforms::process::run_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(15),
+    )
+    .map_err(|error| format!("Failed to verify macOS TLS certificate trust: {error}"))?;
+    Ok(output.status.success())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_trust_command_args(cert: &Path, keychain: &Path) -> Vec<String> {
+    vec![
+        "add-trusted-cert".into(),
+        "-r".into(),
+        "trustRoot".into(),
+        "-p".into(),
+        "ssl".into(),
+        "-k".into(),
+        keychain.to_string_lossy().into_owned(),
+        cert.to_string_lossy().into_owned(),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn trust_cert_macos(cert_path: &Path) -> Result<bool, String> {
+    if !cert_path.is_file() {
+        return Err(format!(
+            "TLS certificate does not exist: {}",
+            cert_path.display()
+        ));
+    }
+    if is_macos_cert_trusted(cert_path)? {
+        return Ok(true);
+    }
+
+    let keychain = macos_login_keychain()?;
+    let mut command = std::process::Command::new("/usr/bin/security");
+    command.args(macos_trust_command_args(cert_path, &keychain));
+    let output = crate::platforms::process::run_with_timeout(
+        &mut command,
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(|error| format!("Failed to execute macOS certificate trust command: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "macOS certificate trust failed: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    if !is_macos_cert_trusted(cert_path)? {
+        return Err("Certificate was imported into the macOS keychain but TLS trust verification still failed.".to_string());
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "windows")]
@@ -207,25 +356,49 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
 }
 
 /// Check if we can verify the cert (basic check — not a full trust verification).
-fn is_cert_trusted() -> Result<bool, String> {
-    // On Windows, we try to find our cert in the store
-    #[cfg(target_os = "windows")]
-    {
-        let mut cmd = std::process::Command::new("certutil");
-        cmd.args(["-store", "-user", "Root", "localhost"]);
-        let output = crate::platforms::process::run_with_timeout(
-            &mut cmd,
-            std::time::Duration::from_secs(15),
-        )
-        .map_err(|e| format!("Failed to query cert store: {e}"))?;
+#[cfg(target_os = "windows")]
+fn is_windows_cert_trusted() -> Result<bool, String> {
+    let mut cmd = std::process::Command::new("certutil");
+    cmd.args(["-store", "-user", "Root", "localhost"]);
+    let output =
+        crate::platforms::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))
+            .map_err(|e| format!("Failed to query cert store: {e}"))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        Ok(stdout.contains("localhost") && output.status.success())
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.contains("localhost") && output.status.success())
+}
+
+pub fn get_tls_certificate_status() -> TlsCertificateStatus {
+    let path = default_cert_path();
+    if !path.is_file() {
+        return TlsCertificateStatus {
+            present: false,
+            trusted: false,
+            path: Some(path.to_string_lossy().to_string()),
+            error: Some("TLS certificate does not exist.".to_string()),
+        };
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        Ok(false)
+    #[cfg(target_os = "macos")]
+    let trusted_result = is_macos_cert_trusted(&path);
+    #[cfg(target_os = "windows")]
+    let trusted_result = is_windows_cert_trusted();
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let trusted_result: Result<bool, String> = Ok(false);
+
+    match trusted_result {
+        Ok(trusted) => TlsCertificateStatus {
+            present: true,
+            trusted,
+            path: Some(path.to_string_lossy().to_string()),
+            error: None,
+        },
+        Err(error) => TlsCertificateStatus {
+            present: true,
+            trusted: false,
+            path: Some(path.to_string_lossy().to_string()),
+            error: Some(error),
+        },
     }
 }
 
@@ -235,16 +408,14 @@ pub fn get_cert_path(app_handle: &tauri::AppHandle) -> PathBuf {
 }
 
 fn get_cert_dir(app_handle: &tauri::AppHandle) -> PathBuf {
-    if let Ok(dir) = app_handle.path().app_data_dir() {
-        dir.join("localhost-certs")
-    } else {
-        std::env::temp_dir()
-            .join("LaTeXSnipper")
-            .join("localhost-certs")
-    }
+    app_handle
+        .path()
+        .app_data_dir()
+        .map(|dir| dir.join("localhost-certs"))
+        .unwrap_or_else(|_| default_cert_dir())
 }
 
-fn generate_self_signed_cert(cert_path: &PathBuf, key_path: &PathBuf) -> Result<(), String> {
+fn generate_self_signed_cert(cert_path: &Path, key_path: &Path) -> Result<(), String> {
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into(), "127.0.0.1".into()])
         .map_err(|e| format!("Failed to generate cert: {e}"))?;
 
@@ -259,4 +430,31 @@ fn generate_self_signed_cert(cert_path: &PathBuf, key_path: &PathBuf) -> Result<
         cert_path.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_certificate_path_uses_app_identifier() {
+        let path = default_cert_path().to_string_lossy().to_string();
+        assert!(path.contains("com.latexsnipper.office"));
+        assert!(
+            path.ends_with("localhost-certs/localhost.crt")
+                || path.ends_with(r"localhost-certs\localhost.crt")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_trust_command_targets_login_keychain() {
+        let args = macos_trust_command_args(
+            Path::new("/tmp/localhost.crt"),
+            Path::new("/Users/test/Library/Keychains/login.keychain-db"),
+        );
+        assert_eq!(args[0], "add-trusted-cert");
+        assert!(args.contains(&"trustRoot".to_string()));
+        assert!(args.contains(&"ssl".to_string()));
+    }
 }
