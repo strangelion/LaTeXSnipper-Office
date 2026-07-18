@@ -5663,6 +5663,7 @@ class UIController {
   }
 
   _officeStatusCache = null;
+  _officeWebDiagnostics = null;
 
   async getOfficeStatus() {
     if (this._officeStatusCache) return this._officeStatusCache;
@@ -5683,6 +5684,93 @@ class UIController {
 
   clearOfficeStatusCache() {
     this._officeStatusCache = null;
+    this._officeWebDiagnostics = null;
+  }
+
+  async getOfficeWebDiagnostics() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return await invoke("get_office_web_diagnostics");
+    } catch (error) {
+      Logger.warn("Office.js diagnostics failed:", error);
+      return null;
+    }
+  }
+
+  officeWebStatusLabel(state) {
+    const labels = {
+      "not-installed": "Office.js 尚未安装",
+      "manifest-installed": "Manifest 已安装，环境未就绪",
+      "tls-untrusted": "TLS 证书未信任",
+      ready: "Office.js 已就绪，Taskpane 未连接",
+      connected: "Office.js 已连接",
+    };
+    return labels[state] || "Office.js 状态未知";
+  }
+
+  officeWebDiagnosticsMarkup(platform) {
+    const diagnostics = this._officeWebDiagnostics;
+    if (platform.id !== "office" || diagnostics?.platform !== "macos") {
+      return "";
+    }
+
+    const status = (value, ready = "正常", blocked = "异常") =>
+      `<span class="office-web-value ${value ? "is-ok" : "is-blocked"}">${value ? ready : blocked}</span>`;
+    const rows = [
+      ["Word", status(diagnostics.wordDetected, "已检测", "未检测")],
+      ["Excel", status(diagnostics.excelDetected, "已检测", "未检测")],
+      [
+        "PowerPoint",
+        status(diagnostics.powerpointDetected, "已检测", "未检测"),
+      ],
+      ["Taskpane 资源", status(diagnostics.taskpaneAssetsPresent)],
+      [
+        "Word Manifest",
+        status(diagnostics.wordManifestInstalled, "已安装", "缺失"),
+      ],
+      [
+        "Excel Manifest",
+        status(diagnostics.excelManifestInstalled, "已安装", "缺失"),
+      ],
+      [
+        "PowerPoint Manifest",
+        status(diagnostics.powerpointManifestInstalled, "已安装", "缺失"),
+      ],
+      [
+        "HTTPS Bridge",
+        status(
+          diagnostics.httpsListening,
+          `${diagnostics.httpsPort} 正常`,
+          "离线",
+        ),
+      ],
+      [
+        "本地 TLS 证书",
+        status(diagnostics.certificatePresent, "已安装", "缺失"),
+      ],
+      ["TLS 信任", status(diagnostics.certificateTrusted, "已信任", "未信任")],
+      [
+        "Taskpane",
+        status(diagnostics.heartbeatFresh, "当前已连接", "当前未连接"),
+      ],
+    ];
+    const blocker = diagnostics.blockers?.[0]
+      ? `<div class="office-web-blocker">错误代码：${this._escapeHtml(diagnostics.blockers[0])}</div>`
+      : "";
+    const repair = diagnostics.ready
+      ? ""
+      : '<button type="button" class="office-web-repair" data-office-web-repair>修复 Office.js</button>';
+
+    return `<div class="office-web-diagnostics">
+      ${rows
+        .map(
+          ([label, value]) =>
+            `<div class="office-web-row"><span>${label}</span>${value}</div>`,
+        )
+        .join("")}
+      ${blocker}
+      ${repair}
+    </div>`;
   }
 
   async getPlatformIntegrationStatus(platformId) {
@@ -5708,6 +5796,11 @@ class UIController {
       refreshStatus && officePlatform
         ? await this.getPlatformIntegrationStatus("office")
         : null;
+    if (refreshStatus && officePlatform) {
+      const diagnostics = await this.getOfficeWebDiagnostics();
+      this._officeWebDiagnostics =
+        diagnostics?.platform === "macos" ? diagnostics : null;
+    }
     if (officePlatform && officeStatus) {
       const hosts = [
         { name: "Word", status: officeStatus.word },
@@ -5763,6 +5856,11 @@ class UIController {
       Logger.info(
         "[Office] Generic integration status:",
         officeIntegrationStatus,
+      );
+    }
+    if (officePlatform && this._officeWebDiagnostics) {
+      officePlatform.desc = this.officeWebStatusLabel(
+        this._officeWebDiagnostics.state,
       );
     }
 
@@ -5822,6 +5920,7 @@ class UIController {
         <div class="platform-info">
           <div class="platform-name">${p.name}</div>
           <div class="platform-desc">${busy ? "处理中..." : p.desc}${p.enabled ? " · 已启用" : ""}</div>
+          ${busy ? "" : this.officeWebDiagnosticsMarkup(p)}
         </div>
         <label class="custom-toggle ${busy ? "is-busy" : ""}">
           <input type="checkbox" class="platform-toggle" data-platform="${p.id}" ${p.enabled ? "checked" : ""} ${busy ? "disabled" : ""}>
@@ -5845,6 +5944,43 @@ class UIController {
         }
       });
     });
+    listEl
+      .querySelector("[data-office-web-repair]")
+      ?.addEventListener("click", () => this.repairOfficeWebIntegration());
+  }
+
+  async repairOfficeWebIntegration() {
+    if (this.platformOperations.has("office")) return false;
+    const officePlatform = this.platforms.find((p) => p.id === "office");
+    this.platformOperations.add("office");
+    try {
+      await this.renderPlatformList();
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await this.withTimeout(
+        invoke("install_platform_integration", { platformId: "office-web" }),
+        120000,
+        "office-web repair",
+      );
+      if (!result.success) {
+        this.showToast("修复失败: " + (result.message || "未知错误"), 4000);
+        return false;
+      }
+      if (officePlatform) officePlatform.enabled = true;
+      this.savePlatforms();
+      this.showToast(
+        result.message || "Office.js 已修复，请重启 Office 应用。",
+        4000,
+      );
+      return true;
+    } catch (error) {
+      Logger.error("Office.js repair failed:", error);
+      this.showToast("修复失败: " + (error?.message || error), 4000);
+      return false;
+    } finally {
+      this.clearOfficeStatusCache();
+      this.platformOperations.delete("office");
+      await this.renderPlatformList({ refreshStatus: true });
+    }
   }
 
   /** Run a promise with a timeout. If it doesn't resolve within ms, reject. */
@@ -5881,7 +6017,7 @@ class UIController {
       if (requestedEnabled) {
         ok = await this.withTimeout(
           this.registerPlatform(platform),
-          30000,
+          platformId === "office" ? 120000 : 30000,
           `${platformId} install`,
         );
       } else {
