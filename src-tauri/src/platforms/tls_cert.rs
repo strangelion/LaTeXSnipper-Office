@@ -26,6 +26,7 @@ fn default_cert_path() -> PathBuf {
     default_cert_dir().join("localhost.crt")
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn default_key_path() -> PathBuf {
     default_cert_dir().join("localhost.key")
 }
@@ -82,6 +83,7 @@ pub fn get_or_create_tls_config(app_handle: &tauri::AppHandle) -> Result<ServerC
 }
 
 /// Ensure the canonical application certificate exists before Office.js setup starts.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn ensure_default_tls_certificate() -> Result<PathBuf, String> {
     let cert_dir = default_cert_dir();
     fs::create_dir_all(&cert_dir)
@@ -105,6 +107,7 @@ pub fn ensure_default_tls_certificate() -> Result<PathBuf, String> {
 
 /// Try to trust the self-signed certificate by finding it in standard app data paths.
 /// On Windows, this runs certutil (UAC prompt will appear).
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
     let primary = ensure_default_tls_certificate()?;
     match try_trust_cert(&primary) {
@@ -138,6 +141,7 @@ pub fn try_trust_cert_from_appdata() -> Result<bool, String> {
 }
 
 /// Try to trust the certificate by path.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 pub fn try_trust_cert(cert_path: &std::path::Path) -> Result<bool, String> {
     if !cert_path.is_file() {
         return Err("Certificate does not exist.".to_string());
@@ -151,12 +155,6 @@ pub fn try_trust_cert(cert_path: &std::path::Path) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
         trust_cert_macos(cert_path)
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        let _ = cert_path;
-        Err("Office.js TLS certificate trust is unsupported on this platform.".to_string())
     }
 }
 

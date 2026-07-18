@@ -71,6 +71,19 @@ test("macOS certificate trust targets the login keychain and verifies SSL trust"
   assert.match(source, /pub fn ensure_default_tls_certificate/);
   assert.match(source, /pub fn get_tls_certificate_status/);
   assert.doesNotMatch(source, /Cert trust not implemented for non-Windows/);
+  for (const functionName of [
+    "default_key_path",
+    "ensure_default_tls_certificate",
+    "try_trust_cert_from_appdata",
+    "try_trust_cert",
+  ]) {
+    assert.match(
+      source,
+      new RegExp(
+        `#\\[cfg\\(any\\(target_os = "windows", target_os = "macos"\\)\\)\\]\\s*(?:pub )?fn ${functionName}`,
+      ),
+    );
+  }
 });
 
 test("Office.js installation fails closed before manifest installation when TLS trust fails", () => {
