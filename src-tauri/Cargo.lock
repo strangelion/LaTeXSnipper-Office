@@ -2476,7 +2476,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-office"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "axum",
  "axum-server",
