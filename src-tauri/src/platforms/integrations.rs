@@ -129,6 +129,30 @@ pub struct PlatformIntegrationResult {
     pub details: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeWebDiagnostics {
+    pub platform: String,
+    pub state: String,
+    pub word_detected: bool,
+    pub excel_detected: bool,
+    pub powerpoint_detected: bool,
+    pub word_manifest_installed: bool,
+    pub excel_manifest_installed: bool,
+    pub powerpoint_manifest_installed: bool,
+    pub taskpane_assets_present: bool,
+    pub certificate_present: bool,
+    pub certificate_trusted: bool,
+    pub certificate_path: Option<String>,
+    pub https_listening: bool,
+    pub https_port: u16,
+    pub last_https_error: Option<String>,
+    pub last_tls_error: Option<String>,
+    pub heartbeat_fresh: bool,
+    pub ready: bool,
+    pub blockers: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OleStatus {
     pub available: bool,
@@ -649,10 +673,24 @@ fn uninstall_hybrid_office_integration() -> PlatformIntegrationResult {
 #[tauri::command]
 pub async fn check_platform_integration(
     platform_id: String,
+    app_handle: tauri::AppHandle,
     bridge_state: tauri::State<'_, Arc<super::office_bridge::BridgeRuntimeState>>,
 ) -> Result<PlatformIntegrationResult, String> {
     if platform_id == "wps" {
         return Ok(check_wps_with_runtime(&bridge_state).await);
+    }
+    if platform_id == "office-web" || (platform_id == "office" && cfg!(target_os = "macos")) {
+        let diagnostics = collect_office_web_diagnostics(&app_handle, bridge_state.inner()).await?;
+        let success = diagnostics.ready;
+        let message = office_web_status_message(&diagnostics);
+        return Ok(PlatformIntegrationResult {
+            success,
+            platform: "office-web".to_string(),
+            mode: diagnostics.state.clone(),
+            message,
+            restart_required: diagnostics.state == "manifest-installed",
+            details: serde_json::to_value(&diagnostics).ok(),
+        });
     }
     let fallback_platform = platform_id.clone();
     Ok(
@@ -666,6 +704,172 @@ pub async fn check_platform_integration(
                 )
             }),
     )
+}
+
+fn office_web_state(
+    any_manifest_installed: bool,
+    certificate_present: bool,
+    certificate_trusted: bool,
+    ready: bool,
+    heartbeat_fresh: bool,
+) -> &'static str {
+    if !any_manifest_installed {
+        "not-installed"
+    } else if !certificate_present || !certificate_trusted {
+        "tls-untrusted"
+    } else if ready && heartbeat_fresh {
+        "connected"
+    } else if ready {
+        "ready"
+    } else {
+        "manifest-installed"
+    }
+}
+
+fn office_web_status_message(diagnostics: &OfficeWebDiagnostics) -> String {
+    match diagnostics.state.as_str() {
+        "connected" => "Office.js task pane is connected and ready.".to_string(),
+        "ready" => "Office.js is ready; the task pane is currently offline.".to_string(),
+        "tls-untrusted" => {
+            "Office.js manifests exist, but the local HTTPS certificate is not trusted.".to_string()
+        }
+        "manifest-installed" => format!(
+            "Office.js manifests are installed, but setup is incomplete: {}",
+            diagnostics.blockers.join(", ")
+        ),
+        _ => "Office.js manifests are not installed.".to_string(),
+    }
+}
+
+fn office_js_manifest_statuses() -> (bool, bool, bool) {
+    let installed = |host: OfficeJsHost| -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            is_office_js_registered(host)
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            dirs_next::home_dir()
+                .map(|home| {
+                    home.join("Library")
+                        .join("Containers")
+                        .join(host.mac_container)
+                        .join("Data")
+                        .join("Documents")
+                        .join("wef")
+                        .join("LaTeXSnipper.xml")
+                        .is_file()
+                })
+                .unwrap_or(false)
+        }
+
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            let _ = host;
+            false
+        }
+    };
+
+    let find = |name: &str| {
+        OFFICE_JS_HOSTS
+            .iter()
+            .find(|host| host.name == name)
+            .copied()
+            .map(&installed)
+            .unwrap_or(false)
+    };
+    (find("Word"), find("Excel"), find("PowerPoint"))
+}
+
+async fn collect_office_web_diagnostics(
+    app_handle: &tauri::AppHandle,
+    bridge_state: &Arc<super::office_bridge::BridgeRuntimeState>,
+) -> Result<OfficeWebDiagnostics, String> {
+    let bridge = bridge_state.diagnostics.read().await.clone();
+    let taskpane_assets_present = super::office_bridge::office_taskpane_assets_present(app_handle);
+    let tls = tauri::async_runtime::spawn_blocking(super::tls_cert::get_tls_certificate_status)
+        .await
+        .map_err(|error| format!("Failed to inspect TLS certificate: {error}"))?;
+    let office = tauri::async_runtime::spawn_blocking(super::office::detect_office_cached)
+        .await
+        .map_err(|error| format!("Failed to inspect Office installation: {error}"))?;
+    let (word_manifest, excel_manifest, powerpoint_manifest) =
+        tauri::async_runtime::spawn_blocking(office_js_manifest_statuses)
+            .await
+            .map_err(|error| format!("Failed to inspect Office.js manifests: {error}"))?;
+    let heartbeat_fresh = is_taskpane_connected();
+
+    let mut blockers = Vec::new();
+    if !taskpane_assets_present {
+        blockers.push("OFFICEJS_TASKPANE_ASSETS_MISSING".to_string());
+    }
+    if !tls.present {
+        blockers.push("OFFICEJS_TLS_CERTIFICATE_MISSING".to_string());
+    } else if !tls.trusted {
+        blockers.push("OFFICEJS_TLS_CERTIFICATE_UNTRUSTED".to_string());
+    }
+    if !bridge.https_listening {
+        blockers.push("OFFICEJS_HTTPS_BRIDGE_OFFLINE".to_string());
+    }
+    if office.word.available && !word_manifest {
+        blockers.push("OFFICEJS_WORD_MANIFEST_MISSING".to_string());
+    }
+    if office.excel.available && !excel_manifest {
+        blockers.push("OFFICEJS_EXCEL_MANIFEST_MISSING".to_string());
+    }
+    if office.powerpoint.available && !powerpoint_manifest {
+        blockers.push("OFFICEJS_POWERPOINT_MANIFEST_MISSING".to_string());
+    }
+
+    let any_manifest_installed = word_manifest || excel_manifest || powerpoint_manifest;
+    let required_manifests_ready = any_manifest_installed
+        && (!office.word.available || word_manifest)
+        && (!office.excel.available || excel_manifest)
+        && (!office.powerpoint.available || powerpoint_manifest);
+    let ready = taskpane_assets_present
+        && tls.trusted
+        && bridge.https_listening
+        && required_manifests_ready;
+    let state = office_web_state(
+        any_manifest_installed,
+        tls.present,
+        tls.trusted,
+        ready,
+        heartbeat_fresh,
+    )
+    .to_string();
+    let last_tls_error = tls.error.clone().or(bridge.last_tls_error.clone());
+
+    Ok(OfficeWebDiagnostics {
+        platform: std::env::consts::OS.to_string(),
+        state,
+        word_detected: office.word.available,
+        excel_detected: office.excel.available,
+        powerpoint_detected: office.powerpoint.available,
+        word_manifest_installed: word_manifest,
+        excel_manifest_installed: excel_manifest,
+        powerpoint_manifest_installed: powerpoint_manifest,
+        taskpane_assets_present,
+        certificate_present: tls.present,
+        certificate_trusted: tls.trusted,
+        certificate_path: tls.path,
+        https_listening: bridge.https_listening,
+        https_port: bridge.https_port,
+        last_https_error: bridge.last_https_error,
+        last_tls_error,
+        heartbeat_fresh,
+        ready,
+        blockers,
+    })
+}
+
+#[tauri::command]
+pub async fn get_office_web_diagnostics(
+    app_handle: tauri::AppHandle,
+    bridge_state: tauri::State<'_, Arc<super::office_bridge::BridgeRuntimeState>>,
+) -> Result<OfficeWebDiagnostics, String> {
+    collect_office_web_diagnostics(&app_handle, bridge_state.inner()).await
 }
 
 pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIntegrationResult {
@@ -1687,6 +1891,7 @@ const OFFICE_DEVELOPER_KEY: &str = r"HKCU\Software\Microsoft\Office\16.0\WEF\Dev
 struct OfficeJsHost {
     id: &'static str,
     name: &'static str,
+    #[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
     manifest_file: &'static str,
     #[cfg(target_os = "windows")]
     refresh_key: &'static str,
@@ -1931,6 +2136,49 @@ fn is_office_js_registered(host: OfficeJsHost) -> bool {
 /// Windows: registers manifest path in HKCU\...\WEF\Developer registry key.
 /// macOS: copies to ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/
 fn install_office_js_addin() -> PlatformIntegrationResult {
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        install_office_js_addin_supported()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        PlatformIntegrationResult::fail(
+            "office-web",
+            "unsupported",
+            "Office.js desktop integration is unsupported on this platform.",
+        )
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn ensure_office_js_tls_trust() -> Result<(), String> {
+    println!("[Office] Ensuring local HTTPS certificate trust...");
+    match super::tls_cert::try_trust_cert_from_appdata() {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(
+                "OFFICEJS_TLS_TRUST_FAILED: Local HTTPS certificate is not trusted.".to_string(),
+            )
+        }
+        Err(error) => return Err(format!("OFFICEJS_TLS_TRUST_FAILED: {error}")),
+    }
+
+    let status = super::tls_cert::get_tls_certificate_status();
+    if !status.present || !status.trusted {
+        return Err(format!(
+            "OFFICEJS_TLS_TRUST_FAILED: {}",
+            status
+                .error
+                .unwrap_or_else(|| "Local HTTPS certificate trust verification failed.".to_string())
+        ));
+    }
+    println!("[Office] Local HTTPS certificate is trusted.");
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn install_office_js_addin_supported() -> PlatformIntegrationResult {
     #[cfg(target_os = "windows")]
     cleanup_legacy_office_com_addins();
 
@@ -1943,11 +2191,24 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
         );
     }
 
-    println!("[Office] Requesting certificate trust for HTTPS...");
-    if let Ok(true) = super::tls_cert::try_trust_cert_from_appdata() {
-        println!("[Office] Certificate trusted successfully");
-    } else {
-        println!("[Office] Certificate trust deferred (may need manual trust)");
+    if let Err(error) = ensure_office_js_tls_trust() {
+        return PlatformIntegrationResult::fail("office-web", "tls-trust", error);
+    }
+
+    for (host, manifest) in &manifests {
+        let content = match std::fs::read_to_string(manifest) {
+            Ok(content) => content,
+            Err(error) => {
+                return PlatformIntegrationResult::fail(
+                    "office-web",
+                    "manifest-validation",
+                    format!("Failed to read {} manifest: {error}", host.name),
+                )
+            }
+        };
+        if let Err(error) = validate_office_js_manifest(*host, &content) {
+            return PlatformIntegrationResult::fail("office-web", "manifest-validation", error);
+        }
     }
 
     #[cfg(target_os = "windows")]
@@ -1978,16 +2239,11 @@ fn install_office_js_addin() -> PlatformIntegrationResult {
             Ok(installed) => PlatformIntegrationResult::ok(
                 "office-web",
                 "office-js",
-                format!("Installed and verified Office.js manifests for {}. Restart Office apps. Certificate, Bridge, and taskpane heartbeat must still be checked separately.", installed.join(", ")),
+                format!("Installed and verified Office.js manifests for {}. Local TLS trust is verified; restart Office apps and open the task pane.", installed.join(", ")),
                 true,
             ),
             Err(error) => PlatformIntegrationResult::fail("office-web", "office-js", error),
         }
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        PlatformIntegrationResult::fail("office-web", "office-js", "Unsupported operating system")
     }
 }
 
@@ -2684,6 +2940,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
     )
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn office_js_manifests() -> Vec<(OfficeJsHost, PathBuf)> {
     OFFICE_JS_HOSTS
         .iter()
@@ -2691,6 +2948,7 @@ fn office_js_manifests() -> Vec<(OfficeJsHost, PathBuf)> {
         .collect()
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn find_office_js_manifest(host: OfficeJsHost) -> Option<PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
@@ -5898,6 +6156,24 @@ mod office_js_install_tests {
         assert!(taskpane_heartbeat_is_fresh(1_000, 30_999));
         assert!(!taskpane_heartbeat_is_fresh(1_000, 31_000));
         assert!(!taskpane_heartbeat_is_fresh(2_000, 1_999));
+    }
+
+    #[test]
+    fn office_web_state_keeps_readiness_separate_from_connection() {
+        assert_eq!(
+            office_web_state(false, false, false, false, false),
+            "not-installed"
+        );
+        assert_eq!(
+            office_web_state(true, true, false, false, false),
+            "tls-untrusted"
+        );
+        assert_eq!(
+            office_web_state(true, true, true, false, false),
+            "manifest-installed"
+        );
+        assert_eq!(office_web_state(true, true, true, true, false), "ready");
+        assert_eq!(office_web_state(true, true, true, true, true), "connected");
     }
 
     #[test]

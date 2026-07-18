@@ -289,7 +289,13 @@ fn word_startup_dir() -> String {
 
 #[cfg(target_os = "windows")]
 fn query_reg(key: &str, value_name: &str) -> Option<String> {
-    const REG_TYPES: [&str; 5] = ["REG_SZ", "REG_EXPAND_SZ", "REG_MULTI_SZ", "REG_DWORD", "REG_QWORD"];
+    const REG_TYPES: [&str; 5] = [
+        "REG_SZ",
+        "REG_EXPAND_SZ",
+        "REG_MULTI_SZ",
+        "REG_DWORD",
+        "REG_QWORD",
+    ];
 
     for view in ["/reg:64", "/reg:32"] {
         let Ok(output) = super::process::run_with_timeout(

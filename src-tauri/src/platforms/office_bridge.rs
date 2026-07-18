@@ -305,6 +305,11 @@ fn find_office_js_dist(app_handle: &tauri::AppHandle) -> String {
     String::from("dist")
 }
 
+pub(crate) fn office_taskpane_assets_present(app_handle: &tauri::AppHandle) -> bool {
+    let path = find_office_js_dist(app_handle);
+    has_office_taskpane(std::path::Path::new(&path))
+}
+
 fn has_office_taskpane(dir: &std::path::Path) -> bool {
     dir.join("taskpane.html").exists() || dir.join("taskpane").join("index.html").exists()
 }

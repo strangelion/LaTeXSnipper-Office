@@ -247,6 +247,7 @@ fn main() {
             platforms::integrations::install_obsidian_to_vault,
             platforms::integrations::uninstall_platform_integration,
             platforms::integrations::check_platform_integration,
+            platforms::integrations::get_office_web_diagnostics,
             platforms::office::invalidate_office_cache,
             math::omml_to_latex,
             math::latex_to_omml,
