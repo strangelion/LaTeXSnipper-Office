@@ -334,32 +334,40 @@ impl SessionManager {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!("[Session] READ_SELECTION (session={})", sid);
+                let document_context_id = self
+                    .sessions
+                    .read()
+                    .await
+                    .get(&sid)
+                    .and_then(|session| session.document_id.clone());
 
-                // Priority: formula.latex > rangeXml OMML conversion
-                if let Some(ref f) = formula {
-                    if !f.latex.is_empty() {
+                // Preserve the complete formula payload so callers retain its identity,
+                // revision, storage mode, render metadata, and source metadata.
+                if let Some(mut formula) = formula {
+                    if !formula.latex.is_empty() {
                         log::info!(
                             "[Session] Using FormulaPayload.latex: {}",
-                            f.latex.chars().take(50).collect::<String>()
+                            formula.latex.chars().take(50).collect::<String>()
                         );
-                        let _ = self.app_handle.emit(
-                            "native-office-latex-loaded",
-                            serde_json::json!({ "latex": f.latex, "sessionId": sid }),
-                        );
-                    } else if !f.omml.is_empty() {
-                        // Fallback: convert OMML to LaTeX via Core
-                        match self.convert_omml_to_latex(&f.omml) {
+                    } else if !formula.omml.is_empty() {
+                        match self.convert_omml_to_latex(&formula.omml) {
                             Ok(latex) => {
-                                let _ = self.app_handle.emit(
-                                    "native-office-latex-loaded",
-                                    serde_json::json!({ "latex": latex, "sessionId": sid }),
-                                );
+                                formula.latex = latex;
                             }
                             Err(e) => {
                                 log::warn!("[Session] OMML->LaTeX conversion failed: {}", e);
                             }
                         }
                     }
+
+                    let _ = self.app_handle.emit(
+                        "native-office-formula-loaded",
+                        serde_json::json!({
+                            "formula": formula,
+                            "sessionId": sid,
+                            "documentContextId": document_context_id,
+                        }),
+                    );
                 } else if let Some(xml) = rangeXml {
                     // Fallback: parse OOXML and extract LaTeX
                     match self.extract_latex_from_ooxml(&xml).await {
@@ -375,6 +383,45 @@ impl SessionManager {
                     }
                 }
 
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
+            VstoMessage::FormulaSnapshot {
+                requestId,
+                sessionId,
+                formula,
+                errorCode,
+                error,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                let document_context_id = self
+                    .sessions
+                    .read()
+                    .await
+                    .get(&sid)
+                    .and_then(|session| session.document_id.clone());
+                let _ = self.app_handle.emit(
+                    "native-office-formula-snapshot",
+                    serde_json::json!({
+                        "requestId": requestId,
+                        "sessionId": sid,
+                        "documentContextId": document_context_id,
+                        "formula": formula,
+                        "errorCode": errorCode,
+                        "error": error,
+                    }),
+                );
                 HandleMessageResult {
                     response: ResponseEnvelope {
                         requestId: rid.clone(),
@@ -558,6 +605,10 @@ impl SessionManager {
                 requestId,
                 sessionId,
                 success,
+                formulaId,
+                revision,
+                actualStorageMode,
+                errorCode,
                 error,
             } => {
                 let rid = requestId.clone();
@@ -570,7 +621,12 @@ impl SessionManager {
                 let _ = self.app_handle.emit(
                     "native-office-replace-result",
                     serde_json::json!({
+                        "requestId": requestId,
                         "success": success,
+                        "formulaId": formulaId,
+                        "revision": revision,
+                        "actualStorageMode": actualStorageMode,
+                        "errorCode": errorCode,
                         "error": error,
                         "sessionId": sid,
                     }),

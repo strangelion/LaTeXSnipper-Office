@@ -260,6 +260,8 @@ fn main() {
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_replace_formula,
             #[cfg(target_os = "windows")]
+            commands::native_office::native_office_read_formula_by_id,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_table,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_delete_current,

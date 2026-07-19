@@ -120,6 +120,7 @@ pub async fn native_office_replace_formula(
     height_pt: Option<f32>,
     storage_mode: Option<String>,
     expected_revision: Option<u64>,
+    expected_document_id: Option<String>,
 ) -> Result<String, String> {
     let revision = expected_revision
         .map(i32::try_from)
@@ -154,16 +155,34 @@ pub async fn native_office_replace_formula(
         created_utc_ticks: 0,
     };
 
-    crate::platforms::pipe_server::send_replace_formula(
+    let request_id = crate::platforms::pipe_server::send_replace_formula(
         &session_mgr,
         &session_id,
+        expected_document_id,
         formula_id,
         payload,
     )
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok("Formula replacement sent".to_string())
+    Ok(request_id)
+}
+
+#[tauri::command]
+pub async fn native_office_read_formula_by_id(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+    formula_id: String,
+    expected_document_id: Option<String>,
+) -> Result<String, String> {
+    crate::platforms::pipe_server::send_read_formula(
+        &session_mgr,
+        &session_id,
+        expected_document_id,
+        formula_id,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Insert table into the current Office host.

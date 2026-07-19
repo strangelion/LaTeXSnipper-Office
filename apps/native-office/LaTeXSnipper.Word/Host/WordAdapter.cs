@@ -522,7 +522,8 @@ namespace LaTeXSnipper.Word.Host
                         FormulaId = formulaId,
                         RangeStart = (uint)committedRange.Start,
                         RangeEnd = (uint)committedRange.End,
-                        StorageMode = newPayload.StorageMode
+                        StorageMode = newPayload.StorageMode,
+                        Revision = newPayload.Revision
                     };
                 }
 
@@ -545,6 +546,45 @@ namespace LaTeXSnipper.Word.Host
                     ErrorCode = "CANDIDATE_CREATE_FAILED",
                     Error = ex.Message
                 };
+            }
+        }
+
+        public FormulaPayload? ReadFormulaById(string formulaId)
+        {
+            if (string.IsNullOrWhiteSpace(formulaId)) return null;
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null) return null;
+
+                var manifest = FormulaDocumentManifest.Read(doc, formulaId);
+                if (manifest != null) return manifest;
+
+                var control = FindFormulaContentControl(doc, formulaId);
+                if (control == null) return null;
+                foreach (Microsoft.Office.Interop.Word.InlineShape shape in control.Range.InlineShapes)
+                {
+                    if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        continue;
+                    var automationObject = shape.OLEFormat?.Object;
+                    var json = automationObject == null ? null : OleFormulaInterop.GetPayloadJson(automationObject);
+                    var payload = string.IsNullOrWhiteSpace(json)
+                        ? null
+                        : System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (payload != null && string.Equals(payload.FormulaId, formulaId, StringComparison.Ordinal))
+                        return payload;
+                }
+
+                var omml = ExtractOmmlFromXml(control.Range.WordOpenXML);
+                return string.IsNullOrWhiteSpace(omml)
+                    ? null
+                    : new FormulaPayload { FormulaId = formulaId, Omml = omml, StorageMode = "native-omml" };
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("read-formula-by-id", "word", formulaId, ex);
+                return null;
             }
         }
 
@@ -1761,6 +1801,7 @@ namespace LaTeXSnipper.Word.Host
         public bool Success { get; set; }
         public string FormulaId { get; set; } = "";
         public string StorageMode { get; set; } = "";
+        public int? Revision { get; set; }
         public string? FallbackReason { get; set; }
         public uint? RangeStart { get; set; }
         public uint? RangeEnd { get; set; }

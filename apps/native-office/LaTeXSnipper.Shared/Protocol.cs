@@ -64,6 +64,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoRequestReference), "REQUEST_REFERENCE")]
 [JsonDerivedType(typeof(VstoRequestBoundary), "REQUEST_BOUNDARY")]
 [JsonDerivedType(typeof(VstoReadSelection), "READ_SELECTION")]
+[JsonDerivedType(typeof(VstoFormulaSnapshot), "FORMULA_SNAPSHOT")]
 [JsonDerivedType(typeof(VstoReadTable), "READ_TABLE")]
 [JsonDerivedType(typeof(VstoInsertResult), "INSERT_RESULT")]
 [JsonDerivedType(typeof(VstoReplaceResult), "REPLACE_RESULT")]
@@ -163,6 +164,17 @@ public class VstoReadSelection : VstoMessage
     [JsonPropertyName("rangeXml")] public string? RangeXml { get; set; }
 }
 
+public class VstoFormulaSnapshot : VstoMessage
+{
+    [JsonPropertyName("formula")] public FormulaPayload? Formula { get; set; }
+    [JsonPropertyName("errorCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+}
+
 public class VstoReadTable : VstoMessage
 {
     [JsonPropertyName("table")] public TablePayload? Table { get; set; }
@@ -193,9 +205,18 @@ public class VstoInsertResult : VstoMessage
 public class VstoReplaceResult : VstoMessage
 {
     [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("formulaId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FormulaId { get; set; }
+    [JsonPropertyName("revision")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Revision { get; set; }
     [JsonPropertyName("actualStorageMode")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ActualStorageMode { get; set; }
+    [JsonPropertyName("errorCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
@@ -247,6 +268,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopInsertTable), "INSERT_TABLE")]
 [JsonDerivedType(typeof(DesktopImportConversation), "IMPORT_CONVERSATION")]
 [JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
+[JsonDerivedType(typeof(DesktopRequestReadFormula), "REQUEST_READ_FORMULA")]
 [JsonDerivedType(typeof(DesktopRequestReadTable), "REQUEST_READ_TABLE")]
 [JsonDerivedType(typeof(DesktopDeleteCurrent), "DELETE_CURRENT")]
 [JsonDerivedType(typeof(DesktopFormatSelection), "FORMAT_SELECTION")]
@@ -346,6 +368,11 @@ public class DesktopInsertWordReference : DesktopMessage
 }
 
 public class DesktopRequestReadSelection : DesktopMessage { }
+
+public class DesktopRequestReadFormula : DesktopDocumentCommand
+{
+    [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
+}
 
 public class DesktopRequestReadTable : DesktopMessage { }
 

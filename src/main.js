@@ -2785,7 +2785,7 @@ class UIController {
           latex,
         );
         if (this._pendingOfficeEditorRequest?.action === "edit") {
-          await invoke("native_office_replace_formula", {
+          const requestId = await invoke("native_office_replace_formula", {
             sessionId: sessionId,
             formulaId: formulaId,
             latex: latex,
@@ -2797,7 +2797,9 @@ class UIController {
             heightPt: heightPt,
             storageMode: integrationMode,
             expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
+            expectedDocumentId: officeTransaction.sourceDocumentId || null,
           });
+          this._pendingOfficeEditorRequest.commitRequestId = requestId;
         } else {
           await invoke("native_office_insert_formula", {
             sessionId: sessionId,
@@ -2903,15 +2905,23 @@ class UIController {
         }
       });
 
-      // Office loaded formula from selection
-      listen("native-office-latex-loaded", async (event) => {
-        const { latex, sessionId } = event.payload;
-        Logger.info(`Native Office: loaded latex from ${sessionId}: ${latex}`);
+      // Office loaded a complete formula payload from selection.
+      listen("native-office-formula-loaded", async (event) => {
+        const { formula, sessionId, documentContextId } = event.payload;
+        const latex = formula?.latex;
+        Logger.info(
+          `Native Office: loaded formula ${formula?.formulaId || "unknown"} from ${sessionId}`,
+        );
         if (latex) {
           this.switchSection("editor");
           this.editor.setLatex(latex);
           this.showToast("已加载选中的公式");
         }
+        this._lastNativeOfficeFormula = {
+          formula,
+          sessionId,
+          documentContextId,
+        };
       });
 
       // Office loaded table
@@ -3021,19 +3031,35 @@ class UIController {
       });
 
       listen("native-office-replace-result", async (event) => {
-        const { success, error, sessionId } = event.payload;
+        const {
+          success,
+          error,
+          errorCode,
+          formulaId,
+          requestId,
+          revision,
+          sessionId,
+        } = event.payload;
         const pending = this._pendingOfficeEditorRequest;
         if (
           !pending ||
           pending.sessionId !== sessionId ||
-          pending.action !== "edit"
+          pending.action !== "edit" ||
+          (pending.commitRequestId && pending.commitRequestId !== requestId)
         ) {
           Logger.warn(
-            `Ignoring unmatched Native Office replacement ACK for session=${sessionId}`,
+            `Ignoring unmatched Native Office replacement result for session=${sessionId}, request=${requestId}`,
           );
           return;
         }
         if (success) {
+          if (formulaId && formulaId !== pending.formulaId) {
+            Logger.warn(
+              `Ignoring replacement result for unexpected formula ${formulaId}`,
+            );
+            return;
+          }
+          if (Number.isInteger(revision)) pending.revision = revision;
           await this.completeOfficeEditTransaction(true, null, null);
           this.showToast("公式已更新");
           this.clearPendingOfficeEditorRequest();
@@ -3041,7 +3067,7 @@ class UIController {
         }
         await this.completeOfficeEditTransaction(
           false,
-          "HOST_REPLACE_FAILED",
+          errorCode || "HOST_REPLACE_FAILED",
           error || "Office host replacement failed",
         );
         this.showToast(`公式更新失败：${error || "宿主提交未完成"}`);
@@ -4798,7 +4824,7 @@ class UIController {
         latex,
       );
       if (this._pendingOfficeEditorRequest?.action === "edit") {
-        await invoke("native_office_replace_formula", {
+        const requestId = await invoke("native_office_replace_formula", {
           sessionId,
           formulaId: officeTransaction.formulaId,
           latex,
@@ -4810,7 +4836,9 @@ class UIController {
           heightPt,
           storageMode: integrationMode,
           expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
+          expectedDocumentId: officeTransaction.sourceDocumentId || null,
         });
+        this._pendingOfficeEditorRequest.commitRequestId = requestId;
       } else {
         await invoke("native_office_insert_formula", {
           sessionId: sessionId,

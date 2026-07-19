@@ -116,6 +116,18 @@ pub enum VstoMessage {
         rangeXml: Option<String>,
     },
 
+    #[serde(rename = "FORMULA_SNAPSHOT")]
+    FormulaSnapshot {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "formula", skip_serializing_if = "Option::is_none")]
+        formula: Option<FormulaPayload>,
+        #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+        errorCode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
     #[serde(rename = "READ_TABLE")]
     ReadTable {
         requestId: String,
@@ -181,6 +193,14 @@ pub enum VstoMessage {
         requestId: String,
         sessionId: String,
         success: bool,
+        #[serde(rename = "formulaId", skip_serializing_if = "Option::is_none")]
+        formulaId: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        revision: Option<u64>,
+        #[serde(rename = "actualStorageMode", skip_serializing_if = "Option::is_none")]
+        actualStorageMode: Option<String>,
+        #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+        errorCode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -283,6 +303,16 @@ pub enum DesktopMessage {
     RequestReadSelection {
         requestId: String,
         sessionId: String,
+    },
+
+    #[serde(rename = "REQUEST_READ_FORMULA")]
+    RequestReadFormula {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
+        #[serde(rename = "formulaId")]
+        formulaId: String,
     },
 
     #[serde(rename = "REQUEST_READ_TABLE")]

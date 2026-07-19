@@ -122,6 +122,11 @@ namespace LaTeXSnipper.Word
                                 ReadSelection = true,
                                 InsertTable = true,
                                 ReadTable = true,
+                                Features = new System.Collections.Generic.Dictionary<string, bool>
+                                {
+                                    ["read_formula_by_id"] = true,
+                                    ["replace_result_revision"] = true,
+                                },
                             },
                             contextId, doc?.Name);
                     }
@@ -261,6 +266,20 @@ namespace LaTeXSnipper.Word
                     break;
                 }
 
+                case DesktopRequestReadFormula readFormulaCmd:
+                {
+                    var formula = _adapter.ReadFormulaById(readFormulaCmd.FormulaId);
+                    _pipeClient.SendOnlyAsync(new VstoFormulaSnapshot
+                    {
+                        RequestId = readFormulaCmd.RequestId,
+                        SessionId = readFormulaCmd.SessionId,
+                        Formula = formula,
+                        ErrorCode = formula == null ? "FORMULA_NOT_FOUND" : null,
+                        Error = formula == null ? "Formula was not found in the active document" : null
+                    });
+                    break;
+                }
+
                 case DesktopDeleteCurrent delCmd:
                 {
                     InsertResult result;
@@ -296,7 +315,12 @@ namespace LaTeXSnipper.Word
                     _pipeClient.SendOnlyAsync(new VstoReplaceResult
                     {
                         RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
-                        Success = result.Success, Error = result.Error
+                        Success = result.Success,
+                        FormulaId = result.FormulaId,
+                        Revision = result.Revision,
+                        ActualStorageMode = result.StorageMode,
+                        ErrorCode = result.ErrorCode,
+                        Error = result.Error
                     });
                     break;
                 }

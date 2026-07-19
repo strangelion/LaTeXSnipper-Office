@@ -280,17 +280,37 @@ pub async fn send_insert_formula(
 pub async fn send_replace_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
+    expected_context_id: Option<String>,
     formula_id: String,
     formula: FormulaPayload,
-) -> Result<(), super::session::SendError> {
+) -> Result<String, super::session::SendError> {
+    let request_id = format!("cmd-{}", uuid_simple());
     let msg = DesktopMessage::ReplaceFormula {
-        requestId: format!("cmd-{}", uuid_simple()),
+        requestId: request_id.clone(),
         sessionId: session_id.to_string(),
-        expectedContextId: None,
+        expectedContextId: expected_context_id,
         formulaId: formula_id,
         formula,
     };
-    session_mgr.send_to_session(session_id, msg).await
+    session_mgr.send_to_session(session_id, msg).await?;
+    Ok(request_id)
+}
+
+pub async fn send_read_formula(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+    expected_context_id: Option<String>,
+    formula_id: String,
+) -> Result<String, super::session::SendError> {
+    let request_id = format!("cmd-{}", uuid_simple());
+    let msg = DesktopMessage::RequestReadFormula {
+        requestId: request_id.clone(),
+        sessionId: session_id.to_string(),
+        expectedContextId: expected_context_id,
+        formulaId: formula_id,
+    };
+    session_mgr.send_to_session(session_id, msg).await?;
+    Ok(request_id)
 }
 
 pub async fn send_insert_table(
