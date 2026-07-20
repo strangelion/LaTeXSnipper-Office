@@ -4854,30 +4854,49 @@ class UIController {
       const finalHeight = livePreview?.heightPt || heightPt;
 
       if (this._pendingOfficeEditorRequest?.action === "edit") {
-        const requestId = await invoke("native_office_replace_formula", {
-          sessionId,
-          formulaId: officeTransaction.formulaId,
-          latex,
-          omml: finalOmml,
-          display: mode,
-          svg: shouldRenderPreview ? finalSvg : null,
-          png: pngBase64,
-          widthPt: finalWidth,
-          heightPt: finalHeight,
-          storageMode: integrationMode,
-          expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
-          expectedDocumentId: officeTransaction.sourceDocumentId || null,
-        });
-        this._pendingOfficeEditorRequest.commitRequestId = requestId;
+        // When live edit bridge is active, delegate commit to it
+        // (handles flushAndWait, CommitCoordinator registration, result callbacks)
+        if (this._liveEditBridge?.isActive) {
+          const commitResult = await this._liveEditBridge.onCommit({
+            svg: finalSvg,
+            png: pngBase64,
+            widthPt: finalWidth,
+            heightPt: finalHeight,
+          });
+          if (!commitResult.success) {
+            this.showToast(
+              `保存失败: ${commitResult.error || "unknown error"}`,
+            );
+            return;
+          }
+        } else {
+          const requestId = await invoke("native_office_replace_formula", {
+            sessionId,
+            formulaId: officeTransaction.formulaId,
+            latex,
+            omml: finalOmml,
+            display: mode,
+            svg: shouldRenderPreview ? finalSvg : null,
+            png: pngBase64,
+            widthPt: finalWidth,
+            heightPt: finalHeight,
+            storageMode: integrationMode,
+            expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
+            expectedDocumentId: officeTransaction.sourceDocumentId || null,
+          });
+          this._pendingOfficeEditorRequest.commitRequestId = requestId;
 
-        // Register in Rust CommitCoordinator for ReplaceResult correlation
-        invoke("register_pending_commit", {
-          requestId,
-          transactionId: officeTransaction.transactionId,
-          formulaId: officeTransaction.formulaId,
-          sessionId,
-          documentId: officeTransaction.sourceDocumentId || null,
-        }).catch((e) => Logger.warn("[LiveEdit] register_pending_commit:", e));
+          // Register in Rust CommitCoordinator for ReplaceResult correlation
+          invoke("register_pending_commit", {
+            requestId,
+            transactionId: officeTransaction.transactionId,
+            formulaId: officeTransaction.formulaId,
+            sessionId,
+            documentId: officeTransaction.sourceDocumentId || null,
+          }).catch((e) =>
+            Logger.warn("[LiveEdit] register_pending_commit:", e),
+          );
+        }
       } else {
         await invoke("native_office_insert_formula", {
           sessionId: sessionId,
