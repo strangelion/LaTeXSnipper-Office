@@ -12,7 +12,6 @@
 //! low-frequency timer, or before commit -- never per keystroke.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -139,14 +138,12 @@ const MIN_CHECKPOINT_INTERVAL_MS: u64 = 5_000;
 /// but can be recovered from the durable `OfficeEditTransactionStore`.
 pub struct LiveOfficeEditSessionStore {
     sessions: Mutex<HashMap<String, LiveOfficeEditSession>>,
-    generation_counter: AtomicU64,
 }
 
 impl LiveOfficeEditSessionStore {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             sessions: Mutex::new(HashMap::new()),
-            generation_counter: AtomicU64::new(1),
         })
     }
 

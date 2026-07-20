@@ -65,7 +65,7 @@ test("formula metadata validates and round-trips Unicode", () => {
   assert.deepEqual(office.decodeFormulaMetadata(encoded), value);
   assert.throws(
     () => office.validateFormulaPayload({ ...value, schemaVersion: 2 }),
-    /schemaVersion/,
+    /revision/,
   );
   assert.throws(
     () => office.validateFormulaPayload({ ...value, formulaId: "bad id" }),

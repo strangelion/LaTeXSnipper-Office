@@ -629,12 +629,14 @@ impl SessionManager {
                 let commit_result = coordinator
                     .resolve_result(
                         &rid,
-                        success,
-                        formulaId.clone(),
-                        revision,
-                        actualStorageMode.clone(),
-                        errorCode.clone(),
-                        error.clone(),
+                        super::office_commit::ReplaceResultPayload {
+                            success,
+                            formula_id: formulaId.clone(),
+                            revision,
+                            actual_storage_mode: actualStorageMode.clone(),
+                            error_code: errorCode.clone(),
+                            error: error.clone(),
+                        },
                     )
                     .await;
 

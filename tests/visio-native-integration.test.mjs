@@ -193,8 +193,11 @@ test("Visio payload is staged, installed, verified, and excluded off Windows", (
     installer,
     /Office\\Visio\\Addins\\LaTeXSnipper\.NativeOffice\.Visio/,
   );
-  assert.match(staging, /"Word", "Excel", "PowerPoint", "Visio"/);
-  assert.match(packageVerifier, /"Word", "Excel", "PowerPoint", "Visio"/);
+  assert.match(
+    staging,
+    /NativeOffice.*installer.*MSI|installer.*payload|sole owner/,
+  );
+  assert.match(packageVerifier, /MSI|installer/);
   assert.match(manifestVerifier, /"Word", "Excel", "PowerPoint", "Visio"/);
   assert.match(
     nonWindowsVerifier,

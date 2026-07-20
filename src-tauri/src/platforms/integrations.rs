@@ -2748,82 +2748,72 @@ fn office_manifest_value(path: &Path) -> String {
 
 /// Install Native Office VSTO add-ins by registering in Windows registry.
 /// After writing, performs real verification before returning success.
+#[cfg(target_os = "windows")]
 pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
-    #[cfg(not(target_os = "windows"))]
-    {
-        PlatformIntegrationResult::fail(
-            "office",
-            "native-vsto",
-            "Native Office VSTO is only available on Windows.",
-        )
+    log::info!("[Office] Step 1: Check certificate...");
+    // Step 1: Check and import VSTO signing certificate to TrustedPublisher
+    let ledger = IntegrationLedger::load();
+    let is_upgrade = !ledger.install_id.is_empty()
+        && ledger
+            .native_office
+            .vsto
+            .iter()
+            .any(|v| !v.registry_key.is_empty());
+    let cert_trusted = check_certificate_trusted();
+    log::info!("[Office] Step 1 done: cert_trusted={}", cert_trusted);
+    if !cert_trusted && !is_upgrade {
+        // Fresh install: try to import the .cer file that ships with the app
+        if let Some(cer_path) = find_staging_certificate() {
+            if let Err(e) = import_certificate_to_trusted_publisher(&cer_path) {
+                log::warn!("[Office] Certificate import failed: {}", e);
+                // In dev builds (debug), continue anyway for easier testing.
+                // In release builds, block — Office won't load untrusted VSTO.
+                if !cfg!(debug_assertions) {
+                    return PlatformIntegrationResult::fail(
+                        "office",
+                        "native-vsto",
+                        format!(
+                            "证书导入失败: {}。请以管理员身份运行，或手动导入 {}。",
+                            e,
+                            cer_path.display()
+                        ),
+                    );
+                }
+            } else {
+                log::info!("[Office] Certificate imported to TrustedPublisher");
+            }
+        } else if !cfg!(debug_assertions) {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                "找不到证书文件 LaTeXSnipperOffice.cer。请重新安装 LaTeXSnipper Office。",
+            );
+        }
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        log::info!("[Office] Step 1: Check certificate...");
-        // Step 1: Check and import VSTO signing certificate to TrustedPublisher
-        let ledger = IntegrationLedger::load();
-        let is_upgrade = !ledger.install_id.is_empty()
-            && ledger
-                .native_office
-                .vsto
-                .iter()
-                .any(|v| !v.registry_key.is_empty());
-        let cert_trusted = check_certificate_trusted();
-        log::info!("[Office] Step 1 done: cert_trusted={}", cert_trusted);
-        if !cert_trusted && !is_upgrade {
-            // Fresh install: try to import the .cer file that ships with the app
-            if let Some(cer_path) = find_staging_certificate() {
-                if let Err(e) = import_certificate_to_trusted_publisher(&cer_path) {
-                    log::warn!("[Office] Certificate import failed: {}", e);
-                    // In dev builds (debug), continue anyway for easier testing.
-                    // In release builds, block — Office won't load untrusted VSTO.
-                    if !cfg!(debug_assertions) {
-                        return PlatformIntegrationResult::fail(
-                            "office",
-                            "native-vsto",
-                            format!(
-                                "证书导入失败: {}。请以管理员身份运行，或手动导入 {}。",
-                                e,
-                                cer_path.display()
-                            ),
-                        );
-                    }
-                } else {
-                    log::info!("[Office] Certificate imported to TrustedPublisher");
-                }
-            } else if !cfg!(debug_assertions) {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    "找不到证书文件 LaTeXSnipperOffice.cer。请重新安装 LaTeXSnipper Office。",
-                );
-            }
-        }
-
-        log::info!("[Office] Step 2: Detect VSTO Runtime...");
-        // Step 2: Detect VSTO Runtime
-        if !detect_vsto_runtime() {
-            log::warn!("[Office] Step 2: VSTO Runtime NOT found");
-            return PlatformIntegrationResult::fail(
+    log::info!("[Office] Step 2: Detect VSTO Runtime...");
+    // Step 2: Detect VSTO Runtime
+    if !detect_vsto_runtime() {
+        log::warn!("[Office] Step 2: VSTO Runtime NOT found");
+        return PlatformIntegrationResult::fail(
                 "office",
                 "native-vsto",
                 "VSTO Runtime 未安装。请安装 Microsoft Visual Studio Tools for Office Runtime：\nhttps://go.microsoft.com/fwlink/?LinkId=261103\n\n安装完成后请重新点击「启用 Office 集成」。",
             );
-        }
+    }
 
-        struct HostRegistrationResult {
-            host: String,
-            x64_ok: bool,
-            x86_ok: bool,
-            errors: Vec<String>,
-        }
+    struct HostRegistrationResult {
+        host: String,
+        x64_ok: bool,
+        x86_ok: bool,
+        errors: Vec<String>,
+    }
 
-        let mut host_results: Vec<HostRegistrationResult> = Vec::new();
+    let mut host_results: Vec<HostRegistrationResult> = Vec::new();
 
-        for (host_name, addin_id, friendly_name, vsto_file) in NATIVE_OFFICE_ADDINS {
-            let Some(manifest) = native_office_vsto_manifest(host_name, vsto_file) else {
-                return PlatformIntegrationResult::fail(
+    for (host_name, addin_id, friendly_name, vsto_file) in NATIVE_OFFICE_ADDINS {
+        let Some(manifest) = native_office_vsto_manifest(host_name, vsto_file) else {
+            return PlatformIntegrationResult::fail(
                     "office",
                     "native-vsto",
                     format!(
@@ -2831,166 +2821,162 @@ pub(crate) fn install_native_office_vsto() -> PlatformIntegrationResult {
                         host_name
                     ),
                 );
-            };
+        };
+        let reg_key = format!(
+            r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
+            match *host_name {
+                "Word" => "Word",
+                "Excel" => "Excel",
+                "PowerPoint" => "PowerPoint",
+                "Visio" => "Visio",
+                _ => continue,
+            },
+            addin_id
+        );
+        let manifest_value = office_manifest_value(&manifest);
+
+        // Register for both 64-bit and 32-bit registry views with post-write verification
+        let mut host_result = HostRegistrationResult {
+            host: host_name.to_string(),
+            x64_ok: false,
+            x86_ok: false,
+            errors: vec![],
+        };
+
+        for view in REGISTRY_VIEWS {
+            let write_result: Result<(), String> = (|| {
+                reg_add_string_view(&reg_key, "FriendlyName", friendly_name, view)
+                    .map_err(|e| e.to_string())?;
+                reg_add_string_view(
+                    &reg_key,
+                    "Description",
+                    "LaTeX formula and table integration",
+                    view,
+                )
+                .map_err(|e| e.to_string())?;
+                reg_add_dword_view(&reg_key, "LoadBehavior", 3, view).map_err(|e| e.to_string())?;
+                reg_add_dword_view(&reg_key, "CommandLineSafe", 0, view)
+                    .map_err(|e| e.to_string())?;
+                reg_add_string_view(&reg_key, "Manifest", &manifest_value, view)
+                    .map_err(|e| e.to_string())?;
+                // Verify: re-query LoadBehavior and Manifest after write
+                verify_vsto_host_view(&reg_key, &manifest_value, view)
+                    .map_err(|e| format!("post-write verification failed: {e}"))?;
+                Ok(())
+            })();
+
+            match (view, write_result) {
+                (RegistryView::X64, Ok(())) => host_result.x64_ok = true,
+                (RegistryView::X86, Ok(())) => host_result.x86_ok = true,
+                (_, Err(e)) => host_result
+                    .errors
+                    .push(format!("{} view: {}", view.label(), e)),
+            }
+        }
+
+        // At least one view must succeed. If both fail, the install fails.
+        if !host_result.x64_ok && !host_result.x86_ok {
+            return PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                format!(
+                    "{} VSTO 注册失败：{}",
+                    host_name,
+                    host_result.errors.join("; ")
+                ),
+            );
+        }
+
+        host_results.push(host_result);
+    }
+
+    // Verify: re-check overall status before returning success
+    let status = get_native_office_status();
+    let hosts_ok = status
+        .hosts
+        .iter()
+        .all(|h| matches!(h.state, HostInstallState::Installed));
+    let cert_ok = status.certificate_trusted || cfg!(debug_assertions);
+
+    if !hosts_ok {
+        let failed_hosts: Vec<String> = status
+            .hosts
+            .iter()
+            .filter(|h| !matches!(h.state, HostInstallState::Installed))
+            .map(|h| format!("{}={:?}", h.host, h.state))
+            .collect();
+        // Still return success for install, but warn — the user may not have a particular Office host.
+        log::warn!(
+            "[Office] Post-install: some hosts not Installed: {}",
+            failed_hosts.join(", ")
+        );
+    }
+    if !cert_ok {
+        log::warn!("[Office] Post-install: certificate not trusted (may affect VSTO loading in release mode)");
+    }
+
+    // Write ledger for reliable uninstall
+    let mut ledger = IntegrationLedger::load();
+    if ledger.install_id.is_empty() {
+        ledger.install_id = generate_install_id();
+        ledger.desktop_version = get_desktop_version();
+    }
+    ledger.native_office.signer_thumbprint = get_expected_thumbprint();
+    ledger.native_office.vsto = host_results
+        .iter()
+        .map(|hr| {
+            let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS
+                .iter()
+                .find(|(h, _, _, _)| *h == hr.host)
+                .unwrap_or(&NATIVE_OFFICE_ADDINS[0]);
             let reg_key = format!(
                 r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
-                match *host_name {
+                match hr.host.as_str() {
                     "Word" => "Word",
                     "Excel" => "Excel",
                     "PowerPoint" => "PowerPoint",
                     "Visio" => "Visio",
-                    _ => continue,
+                    _ => "Word",
                 },
                 addin_id
             );
-            let manifest_value = office_manifest_value(&manifest);
-
-            // Register for both 64-bit and 32-bit registry views with post-write verification
-            let mut host_result = HostRegistrationResult {
-                host: host_name.to_string(),
-                x64_ok: false,
-                x86_ok: false,
-                errors: vec![],
-            };
-
-            for view in REGISTRY_VIEWS {
-                let write_result: Result<(), String> = (|| {
-                    reg_add_string_view(&reg_key, "FriendlyName", friendly_name, view)
-                        .map_err(|e| e.to_string())?;
-                    reg_add_string_view(
-                        &reg_key,
-                        "Description",
-                        "LaTeX formula and table integration",
-                        view,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    reg_add_dword_view(&reg_key, "LoadBehavior", 3, view)
-                        .map_err(|e| e.to_string())?;
-                    reg_add_dword_view(&reg_key, "CommandLineSafe", 0, view)
-                        .map_err(|e| e.to_string())?;
-                    reg_add_string_view(&reg_key, "Manifest", &manifest_value, view)
-                        .map_err(|e| e.to_string())?;
-                    // Verify: re-query LoadBehavior and Manifest after write
-                    verify_vsto_host_view(&reg_key, &manifest_value, view)
-                        .map_err(|e| format!("post-write verification failed: {e}"))?;
-                    Ok(())
-                })();
-
-                match (view, write_result) {
-                    (RegistryView::X64, Ok(())) => host_result.x64_ok = true,
-                    (RegistryView::X86, Ok(())) => host_result.x86_ok = true,
-                    (_, Err(e)) => host_result
-                        .errors
-                        .push(format!("{} view: {}", view.label(), e)),
-                }
-            }
-
-            // At least one view must succeed. If both fail, the install fails.
-            if !host_result.x64_ok && !host_result.x86_ok {
-                return PlatformIntegrationResult::fail(
-                    "office",
-                    "native-vsto",
-                    format!(
-                        "{} VSTO 注册失败：{}",
-                        host_name,
-                        host_result.errors.join("; ")
-                    ),
-                );
-            }
-
-            host_results.push(host_result);
-        }
-
-        // Verify: re-check overall status before returning success
-        let status = get_native_office_status();
-        let hosts_ok = status
-            .hosts
-            .iter()
-            .all(|h| matches!(h.state, HostInstallState::Installed));
-        let cert_ok = status.certificate_trusted || cfg!(debug_assertions);
-
-        if !hosts_ok {
-            let failed_hosts: Vec<String> = status
-                .hosts
-                .iter()
-                .filter(|h| !matches!(h.state, HostInstallState::Installed))
-                .map(|h| format!("{}={:?}", h.host, h.state))
-                .collect();
-            // Still return success for install, but warn — the user may not have a particular Office host.
-            log::warn!(
-                "[Office] Post-install: some hosts not Installed: {}",
-                failed_hosts.join(", ")
-            );
-        }
-        if !cert_ok {
-            log::warn!("[Office] Post-install: certificate not trusted (may affect VSTO loading in release mode)");
-        }
-
-        // Write ledger for reliable uninstall
-        let mut ledger = IntegrationLedger::load();
-        if ledger.install_id.is_empty() {
-            ledger.install_id = generate_install_id();
-            ledger.desktop_version = get_desktop_version();
-        }
-        ledger.native_office.signer_thumbprint = get_expected_thumbprint();
-        ledger.native_office.vsto = host_results
-            .iter()
-            .map(|hr| {
-                let (_, addin_id, _, _) = NATIVE_OFFICE_ADDINS
+            let manifest = native_office_vsto_manifest(
+                &hr.host,
+                NATIVE_OFFICE_ADDINS
                     .iter()
                     .find(|(h, _, _, _)| *h == hr.host)
-                    .unwrap_or(&NATIVE_OFFICE_ADDINS[0]);
-                let reg_key = format!(
-                    r"HKCU\Software\Microsoft\Office\{}\Addins\{}",
-                    match hr.host.as_str() {
-                        "Word" => "Word",
-                        "Excel" => "Excel",
-                        "PowerPoint" => "PowerPoint",
-                        "Visio" => "Visio",
-                        _ => "Word",
-                    },
-                    addin_id
-                );
-                let manifest = native_office_vsto_manifest(
-                    &hr.host,
-                    NATIVE_OFFICE_ADDINS
-                        .iter()
-                        .find(|(h, _, _, _)| *h == hr.host)
-                        .map(|(_, _, _, v)| *v)
-                        .unwrap_or(""),
-                )
-                .map(|p| office_manifest_value(&p))
-                .unwrap_or_default();
-                VstoLedgerEntry {
-                    host: hr.host.clone(),
-                    registry_key: reg_key,
-                    manifest,
-                }
-            })
-            .collect();
+                    .map(|(_, _, _, v)| *v)
+                    .unwrap_or(""),
+            )
+            .map(|p| office_manifest_value(&p))
+            .unwrap_or_default();
+            VstoLedgerEntry {
+                host: hr.host.clone(),
+                registry_key: reg_key,
+                manifest,
+            }
+        })
+        .collect();
 
-        if let Err(e) = ledger.save() {
-            log::warn!("[Office] Failed to save integration ledger: {}", e);
-        }
-
-        // OLE is NOT auto-installed during VSTO enable.
-        // Users enable OLE separately via the "安装 OLE 公式对象" button in settings.
-        // This avoids unexpected COM registration prompts and keeps the enable flow clean.
-        log::info!(
-            "[Office] OLE auto-install skipped — user installs OLE separately via settings."
-        );
-
-        let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
-        PlatformIntegrationResult::ok(
-            "office",
-            "native-vsto",
-            format!(
-                "已启用 Native Office VSTO ({})。请重启 Office 以加载插件。",
-                host_names.join(", ")
-            ),
-            true,
-        )
+    if let Err(e) = ledger.save() {
+        log::warn!("[Office] Failed to save integration ledger: {}", e);
     }
+
+    // OLE is NOT auto-installed during VSTO enable.
+    // Users enable OLE separately via the "安装 OLE 公式对象" button in settings.
+    // This avoids unexpected COM registration prompts and keeps the enable flow clean.
+    log::info!("[Office] OLE auto-install skipped — user installs OLE separately via settings.");
+
+    let host_names: Vec<&str> = host_results.iter().map(|h| h.host.as_str()).collect();
+    PlatformIntegrationResult::ok(
+        "office",
+        "native-vsto",
+        format!(
+            "已启用 Native Office VSTO ({})。请重启 Office 以加载插件。",
+            host_names.join(", ")
+        ),
+        true,
+    )
 }
 
 /// Verify that a VSTO host's registry entry is correct after writing.

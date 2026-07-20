@@ -1,4 +1,4 @@
-//! Commit Coordinator for Office live editing.
+﻿//! Commit Coordinator for Office live editing.
 //!
 //! Tracks the mapping between pipe-level `requestId` and transaction-level
 //! `transactionId`. When a `ReplaceResult` arrives from the VSTO host, the
@@ -31,6 +31,17 @@ pub struct CommitResult {
     pub transaction_id: String,
     pub formula_id: String,
     pub success: bool,
+    pub revision: Option<u64>,
+    pub actual_storage_mode: Option<String>,
+    pub error_code: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Payload from a ReplaceResult event from the VSTO host.
+#[derive(Debug, Clone)]
+pub struct ReplaceResultPayload {
+    pub success: bool,
+    pub formula_id: Option<String>,
     pub revision: Option<u64>,
     pub actual_storage_mode: Option<String>,
     pub error_code: Option<String>,
@@ -79,29 +90,24 @@ impl CommitCoordinator {
     pub async fn resolve_result(
         &self,
         request_id: &str,
-        success: bool,
-        formula_id: Option<String>,
-        revision: Option<u64>,
-        actual_storage_mode: Option<String>,
-        error_code: Option<String>,
-        error: Option<String>,
+        result: ReplaceResultPayload,
     ) -> Option<CommitResult> {
         let commit = self.pending.lock().await.remove(request_id)?;
 
         log::info!(
             "[CommitCoordinator] Resolved result: transaction={}, success={}",
             commit.transaction_id,
-            success
+            result.success
         );
 
         Some(CommitResult {
             transaction_id: commit.transaction_id,
-            formula_id: formula_id.unwrap_or(commit.formula_id),
-            success,
-            revision,
-            actual_storage_mode,
-            error_code,
-            error,
+            formula_id: result.formula_id.unwrap_or(commit.formula_id),
+            success: result.success,
+            revision: result.revision,
+            actual_storage_mode: result.actual_storage_mode,
+            error_code: result.error_code,
+            error: result.error,
         })
     }
 
@@ -222,12 +228,14 @@ mod tests {
         let result = coord
             .resolve_result(
                 "req-1",
-                true,
-                Some("formula-1".into()),
-                Some(2),
-                Some("native-omml".into()),
-                None,
-                None,
+                ReplaceResultPayload {
+                    success: true,
+                    formula_id: Some("formula-1".into()),
+                    revision: Some(2),
+                    actual_storage_mode: Some("native-omml".into()),
+                    error_code: None,
+                    error: None,
+                },
             )
             .await;
 
@@ -242,7 +250,17 @@ mod tests {
     async fn unknown_request_returns_none() {
         let coord = CommitCoordinator::new();
         let result = coord
-            .resolve_result("unknown", true, None, None, None, None, None)
+            .resolve_result(
+                "unknown",
+                ReplaceResultPayload {
+                    success: true,
+                    formula_id: None,
+                    revision: None,
+                    actual_storage_mode: None,
+                    error_code: None,
+                    error: None,
+                },
+            )
             .await;
         assert!(result.is_none());
     }
@@ -264,7 +282,17 @@ mod tests {
         assert_eq!(cancelled.unwrap().transaction_id, "tx-1");
         // Should not resolve after cancel
         let result = coord
-            .resolve_result("req-1", true, None, None, None, None, None)
+            .resolve_result(
+                "req-1",
+                ReplaceResultPayload {
+                    success: true,
+                    formula_id: None,
+                    revision: None,
+                    actual_storage_mode: None,
+                    error_code: None,
+                    error: None,
+                },
+            )
             .await;
         assert!(result.is_none());
     }
