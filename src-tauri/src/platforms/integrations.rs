@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -5202,6 +5202,7 @@ mod ole_constants {
 
 /// Detailed result of an OLE component operation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code, reason = "Windows-only types used conditionally")]
 pub struct OleComponentResult {
     pub success: bool,
     pub message: String,
@@ -5501,6 +5502,7 @@ pub fn register_install_path() {
 /// - x64 DLL is assigned to the 64-bit view, x86 DLL to the 32-bit view
 /// - Does NOT register with regsvr32 (DLL has no DllRegisterServer)
 #[cfg(target_os = "windows")]
+#[allow(dead_code, reason = "Windows-only, called from MSI fallback path")]
 pub fn install_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
     const REGISTRATION_OWNER: &str = "LaTeXSnipper.Tauri";
@@ -5886,6 +5888,7 @@ fn register_ole_view(
 
 /// Uninstall the OLE COM component from both registry views with verification.
 #[cfg(target_os = "windows")]
+#[allow(dead_code, reason = "Windows-only, called from MSI fallback path")]
 pub fn uninstall_ole_component() -> OleComponentResult {
     let mut entries = Vec::new();
     let mut remaining = Vec::new();
@@ -6097,6 +6100,7 @@ fn import_certificate_to_trusted_publisher(cer_path: &std::path::Path) -> Result
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code, reason = "Windows-only, called from MSI fallback path")]
 pub fn install_ole_component() -> OleComponentResult {
     OleComponentResult {
         success: false,
@@ -6106,6 +6110,7 @@ pub fn install_ole_component() -> OleComponentResult {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code, reason = "Windows-only, called from MSI fallback path")]
 pub fn uninstall_ole_component() -> OleComponentResult {
     OleComponentResult {
         success: false,

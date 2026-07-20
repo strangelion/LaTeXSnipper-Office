@@ -1,4 +1,4 @@
-﻿//! Commit Coordinator for Office live editing.
+//! Commit Coordinator for Office live editing.
 //!
 //! Tracks the mapping between pipe-level `requestId` and transaction-level
 //! `transactionId`. When a `ReplaceResult` arrives from the VSTO host, the
@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 
 /// A pending commit that is waiting for host confirmation.
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Used by Tauri commands and session handlers")]
 pub struct PendingCommit {
     pub request_id: String,
     pub transaction_id: String,
@@ -27,6 +28,7 @@ pub struct PendingCommit {
 
 /// Result of a host commit operation.
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Used by session ReplaceResult handler")]
 pub struct CommitResult {
     pub transaction_id: String,
     pub formula_id: String,
@@ -39,6 +41,7 @@ pub struct CommitResult {
 
 /// Payload from a ReplaceResult event from the VSTO host.
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Used by session ReplaceResult handler")]
 pub struct ReplaceResultPayload {
     pub success: bool,
     pub formula_id: Option<String>,
@@ -53,6 +56,10 @@ pub struct CommitCoordinator {
     pending: Mutex<HashMap<String, PendingCommit>>,
 }
 
+#[allow(
+    dead_code,
+    reason = "Methods used by Tauri commands and session handlers"
+)]
 impl CommitCoordinator {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {

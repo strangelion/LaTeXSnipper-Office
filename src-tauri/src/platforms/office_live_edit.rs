@@ -84,6 +84,7 @@ pub struct LiveOfficeEditSession {
 /// Result of a live render operation. Carries the rendered output along with
 /// generation metadata so the consumer can discard stale results.
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Used by render pipeline")]
 pub struct LiveRenderResult {
     pub transaction_id: String,
     pub draft_revision: RenderGeneration,
@@ -98,6 +99,7 @@ pub struct LiveRenderResult {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Used by render pipeline")]
 pub struct RenderDiagnostic {
     pub level: String,
     pub message: String,
@@ -140,6 +142,10 @@ pub struct LiveOfficeEditSessionStore {
     sessions: Mutex<HashMap<String, LiveOfficeEditSession>>,
 }
 
+#[allow(
+    dead_code,
+    reason = "Methods used by Tauri commands and frontend bridge"
+)]
 impl LiveOfficeEditSessionStore {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
