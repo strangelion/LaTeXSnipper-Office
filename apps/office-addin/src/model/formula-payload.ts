@@ -6,38 +6,18 @@ export type EquationNumberingScheme =
   | "chapter-hyphen";
 
 /**
- * v1 formula payload — original schema, no revision tracking.
+ * Unified formula payload supporting both v1 and v2 schemas.
+ * v2 adds revision and sourceSha256 for optimistic concurrency.
+ * v1 formulas have schemaVersion=1 and no revision/sourceSha256.
  */
-export interface OfficeFormulaPayloadV1 {
-  schemaVersion: 1;
+export interface OfficeFormulaPayload {
+  schemaVersion: 1 | 2;
   formulaId: string;
   latex: string;
   displayMode: FormulaDisplayMode;
-  createdAt?: string;
-  updatedAt?: string;
-  equationLabel?: string;
-  layoutProfileId?: string;
-  numbering?: {
-    scheme: EquationNumberingScheme;
-    separator?: "." | "-";
-    restartPerChapter?: boolean;
-    chapterStyle?: string;
-    chapterLevel?: number;
-  };
-}
-
-/**
- * v2 formula payload — adds revision and sourceSha256 for optimistic concurrency.
- * Compatible with Native Office's FormulaPayload revision tracking.
- */
-export interface OfficeFormulaPayloadV2 {
-  schemaVersion: 2;
-  formulaId: string;
-  latex: string;
-  displayMode: FormulaDisplayMode;
-  /** Monotonically increasing revision counter. Starts at 0 for v1 formulas. */
-  revision: number;
-  /** SHA-256 hash of the normalized LaTeX+OMML metadata for change detection. */
+  /** v2 only: Monotonically increasing revision counter. */
+  revision?: number;
+  /** v2 only: SHA-256 hash of normalized LaTeX+OMML metadata. */
   sourceSha256?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -51,11 +31,6 @@ export interface OfficeFormulaPayloadV2 {
     chapterLevel?: number;
   };
 }
-
-/** Union type accepting both v1 and v2 payloads. */
-export type OfficeFormulaPayload =
-  | OfficeFormulaPayloadV1
-  | OfficeFormulaPayloadV2;
 
 export interface SelectedOfficeFormula extends OfficeFormulaPayload {
   source: "metadata" | "omml" | "text";
@@ -112,9 +87,7 @@ export function bookmarkNumericIdForFormula(formulaId: string): number {
 
 export function validateFormulaPayload(
   value: unknown,
-  options: { requireLatex?: boolean; allowV2?: boolean } = {
-    requireLatex: true,
-  },
+  options: { requireLatex?: boolean } = { requireLatex: true },
 ): OfficeFormulaPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Formula metadata must be an object");
@@ -122,10 +95,7 @@ export function validateFormulaPayload(
   const input = value as Record<string, unknown>;
   const version = input.schemaVersion;
 
-  if (
-    version !== FORMULA_SCHEMA_VERSION_V1 &&
-    version !== FORMULA_SCHEMA_VERSION_V2
-  ) {
+  if (version !== 1 && version !== 2) {
     throw new Error("Unsupported formula schemaVersion");
   }
 
@@ -162,7 +132,7 @@ export function validateFormulaPayload(
   }
 
   // v2-specific validation
-  if (version === FORMULA_SCHEMA_VERSION_V2) {
+  if (version === 2) {
     if (
       typeof input.revision !== "number" ||
       !Number.isInteger(input.revision) ||
@@ -226,19 +196,14 @@ export function validateFormulaPayload(
  * Migrate a v1 payload to v2 by adding revision=0.
  */
 export function migrateToV2(
-  payload: OfficeFormulaPayloadV1,
-): OfficeFormulaPayloadV2 {
-  return {
-    ...payload,
-    schemaVersion: 2,
-    revision: 0,
-    sourceSha256: undefined,
-  };
+  payload: OfficeFormulaPayload,
+): OfficeFormulaPayload {
+  if (payload.schemaVersion === 2) return payload;
+  return { ...payload, schemaVersion: 2, revision: 0, sourceSha256: undefined };
 }
 
 /**
  * Compute a source SHA-256 hash for optimistic concurrency.
- * Hashes the normalized LaTeX string.
  */
 export async function computeSourceSha256(latex: string): Promise<string> {
   const normalized = latex.trim();
