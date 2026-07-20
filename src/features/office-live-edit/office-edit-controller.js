@@ -237,8 +237,8 @@ export class OfficeEditController {
       return false;
     }
 
-    // Flush any pending render
-    this.scheduler.flush();
+    // Flush any pending render and wait for it to complete
+    await this.scheduler.flushAndWait();
 
     // Transition to preparing
     if (!this.state.transition(EditState.PREPARING)) {

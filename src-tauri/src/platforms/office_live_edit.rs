@@ -491,6 +491,22 @@ pub async fn list_active_live_office_sessions(
     Ok(store.list_active().await)
 }
 
+#[tauri::command]
+pub async fn checkpoint_live_office_dirty(
+    store: State<'_, Arc<LiveOfficeEditSessionStore>>,
+    transaction_id: String,
+) -> Result<(), String> {
+    store.clear_dirty(&transaction_id).await
+}
+
+#[tauri::command]
+pub async fn needs_live_office_checkpoint(
+    store: State<'_, Arc<LiveOfficeEditSessionStore>>,
+    transaction_id: String,
+) -> Result<bool, String> {
+    store.needs_checkpoint(&transaction_id).await
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

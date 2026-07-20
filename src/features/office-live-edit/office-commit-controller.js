@@ -97,8 +97,19 @@ export class OfficeCommitController {
       widthPt: renderData?.widthPt || null,
       heightPt: renderData?.heightPt || null,
       storageMode: storageMode || null,
-      expectedRevision: expectedRevision || null,
+      expectedRevision: expectedRevision ?? null,
       expectedDocumentId: expectedDocumentId || null,
+    });
+
+    // Register in Rust CommitCoordinator so ReplaceResult can resolve transactionId
+    this.invokeTauri("register_pending_commit", {
+      requestId,
+      transactionId,
+      formulaId,
+      sessionId,
+      documentId: expectedDocumentId || null,
+    }).catch((err) => {
+      console.warn("[CommitController] register_pending_commit failed:", err);
     });
 
     // Track the commit

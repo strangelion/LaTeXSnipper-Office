@@ -34,11 +34,20 @@ export class OfficeRenderScheduler {
     this._inFlightGeneration = null;
     this._pendingInput = null;
     this._disposed = false;
+
+    /** Resolve function for flushAndWait */
+    this._flushResolve = null;
+    /** Latest preview result from onPreviewUpdate */
+    this._latestResult = null;
   }
 
   /**
    * Submit new input. This is the high-frequency path called on every keystroke.
    * Schedules a debounced render; cancels any previous pending render.
+   *
+   * Generation is incremented HERE (on input), not on render start.
+   * This ensures any in-flight render is immediately considered stale
+   * the moment new input arrives.
    *
    * @param {string} latex - Current LaTeX source
    * @param {object} metadata - Additional context (displayMode, numbering, etc.)
@@ -48,6 +57,10 @@ export class OfficeRenderScheduler {
     if (this._disposed) return -1;
 
     this._pendingInput = { latex, metadata };
+
+    // Increment generation immediately on new input (Bug 6 fix).
+    // This invalidates any in-flight render instantly.
+    this._generation++;
 
     // Cancel any pending debounce timer
     if (this._timer) {
@@ -76,11 +89,41 @@ export class OfficeRenderScheduler {
   }
 
   /**
+   * Flush and wait for the render to complete.
+   * Used by commit to ensure the latest preview is used.
+   *
+   * @param {number} timeoutMs - Max wait time (default 2000ms)
+   * @returns {Promise<object|null>} The latest preview result
+   */
+  async flushAndWait(timeoutMs = 2000) {
+    // If no pending input, nothing to render
+    if (!this._pendingInput) {
+      return this._latestResult;
+    }
+
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this._flushResolve = null;
+        resolve(this._latestResult);
+      }, timeoutMs);
+
+      this._flushResolve = (result) => {
+        clearTimeout(timer);
+        this._flushResolve = null;
+        resolve(result);
+      };
+
+      this.flush();
+    });
+  }
+
+  /**
    * Notify that a render has started (called by the consumer).
    * Returns the generation for this render.
    */
   markRenderStarted() {
-    this._generation++;
+    // Generation was already incremented on input.
+    // Just track which generation this render is for.
     this._inFlightGeneration = this._generation;
     this.onStateChange("inflight");
     return this._generation;
@@ -88,7 +131,7 @@ export class OfficeRenderScheduler {
 
   /**
    * Notify that a render completed. If the generation is stale,
-   * the result should be discarded (latest-wins).
+   * the result is discarded (latest-wins).
    *
    * @param {number} renderGeneration - The generation of the completed render
    * @param {object} result - Render result data
@@ -102,8 +145,15 @@ export class OfficeRenderScheduler {
       return false;
     }
     this._inFlightGeneration = null;
+    this._latestResult = result;
     this.onPreviewUpdate(result);
     this.onStateChange("completed");
+
+    // Resolve any pending flushAndWait
+    if (this._flushResolve) {
+      this._flushResolve(result);
+    }
+
     return true;
   }
 

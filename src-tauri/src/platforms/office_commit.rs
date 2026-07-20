@@ -163,6 +163,39 @@ impl CommitCoordinator {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Tauri commands
+// ---------------------------------------------------------------------------
+
+use tauri::State;
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterPendingCommitRequest {
+    pub request_id: String,
+    pub transaction_id: String,
+    pub formula_id: String,
+    pub session_id: String,
+    pub document_id: Option<String>,
+}
+
+#[tauri::command]
+pub async fn register_pending_commit(
+    coordinator: State<'_, Arc<CommitCoordinator>>,
+    request: RegisterPendingCommitRequest,
+) -> Result<(), String> {
+    coordinator
+        .register_commit(
+            request.request_id,
+            request.transaction_id,
+            request.formula_id,
+            request.session_id,
+            request.document_id,
+        )
+        .await;
+    Ok(())
+}
+
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

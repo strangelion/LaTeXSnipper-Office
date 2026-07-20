@@ -11,6 +11,7 @@
  *     └── OfficeEditEvents         (Tauri event subscriptions)
  *
  *   OfficeLivePreview              (DOM preview rendering)
+ *   OfficeLiveEditBridge           (Integration into main.js)
  */
 
 export { OfficeEditController } from "./office-edit-controller.js";
@@ -19,3 +20,4 @@ export { OfficeRenderScheduler } from "./office-render-scheduler.js";
 export { OfficeCommitController } from "./office-commit-controller.js";
 export { OfficeEditEvents } from "./office-edit-events.js";
 export { OfficeLivePreview } from "./office-live-preview.js";
+export { OfficeLiveEditBridge } from "./office-live-edit-bridge.js";
