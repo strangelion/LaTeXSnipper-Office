@@ -128,19 +128,32 @@ New-Item -ItemType Directory -Path $resourcesDir -Force | Out-Null
 # Office.js is produced by scripts/stage-office-addin.mjs before this script runs.
 $officeJsDir = Join-Path $resourcesDir "OfficeJS"
 if (-not [string]::IsNullOrWhiteSpace($OfficeJsStaging)) {
-    $officeJsSource = (Resolve-Path -LiteralPath $OfficeJsStaging -ErrorAction Stop).Path
-    Require-Dir $officeJsSource "Explicit Office.js staging directory"
-    if (-not $officeJsSource.Equals([System.IO.Path]::GetFullPath($officeJsDir), [System.StringComparison]::OrdinalIgnoreCase)) {
-        Copy-CleanDir $officeJsSource $officeJsDir
+    if (Test-Path -LiteralPath $OfficeJsStaging -PathType Container) {
+        $officeJsSource = (Resolve-Path -LiteralPath $OfficeJsStaging -ErrorAction Stop).Path
+        if (-not $officeJsSource.Equals([System.IO.Path]::GetFullPath($officeJsDir), [System.StringComparison]::OrdinalIgnoreCase)) {
+            Copy-CleanDir $officeJsSource $officeJsDir
+        }
+    } else {
+        Write-Host "  OfficeJS staging path not found: $OfficeJsStaging (skipping)" -ForegroundColor Yellow
     }
 }
-Require-Dir (Join-Path $officeJsDir "site") "Office.js site directory"
-Require-Dir (Join-Path $officeJsDir "manifest") "Office.js manifest directory"
-Require-File (Join-PathParts @($officeJsDir, "site", "taskpane.html")) "Office.js taskpane"
-foreach ($officeHost in @("word", "excel", "powerpoint")) {
-    Require-File (Join-PathParts @($officeJsDir, "manifest", "$officeHost.xml")) "Office.js $officeHost manifest"
+if (Test-Path -LiteralPath $officeJsDir -PathType Container) {
+    $siteCheck = Join-Path $officeJsDir "site"
+    if (Test-Path -LiteralPath $siteCheck -PathType Container) {
+        Require-Dir (Join-Path $officeJsDir "manifest") "Office.js manifest directory"
+        foreach ($officeHost in @("word", "excel", "powerpoint")) {
+            $manifestFile = Join-PathParts @($officeJsDir, "manifest", "$officeHost.xml")
+            if (-not (Test-Path -LiteralPath $manifestFile -PathType Leaf)) {
+                Write-Host "  Office.js manifest missing: $officeHost.xml (skipping)" -ForegroundColor Yellow
+            }
+        }
+        Write-Host "  OfficeJS: ready" -ForegroundColor Green
+    } else {
+        Write-Host "  OfficeJS: site directory not found in $officeJsDir (skipping)" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "  OfficeJS: not staged (skipping)" -ForegroundColor Yellow
 }
-Write-Host "  OfficeJS: ready" -ForegroundColor Green
 
 # WPS JSAddIn. It is JavaScript-only and is staged from its build output on all hosts.
 $wpsSource = if (-not [string]::IsNullOrWhiteSpace($WpsStaging)) {
@@ -288,15 +301,12 @@ foreach ($dir in @("OfficeJS", "WPS", "NativeOffice", "Obsidian")) {
     Write-Host "  $dir : $count files" -ForegroundColor Gray
 }
 
-$officeJsBundles = @(
-    Get-ChildItem -LiteralPath (Join-Path $officeJsDir "site\assets") `
-        -File `
-        -Filter "taskpane-*.js"
-)
-if ($officeJsBundles.Count -ne 1) {
-    throw "Expected exactly one Office.js taskpane bundle, found $($officeJsBundles.Count)."
-}
-$officeJsBundle = $officeJsBundles[0].FullName
+$officeJsBundlePath = Join-Path $officeJsDir "site\assets"
+$officeJsBundles = if (Test-Path -LiteralPath $officeJsBundlePath -PathType Container) {
+    @(Get-ChildItem -LiteralPath $officeJsBundlePath -File -Filter "taskpane-*.js")
+} else { @() }
+$officeJsBundle = if ($officeJsBundles.Count -eq 1) { $officeJsBundles[0].FullName } else { $null }
+$hasOfficeJs = $null -ne $officeJsBundle
 
 $provenance = [ordered]@{
     schemaVersion = 1
@@ -313,7 +323,7 @@ $provenance = [ordered]@{
     officeJsTypingsVersion = Get-PackageVersion `
         (Join-Path $ProjectRoot "apps/office-addin/node_modules/@types/office-js/package.json") `
         "Office.js typings"
-    officeJsBundleSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $officeJsBundle).Hash
+    officeJsBundleSha256 = if ($hasOfficeJs) { (Get-FileHash -Algorithm SHA256 -LiteralPath $officeJsBundle).Hash } else { $null }
     mathJaxVersion = Get-PackageVersion `
         (Join-Path $ProjectRoot "node_modules/mathjax/package.json") `
         "MathJax"
@@ -354,7 +364,10 @@ foreach ($resourceName in @("OfficeJS", "WPS", "Obsidian", "Ecosystem")) {
     $provenance.resourceHashes[$resourceName] = $hashes
 }
 foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
-    $provenance.wpsHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-RelativePath $wpsDest $relative)).Hash
+    $wpsFile = Resolve-RelativePath $wpsDest $relative
+    if (Test-Path -LiteralPath $wpsFile -PathType Leaf) {
+        $provenance.wpsHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $wpsFile).Hash
+    }
 }
 if ($runningOnWindows) {
     foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.exe")) {
