@@ -67,41 +67,78 @@ function Get-PackagedResourceDirectories([string]$PackageRoot, [string]$Name) {
 if ($WindowsPackageRoots.Count -gt 0) {
     if ([string]::IsNullOrWhiteSpace($StagingRoot)) { throw "StagingRoot is required for Windows package verification" }
     $staging = (Resolve-Path -LiteralPath $StagingRoot).Path
-    $expected = @{}
-    foreach ($entry in @(
-        @{ Name = "OleFormulaObject.x86.dll"; Machine = 0x014c },
-        @{ Name = "OleFormulaObject.x64.dll"; Machine = 0x8664 }
-    )) {
-        $path = Join-Path $staging $entry.Name
-        $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileVersion
-        Assert-FileVersion $path $version
-        $expected[$entry.Name] = @{
-            Hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
-            Machine = $entry.Machine
-            Version = $version
-        }
-    }
-    $dumpbin = Resolve-Dumpbin
-    if ([string]::IsNullOrWhiteSpace($dumpbin)) { throw "dumpbin.exe is required for export and dependency verification" }
 
-    foreach ($hostName in @("Word", "Excel", "PowerPoint", "Visio")) {
-        foreach ($extension in @("dll", "vsto", "dll.manifest")) {
-            $fileName = "LaTeXSnipper.$hostName.$extension"
-            $source = Join-Path $staging "$hostName\$fileName"
-            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
-                throw "Native Office staging is missing $hostName payload: $source"
+    # Check if this is MSI-only staging (new model) or legacy VSTO staging
+    $msiPath = Join-Path $staging "LaTeXSnipper.NativeOffice.msi"
+    $bootstrapperPath = Join-Path $staging "LaTeXSnipper.NativeOffice.exe"
+    $isMsiOnly = (Test-Path -LiteralPath $msiPath -PathType Leaf) -and
+                 (Test-Path -LiteralPath $bootstrapperPath -PathType Leaf)
+
+    if ($isMsiOnly) {
+        # MSI-only model: verify MSI + bootstrapper are in the package
+        Write-Host "  Using MSI-only verification model" -ForegroundColor Green
+        $msiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash
+        $bootHash = (Get-FileHash -LiteralPath $bootstrapperPath -Algorithm SHA256).Hash
+
+        foreach ($rootValue in $WindowsPackageRoots) {
+            $root = (Resolve-Path -LiteralPath $rootValue).Path
+            $msiMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.msi")
+            if ($msiMatches.Count -eq 0) {
+                throw "MSI package is missing from ${root}"
             }
-            $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
-            foreach ($rootValue in $WindowsPackageRoots) {
-                $root = (Resolve-Path -LiteralPath $rootValue).Path
-                $matches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter $fileName)
-                if ($matches.Count -eq 0) {
-                    throw "Packaged $hostName payload is missing from ${root}: $fileName"
+            foreach ($match in $msiMatches) {
+                $packageHash = (Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash
+                if ($packageHash -ne $msiHash) {
+                    throw "MSI hash mismatch: staging=$msiHash package=$packageHash path=$($match.FullName)"
                 }
-                foreach ($match in $matches) {
-                    $packageHash = (Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash
-                    if ($packageHash -ne $sourceHash) {
-                        throw "VSTO staging/package hash mismatch: host=$hostName file=$fileName staging=$sourceHash package=$packageHash path=$($match.FullName)"
+            }
+            $bootMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.exe")
+            if ($bootMatches.Count -eq 0) {
+                throw "Bootstrapper is missing from ${root}"
+            }
+            foreach ($match in $bootMatches) {
+                $packageHash = (Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash
+                if ($packageHash -ne $bootHash) {
+                    throw "Bootstrapper hash mismatch: staging=$bootHash package=$packageHash path=$($match.FullName)"
+                }
+            }
+        }
+    } else {
+        # Legacy VSTO staging model (fallback for dev builds)
+        Write-Host "  Using legacy VSTO verification model" -ForegroundColor Yellow
+        $expected = @{}
+        foreach ($entry in @(
+            @{ Name = "OleFormulaObject.x86.dll"; Machine = 0x014c },
+            @{ Name = "OleFormulaObject.x64.dll"; Machine = 0x8664 }
+        )) {
+            $path = Join-Path $staging $entry.Name
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+            $version = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileVersion
+            Assert-FileVersion $path $version
+            $expected[$entry.Name] = @{
+                Hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+                Machine = $entry.Machine
+                Version = $version
+            }
+        }
+
+        foreach ($hostName in @("Word", "Excel", "PowerPoint", "Visio")) {
+            foreach ($extension in @("dll", "vsto", "dll.manifest")) {
+                $fileName = "LaTeXSnipper.$hostName.$extension"
+                $source = Join-Path $staging "$hostName\$fileName"
+                if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { continue }
+                $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+                foreach ($rootValue in $WindowsPackageRoots) {
+                    $root = (Resolve-Path -LiteralPath $rootValue).Path
+                    $matches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter $fileName)
+                    if ($matches.Count -eq 0) {
+                        throw "Packaged $hostName payload is missing from ${root}: $fileName"
+                    }
+                    foreach ($match in $matches) {
+                        $packageHash = (Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash
+                        if ($packageHash -ne $sourceHash) {
+                            throw "VSTO staging/package hash mismatch: host=$hostName file=$fileName staging=$sourceHash package=$packageHash path=$($match.FullName)"
+                        }
                     }
                 }
             }

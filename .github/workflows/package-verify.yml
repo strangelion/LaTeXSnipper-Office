@@ -275,14 +275,11 @@ jobs:
           npm run stage:ecosystem
           npm run build:vite
           "WPS_STAGING=$wpsStaging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
-          "NATIVE_OFFICE_STAGING=apps\native-office\Installer\output\staging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           & .\scripts\stage-resources.ps1 `
             -WpsStaging $wpsStaging `
             -OfficeJsStaging src-tauri\resources\OfficeJS `
-            -NativeOfficeStaging apps\native-office\Installer\output\staging `
             -WpsSourceName 'current deterministic WPS build' `
             -OfficeJsSourceName 'current deterministic OfficeJS build' `
-            -NativeOfficeSourceName 'current NativeOffice installer build' `
             -ObsidianSourceName 'current deterministic ecosystem build'
           Copy-Item src-tauri\resources\provenance.json package-diagnostics\resource-provenance.json -Force
       - name: Build Tauri MSI and NSIS

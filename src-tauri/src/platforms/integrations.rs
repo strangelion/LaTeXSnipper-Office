@@ -2714,27 +2714,14 @@ fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathB
 /// Check if a VSTO manifest exists in the **installed** location only.
 /// Used by status detection — NOT for finding install sources.
 /// This prevents dev build artifacts from causing false "Broken" state.
+/// With MSI-only model, bundled resources only contain MSI/bootstrapper,
+/// so we only check the actual install directory.
 #[cfg(target_os = "windows")]
 fn find_installed_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathBuf> {
     let installed = native_office_install_root().join(host_name).join(vsto_file);
     if installed.exists() {
         return Some(installed);
     }
-
-    // Also check bundled resources (production install)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let bundled = dir
-                .join("resources")
-                .join("NativeOffice")
-                .join(host_name)
-                .join(vsto_file);
-            if bundled.exists() {
-                return Some(bundled);
-            }
-        }
-    }
-
     None
 }
 
@@ -4762,7 +4749,12 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
     // Check in app resources
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
+            // Check bundled resources for bootstrapper (new MSI-only model uses .exe directly)
             let candidates = [
+                exe_dir
+                    .join("resources")
+                    .join("NativeOffice")
+                    .join("LaTeXSnipper.NativeOffice.exe"),
                 exe_dir
                     .join("resources")
                     .join("NativeOffice")

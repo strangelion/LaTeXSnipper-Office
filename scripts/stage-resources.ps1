@@ -208,52 +208,49 @@ function Get-PackageVersion {
 $wpsCount = (Get-ChildItem -LiteralPath $wpsDest -Recurse -File).Count
 Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Green
 
-# NativeOffice VSTO. It is a Windows-only payload.
+# NativeOffice installer payload. WiX MSI is the sole owner of VSTO + OLE
+# lifecycle. The main program delegates install/repair/uninstall to MSI.
+# Only the MSI and bootstrapper are bundled — NOT individual VSTO DLLs.
 $vstoDest = Join-Path $resourcesDir "NativeOffice"
 if ($runningOnWindows) {
-    $vstoStaging = if ([string]::IsNullOrWhiteSpace($NativeOfficeStaging)) {
-        Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output", "staging")
-    } else {
-        (Resolve-Path -LiteralPath $NativeOfficeStaging -ErrorAction Stop).Path
+    $installerDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output")
+
+    # MSI package — the authoritative installer
+    $msiPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.msi"
+    Require-File $msiPath "NativeOffice MSI package"
+
+    # Bootstrapper — launches MSI install/repair/uninstall
+    $bootstrapperPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.exe"
+    Require-File $bootstrapperPath "NativeOffice bootstrapper"
+
+    # Certificate — needed for VSTO trust verification during MSI install
+    $certDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "WiX")
+    $certPath = Join-Path $certDir "LaTeXSnipperOffice.cer"
+    # Certificate is optional at staging time; MSI bundles it internally
+
+    # Copy only installer payload — not individual VSTO DLLs
+    New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
+    Copy-Item -LiteralPath $msiPath -Destination $vstoDest -Force
+    Copy-Item -LiteralPath $bootstrapperPath -Destination $vstoDest -Force
+
+    # Write metadata for runtime discovery
+    $metadata = [ordered]@{
+        schemaVersion = 1
+        installerType = "msi"
+        msiFile = "LaTeXSnipper.NativeOffice.msi"
+        bootstrapperFile = "LaTeXSnipper.NativeOffice.exe"
     }
-    foreach ($nativeHost in @("Word", "Excel", "PowerPoint", "Visio")) {
-        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.vsto") "NativeOffice $nativeHost VSTO manifest"
-        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll.manifest") "NativeOffice $nativeHost DLL manifest"
-        Require-File (Join-Path $vstoStaging "$nativeHost\LaTeXSnipper.$nativeHost.dll") "NativeOffice $nativeHost DLL"
-    }
-    Require-Dir (Join-Path $vstoStaging "Shared") "NativeOffice shared directory"
-    Require-File (Join-Path $vstoStaging "Shared\LaTeXSnipper.NativeOffice.Shared.dll") "NativeOffice shared DLL"
-
-    # OLE component: require both x86 and x64 DLLs for dual-arch Office support
-    $oleX86 = Join-Path $vstoStaging "OleFormulaObject.x86.dll"
-    $oleX64 = Join-Path $vstoStaging "OleFormulaObject.x64.dll"
-    Require-File $oleX86 "NativeOffice OLE x86 DLL"
-    Require-File $oleX64 "NativeOffice OLE x64 DLL"
-    # Verify PE Machine type matches the expected architecture
-    Assert-OleDllBitness -DllPath $oleX86 -ExpectedLabel "x86" -ExpectedMachine $PE_MACHINE_X86
-    Assert-OleDllBitness -DllPath $oleX64 -ExpectedLabel "x64" -ExpectedMachine $PE_MACHINE_X64
-
-    # Certificate and signing metadata required for VSTO trust verification
-    Require-File (Join-Path $vstoStaging "certificates\LaTeXSnipperOffice.cer") "NativeOffice signing certificate"
-    Require-File (Join-Path $vstoStaging "certificates\native-office-signing.json") "NativeOffice signing metadata"
-
-    Copy-CleanDir $vstoStaging $vstoDest
-
-    # Copy operations must never leave a deployment manifest paired with a
-    # different application manifest. Validate the final Tauri resource tree,
-    # not only the build staging source.
-    & (Join-Path $PSScriptRoot "verify-vsto-manifests.ps1") `
-        -PayloadRoot (Resolve-Path -LiteralPath $vstoDest).Path
+    $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $vstoDest "installer.json") -Encoding UTF8
 
     $nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
-    Write-Host "  NativeOffice: $nativeCount files staged" -ForegroundColor Green
+    Write-Host "  NativeOffice: $nativeCount installer files staged (MSI + bootstrapper)" -ForegroundColor Green
 } else {
     if (Test-Path -LiteralPath $vstoDest) {
         Remove-Item -LiteralPath $vstoDest -Recurse -Force
     }
     New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $vstoDest "UNSUPPORTED.txt") `
-        -Value "Native Office VSTO is bundled only in Windows packages." -Encoding ASCII
+        -Value "Native Office installer is bundled only in Windows packages." -Encoding ASCII
     Write-Host "  NativeOffice: intentionally excluded (Windows-only)" -ForegroundColor Yellow
 }
 
@@ -332,8 +329,8 @@ $provenance = [ordered]@{
             path = $wpsSource
         }
         nativeOffice = [ordered]@{
-            name = if (-not $runningOnWindows) { "excluded" } elseif ($NativeOfficeSourceName) { $NativeOfficeSourceName } elseif ($NativeOfficeStaging) { "explicit-path" } else { "local-build" }
-            path = if (-not $runningOnWindows) { "" } elseif ($NativeOfficeStaging) { $NativeOfficeStaging } else { $vstoDest }
+            name = if (-not $runningOnWindows) { "excluded" } else { "msi-installer" }
+            path = if (-not $runningOnWindows) { "" } else { $vstoDest }
         }
         obsidian = [ordered]@{
             name = if ($ObsidianSourceName) { $ObsidianSourceName } elseif ($ObsidianStaging) { "explicit-path" } else { "local-build" }
@@ -360,8 +357,11 @@ foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
     $provenance.wpsHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-RelativePath $wpsDest $relative)).Hash
 }
 if ($runningOnWindows) {
-    foreach ($name in @("OleFormulaObject.x86.dll", "OleFormulaObject.x64.dll")) {
-        $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $vstoDest $name)).Hash
+    foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.exe")) {
+        $filePath = Join-Path $vstoDest $name
+        if (Test-Path -LiteralPath $filePath -PathType Leaf) {
+            $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $filePath).Hash
+        }
     }
 }
 $provenance | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $resourcesDir "provenance.json") -Encoding UTF8
