@@ -2,6 +2,7 @@
 
 import { t, applyTranslations, setLocale, getResolvedLocale } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
+import { OfficeLiveEditBridge } from "./features/office-live-edit/office-live-edit-bridge.js";
 import {
   FORMULA_INSERT_MODES,
   normalizeOfficeInsertMode,
@@ -320,7 +321,12 @@ class FormulaEditor {
             source.value = latex;
           }
 
-          this.updatePreview(latex);
+          // Forward to live edit controller for real-time preview
+          if (this._app?._liveEditBridge?.isActive) {
+            this._app._liveEditBridge.onInput(latex);
+          } else {
+            this.updatePreview(latex);
+          }
         });
 
         this.mathfield.addEventListener("keystroke", (e) => {
@@ -1720,6 +1726,7 @@ class UIController {
     Logger.info("UIController initializing...");
     this.currentSection = "editor";
     this.editor = new FormulaEditor();
+    this.editor._app = this;
     this.library = new FormulaLibrary();
     this.themeManager = new ThemeManager();
     this.settingsManager = new SettingsManager();
@@ -3153,6 +3160,21 @@ class UIController {
             transactionId: transaction.transactionId,
           };
           this.setFormulaInsertMode(requestedMode);
+
+          // Start live edit session for real-time preview
+          try {
+            const { invoke } = await import("@tauri-apps/api/core");
+            const { listen: tauriListen } =
+              await import("@tauri-apps/api/event");
+            this._liveEditBridge = new OfficeLiveEditBridge({
+              invoke,
+              listen: tauriListen,
+              app: this,
+            });
+            this._liveEditBridge.onOpenEditor(event.payload);
+          } catch (e) {
+            Logger.warn("[LiveEdit] Bridge init failed:", e);
+          }
         }
       });
 
@@ -4823,22 +4845,39 @@ class UIController {
         mode,
         latex,
       );
+
+      // Use latest OMML from live preview if available (avoids re-conversion)
+      const livePreview = this._liveEditBridge?.controller?.getPreviewData();
+      const finalOmml = livePreview?.omml || omml;
+      const finalSvg = livePreview?.svg || svg;
+      const finalWidth = livePreview?.widthPt || widthPt;
+      const finalHeight = livePreview?.heightPt || heightPt;
+
       if (this._pendingOfficeEditorRequest?.action === "edit") {
         const requestId = await invoke("native_office_replace_formula", {
           sessionId,
           formulaId: officeTransaction.formulaId,
           latex,
-          omml,
+          omml: finalOmml,
           display: mode,
-          svg: shouldRenderPreview ? svg : null,
+          svg: shouldRenderPreview ? finalSvg : null,
           png: pngBase64,
-          widthPt,
-          heightPt,
+          widthPt: finalWidth,
+          heightPt: finalHeight,
           storageMode: integrationMode,
           expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
           expectedDocumentId: officeTransaction.sourceDocumentId || null,
         });
         this._pendingOfficeEditorRequest.commitRequestId = requestId;
+
+        // Register in Rust CommitCoordinator for ReplaceResult correlation
+        invoke("register_pending_commit", {
+          requestId,
+          transactionId: officeTransaction.transactionId,
+          formulaId: officeTransaction.formulaId,
+          sessionId,
+          documentId: officeTransaction.sourceDocumentId || null,
+        }).catch((e) => Logger.warn("[LiveEdit] register_pending_commit:", e));
       } else {
         await invoke("native_office_insert_formula", {
           sessionId: sessionId,
@@ -4924,28 +4963,45 @@ class UIController {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const { emit } = await import("@tauri-apps/api/event");
-      const omml = await invoke("latex_to_omml", { latex });
+
+      // Use latest OMML from live preview if available
+      const livePreview = this._liveEditBridge?.controller?.getPreviewData();
+      const omml =
+        livePreview?.omml || (await invoke("latex_to_omml", { latex }));
 
       // P0-6: Regenerate preview — abort save if preview generation fails.
       // Never allow "new LaTeX + old preview" to be saved.
-      let renderedSvg = null;
+      let renderedSvg = livePreview?.svg || null;
       let pngBase64Ole = null;
-      let widthPtOle = 0;
-      let heightPtOle = 0;
-      try {
-        const rendered = await this._renderLatexSvg(latex, isDisplay);
-        renderedSvg = rendered.svg;
-        widthPtOle = rendered.widthPt;
-        heightPtOle = rendered.heightPt;
-        pngBase64Ole = await this._svgToPngBase64(
-          rendered.svg,
-          rendered.widthPt,
-          rendered.heightPt,
-        );
-      } catch (e) {
-        Logger.error("[OLE] Preview regeneration failed — aborting save:", e);
-        this.showToast("预览生成失败，无法保存公式");
-        return;
+      let widthPtOle = livePreview?.widthPt || 0;
+      let heightPtOle = livePreview?.heightPt || 0;
+      if (!renderedSvg) {
+        try {
+          const rendered = await this._renderLatexSvg(latex, isDisplay);
+          renderedSvg = rendered.svg;
+          widthPtOle = rendered.widthPt;
+          heightPtOle = rendered.heightPt;
+          pngBase64Ole = await this._svgToPngBase64(
+            rendered.svg,
+            rendered.widthPt,
+            rendered.heightPt,
+          );
+        } catch (e) {
+          Logger.error("[OLE] Preview regeneration failed — aborting save:", e);
+          this.showToast("预览生成失败，无法保存公式");
+          return;
+        }
+      } else {
+        // Convert live preview SVG to PNG
+        try {
+          pngBase64Ole = await this._svgToPngBase64(
+            renderedSvg,
+            widthPtOle,
+            heightPtOle,
+          );
+        } catch (e) {
+          Logger.warn("[OLE] SVG→PNG from live preview failed:", e);
+        }
       }
 
       let formulaPayload = {
