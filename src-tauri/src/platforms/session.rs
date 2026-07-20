@@ -1,4 +1,4 @@
-//! Session management for Native Office VSTO connections.
+﻿//! Session management for Native Office VSTO connections.
 //!
 //! Each VSTO Add-in (Word / Excel / PowerPoint / Visio) maintains one session.
 //! The SessionManager routes incoming messages to the correct handler
@@ -614,14 +614,40 @@ impl SessionManager {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::info!(
-                    "[Session] REPLACE_RESULT success={} error={:?}",
+                    "[Session] REPLACE_RESULT rid={} success={} formulaId={:?} rev={:?} error={:?}",
+                    rid,
                     success,
+                    formulaId,
+                    revision,
                     error
                 );
+
+                // Resolve via CommitCoordinator to get transactionId
+                let coordinator = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::CommitCoordinator>>();
+                let commit_result = coordinator
+                    .resolve_result(
+                        &rid,
+                        success,
+                        formulaId.clone(),
+                        revision,
+                        actualStorageMode.clone(),
+                        errorCode.clone(),
+                        error.clone(),
+                    )
+                    .await;
+
+                let transaction_id = commit_result
+                    .as_ref()
+                    .map(|r| r.transaction_id.clone())
+                    .unwrap_or_default();
+
                 let _ = self.app_handle.emit(
                     "native-office-replace-result",
                     serde_json::json!({
                         "requestId": requestId,
+                        "transactionId": transaction_id,
                         "success": success,
                         "formulaId": formulaId,
                         "revision": revision,

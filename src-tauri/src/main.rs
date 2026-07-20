@@ -75,6 +75,10 @@ fn main() {
             let live_edit_store = platforms::office_live_edit::LiveOfficeEditSessionStore::new();
             app.manage(live_edit_store);
 
+            // Commit coordinator for requestId<->transactionId correlation
+            let commit_coordinator = platforms::office_commit::CommitCoordinator::new();
+            app.manage(commit_coordinator);
+
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]
@@ -247,6 +251,8 @@ fn main() {
             platforms::office_live_edit::get_live_office_snapshot,
             platforms::office_live_edit::close_live_office_edit,
             platforms::office_live_edit::list_active_live_office_sessions,
+            platforms::office_render::render_live_preview,
+            platforms::office_render::render_live_preview_batch,
             platforms::conversation_import::list_browser_imports,
             platforms::conversation_import::get_browser_import,
             platforms::conversation_import::update_browser_import_preview,

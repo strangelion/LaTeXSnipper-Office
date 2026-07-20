@@ -12,7 +12,7 @@
 //! low-frequency timer, or before commit -- never per keystroke.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

@@ -470,6 +470,58 @@ fn install_hybrid_office_integration() -> PlatformIntegrationResult {
 }
 
 pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
+    // Delegate to WiX MSI — the sole owner of VSTO + OLE + certificate lifecycle.
+    // The main program must NOT directly write VSTO/OLE registry to avoid
+    // dual-ownership state drift between MSI and direct registration.
+    match find_msi_package() {
+        Ok(msi_path) => {
+            log::info!(
+                "[Office] Delegating install to MSI: {}",
+                msi_path.display()
+            );
+            let result = run_msi_install(&msi_path);
+            if result.success {
+                // Verify installation succeeded
+                let vsto_ok = check_native_office_vsto();
+                let ole_status = check_ole_status();
+                if vsto_ok && ole_status.available {
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-stack",
+                        format!(
+                            "MSI install completed. VSTO and OLE verified. {}",
+                            ole_status.detail
+                        ),
+                        true,
+                    )
+                } else {
+                    PlatformIntegrationResult::fail(
+                        "office",
+                        "native-stack",
+                        format!(
+                            "MSI install completed but verification failed. VSTO: {}, OLE: {}",
+                            vsto_ok,
+                            ole_status.detail
+                        ),
+                    )
+                }
+            } else {
+                result
+            }
+        }
+        Err(e) => {
+            // MSI not found — fall back to direct registration for dev environments
+            log::warn!(
+                "[Office] MSI not found ({}), falling back to direct registration",
+                e
+            );
+            install_native_office_stack_direct()
+        }
+    }
+}
+
+/// Direct registration fallback — only used when MSI is not available (dev builds).
+fn install_native_office_stack_direct() -> PlatformIntegrationResult {
     let vsto = install_native_office_vsto();
     if !vsto.success {
         return vsto;
@@ -485,7 +537,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                 "office",
                 "native-stack-partial",
                 format!(
-                    "VSTO installation completed。Find existing LaTeXSnipper OLE registration and continue using: {}",
+                    "VSTO installation completed. Find existing LaTeXSnipper OLE registration and continue using: {}",
                     status.detail
                 ),
                 true,
@@ -522,6 +574,78 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
         ),
         true,
     )
+}
+
+/// Find the WiX MSI package file.
+fn find_msi_package() -> Result<PathBuf, String> {
+    let candidates = [
+        // Tauri bundled resources
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.join("resources").join("NativeOffice")))
+            .map(|d| d.join("LaTeXSnipper.NativeOffice.msi")),
+        // Build output directory
+        repo_root_from_manifest()
+            .map(|root| root.join("output").join("LaTeXSnipper.NativeOffice.msi")),
+        // Staging directory
+        repo_root_from_manifest()
+            .map(|root| root.join("apps").join("native-office").join("Installer").join("output").join("LaTeXSnipper.NativeOffice.msi")),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("LaTeXSnipper.NativeOffice.msi not found in any expected location".to_string())
+}
+
+/// Run MSI install synchronously (with timeout).
+fn run_msi_install(msi_path: &Path) -> PlatformIntegrationResult {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let result = std::process::Command::new("msiexec.exe")
+        .args([
+            "/i",
+            &msi_path.to_string_lossy(),
+            "/quiet",
+            "/norestart",
+            "ALLUSERS=0",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            log::info!("[Office] MSI install succeeded");
+            PlatformIntegrationResult::ok(
+                "office",
+                "native-stack",
+                "MSI install completed successfully.",
+                true,
+            )
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::error!("[Office] MSI install failed: {}", stderr);
+            PlatformIntegrationResult::fail(
+                "office",
+                "native-stack",
+                format!("MSI install failed: {}", stderr.trim()),
+            )
+        }
+        Err(e) => {
+            log::error!("[Office] Failed to start MSI installer: {}", e);
+            PlatformIntegrationResult::fail(
+                "office",
+                "native-stack",
+                format!("Failed to start MSI installer: {}", e),
+            )
+        }
+    }
 }
 
 #[tauri::command]
@@ -2420,22 +2544,67 @@ fn check_office_addin() -> PlatformIntegrationResult {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        let installed: Vec<&str> = OFFICE_JS_HOSTS
-            .iter()
-            .filter(|host| {
-                PathBuf::from(&home)
-                    .join("Library")
-                    .join("Containers")
-                    .join(host.mac_container)
-                    .join("Data")
-                    .join("Documents")
-                    .join("wef")
-                    .join("LaTeXSnipper.xml")
-                    .exists()
-            })
-            .map(|host| host.name)
-            .collect();
-        if installed.len() == OFFICE_JS_HOSTS.len() {
+        let mut installed_hosts: Vec<&str> = Vec::new();
+        let mut missing_hosts: Vec<&str> = Vec::new();
+
+        for host in OFFICE_JS_HOSTS {
+            let manifest_path = PathBuf::from(&home)
+                .join("Library")
+                .join("Containers")
+                .join(host.mac_container)
+                .join("Data")
+                .join("Documents")
+                .join("wef")
+                .join("LaTeXSnipper.xml");
+            if manifest_path.exists() {
+                installed_hosts.push(host.name);
+            } else {
+                // Check if it was previously installed (ledger says so)
+                let ledger = IntegrationLedger::load();
+                if ledger.office_js.manifest_ids.iter().any(|id| id == host.id) {
+                    missing_hosts.push(host.name);
+                }
+            }
+        }
+
+        // Self-repair: re-install missing manifests that were previously installed
+        if !missing_hosts.is_empty() {
+            log::info!(
+                "[Office] macOS: {} manifest(s) missing, attempting self-repair",
+                missing_hosts.len()
+            );
+            let manifests = office_js_manifests();
+            let repair_result = install_office_js_addin_at(Path::new(&home), &manifests);
+            match repair_result {
+                Ok(restored) => {
+                    log::info!(
+                        "[Office] macOS self-repair: restored {} manifest(s)",
+                        restored.len()
+                    );
+                    // Re-check after repair
+                    installed_hosts = OFFICE_JS_HOSTS
+                        .iter()
+                        .filter(|host| {
+                            PathBuf::from(&home)
+                                .join("Library")
+                                .join("Containers")
+                                .join(host.mac_container)
+                                .join("Data")
+                                .join("Documents")
+                                .join("wef")
+                                .join("LaTeXSnipper.xml")
+                                .exists()
+                        })
+                        .map(|host| host.name)
+                        .collect();
+                }
+                Err(e) => {
+                    log::warn!("[Office] macOS self-repair failed: {}", e);
+                }
+            }
+        }
+
+        if installed_hosts.len() == OFFICE_JS_HOSTS.len() {
             return PlatformIntegrationResult::ok(
                 "office",
                 "installed",
@@ -2443,11 +2612,11 @@ fn check_office_addin() -> PlatformIntegrationResult {
                 true,
             );
         }
-        if !installed.is_empty() {
+        if !installed_hosts.is_empty() {
             return PlatformIntegrationResult::fail(
                 "office",
                 "partial",
-                format!("Only these Office.js add-ins are installed: {}. Toggle Office off and on to repair.", installed.join(", ")),
+                format!("Only these Office.js add-ins are installed: {}. Toggle Office off and on to repair.", installed_hosts.join(", ")),
             );
         }
     }
@@ -2497,9 +2666,10 @@ const NATIVE_OFFICE_ADDINS: &[(&str, &str, &str, &str)] = &[
 
 #[cfg(target_os = "windows")]
 fn native_office_install_root() -> PathBuf {
+    // Must match the WiX MSI install directory:
+    // %LOCALAPPDATA%\LaTeXSnipper\NativeOffice
     dirs_next::data_local_dir()
         .unwrap_or_else(std::env::temp_dir)
-        .join("Programs")
         .join("LaTeXSnipper")
         .join("NativeOffice")
 }
@@ -2541,6 +2711,33 @@ fn native_office_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathB
     }
 
     candidates.into_iter().find(|path| path.exists())
+}
+
+/// Check if a VSTO manifest exists in the **installed** location only.
+/// Used by status detection — NOT for finding install sources.
+/// This prevents dev build artifacts from causing false "Broken" state.
+#[cfg(target_os = "windows")]
+fn find_installed_vsto_manifest(host_name: &str, vsto_file: &str) -> Option<PathBuf> {
+    let installed = native_office_install_root().join(host_name).join(vsto_file);
+    if installed.exists() {
+        return Some(installed);
+    }
+
+    // Also check bundled resources (production install)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir
+                .join("resources")
+                .join("NativeOffice")
+                .join(host_name)
+                .join(vsto_file);
+            if bundled.exists() {
+                return Some(bundled);
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(target_os = "windows")]
@@ -2853,7 +3050,7 @@ fn check_native_office_vsto() -> bool {
             addin_id
         );
 
-        let vsto_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
+        let vsto_exists = find_installed_vsto_manifest(host_name, vsto_file).is_some();
 
         // Check either 64-bit or 32-bit view (whichever matches the installed Office)
         let views_ok = REGISTRY_VIEWS.iter().any(|view| {
@@ -2924,6 +3121,28 @@ fn check_native_office_vsto() -> bool {
 /// Uninstall Native Office VSTO add-ins with verification, including OLE cleanup.
 #[cfg(target_os = "windows")]
 fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
+    // Delegate to WiX MSI for uninstall — sole owner of VSTO + OLE lifecycle.
+    match find_msi_package() {
+        Ok(msi_path) => {
+            log::info!(
+                "[Office] Delegating uninstall to MSI: {}",
+                msi_path.display()
+            );
+            run_msi_uninstall(&msi_path)
+        }
+        Err(e) => {
+            // MSI not found — fall back to direct cleanup for dev environments
+            log::warn!(
+                "[Office] MSI not found ({}), falling back to direct cleanup",
+                e
+            );
+            uninstall_native_office_vsto_direct()
+        }
+    }
+}
+
+/// Direct cleanup fallback — only used when MSI is not available (dev builds).
+fn uninstall_native_office_vsto_direct() -> PlatformIntegrationResult {
     // Step 1: Uninstall OLE component first
     let ole_result = uninstall_ole_component();
     if !ole_result.success {
@@ -3006,6 +3225,53 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
         ),
         true,
     )
+}
+
+/// Run MSI uninstall synchronously.
+fn run_msi_uninstall(msi_path: &Path) -> PlatformIntegrationResult {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let result = std::process::Command::new("msiexec.exe")
+        .args([
+            "/x",
+            &msi_path.to_string_lossy(),
+            "/quiet",
+            "/norestart",
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            log::info!("[Office] MSI uninstall succeeded");
+            PlatformIntegrationResult::ok(
+                "office",
+                "native-vsto",
+                "MSI uninstall completed successfully. Restart Office to finish.",
+                true,
+            )
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::error!("[Office] MSI uninstall failed: {}", stderr);
+            PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                format!("MSI uninstall failed: {}", stderr.trim()),
+            )
+        }
+        Err(e) => {
+            log::error!("[Office] Failed to start MSI uninstaller: {}", e);
+            PlatformIntegrationResult::fail(
+                "office",
+                "native-vsto",
+                format!("Failed to start MSI uninstaller: {}", e),
+            )
+        }
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -4246,7 +4512,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
             // At least one registry view must have LoadBehavior=3 and manifest must exist
             let has_x64 = get_load_behavior_for_view(&reg_key, RegistryView::X64) == Some(3);
             let has_x86 = get_load_behavior_for_view(&reg_key, RegistryView::X86) == Some(3);
-            let manifest_found = native_office_vsto_manifest(host_name, vsto_file).is_some();
+            let manifest_found = find_installed_vsto_manifest(host_name, vsto_file).is_some();
             (has_x64 || has_x86) && manifest_found
         });
     let any_host_partial =
@@ -4271,7 +4537,7 @@ pub fn get_native_office_status() -> NativeOfficeStatus {
     let any_vsto_file_found = NATIVE_OFFICE_ADDINS
         .iter()
         .any(|(host_name, _, _, vsto_file)| {
-            native_office_vsto_manifest(host_name, vsto_file).is_some()
+            find_installed_vsto_manifest(host_name, vsto_file).is_some()
         });
 
     let package_state = if any_host_valid {
@@ -4401,7 +4667,7 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     .unwrap_or(false);
 
     // Check VSTO file exists
-    let manifest_exists = native_office_vsto_manifest(host_name, vsto_file).is_some();
+    let manifest_exists = find_installed_vsto_manifest(host_name, vsto_file).is_some();
 
     // Determine state
     let (state, message) = if !office_detected && !any_reg_valid {

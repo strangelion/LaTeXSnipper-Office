@@ -7,7 +7,9 @@ pub mod handshake;
 pub mod integrations;
 pub mod office;
 pub mod office_bridge;
+pub mod office_commit;
 pub mod office_live_edit;
+pub mod office_render;
 pub mod office_transactions;
 #[cfg(target_os = "windows")]
 pub mod ole_edit;
