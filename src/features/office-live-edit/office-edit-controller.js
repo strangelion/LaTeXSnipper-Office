@@ -37,7 +37,8 @@ export class OfficeEditController {
    * @param {Function} options.onConflict - Called on conflict
    */
   constructor(options = {}) {
-    this.invokeTauri = options.invokeTauri || (() => Promise.reject("no invoke"));
+    this.invokeTauri =
+      options.invokeTauri || (() => Promise.reject("no invoke"));
     this.listenTauri = options.listenTauri || (() => () => {});
     this.emitTauri = options.emitTauri || (() => {});
 
@@ -48,7 +49,8 @@ export class OfficeEditController {
 
     this.scheduler = new OfficeRenderScheduler({
       debounceMs: options.debounceMs || 150,
-      onRenderRequest: (latex, metadata) => this._handleRenderRequest(latex, metadata),
+      onRenderRequest: (latex, metadata) =>
+        this._handleRenderRequest(latex, metadata),
       onPreviewUpdate: (result) => {
         // Store latest preview for commit
         if (result?.omml) {
@@ -84,7 +86,10 @@ export class OfficeEditController {
       },
       onStateChange: (s) => {
         if (s === "inflight") this.state.transition(EditState.RENDERING);
-        if (s === "completed" && this.state.canTransition(EditState.PREVIEW_READY)) {
+        if (
+          s === "completed" &&
+          this.state.canTransition(EditState.PREVIEW_READY)
+        ) {
           this.state.transition(EditState.PREVIEW_READY);
         }
       },
@@ -242,7 +247,10 @@ export class OfficeEditController {
 
     // Transition to preparing
     if (!this.state.transition(EditState.PREPARING)) {
-      console.warn("[LiveEdit] Cannot transition to PREPARING from", this.state.state);
+      console.warn(
+        "[LiveEdit] Cannot transition to PREPARING from",
+        this.state.state,
+      );
       return false;
     }
 
@@ -252,11 +260,19 @@ export class OfficeEditController {
     try {
       // Use latest preview data for commit (OMML + SVG)
       const preview = this._lastPreview || {};
-      const finalLatex = preview.latex || this.scheduler._pendingInput?.latex || "";
+      const finalLatex =
+        preview.latex || this.scheduler._pendingInput?.latex || "";
       const finalOmml = preview.omml || "";
-      const finalRenderData = renderData || (preview.svg
-        ? { svg: preview.svg, png: null, widthPt: preview.widthPt, heightPt: preview.heightPt }
-        : null);
+      const finalRenderData =
+        renderData ||
+        (preview.svg
+          ? {
+              svg: preview.svg,
+              png: null,
+              widthPt: preview.widthPt,
+              heightPt: preview.heightPt,
+            }
+          : null);
 
       // Prepare the commit (freeze draft in durable store)
       await this.commitCtrl.prepare(
@@ -462,7 +478,10 @@ export class OfficeEditController {
 
   _handleOpenEditor(payload) {
     if (payload.transaction) {
-      console.info("[LiveEdit] OPEN_EDITOR with transaction:", payload.transaction);
+      console.info(
+        "[LiveEdit] OPEN_EDITOR with transaction:",
+        payload.transaction,
+      );
     }
   }
 

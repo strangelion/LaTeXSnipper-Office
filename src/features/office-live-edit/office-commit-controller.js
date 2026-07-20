@@ -21,7 +21,8 @@ export class OfficeCommitController {
    * @param {Function} options.onConflict - Called on OFFICE_TARGET_CHANGED
    */
   constructor(options = {}) {
-    this.invokeTauri = options.invokeTauri || (() => Promise.reject("no invoke"));
+    this.invokeTauri =
+      options.invokeTauri || (() => Promise.reject("no invoke"));
     this.onCommitSuccess = options.onCommitSuccess || (() => {});
     this.onCommitFailure = options.onCommitFailure || (() => {});
     this.onConflict = options.onConflict || (() => {});
@@ -41,7 +42,13 @@ export class OfficeCommitController {
    * @param {object} renderedAsset - Optional pre-rendered asset
    * @returns {Promise<object>} Prepared transaction
    */
-  async prepare(transactionId, draftLatex, displayMode, numbering, renderedAsset) {
+  async prepare(
+    transactionId,
+    draftLatex,
+    displayMode,
+    numbering,
+    renderedAsset,
+  ) {
     return this.invokeTauri("prepare_office_edit_commit", {
       request: {
         transactionId,
@@ -131,8 +138,15 @@ export class OfficeCommitController {
    * @returns {Promise<object>} Completion status
    */
   async handleReplaceResult(result) {
-    const { requestId, success, formulaId, revision, actualStorageMode, errorCode, error } =
-      result;
+    const {
+      requestId,
+      success,
+      formulaId,
+      revision,
+      actualStorageMode,
+      errorCode,
+      error,
+    } = result;
 
     const tracked = this._pendingCommits.get(requestId);
     if (!tracked) {
@@ -239,11 +253,14 @@ export class OfficeCommitController {
 
     try {
       // Send read request to host
-      const requestId = await this.invokeTauri("native_office_read_formula_by_id", {
-        sessionId,
-        formulaId,
-        expectedDocumentId: expectedDocumentId || null,
-      });
+      const requestId = await this.invokeTauri(
+        "native_office_read_formula_by_id",
+        {
+          sessionId,
+          formulaId,
+          expectedDocumentId: expectedDocumentId || null,
+        },
+      );
 
       // The result comes back via native-office-formula-snapshot event
       // Return the requestId so the caller can correlate

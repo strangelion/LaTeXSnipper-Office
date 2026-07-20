@@ -25,9 +25,7 @@ export interface PersistedPluginData extends LaTeXSnipperSettings {
 
 export function normalizeBridgeUrl(value: unknown): string {
   const normalized =
-    typeof value === "string"
-      ? value.trim().replace(/\/+$/, "")
-      : "";
+    typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
 
   if (!normalized) return DEFAULT_BRIDGE_URL;
 
@@ -47,20 +45,16 @@ export function migratePluginData(
   return {
     schemaVersion: SETTINGS_SCHEMA_VERSION,
     bridgeUrl: normalizeBridgeUrl(raw?.bridgeUrl),
-    defaultDisplay:
-      raw?.defaultDisplay === "block" ? "block" : "inline",
+    defaultDisplay: raw?.defaultDisplay === "block" ? "block" : "inline",
     autoNumber: raw?.autoNumber === true,
     numberFormat:
       numberFormat && validNumberFormats.includes(numberFormat)
         ? numberFormat
         : "global",
     equationCounter:
-      typeof raw?.equationCounter === "number"
-        ? raw.equationCounter
-        : 0,
+      typeof raw?.equationCounter === "number" ? raw.equationCounter : 0,
     ecosystemClientId:
-      typeof raw?.ecosystemClientId === "string" &&
-      raw.ecosystemClientId.trim()
+      typeof raw?.ecosystemClientId === "string" && raw.ecosystemClientId.trim()
         ? raw.ecosystemClientId
         : `obsidian-${crypto.randomUUID()}`,
   };

@@ -22,11 +22,27 @@ export const EditState = {
 const VALID_TRANSITIONS = {
   [EditState.LOADING]: [EditState.READY, EditState.FAILED],
   [EditState.READY]: [EditState.EDITING, EditState.CONFLICT],
-  [EditState.EDITING]: [EditState.RENDERING, EditState.PREPARING, EditState.CONFLICT],
-  [EditState.RENDERING]: [EditState.PREVIEW_READY, EditState.EDITING, EditState.FAILED],
-  [EditState.PREVIEW_READY]: [EditState.EDITING, EditState.PREPARING, EditState.CONFLICT],
+  [EditState.EDITING]: [
+    EditState.RENDERING,
+    EditState.PREPARING,
+    EditState.CONFLICT,
+  ],
+  [EditState.RENDERING]: [
+    EditState.PREVIEW_READY,
+    EditState.EDITING,
+    EditState.FAILED,
+  ],
+  [EditState.PREVIEW_READY]: [
+    EditState.EDITING,
+    EditState.PREPARING,
+    EditState.CONFLICT,
+  ],
   [EditState.PREPARING]: [EditState.COMMITTING, EditState.FAILED],
-  [EditState.COMMITTING]: [EditState.COMMITTED, EditState.FAILED, EditState.CONFLICT],
+  [EditState.COMMITTING]: [
+    EditState.COMMITTED,
+    EditState.FAILED,
+    EditState.CONFLICT,
+  ],
   [EditState.COMMITTED]: [],
   [EditState.CONFLICT]: [EditState.LOADING, EditState.READY],
   [EditState.FAILED]: [EditState.READY, EditState.EDITING],

@@ -25,19 +25,27 @@ export interface ObsidianBridgeAPI {
 export class ObsidianAdapter implements HostAdapter {
   private _counter = 0;
   private _idCounter = 0;
-  private _counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> };
+  private _counterStore?: {
+    load: () => Promise<number>;
+    save: (n: number) => Promise<void>;
+  };
   private _numberFormat: "global" | "chapter" | "chapter-hyphen" = "global";
   private _chapterCounters = new Map<number, number>();
 
   constructor(
     private editor: () => ObsidianEditorAPI | null,
     private bridge: () => ObsidianBridgeAPI | null = () => null,
-    counterStore?: { load: () => Promise<number>; save: (n: number) => Promise<void> },
+    counterStore?: {
+      load: () => Promise<number>;
+      save: (n: number) => Promise<void>;
+    },
     numberFormat: "global" | "chapter" | "chapter-hyphen" = "global",
   ) {
     if (counterStore) {
       this._counterStore = counterStore;
-      counterStore.load().then((n) => { this._counter = n; });
+      counterStore.load().then((n) => {
+        this._counter = n;
+      });
     }
     this._numberFormat = numberFormat;
   }
@@ -48,14 +56,17 @@ export class ObsidianAdapter implements HostAdapter {
       case "InsertFormula": {
         const ed = this.editor();
         if (!ed) return { ok: false, error: "No active editor" };
-        const delim = cmd.payload.display === "block" || cmd.payload.display === "numbered"
-          ? "$$" : "$";
+        const delim =
+          cmd.payload.display === "block" || cmd.payload.display === "numbered"
+            ? "$$"
+            : "$";
         const latex = cmd.payload.latex;
         const formulaId = cmd.payload.formulaId || this._nextId();
         const meta = `<!-- LaTeXSnipper:${formulaId} -->`;
-        const text = cmd.payload.display === "numbered"
-          ? `${meta}\n${delim}${latex}${delim} (${this.nextNumber()})`
-          : `${meta}\n${delim}${latex}${delim}`;
+        const text =
+          cmd.payload.display === "numbered"
+            ? `${meta}\n${delim}${latex}${delim} (${this.nextNumber()})`
+            : `${meta}\n${delim}${latex}${delim}`;
         ed.replaceSelection(text);
         return { ok: true, data: formulaId };
       }
@@ -110,7 +121,12 @@ export class ObsidianAdapter implements HostAdapter {
       case "FormatContent": {
         // Apply formatting only if content is available
         const ed = this.editor();
-        if (!ed || !cmd.payload.fontFamily && !cmd.payload.fontSize && !cmd.payload.color)
+        if (
+          !ed ||
+          (!cmd.payload.fontFamily &&
+            !cmd.payload.fontSize &&
+            !cmd.payload.color)
+        )
           return { ok: false, error: "No formatting options provided" };
         return { ok: true };
       }
@@ -164,7 +180,7 @@ export class ObsidianAdapter implements HostAdapter {
     // Look for patterns like "# Chapter X" or "## X. " at the beginning of headings
     const ed = this.editor();
     if (!ed) return 1;
-    
+
     const content = ed.getValue();
     const chapterMatches = content.match(/^#{1,2}\s+(?:Chapter\s+)?(\d+)/im);
     if (chapterMatches) {

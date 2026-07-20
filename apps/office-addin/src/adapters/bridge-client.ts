@@ -19,14 +19,19 @@ export class OfficeBridgeClient {
       return;
     }
     const { hostname, port } = window.location;
-    this.baseUrl = (hostname === "127.0.0.1" || hostname === "localhost") && port === "19876"
-      ? ""
-      : "https://127.0.0.1:19876";
+    this.baseUrl =
+      (hostname === "127.0.0.1" || hostname === "localhost") && port === "19876"
+        ? ""
+        : "https://127.0.0.1:19876";
   }
 
   async heartbeat(host: string): Promise<boolean> {
     try {
-      const response = await this.fetchWithTimeout("/api/office/heartbeat", { host }, 3000);
+      const response = await this.fetchWithTimeout(
+        "/api/office/heartbeat",
+        { host },
+        3000,
+      );
       return response.ok;
     } catch {
       return false;
@@ -42,24 +47,38 @@ export class OfficeBridgeClient {
     if (!content.trim()) throw new Error("Conversion content is empty");
     let response: Response;
     try {
-      response = await this.fetchWithTimeout("/api/office/convert/v1", {
-        sourceFormat,
-        targetFormat,
-        content,
-        displayMode,
-      }, 15000);
+      response = await this.fetchWithTimeout(
+        "/api/office/convert/v1",
+        {
+          sourceFormat,
+          targetFormat,
+          content,
+          displayMode,
+        },
+        15000,
+      );
     } catch (error) {
-      throw new Error(`LaTeXSnipper desktop Bridge is not available. Start the desktop application and retry. (${String(error)})`);
+      throw new Error(
+        `LaTeXSnipper desktop Bridge is not available. Start the desktop application and retry. (${String(error)})`,
+      );
     }
-    if (!response.ok) throw new Error(`Bridge request failed with HTTP ${response.status}`);
-    const data = await response.json() as Partial<BridgeConversionResult>;
+    if (!response.ok)
+      throw new Error(`Bridge request failed with HTTP ${response.status}`);
+    const data = (await response.json()) as Partial<BridgeConversionResult>;
     if (!data.success || typeof data.content !== "string" || !data.content) {
-      throw new Error(data.diagnostic || `Bridge could not convert ${sourceFormat} to ${targetFormat}`);
+      throw new Error(
+        data.diagnostic ||
+          `Bridge could not convert ${sourceFormat} to ${targetFormat}`,
+      );
     }
     return data as BridgeConversionResult;
   }
 
-  private fetchWithTimeout(path: string, body: unknown, timeoutMs: number): Promise<Response> {
+  private fetchWithTimeout(
+    path: string,
+    body: unknown,
+    timeoutMs: number,
+  ): Promise<Response> {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
     return fetch(`${this.baseUrl}${path}`, {

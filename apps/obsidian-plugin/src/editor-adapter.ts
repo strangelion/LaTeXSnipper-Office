@@ -8,7 +8,11 @@ export function getActiveEditor(plugin: Plugin) {
   return view?.editor ?? null;
 }
 
-export function insertMarkdownFormula(plugin: Plugin, latex: string, display: boolean): boolean {
+export function insertMarkdownFormula(
+  plugin: Plugin,
+  latex: string,
+  display: boolean,
+): boolean {
   const editor = getActiveEditor(plugin);
   if (!editor) return false;
   const text = display ? `$$\n${latex}\n$$` : `$${latex}$`;
@@ -40,7 +44,10 @@ export function setupEcosystemBridge(
       if (result?.registered === false) {
         // Desktop restarted or client was lost, re-register
         await bridge.register(clientName).catch((error) => {
-          console.error("[LaTeXSnipper] Ecosystem re-registration failed:", error);
+          console.error(
+            "[LaTeXSnipper] Ecosystem re-registration failed:",
+            error,
+          );
         });
       }
     } catch (error) {
@@ -48,8 +55,7 @@ export function setupEcosystemBridge(
     }
   }, 10000);
 
-  const stopPoller =
-    startActionPoller(bridge, adapter);
+  const stopPoller = startActionPoller(bridge, adapter);
 
   plugin.register(() => {
     clearInterval(heartbeatTimer);

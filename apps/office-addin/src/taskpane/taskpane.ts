@@ -22,7 +22,8 @@ let selectedFormulaId: string | undefined;
 
 const bridgeBase = (() => {
   const { hostname, port } = window.location;
-  return (hostname === "127.0.0.1" || hostname === "localhost") && port === "19876"
+  return (hostname === "127.0.0.1" || hostname === "localhost") &&
+    port === "19876"
     ? ""
     : "https://127.0.0.1:19876";
 })();
@@ -43,24 +44,41 @@ Office.onReady((info) => {
   ensureAdapter();
   const hostName = info.host ? String(info.host) : "Office";
   setText("hostLabel", hostName);
-  document.getElementById("loadBtn")?.addEventListener("click", () => void handleLoad());
-  document.getElementById("insertBtn")?.addEventListener("click", () => void handleInsert());
-  document.getElementById("updateBtn")?.addEventListener("click", () => void handleUpdate());
-  document.getElementById("deleteBtn")?.addEventListener("click", () => void handleDelete());
-  document.getElementById("referenceBtn")?.addEventListener("click", () => void handleReference());
-  document.getElementById("modeSelect")?.addEventListener("change", updateNumberingControls);
-  document.getElementById("layoutProfile")?.addEventListener("change", updateNumberingPreview);
+  document
+    .getElementById("loadBtn")
+    ?.addEventListener("click", () => void handleLoad());
+  document
+    .getElementById("insertBtn")
+    ?.addEventListener("click", () => void handleInsert());
+  document
+    .getElementById("updateBtn")
+    ?.addEventListener("click", () => void handleUpdate());
+  document
+    .getElementById("deleteBtn")
+    ?.addEventListener("click", () => void handleDelete());
+  document
+    .getElementById("referenceBtn")
+    ?.addEventListener("click", () => void handleReference());
+  document
+    .getElementById("modeSelect")
+    ?.addEventListener("change", updateNumberingControls);
+  document
+    .getElementById("layoutProfile")
+    ?.addEventListener("change", updateNumberingPreview);
   void initializeHost(hostName);
 });
 
 async function initializeHost(host: string): Promise<void> {
   setStatus("Checking Office capabilities...");
   const result = await exec({ type: "GetHostCapabilities", payload: {} });
-  capabilities = result.ok ? result.data as CapabilityResult : null;
+  capabilities = result.ok ? (result.data as CapabilityResult) : null;
   applyCapabilities();
   await updateBridgeState(host);
   window.setInterval(() => void updateBridgeState(host), 10000);
-  setStatus(capabilities ? "Ready" : result.error || "Unsupported Office host", capabilities ? "success" : "error");
+  setStatus(
+    capabilities ? "Ready" : result.error || "Unsupported Office host",
+    capabilities ? "success" : "error",
+  );
 }
 
 async function updateBridgeState(host: string): Promise<void> {
@@ -80,36 +98,64 @@ async function updateBridgeState(host: string): Promise<void> {
 
 function applyCapabilities(): void {
   const map: Array<[string, keyof CapabilityResult]> = [
-    ["loadBtn", "readFormula"], ["insertBtn", "insertFormula"],
-    ["updateBtn", "replaceFormula"], ["deleteBtn", "deleteFormula"],
+    ["loadBtn", "readFormula"],
+    ["insertBtn", "insertFormula"],
+    ["updateBtn", "replaceFormula"],
+    ["deleteBtn", "deleteFormula"],
   ];
   for (const [id, key] of map) {
     const button = document.getElementById(id) as HTMLButtonElement | null;
     if (button) button.disabled = busy || !capabilities?.[key];
   }
-  const referenceButton = document.getElementById("referenceBtn") as HTMLButtonElement | null;
-  if (referenceButton) referenceButton.disabled = busy || !capabilities?.equationReference || !selectedFormulaId;
-  setText("capabilityStatus", capabilities ? `Host: ${capabilities.host}` : "Host: unsupported");
+  const referenceButton = document.getElementById(
+    "referenceBtn",
+  ) as HTMLButtonElement | null;
+  if (referenceButton)
+    referenceButton.disabled =
+      busy || !capabilities?.equationReference || !selectedFormulaId;
+  setText(
+    "capabilityStatus",
+    capabilities ? `Host: ${capabilities.host}` : "Host: unsupported",
+  );
   updateNumberingControls();
 }
 
 function updateNumberingControls(): void {
-  const modeSelect = document.getElementById("modeSelect") as HTMLSelectElement | null;
-  const option = modeSelect?.querySelector('option[value="numbered"]') as HTMLOptionElement | null;
+  const modeSelect = document.getElementById(
+    "modeSelect",
+  ) as HTMLSelectElement | null;
+  const option = modeSelect?.querySelector(
+    'option[value="numbered"]',
+  ) as HTMLOptionElement | null;
   if (option) option.disabled = !capabilities?.numberedFormula;
-  if (modeSelect?.value === "numbered" && !capabilities?.numberedFormula) modeSelect.value = "display";
-  const enabled = modeSelect?.value === "numbered" && Boolean(capabilities?.numberedFormula);
+  if (modeSelect?.value === "numbered" && !capabilities?.numberedFormula)
+    modeSelect.value = "display";
+  const enabled =
+    modeSelect?.value === "numbered" && Boolean(capabilities?.numberedFormula);
   for (const id of ["layoutProfile", "equationLabel"]) {
-    const control = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+    const control = document.getElementById(id) as
+      | HTMLInputElement
+      | HTMLSelectElement
+      | null;
     if (control) control.disabled = !enabled;
   }
   updateNumberingPreview();
 }
 
 function updateNumberingPreview(): void {
-  const profile = (document.getElementById("layoutProfile") as HTMLSelectElement | null)?.value;
-  const preview = profile === "chapter-dot" ? "(2.1)" : profile === "chapter-hyphen" ? "(2-1)" : "(1)";
-  setText("numberingPreview", getInsertMode() === "display-numbered" ? `Numbering: ${preview}` : "");
+  const profile = (
+    document.getElementById("layoutProfile") as HTMLSelectElement | null
+  )?.value;
+  const preview =
+    profile === "chapter-dot"
+      ? "(2.1)"
+      : profile === "chapter-hyphen"
+        ? "(2-1)"
+        : "(1)";
+  setText(
+    "numberingPreview",
+    getInsertMode() === "display-numbered" ? `Numbering: ${preview}` : "",
+  );
 }
 
 async function handleLoad(): Promise<void> {
@@ -124,8 +170,16 @@ async function handleLoad(): Promise<void> {
     }
     selectedFormulaId = result.data.formulaId;
     setEditorContent(result.data.latex);
-    const mode = document.getElementById("modeSelect") as HTMLSelectElement | null;
-    if (mode) mode.value = result.data.displayMode === "numbered" ? "numbered" : result.data.displayMode === "inline" ? "inline" : "display";
+    const mode = document.getElementById(
+      "modeSelect",
+    ) as HTMLSelectElement | null;
+    if (mode)
+      mode.value =
+        result.data.displayMode === "numbered"
+          ? "numbered"
+          : result.data.displayMode === "inline"
+            ? "inline"
+            : "display";
     updateNumberingControls();
     setStatus(`Loaded formula (${result.data.source})`, "success");
   } finally {
@@ -135,32 +189,48 @@ async function handleLoad(): Promise<void> {
 
 async function handleInsert(): Promise<void> {
   const latex = getEditorContent();
-  if (!latex) { setStatus("Enter a LaTeX formula first", "error"); return; }
+  if (!latex) {
+    setStatus("Enter a LaTeX formula first", "error");
+    return;
+  }
   if (busy) return;
   setBusy(true);
   setStatus("Inserting formula...");
   try {
-    const result = await exec({ type: "InsertFormula", payload: buildPayload(latex, false) });
+    const result = await exec({
+      type: "InsertFormula",
+      payload: buildPayload(latex, false),
+    });
     if (result.ok) {
       selectedFormulaId = result.data?.formulaId;
       setStatus("Inserted", "success");
     } else setStatus(`Insert failed: ${result.error}`, "error");
-  } finally { setBusy(false); }
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function handleUpdate(): Promise<void> {
   const latex = getEditorContent();
-  if (!latex) { setStatus("Enter a LaTeX formula first", "error"); return; }
+  if (!latex) {
+    setStatus("Enter a LaTeX formula first", "error");
+    return;
+  }
   if (busy) return;
   setBusy(true);
   setStatus("Updating selected formula...");
   try {
-    const result = await exec({ type: "ReplaceSelectedFormula", payload: buildPayload(latex, true) });
+    const result = await exec({
+      type: "ReplaceSelectedFormula",
+      payload: buildPayload(latex, true),
+    });
     if (result.ok) {
       selectedFormulaId = result.data?.formulaId;
       setStatus("Updated in place", "success");
     } else setStatus(`Update failed: ${result.error}`, "error");
-  } finally { setBusy(false); }
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function handleDelete(): Promise<void> {
@@ -173,23 +243,49 @@ async function handleDelete(): Promise<void> {
       selectedFormulaId = undefined;
       setStatus("Deleted formula", "success");
     } else setStatus(`Delete failed: ${result.error}`, "error");
-  } finally { setBusy(false); }
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function handleReference(): Promise<void> {
-  if (!selectedFormulaId) { setStatus("Load a numbered formula before inserting its reference", "error"); return; }
+  if (!selectedFormulaId) {
+    setStatus(
+      "Load a numbered formula before inserting its reference",
+      "error",
+    );
+    return;
+  }
   if (busy) return;
   setBusy(true);
   setStatus("Inserting equation reference...");
   try {
-    const result = await exec({ type: "InsertEquationReference", payload: { formulaId: selectedFormulaId } });
-    setStatus(result.ok ? "Inserted equation reference" : `Reference failed: ${result.error}`, result.ok ? "success" : "error");
-  } finally { setBusy(false); }
+    const result = await exec({
+      type: "InsertEquationReference",
+      payload: { formulaId: selectedFormulaId },
+    });
+    setStatus(
+      result.ok
+        ? "Inserted equation reference"
+        : `Reference failed: ${result.error}`,
+      result.ok ? "success" : "error",
+    );
+  } finally {
+    setBusy(false);
+  }
 }
 
-function buildPayload(latex: string, preserveIdentity: boolean): Record<string, string | undefined> {
-  const layoutProfileId = (document.getElementById("layoutProfile") as HTMLSelectElement | null)?.value;
-  const equationLabel = (document.getElementById("equationLabel") as HTMLInputElement | null)?.value.trim() || undefined;
+function buildPayload(
+  latex: string,
+  preserveIdentity: boolean,
+): Record<string, string | undefined> {
+  const layoutProfileId = (
+    document.getElementById("layoutProfile") as HTMLSelectElement | null
+  )?.value;
+  const equationLabel =
+    (
+      document.getElementById("equationLabel") as HTMLInputElement | null
+    )?.value.trim() || undefined;
   return {
     latex,
     display: modeToDisplay(getInsertMode()),
@@ -217,19 +313,35 @@ function setText(id: string, value: string): void {
 }
 
 function getEditorContent(): string {
-  return (document.getElementById("editor") as HTMLTextAreaElement | null)?.value.trim() || "";
+  return (
+    (
+      document.getElementById("editor") as HTMLTextAreaElement | null
+    )?.value.trim() || ""
+  );
 }
 
 function setEditorContent(value: string): void {
-  const editor = document.getElementById("editor") as HTMLTextAreaElement | null;
+  const editor = document.getElementById(
+    "editor",
+  ) as HTMLTextAreaElement | null;
   if (editor) editor.value = value;
 }
 
 function getInsertMode(): InsertMode {
-  const value = (document.getElementById("modeSelect") as HTMLSelectElement | null)?.value;
-  return value === "numbered" ? "display-numbered" : value === "inline" ? "inline" : "display";
+  const value = (
+    document.getElementById("modeSelect") as HTMLSelectElement | null
+  )?.value;
+  return value === "numbered"
+    ? "display-numbered"
+    : value === "inline"
+      ? "inline"
+      : "display";
 }
 
 function modeToDisplay(mode: InsertMode): "inline" | "block" | "numbered" {
-  return mode === "inline" ? "inline" : mode === "display-numbered" ? "numbered" : "block";
+  return mode === "inline"
+    ? "inline"
+    : mode === "display-numbered"
+      ? "numbered"
+      : "block";
 }

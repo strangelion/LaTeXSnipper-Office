@@ -53,7 +53,9 @@ export interface OfficeFormulaPayloadV2 {
 }
 
 /** Union type accepting both v1 and v2 payloads. */
-export type OfficeFormulaPayload = OfficeFormulaPayloadV1 | OfficeFormulaPayloadV2;
+export type OfficeFormulaPayload =
+  | OfficeFormulaPayloadV1
+  | OfficeFormulaPayloadV2;
 
 export interface SelectedOfficeFormula extends OfficeFormulaPayload {
   source: "metadata" | "omml" | "text";
@@ -110,7 +112,9 @@ export function bookmarkNumericIdForFormula(formulaId: string): number {
 
 export function validateFormulaPayload(
   value: unknown,
-  options: { requireLatex?: boolean; allowV2?: boolean } = { requireLatex: true },
+  options: { requireLatex?: boolean; allowV2?: boolean } = {
+    requireLatex: true,
+  },
 ): OfficeFormulaPayload {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Formula metadata must be an object");
@@ -118,7 +122,10 @@ export function validateFormulaPayload(
   const input = value as Record<string, unknown>;
   const version = input.schemaVersion;
 
-  if (version !== FORMULA_SCHEMA_VERSION_V1 && version !== FORMULA_SCHEMA_VERSION_V2) {
+  if (
+    version !== FORMULA_SCHEMA_VERSION_V1 &&
+    version !== FORMULA_SCHEMA_VERSION_V2
+  ) {
     throw new Error("Unsupported formula schemaVersion");
   }
 
@@ -156,10 +163,17 @@ export function validateFormulaPayload(
 
   // v2-specific validation
   if (version === FORMULA_SCHEMA_VERSION_V2) {
-    if (typeof input.revision !== "number" || !Number.isInteger(input.revision) || input.revision < 0) {
+    if (
+      typeof input.revision !== "number" ||
+      !Number.isInteger(input.revision) ||
+      input.revision < 0
+    ) {
       throw new Error("v2 formula requires a non-negative integer revision");
     }
-    if (input.sourceSha256 !== undefined && typeof input.sourceSha256 !== "string") {
+    if (
+      input.sourceSha256 !== undefined &&
+      typeof input.sourceSha256 !== "string"
+    ) {
       throw new Error("Invalid sourceSha256");
     }
   }
@@ -211,7 +225,9 @@ export function validateFormulaPayload(
 /**
  * Migrate a v1 payload to v2 by adding revision=0.
  */
-export function migrateToV2(payload: OfficeFormulaPayloadV1): OfficeFormulaPayloadV2 {
+export function migrateToV2(
+  payload: OfficeFormulaPayloadV1,
+): OfficeFormulaPayloadV2 {
   return {
     ...payload,
     schemaVersion: 2,
@@ -237,7 +253,10 @@ export function encodeFormulaMetadata(payload: OfficeFormulaPayload): string {
   const bytes = new TextEncoder().encode(JSON.stringify(validated));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  const prefix = validated.schemaVersion === 2 ? FORMULA_METADATA_PREFIX_V2 : FORMULA_METADATA_PREFIX;
+  const prefix =
+    validated.schemaVersion === 2
+      ? FORMULA_METADATA_PREFIX_V2
+      : FORMULA_METADATA_PREFIX;
   return `${prefix}${btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")}`;
 }
 

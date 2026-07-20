@@ -111,10 +111,7 @@ impl CommitCoordinator {
     }
 
     /// Look up a pending commit by transaction ID.
-    pub async fn get_pending_by_transaction(
-        &self,
-        transaction_id: &str,
-    ) -> Option<PendingCommit> {
+    pub async fn get_pending_by_transaction(&self, transaction_id: &str) -> Option<PendingCommit> {
         self.pending
             .lock()
             .await
@@ -151,10 +148,7 @@ impl CommitCoordinator {
             .filter(|(_, c)| now.saturating_sub(c.created_at_ms) > max_age_ms)
             .map(|(id, _)| id.clone())
             .collect();
-        stale
-            .iter()
-            .filter_map(|id| pending.remove(id))
-            .collect()
+        stale.iter().filter_map(|id| pending.remove(id)).collect()
     }
 
     /// Get the number of pending commits.

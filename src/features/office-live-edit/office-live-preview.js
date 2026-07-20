@@ -31,7 +31,9 @@ export class OfficeLivePreview {
     this.container = options.container;
     this.controller = options.controller;
     this.svgRenderer = options.svgRenderer || new FormulaSvgRenderer();
-    this.placeholder = options.placeholder || '<span style="color: var(--muted);">输入公式后预览</span>';
+    this.placeholder =
+      options.placeholder ||
+      '<span style="color: var(--muted);">输入公式后预览</span>';
     this.errorClass = options.errorClass || "preview-error";
 
     this._rendering = false;
@@ -91,7 +93,9 @@ export class OfficeLivePreview {
 
     try {
       const display = options.display !== false;
-      const svgResult = await this.svgRenderer.renderFormulaSvg(latex, { display });
+      const svgResult = await this.svgRenderer.renderFormulaSvg(latex, {
+        display,
+      });
       this._lastLatex = latex;
       this._lastSvg = svgResult.svg;
       this._renderSvg(svgResult.svg, svgResult.widthPt, svgResult.heightPt);
@@ -136,7 +140,11 @@ export class OfficeLivePreview {
     if (result?.latex === this._lastLatex && result?.svg) {
       // Same LaTeX, already rendered — just update display
       this._lastSvg = result.svg;
-      this._renderSvg(result.svg, result.svgWidthPt || result.widthPt, result.svgHeightPt || result.heightPt);
+      this._renderSvg(
+        result.svg,
+        result.svgWidthPt || result.widthPt,
+        result.svgHeightPt || result.heightPt,
+      );
       return;
     }
 
@@ -172,7 +180,8 @@ export class OfficeLivePreview {
 
     const wrapper = document.createElement("div");
     wrapper.className = "live-preview-svg";
-    wrapper.style.cssText = "display: flex; align-items: center; justify-content: center; min-height: 2em;";
+    wrapper.style.cssText =
+      "display: flex; align-items: center; justify-content: center; min-height: 2em;";
     wrapper.innerHTML = svg;
     this.container.appendChild(wrapper);
   }
@@ -188,7 +197,8 @@ export class OfficeLivePreview {
     // Keep current content visible while rendering, just add a subtle indicator
     const indicator = document.createElement("span");
     indicator.className = "live-preview-indicator";
-    indicator.style.cssText = "opacity: 0.3; font-size: 0.8em; margin-left: 0.5em;";
+    indicator.style.cssText =
+      "opacity: 0.3; font-size: 0.8em; margin-left: 0.5em;";
     indicator.textContent = "...";
     // Don't clear existing content — just show indicator
   }

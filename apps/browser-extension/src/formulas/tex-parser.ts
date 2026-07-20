@@ -1,13 +1,21 @@
 import type { FormulaCandidate, FormulaScanOptions } from "./types";
 
 const ENVIRONMENTS = new Set([
-  "equation", "equation*", "align", "align*", "gather", "gather*",
-  "multline", "multline*", "cases",
+  "equation",
+  "equation*",
+  "align",
+  "align*",
+  "gather",
+  "gather*",
+  "multline",
+  "multline*",
+  "cases",
 ]);
 
 function idFor(source: string, offset: number): string {
   let hash = 2166136261;
-  for (const char of `${offset}:${source}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  for (const char of `${offset}:${source}`)
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   return `formula-${(hash >>> 0).toString(16)}`;
 }
 
@@ -17,12 +25,18 @@ function isEscaped(text: string, index: number): boolean {
   return slashes % 2 === 1;
 }
 
-function looksLikeCurrency(source: string, before: string, after: string): boolean {
+function looksLikeCurrency(
+  source: string,
+  before: string,
+  after: string,
+): boolean {
   const value = source.trim();
-  return /^\d[\d,.]*(?:\s*[-–—]\s*\d[\d,.]*)?$/.test(value)
-    || /^\d[\d,.]*\s+[A-Za-z]{2,}/.test(value)
-    || /(?:US|CN|HK|AU|CA)$/.test(before)
-    || /^\d/.test(after);
+  return (
+    /^\d[\d,.]*(?:\s*[-–—]\s*\d[\d,.]*)?$/.test(value) ||
+    /^\d[\d,.]*\s+[A-Za-z]{2,}/.test(value) ||
+    /(?:US|CN|HK|AU|CA)$/.test(before) ||
+    /^\d/.test(after)
+  );
 }
 
 function confidenceFor(source: string, currency: boolean): number {
@@ -52,7 +66,10 @@ function candidate(
     displayMode: display ? "display" : "inline",
     source: "tex-delimiter",
     renderer: "plain-text",
-    confidence: confidenceFor(latex, !display && looksLikeCurrency(latex, before, after)),
+    confidence: confidenceFor(
+      latex,
+      !display && looksLikeCurrency(latex, before, after),
+    ),
     contextBefore: before,
     contextAfter: after,
     messageId: options.messageId,
@@ -61,7 +78,10 @@ function candidate(
   };
 }
 
-export function parseTexCandidates(text: string, options: FormulaScanOptions = {}): FormulaCandidate[] {
+export function parseTexCandidates(
+  text: string,
+  options: FormulaScanOptions = {},
+): FormulaCandidate[] {
   const results: FormulaCandidate[] = [];
   const max = Math.min(options.maxFormulas ?? 500, 500);
   const threshold = options.confidenceThreshold ?? 0.55;
@@ -97,8 +117,10 @@ export function parseTexCandidates(text: string, options: FormulaScanOptions = {
     let open = "";
     let close = "";
     let display = false;
-    if (text.startsWith("$$", i) && !isEscaped(text, i)) [open, close, display] = ["$$", "$$", true];
-    else if (text.startsWith("\\[", i)) [open, close, display] = ["\\[", "\\]", true];
+    if (text.startsWith("$$", i) && !isEscaped(text, i))
+      [open, close, display] = ["$$", "$$", true];
+    else if (text.startsWith("\\[", i))
+      [open, close, display] = ["\\[", "\\]", true];
     else if (text.startsWith("\\(", i)) [open, close] = ["\\(", "\\)"];
     else if (text[i] === "$" && !isEscaped(text, i)) [open, close] = ["$", "$"];
     if (!open) continue;
@@ -107,8 +129,14 @@ export function parseTexCandidates(text: string, options: FormulaScanOptions = {
     let braceDepth = 0;
     while (end < text.length) {
       if (text[end] === "{" && !isEscaped(text, end)) braceDepth += 1;
-      if (text[end] === "}" && !isEscaped(text, end) && braceDepth > 0) braceDepth -= 1;
-      if (braceDepth === 0 && text.startsWith(close, end) && !isEscaped(text, end)) break;
+      if (text[end] === "}" && !isEscaped(text, end) && braceDepth > 0)
+        braceDepth -= 1;
+      if (
+        braceDepth === 0 &&
+        text.startsWith(close, end) &&
+        !isEscaped(text, end)
+      )
+        break;
       end += 1;
     }
     if (end >= text.length) continue;

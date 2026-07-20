@@ -8,24 +8,40 @@ function fingerprint(value: string): string {
 }
 
 function visible(element: Element): boolean {
-  if (element.getAttribute("aria-hidden") === "true" || element.closest("[hidden]")) return false;
+  if (
+    element.getAttribute("aria-hidden") === "true" ||
+    element.closest("[hidden]")
+  )
+    return false;
   const style = (element as HTMLElement).style;
   return style?.display !== "none" && style?.visibility !== "hidden";
 }
 
-function fromDom(element: Element, options: FormulaScanOptions): FormulaCandidate | null {
+function fromDom(
+  element: Element,
+  options: FormulaScanOptions,
+): FormulaCandidate | null {
   if (!visible(element)) return null;
   const annotation = element.matches('annotation[encoding="application/x-tex"]')
     ? element
     : element.querySelector('annotation[encoding="application/x-tex"]');
-  const dataSource = element.getAttribute("data-tex") || element.getAttribute("data-math");
+  const dataSource =
+    element.getAttribute("data-tex") || element.getAttribute("data-math");
   const script = element.matches('script[type^="math/tex"]') ? element : null;
-  const latex = annotation?.textContent?.trim() || dataSource?.trim() || script?.textContent?.trim();
+  const latex =
+    annotation?.textContent?.trim() ||
+    dataSource?.trim() ||
+    script?.textContent?.trim();
   const isMathMl = element.localName === "math";
   if (!latex && !isMathMl) return null;
-  const katex = !!element.closest(".katex, .katex-display") || element.classList.contains("katex");
-  const mathjax = element.localName === "mjx-container" || !!element.closest("mjx-container");
-  const display = !!element.closest(".katex-display, mjx-container[display='true']") || element.getAttribute("type")?.includes("mode=display");
+  const katex =
+    !!element.closest(".katex, .katex-display") ||
+    element.classList.contains("katex");
+  const mathjax =
+    element.localName === "mjx-container" || !!element.closest("mjx-container");
+  const display =
+    !!element.closest(".katex-display, mjx-container[display='true']") ||
+    element.getAttribute("type")?.includes("mode=display");
   const raw = latex || element.outerHTML.slice(0, 64 * 1024);
   return {
     id: `dom-${fingerprint(`${options.messageId || ""}:${raw}`)}`,
@@ -34,8 +50,20 @@ function fromDom(element: Element, options: FormulaScanOptions): FormulaCandidat
     mathml: isMathMl ? element.outerHTML : undefined,
     conversionRequired: isMathMl && !latex,
     displayMode: display ? "display" : "inline",
-    source: isMathMl ? "mathml" : katex ? "katex" : mathjax ? "mathjax" : "dom-attribute",
-    renderer: isMathMl ? "mathml" : katex ? "katex" : mathjax ? "mathjax" : "unknown",
+    source: isMathMl
+      ? "mathml"
+      : katex
+        ? "katex"
+        : mathjax
+          ? "mathjax"
+          : "dom-attribute",
+    renderer: isMathMl
+      ? "mathml"
+      : katex
+        ? "katex"
+        : mathjax
+          ? "mathjax"
+          : "unknown",
     confidence: latex ? 0.98 : 0.85,
     messageId: options.messageId,
     messageRole: options.messageRole,
@@ -44,10 +72,16 @@ function fromDom(element: Element, options: FormulaScanOptions): FormulaCandidat
   };
 }
 
-function dedupe(items: FormulaCandidate[], preserveMessages = true): FormulaCandidate[] {
+function dedupe(
+  items: FormulaCandidate[],
+  preserveMessages = true,
+): FormulaCandidate[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const normalized = item.normalizedLatex?.normalize("NFC") || item.mathml?.normalize("NFC") || item.rawSource.normalize("NFC");
+    const normalized =
+      item.normalizedLatex?.normalize("NFC") ||
+      item.mathml?.normalize("NFC") ||
+      item.rawSource.normalize("NFC");
     const key = `${item.displayMode}:${preserveMessages ? item.messageId || "" : ""}:${item.elementFingerprint || ""}:${normalized}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -55,20 +89,37 @@ function dedupe(items: FormulaCandidate[], preserveMessages = true): FormulaCand
   });
 }
 
-export function extractFormulaCandidates(root: ParentNode, options: FormulaScanOptions = {}): FormulaCandidate[] {
+export function extractFormulaCandidates(
+  root: ParentNode,
+  options: FormulaScanOptions = {},
+): FormulaCandidate[] {
   const max = Math.min(options.maxFormulas ?? 500, 500);
   const results: FormulaCandidate[] = [];
   const selectors = [
-    'script[type^="math/tex"]', 'annotation[encoding="application/x-tex"]',
-    ".katex", ".katex-display", "mjx-container", "math", "[data-tex]", "[data-math]",
+    'script[type^="math/tex"]',
+    'annotation[encoding="application/x-tex"]',
+    ".katex",
+    ".katex-display",
+    "mjx-container",
+    "math",
+    "[data-tex]",
+    "[data-math]",
   ].join(",");
-  for (const element of Array.from(root.querySelectorAll(selectors)).slice(0, max * 3)) {
+  for (const element of Array.from(root.querySelectorAll(selectors)).slice(
+    0,
+    max * 3,
+  )) {
     const item = fromDom(element, options);
     if (item) results.push(item);
     if (results.length >= max) break;
   }
   const text = (root as HTMLElement).innerText || root.textContent || "";
-  results.push(...parseTexCandidates(text.slice(0, 2 * 1024 * 1024), { ...options, maxFormulas: max - results.length }));
+  results.push(
+    ...parseTexCandidates(text.slice(0, 2 * 1024 * 1024), {
+      ...options,
+      maxFormulas: max - results.length,
+    }),
+  );
   return dedupe(results).slice(0, max);
 }
 

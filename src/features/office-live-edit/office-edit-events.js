@@ -45,12 +45,9 @@ export class OfficeEditEvents {
         this.handlers.onReplaceResult?.(event.payload);
       },
     );
-    const unlisten4 = this.listenTauri(
-      "native-office-open-editor",
-      (event) => {
-        this.handlers.onOpenEditor?.(event.payload);
-      },
-    );
+    const unlisten4 = this.listenTauri("native-office-open-editor", (event) => {
+      this.handlers.onOpenEditor?.(event.payload);
+    });
     const unlisten5 = this.listenTauri("native-office-error", (event) => {
       this.handlers.onError?.(event.payload);
     });
@@ -61,7 +58,14 @@ export class OfficeEditEvents {
       },
     );
 
-    this._unlisteners = [unlisten1, unlisten2, unlisten3, unlisten4, unlisten5, unlisten6];
+    this._unlisteners = [
+      unlisten1,
+      unlisten2,
+      unlisten3,
+      unlisten4,
+      unlisten5,
+      unlisten6,
+    ];
 
     return () => this.unsubscribe();
   }

@@ -10,32 +10,50 @@ export class BridgeClient {
     private readonly browser: "chrome" | "firefox",
   ) {}
 
-  async request<T>(path: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
+  async request<T>(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  ): Promise<T> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(`${BRIDGE_BASE_URL}${path}`, {
         ...init,
         signal: controller.signal,
-        headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+        headers: {
+          "Content-Type": "application/json",
+          ...(init.headers || {}),
+        },
       });
       if (!response.ok) {
-        throw Object.assign(new Error(`Bridge returned HTTP ${response.status}`), {
-          code: "BRIDGE_HTTP_ERROR",
-          status: response.status,
-        });
+        throw Object.assign(
+          new Error(`Bridge returned HTTP ${response.status}`),
+          {
+            code: "BRIDGE_HTTP_ERROR",
+            status: response.status,
+          },
+        );
       }
-      const declaredLength = Number(response.headers.get("content-length") || "0");
+      const declaredLength = Number(
+        response.headers.get("content-length") || "0",
+      );
       if (declaredLength > MAX_RESPONSE_BYTES) {
-        throw Object.assign(new Error("Bridge response exceeded the size limit"), {
-          code: "BRIDGE_RESPONSE_TOO_LARGE",
-        });
+        throw Object.assign(
+          new Error("Bridge response exceeded the size limit"),
+          {
+            code: "BRIDGE_RESPONSE_TOO_LARGE",
+          },
+        );
       }
       const text = await response.text();
       if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
-        throw Object.assign(new Error("Bridge response exceeded the size limit"), {
-          code: "BRIDGE_RESPONSE_TOO_LARGE",
-        });
+        throw Object.assign(
+          new Error("Bridge response exceeded the size limit"),
+          {
+            code: "BRIDGE_RESPONSE_TOO_LARGE",
+          },
+        );
       }
       try {
         return JSON.parse(text) as T;
@@ -46,7 +64,9 @@ export class BridgeClient {
       }
     } catch (error) {
       if (controller.signal.aborted) {
-        throw Object.assign(new Error("Bridge request timed out"), { code: "BRIDGE_TIMEOUT" });
+        throw Object.assign(new Error("Bridge request timed out"), {
+          code: "BRIDGE_TIMEOUT",
+        });
       }
       throw error;
     } finally {
@@ -63,7 +83,11 @@ export class BridgeClient {
       clientId: this.clientId,
       clientType: "browser-extension",
       clientName: `LaTeXSnipper ${this.browser}`,
-      capabilities: ["extract-formula", "extract-conversation", "insert-formula"],
+      capabilities: [
+        "extract-formula",
+        "extract-conversation",
+        "insert-formula",
+      ],
       target: "browser",
       browser: this.browser,
       version,
@@ -94,10 +118,21 @@ export class BridgeClient {
     );
   }
 
-  complete(actionId: string, ok: boolean, result?: unknown, error?: unknown): Promise<unknown> {
+  complete(
+    actionId: string,
+    ok: boolean,
+    result?: unknown,
+    error?: unknown,
+  ): Promise<unknown> {
     return this.request("/api/ecosystem/actions/complete", {
       method: "POST",
-      body: JSON.stringify({ actionId, clientId: this.clientId, ok, result, error }),
+      body: JSON.stringify({
+        actionId,
+        clientId: this.clientId,
+        ok,
+        result,
+        error,
+      }),
     });
   }
 }

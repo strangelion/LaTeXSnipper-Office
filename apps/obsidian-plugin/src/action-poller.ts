@@ -44,19 +44,13 @@ export function startActionPoller(
             formulaId: payload.formulaId,
           },
         } as any);
-      } else if (
-        action.actionType === "ReplaceSelection"
-      ) {
+      } else if (action.actionType === "ReplaceSelection") {
         const payload = action.payload || {};
 
         result = await adapter.execute({
           type: "ReplaceSelection",
           payload: {
-            content:
-              payload.content ??
-              payload.markdown ??
-              payload.latex ??
-              "",
+            content: payload.content ?? payload.markdown ?? payload.latex ?? "",
           },
         } as any);
       } else {
@@ -79,50 +73,30 @@ export function startActionPoller(
           ? undefined
           : {
               code: "OBSIDIAN_ACTION_FAILED",
-              message:
-                result.error ||
-                "Obsidian rejected the action.",
+              message: result.error || "Obsidian rejected the action.",
             },
       );
 
       if (!result.ok) {
-        new Notice(
-          `LaTeXSnipper：${
-            result.error || "插入失败"
-          }`,
-        );
+        new Notice(`LaTeXSnipper：${result.error || "插入失败"}`);
       }
     } catch (error) {
       if (actionId) {
         await bridge
-          .complete(
-            actionId,
-            false,
-            null,
-            {
-              code: "OBSIDIAN_POLLER_ERROR",
-              message:
-                error instanceof Error
-                  ? error.message
-                  : String(error),
-            },
-          )
+          .complete(actionId, false, null, {
+            code: "OBSIDIAN_POLLER_ERROR",
+            message: error instanceof Error ? error.message : String(error),
+          })
           .catch(() => {});
       }
 
-      console.error(
-        "[LaTeXSnipper] Obsidian ecosystem action failed",
-        error,
-      );
+      console.error("[LaTeXSnipper] Obsidian ecosystem action failed", error);
     } finally {
       running = false;
     }
   };
 
-  const timer = window.setInterval(
-    () => void tick(),
-    1500,
-  );
+  const timer = window.setInterval(() => void tick(), 1500);
 
   return () => window.clearInterval(timer);
 }

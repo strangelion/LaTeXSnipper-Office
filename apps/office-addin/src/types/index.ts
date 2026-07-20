@@ -7,10 +7,10 @@ export interface DocumentFragment {
 }
 
 export type Block =
-  | { type: 'paragraph'; content: Paragraph }
-  | { type: 'equation'; math: MathIR; display: boolean; numbered: boolean }
-  | { type: 'table'; table: TableIR }
-  | { type: 'image'; src: string; alt: string };
+  | { type: "paragraph"; content: Paragraph }
+  | { type: "equation"; math: MathIR; display: boolean; numbered: boolean }
+  | { type: "table"; table: TableIR }
+  | { type: "image"; src: string; alt: string };
 
 export interface Paragraph {
   inlines: Inline[];
@@ -18,17 +18,17 @@ export interface Paragraph {
 }
 
 export type Inline =
-  | { type: 'text'; text: string }
-  | { type: 'formula'; formula: MathIR }
-  | { type: 'image'; alt: string };
+  | { type: "text"; text: string }
+  | { type: "formula"; formula: MathIR }
+  | { type: "image"; alt: string };
 
 export interface MathIR {
-  type: 'latex' | 'omml' | 'mathml';
+  type: "latex" | "omml" | "mathml";
   content: string;
 }
 
 export interface ParagraphProperties {
-  alignment?: 'left' | 'center' | 'right';
+  alignment?: "left" | "center" | "right";
 }
 
 export interface SourceMetadata {
@@ -66,20 +66,20 @@ export interface CellProperties {
   borderStyle?: string;
   borderWidth?: number;
   borderColor?: string;
-  alignment?: 'left' | 'center' | 'right';
-  verticalAlignment?: 'top' | 'middle' | 'bottom';
+  alignment?: "left" | "center" | "right";
+  verticalAlignment?: "top" | "middle" | "bottom";
   width?: number;
 }
 
 export interface TableProperties {
   width?: number;
-  layout?: 'fixed' | 'autofit';
+  layout?: "fixed" | "autofit";
 }
 
 /** Insert Formula Request */
 export interface InsertFormulaRequest {
   fragment: DocumentFragment;
-  mode: 'inline' | 'display' | 'display-numbered';
+  mode: "inline" | "display" | "display-numbered";
 }
 
 export interface ReplaceFormulaRequest {
@@ -88,8 +88,8 @@ export interface ReplaceFormulaRequest {
 
 /** Host capabilities */
 export interface HostCapabilities {
-  host: 'word' | 'excel' | 'powerpoint';
-  platform: 'windows' | 'mac' | 'web';
+  host: "word" | "excel" | "powerpoint";
+  platform: "windows" | "mac" | "web";
   version: string;
 }
 

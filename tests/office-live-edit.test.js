@@ -21,7 +21,8 @@ const mockInvoke = async (cmd, args) => {
       diagnostics: [],
     };
   }
-  if (cmd === "start_live_office_edit") return { transactionId: args.transactionId };
+  if (cmd === "start_live_office_edit")
+    return { transactionId: args.transactionId };
   if (cmd === "update_live_office_draft") return { dirty: true };
   if (cmd === "get_live_office_snapshot") return { dirty: false };
   if (cmd === "close_live_office_edit") return {};
@@ -31,15 +32,12 @@ const mockInvoke = async (cmd, args) => {
 const mockListen = () => () => {};
 
 // Dynamic imports (ESM)
-const { OfficeRenderScheduler } = await import(
-  "../src/features/office-live-edit/office-render-scheduler.js"
-);
-const { OfficeEditStateMachine, EditState } = await import(
-  "../src/features/office-live-edit/office-edit-state.js"
-);
-const { OfficeCommitController } = await import(
-  "../src/features/office-live-edit/office-commit-controller.js"
-);
+const { OfficeRenderScheduler } =
+  await import("../src/features/office-live-edit/office-render-scheduler.js");
+const { OfficeEditStateMachine, EditState } =
+  await import("../src/features/office-live-edit/office-edit-state.js");
+const { OfficeCommitController } =
+  await import("../src/features/office-live-edit/office-commit-controller.js");
 
 // ═══════════════════════════════════════════
 // State Machine Tests
@@ -49,23 +47,38 @@ console.log("--- State Machine Tests ---");
 
 {
   const sm = new OfficeEditStateMachine();
-  console.assert(sm.state === EditState.LOADING, "Initial state should be LOADING");
+  console.assert(
+    sm.state === EditState.LOADING,
+    "Initial state should be LOADING",
+  );
 
   sm.transition(EditState.READY);
   console.assert(sm.state === EditState.READY, "Should transition to READY");
 
   sm.transition(EditState.EDITING);
-  console.assert(sm.state === EditState.EDITING, "Should transition to EDITING");
+  console.assert(
+    sm.state === EditState.EDITING,
+    "Should transition to EDITING",
+  );
 
   sm.transition(EditState.RENDERING);
-  console.assert(sm.state === EditState.RENDERING, "Should transition to RENDERING");
+  console.assert(
+    sm.state === EditState.RENDERING,
+    "Should transition to RENDERING",
+  );
 
   sm.transition(EditState.PREVIEW_READY);
-  console.assert(sm.state === EditState.PREVIEW_READY, "Should transition to PREVIEW_READY");
+  console.assert(
+    sm.state === EditState.PREVIEW_READY,
+    "Should transition to PREVIEW_READY",
+  );
 
   // Invalid transition should be rejected
   const result = sm.transition(EditState.LOADING);
-  console.assert(!result, "Should reject invalid transition PREVIEW_READY -> LOADING");
+  console.assert(
+    !result,
+    "Should reject invalid transition PREVIEW_READY -> LOADING",
+  );
 
   console.log("PASS: State Machine");
 }
@@ -81,7 +94,9 @@ console.log("--- Render Scheduler Tests ---");
   let renderCount = 0;
   const scheduler = new OfficeRenderScheduler({
     debounceMs: 50,
-    onRenderRequest: () => { renderCount++; },
+    onRenderRequest: () => {
+      renderCount++;
+    },
     onPreviewUpdate: () => {},
     onStateChange: () => {},
   });
@@ -92,10 +107,16 @@ console.log("--- Render Scheduler Tests ---");
   }
 
   // Wait for debounce to settle
-  await new Promise(r => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 200));
 
-  console.assert(renderCount === 1, `Should render once after debounce, got ${renderCount}`);
-  console.assert(scheduler.generation === 1, `Generation should be 1, got ${scheduler.generation}`);
+  console.assert(
+    renderCount === 1,
+    `Should render once after debounce, got ${renderCount}`,
+  );
+  console.assert(
+    scheduler.generation === 1,
+    `Generation should be 1, got ${scheduler.generation}`,
+  );
 
   scheduler.dispose();
   console.log("PASS: 100 inputs -> 1 render (debounce)");
@@ -117,7 +138,7 @@ console.log("--- Render Scheduler Tests ---");
   // Submit input 1
   scheduler.submitInput("x^2");
   const gen1 = scheduler.markRenderStarted();
-  await new Promise(r => setTimeout(r, 10));
+  await new Promise((r) => setTimeout(r, 10));
 
   // Submit input 2 (should cancel input 1's render)
   scheduler.submitInput("x^3");
@@ -127,7 +148,7 @@ console.log("--- Render Scheduler Tests ---");
   console.assert(!isCurrent1, "Render 1 should be stale");
 
   // Wait for input 2's debounce
-  await new Promise(r => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 100));
   const gen2 = scheduler.markRenderStarted();
   const isCurrent2 = scheduler.markRenderCompleted(gen2, { latex: "x^3" });
   console.assert(isCurrent2, "Render 2 should be current");
@@ -141,7 +162,9 @@ console.log("--- Render Scheduler Tests ---");
   let renderCount = 0;
   const scheduler = new OfficeRenderScheduler({
     debounceMs: 5000, // Very long debounce
-    onRenderRequest: () => { renderCount++; },
+    onRenderRequest: () => {
+      renderCount++;
+    },
     onPreviewUpdate: () => {},
     onStateChange: () => {},
   });
@@ -167,7 +190,9 @@ console.log("--- Commit Controller Tests ---");
   let successResult = null;
   const ctrl = new OfficeCommitController({
     invokeTauri: mockInvoke,
-    onCommitSuccess: (r) => { successResult = r; },
+    onCommitSuccess: (r) => {
+      successResult = r;
+    },
     onCommitFailure: () => {},
     onConflict: () => {},
   });
@@ -195,7 +220,10 @@ console.log("--- Commit Controller Tests ---");
   console.assert(result.success === true, "Should be success");
   console.assert(successResult !== null, "Should call onCommitSuccess");
   console.assert(successResult.revision === 2, "Should pass revision");
-  console.assert(!ctrl._pendingCommits.has("req-123"), "Should remove pending commit");
+  console.assert(
+    !ctrl._pendingCommits.has("req-123"),
+    "Should remove pending commit",
+  );
 
   console.log("PASS: requestId -> transactionId correlation");
 }
@@ -207,7 +235,9 @@ console.log("--- Commit Controller Tests ---");
     invokeTauri: mockInvoke,
     onCommitSuccess: () => {},
     onCommitFailure: () => {},
-    onConflict: (r) => { conflictResult = r; },
+    onConflict: (r) => {
+      conflictResult = r;
+    },
   });
 
   ctrl._pendingCommits.set("req-999", {
@@ -244,9 +274,13 @@ console.log("--- Performance: 100 keystrokes ---");
   let stateChanges = 0;
   const scheduler = new OfficeRenderScheduler({
     debounceMs: 150,
-    onRenderRequest: () => { renderRequests++; },
+    onRenderRequest: () => {
+      renderRequests++;
+    },
     onPreviewUpdate: () => {},
-    onStateChange: () => { stateChanges++; },
+    onStateChange: () => {
+      stateChanges++;
+    },
   });
 
   const start = performance.now();
@@ -254,19 +288,29 @@ console.log("--- Performance: 100 keystrokes ---");
   // Simulate 100 rapid keystrokes (5ms apart)
   for (let i = 0; i < 100; i++) {
     scheduler.submitInput(`\\frac{${i}}{${i + 1}}`);
-    await new Promise(r => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 5));
   }
 
   // Wait for final debounce
-  await new Promise(r => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 250));
 
   const elapsed = performance.now() - start;
 
-  console.assert(renderRequests <= 3, `Should render ≤3 times (debounced), got ${renderRequests}`);
-  console.assert(stateChanges > 100, `Should have many state changes for UI updates, got ${stateChanges}`);
+  console.assert(
+    renderRequests <= 3,
+    `Should render ≤3 times (debounced), got ${renderRequests}`,
+  );
+  console.assert(
+    stateChanges > 100,
+    `Should have many state changes for UI updates, got ${stateChanges}`,
+  );
 
-  console.log(`PASS: 100 keystrokes -> ${renderRequests} renders, ${stateChanges} state changes, ${elapsed.toFixed(0)}ms`);
-  console.log("  Key: 100 UI updates, only " + renderRequests + " actual renders");
+  console.log(
+    `PASS: 100 keystrokes -> ${renderRequests} renders, ${stateChanges} state changes, ${elapsed.toFixed(0)}ms`,
+  );
+  console.log(
+    "  Key: 100 UI updates, only " + renderRequests + " actual renders",
+  );
 
   scheduler.dispose();
 }

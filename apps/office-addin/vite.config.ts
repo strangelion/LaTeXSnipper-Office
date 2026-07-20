@@ -1,10 +1,10 @@
-import { defineConfig } from 'vite';
-import { resolve } from 'path';
-import fs from 'fs';
+import { defineConfig } from "vite";
+import { resolve } from "path";
+import fs from "fs";
 
-const certDir = resolve(__dirname, 'cert');
-const keyPath = resolve(certDir, 'localhost.key');
-const certPath = resolve(certDir, 'localhost.crt');
+const certDir = resolve(__dirname, "cert");
+const keyPath = resolve(certDir, "localhost.key");
+const certPath = resolve(certDir, "localhost.crt");
 
 function getHttpsConfig() {
   // Try to use dev certificates if they exist
@@ -15,26 +15,30 @@ function getHttpsConfig() {
     };
   }
   // Fallback: let Vite generate a self-signed cert
-  console.warn('[LaTeXSnipper] No dev certificates found, using auto-generated self-signed cert.');
-  console.warn('[LaTeXSnipper] Run: npm --prefix apps/office-addin run cert:dev to create trusted certs.');
+  console.warn(
+    "[LaTeXSnipper] No dev certificates found, using auto-generated self-signed cert.",
+  );
+  console.warn(
+    "[LaTeXSnipper] Run: npm --prefix apps/office-addin run cert:dev to create trusted certs.",
+  );
   return true;
 }
 
 export default defineConfig({
-  root: 'src',
-  publicDir: resolve(__dirname, 'public'),
-  base: '/office/',
+  root: "src",
+  publicDir: resolve(__dirname, "public"),
+  base: "/office/",
   resolve: {
     alias: {
-      'core-protocol': resolve(__dirname, '../../core-protocol'),
+      "core-protocol": resolve(__dirname, "../../core-protocol"),
     },
   },
   build: {
-    outDir: '../dist',
+    outDir: "../dist",
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        taskpane: resolve(__dirname, 'src/taskpane.html'),
+        taskpane: resolve(__dirname, "src/taskpane.html"),
       },
     },
   },

@@ -1,4 +1,7 @@
-import type { OfficeFormulaPayload, SelectedOfficeFormula } from "../model/formula-payload";
+import type {
+  OfficeFormulaPayload,
+  SelectedOfficeFormula,
+} from "../model/formula-payload";
 
 export interface OfficeHostCapabilities {
   host: "word" | "excel" | "powerpoint" | "unknown";
@@ -23,9 +26,13 @@ export interface FormulaOperationResult<T = unknown> {
 }
 
 export interface OfficeFormulaHostAdapter {
-  insertFormula(payload: OfficeFormulaPayload): Promise<FormulaOperationResult<OfficeFormulaPayload>>;
+  insertFormula(
+    payload: OfficeFormulaPayload,
+  ): Promise<FormulaOperationResult<OfficeFormulaPayload>>;
   getSelectedFormula(): Promise<FormulaOperationResult<SelectedOfficeFormula>>;
-  replaceSelectedFormula(payload: OfficeFormulaPayload): Promise<FormulaOperationResult<OfficeFormulaPayload>>;
+  replaceSelectedFormula(
+    payload: OfficeFormulaPayload,
+  ): Promise<FormulaOperationResult<OfficeFormulaPayload>>;
   deleteSelectedFormula(): Promise<FormulaOperationResult>;
   insertEquationReference(formulaId: string): Promise<FormulaOperationResult>;
   getCapabilities(): Promise<OfficeHostCapabilities>;

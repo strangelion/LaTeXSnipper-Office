@@ -316,10 +316,7 @@ impl LiveOfficeEditSessionStore {
     }
 
     /// Get a snapshot of the session state for the frontend.
-    pub async fn get_snapshot(
-        &self,
-        transaction_id: &str,
-    ) -> Result<LiveSessionSnapshot, String> {
+    pub async fn get_snapshot(&self, transaction_id: &str) -> Result<LiveSessionSnapshot, String> {
         let now = now_ms();
         let sessions = self.sessions.lock().await;
         let session = sessions

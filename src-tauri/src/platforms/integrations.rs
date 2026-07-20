@@ -475,10 +475,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
     // dual-ownership state drift between MSI and direct registration.
     match find_msi_package() {
         Ok(msi_path) => {
-            log::info!(
-                "[Office] Delegating install to MSI: {}",
-                msi_path.display()
-            );
+            log::info!("[Office] Delegating install to MSI: {}", msi_path.display());
             let result = run_msi_install(&msi_path);
             if result.success {
                 // Verify installation succeeded
@@ -500,8 +497,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                         "native-stack",
                         format!(
                             "MSI install completed but verification failed. VSTO: {}, OLE: {}",
-                            vsto_ok,
-                            ole_status.detail
+                            vsto_ok, ole_status.detail
                         ),
                     )
                 }
@@ -582,14 +578,22 @@ fn find_msi_package() -> Result<PathBuf, String> {
         // Tauri bundled resources
         std::env::current_exe()
             .ok()
-            .and_then(|exe| exe.parent().map(|d| d.join("resources").join("NativeOffice")))
+            .and_then(|exe| {
+                exe.parent()
+                    .map(|d| d.join("resources").join("NativeOffice"))
+            })
             .map(|d| d.join("LaTeXSnipper.NativeOffice.msi")),
         // Build output directory
         repo_root_from_manifest()
             .map(|root| root.join("output").join("LaTeXSnipper.NativeOffice.msi")),
         // Staging directory
-        repo_root_from_manifest()
-            .map(|root| root.join("apps").join("native-office").join("Installer").join("output").join("LaTeXSnipper.NativeOffice.msi")),
+        repo_root_from_manifest().map(|root| {
+            root.join("apps")
+                .join("native-office")
+                .join("Installer")
+                .join("output")
+                .join("LaTeXSnipper.NativeOffice.msi")
+        }),
     ];
 
     for candidate in candidates.into_iter().flatten() {
@@ -1463,14 +1467,8 @@ fn reg_delete_tree_batch(keys: &[&str]) {
     for key in keys {
         // Escape single quotes for PowerShell string literals
         let escaped = key.replace('\'', "''");
-        script.push_str(&format!(
-            "reg delete '{}' /f /reg:64 2>$null\n",
-            escaped
-        ));
-        script.push_str(&format!(
-            "reg delete '{}' /f /reg:32 2>$null\n",
-            escaped
-        ));
+        script.push_str(&format!("reg delete '{}' /f /reg:64 2>$null\n", escaped));
+        script.push_str(&format!("reg delete '{}' /f /reg:32 2>$null\n", escaped));
     }
 
     use std::os::windows::process::CommandExt;
@@ -3233,12 +3231,7 @@ fn run_msi_uninstall(msi_path: &Path) -> PlatformIntegrationResult {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     let result = std::process::Command::new("msiexec.exe")
-        .args([
-            "/x",
-            &msi_path.to_string_lossy(),
-            "/quiet",
-            "/norestart",
-        ])
+        .args(["/x", &msi_path.to_string_lossy(), "/quiet", "/norestart"])
         .creation_flags(CREATE_NO_WINDOW)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -5960,7 +5953,8 @@ pub fn uninstall_ole_component() -> OleComponentResult {
 
     if !all_keys_to_delete.is_empty() {
         // Batch all deletions into a single PowerShell process
-        let mut script = String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
+        let mut script =
+            String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
         for key in &all_keys_to_delete {
             let escaped = key.replace('\'', "''");
             script.push_str(&format!("reg delete '{}' /f /reg:64 2>$null\n", escaped));
@@ -5973,8 +5967,14 @@ pub fn uninstall_ole_component() -> OleComponentResult {
         }
         if !install_key.is_empty() {
             let escaped = install_key.replace('\'', "''");
-            script.push_str(&format!("reg delete '{}' /v InstallPath /f /reg:64 2>$null\n", escaped));
-            script.push_str(&format!("reg delete '{}' /v InstallPath /f /reg:32 2>$null\n", escaped));
+            script.push_str(&format!(
+                "reg delete '{}' /v InstallPath /f /reg:64 2>$null\n",
+                escaped
+            ));
+            script.push_str(&format!(
+                "reg delete '{}' /v InstallPath /f /reg:32 2>$null\n",
+                escaped
+            ));
         }
 
         use std::os::windows::process::CommandExt;
@@ -6000,7 +6000,8 @@ pub fn uninstall_ole_component() -> OleComponentResult {
 
     // Verification pass (queries only, batched)
     {
-        let mut verify_script = String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
+        let mut verify_script =
+            String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
         let mut verify_keys: Vec<String> = all_keys_to_delete.iter().map(|k| k.clone()).collect();
         if !pending_key.is_empty() {
             verify_keys.push(pending_key.clone());

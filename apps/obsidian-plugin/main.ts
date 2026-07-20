@@ -5,8 +5,21 @@
  * Settings and preview are provided via Obsidian's native API.
  */
 
-import { App, Plugin, PluginSettingTab, Setting, MarkdownView, Notice, Modal, requestUrl } from "obsidian";
-import { ObsidianAdapter, ObsidianEditorAPI, ObsidianBridgeAPI } from "./obsidian.adapter";
+import {
+  App,
+  Plugin,
+  PluginSettingTab,
+  Setting,
+  MarkdownView,
+  Notice,
+  Modal,
+  requestUrl,
+} from "obsidian";
+import {
+  ObsidianAdapter,
+  ObsidianEditorAPI,
+  ObsidianBridgeAPI,
+} from "./obsidian.adapter";
 import { router } from "../../core-protocol/command.router";
 import { setupEcosystemBridge } from "./src/editor-adapter";
 import {
@@ -58,9 +71,7 @@ export default class LaTeXSnipperPlugin extends Plugin {
 `;
 
   async onload() {
-    const raw = (await this.loadData()) as
-      | Partial<PersistedPluginData>
-      | null;
+    const raw = (await this.loadData()) as Partial<PersistedPluginData> | null;
 
     this.pluginData = migratePluginData(raw);
     this.settings = {
@@ -81,7 +92,12 @@ export default class LaTeXSnipperPlugin extends Plugin {
         await this.saveData(this.pluginData);
       },
     };
-    this.adapter = new ObsidianAdapter(editorFn, () => this.getBridge(), counterStore, this.pluginData.numberFormat);
+    this.adapter = new ObsidianAdapter(
+      editorFn,
+      () => this.getBridge(),
+      counterStore,
+      this.pluginData.numberFormat,
+    );
     router.register("obsidian", this.adapter);
 
     // Inject CSS for formula styling
@@ -183,11 +199,7 @@ export default class LaTeXSnipperPlugin extends Plugin {
     // ── Ecosystem Bridge ────────────────────────────────────────────
     // Start the ecosystem action poller so the desktop app can push
     // InsertFormula/ReplaceSelection actions into this Obsidian editor.
-    setupEcosystemBridge(
-      this,
-      this.adapter,
-      this.pluginData.ecosystemClientId,
-    );
+    setupEcosystemBridge(this, this.adapter, this.pluginData.ecosystemClientId);
   }
 
   async persistSettings() {
@@ -226,7 +238,10 @@ export default class LaTeXSnipperPlugin extends Plugin {
 
   deleteSelected() {
     const ed = this.getEditor();
-    if (!ed) { new Notice("No active editor"); return; }
+    if (!ed) {
+      new Notice("No active editor");
+      return;
+    }
     const sel = ed.getSelection();
     if (sel) {
       router.dispatch("obsidian", {
@@ -241,9 +256,15 @@ export default class LaTeXSnipperPlugin extends Plugin {
 
   wrapSelection(mode: "inline" | "block") {
     const ed = this.getEditor();
-    if (!ed) { new Notice("No active editor"); return; }
+    if (!ed) {
+      new Notice("No active editor");
+      return;
+    }
     const sel = ed.getSelection();
-    if (!sel) { new Notice("Nothing selected"); return; }
+    if (!sel) {
+      new Notice("Nothing selected");
+      return;
+    }
     const delim = mode === "block" ? "$$" : "$";
     router.dispatch("obsidian", {
       type: "ReplaceSelection",
@@ -295,9 +316,7 @@ export default class LaTeXSnipperPlugin extends Plugin {
 
         if (data?.success !== true) return null;
 
-        return typeof data.content === "string"
-          ? data.content
-          : null;
+        return typeof data.content === "string" ? data.content : null;
       } catch (error) {
         console.error("[LaTeXSnipper] Bridge convert failed:", error);
         return null;
@@ -306,23 +325,12 @@ export default class LaTeXSnipperPlugin extends Plugin {
 
     return {
       convertLatex: (latex, display) =>
-        convert(
-          "latex",
-          "omml",
-          latex,
-          display ? "block" : "inline",
-        ),
+        convert("latex", "omml", latex, display ? "block" : "inline"),
 
-      convertOmml: (omml) =>
-        convert("omml", "latex", omml, "inline"),
+      convertOmml: (omml) => convert("omml", "latex", omml, "inline"),
 
       renderPreview: (latex, display) =>
-        convert(
-          "latex",
-          "svg",
-          latex,
-          display ? "block" : "inline",
-        ),
+        convert("latex", "svg", latex, display ? "block" : "inline"),
     };
   }
 
@@ -345,7 +353,11 @@ class FormulaEditorModal extends Modal {
   constructor(
     app: App,
     private initial: string,
-    private onSubmit: (latex: string, display: "inline" | "block", numbered: boolean) => void,
+    private onSubmit: (
+      latex: string,
+      display: "inline" | "block",
+      numbered: boolean,
+    ) => void,
   ) {
     super(app);
   }
@@ -357,18 +369,35 @@ class FormulaEditorModal extends Modal {
     contentEl.createEl("h2", { text: "LaTeX Formula Editor" });
 
     // Insert/display mode bar
-    const modeRow = contentEl.createDiv({ attr: { style: "display:flex;gap:16px;align-items:center;margin-bottom:8px;" } });
-    const toggleLabel = modeRow.createEl("label", { attr: { style: "display:flex;align-items:center;gap:4px;font-size:13px;" } });
-    const toggleCb = toggleLabel.createEl("input", { attr: { type: "checkbox" } });
-  toggleLabel.appendText("Display mode ($$...$$)");
-    const numberedLabel = modeRow.createEl("label", { attr: { style: "display:flex;align-items:center;gap:4px;font-size:13px;" } });
-    const numberedCb = numberedLabel.createEl("input", { attr: { type: "checkbox" } });
+    const modeRow = contentEl.createDiv({
+      attr: {
+        style: "display:flex;gap:16px;align-items:center;margin-bottom:8px;",
+      },
+    });
+    const toggleLabel = modeRow.createEl("label", {
+      attr: {
+        style: "display:flex;align-items:center;gap:4px;font-size:13px;",
+      },
+    });
+    const toggleCb = toggleLabel.createEl("input", {
+      attr: { type: "checkbox" },
+    });
+    toggleLabel.appendText("Display mode ($$...$$)");
+    const numberedLabel = modeRow.createEl("label", {
+      attr: {
+        style: "display:flex;align-items:center;gap:4px;font-size:13px;",
+      },
+    });
+    const numberedCb = numberedLabel.createEl("input", {
+      attr: { type: "checkbox" },
+    });
     numberedLabel.appendText(" Numbered");
 
     // MathLive <math-field>
     this.mf = contentEl.createEl("math-field", {
       attr: {
-        style: "width:100%;min-height:140px;font-size:18px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:6px;",
+        style:
+          "width:100%;min-height:140px;font-size:18px;padding:8px;border:1px solid var(--background-modifier-border);border-radius:6px;",
       },
     }) as MathfieldElement;
     this.mf.value = this.initial;
@@ -381,7 +410,10 @@ class FormulaEditorModal extends Modal {
     // Virtual keyboard toggle
     const keyboardToggle = contentEl.createEl("button", {
       text: "Toggle virtual keyboard",
-      attr: { style: "font-size:12px;margin:4px 0 8px;padding:4px 10px;cursor:pointer;" },
+      attr: {
+        style:
+          "font-size:12px;margin:4px 0 8px;padding:4px 10px;cursor:pointer;",
+      },
     });
     keyboardToggle.addEventListener("click", () => {
       (this.mf as any).virtualKeyboardMode =
@@ -391,17 +423,28 @@ class FormulaEditorModal extends Modal {
     // Help text
     contentEl.createEl("p", {
       text: "Type LaTeX directly, or use the visual toolbar and virtual keyboard.",
-      attr: { style: "font-size:12px;color:var(--text-muted);margin:2px 0 6px;" },
+      attr: {
+        style: "font-size:12px;color:var(--text-muted);margin:2px 0 6px;",
+      },
     });
 
     // Action buttons
-    const btnDiv = contentEl.createDiv({ attr: { style: "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;" } });
-    btnDiv.createEl("button", { text: "Cancel", attr: { style: "padding:6px 16px;cursor:pointer;" } })
+    const btnDiv = contentEl.createDiv({
+      attr: {
+        style: "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;",
+      },
+    });
+    btnDiv
+      .createEl("button", {
+        text: "Cancel",
+        attr: { style: "padding:6px 16px;cursor:pointer;" },
+      })
       .addEventListener("click", () => this.close());
     const insertBtn = btnDiv.createEl("button", {
       text: "Insert",
       attr: {
-        style: "background:var(--interactive-accent);color:var(--text-on-accent);border:none;padding:6px 16px;border-radius:4px;cursor:pointer;",
+        style:
+          "background:var(--interactive-accent);color:var(--text-on-accent);border:none;padding:6px 16px;border-radius:4px;cursor:pointer;",
       },
     });
     insertBtn.addEventListener("click", () => {
@@ -436,14 +479,15 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Bridge URL")
-      .setDesc("LaTeXSnipper Desktop Bridge URL for formula conversion and preview")
+      .setDesc(
+        "LaTeXSnipper Desktop Bridge URL for formula conversion and preview",
+      )
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_BRIDGE_URL)
           .setValue(this.plugin.settings.bridgeUrl)
           .onChange(async (val) => {
-            this.plugin.settings.bridgeUrl =
-              val.trim() || DEFAULT_BRIDGE_URL;
+            this.plugin.settings.bridgeUrl = val.trim() || DEFAULT_BRIDGE_URL;
 
             await this.plugin.persistSettings();
           }),
@@ -485,8 +529,13 @@ class LaTeXSnipperSettingTab extends PluginSettingTab {
           .addOption("chapter-hyphen", "Chapter-hyphen (2-1)")
           .setValue(this.plugin.settings.numberFormat)
           .onChange(async (val) => {
-            this.plugin.settings.numberFormat = val as "global" | "chapter" | "chapter-hyphen";
-            this.plugin.adapter.setNumberFormat(this.plugin.settings.numberFormat);
+            this.plugin.settings.numberFormat = val as
+              | "global"
+              | "chapter"
+              | "chapter-hyphen";
+            this.plugin.adapter.setNumberFormat(
+              this.plugin.settings.numberFormat,
+            );
             await this.plugin.persistSettings();
           }),
       );

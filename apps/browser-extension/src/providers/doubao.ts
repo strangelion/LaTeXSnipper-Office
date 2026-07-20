@@ -1,2 +1,11 @@
 import { createProviderAdapter } from "./base";
-export const doubaoAdapter = createProviderAdapter({ id: "doubao", displayNameKey: "providerDoubao", hosts: ["www.doubao.com", "doubao.com"], roots: ["main", '[role="main"]'], messages: ['[data-testid*="message"]', '[data-message-id]', "article"], user: ['[data-role="user"]'], assistant: ['[data-role="assistant"]'], composer: ["textarea", '[contenteditable="true"]'] });
+export const doubaoAdapter = createProviderAdapter({
+  id: "doubao",
+  displayNameKey: "providerDoubao",
+  hosts: ["www.doubao.com", "doubao.com"],
+  roots: ["main", '[role="main"]'],
+  messages: ['[data-testid*="message"]', "[data-message-id]", "article"],
+  user: ['[data-role="user"]'],
+  assistant: ['[data-role="assistant"]'],
+  composer: ["textarea", '[contenteditable="true"]'],
+});

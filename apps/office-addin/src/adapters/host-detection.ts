@@ -10,9 +10,14 @@ export function detectOfficeHost(): OfficeHostName {
   return "unknown";
 }
 
-export function isRequirementSetSupported(name: string, version: string): boolean {
+export function isRequirementSetSupported(
+  name: string,
+  version: string,
+): boolean {
   try {
-    return Boolean(Office?.context?.requirements?.isSetSupported?.(name, version));
+    return Boolean(
+      Office?.context?.requirements?.isSetSupported?.(name, version),
+    );
   } catch {
     return false;
   }

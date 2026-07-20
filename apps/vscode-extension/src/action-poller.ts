@@ -43,18 +43,12 @@ export function startActionPoller(
         await bridge
           .complete(actionId, false, null, {
             code: "VSCODE_ACTION_FAILED",
-            message:
-              error instanceof Error
-                ? error.message
-                : String(error),
+            message: error instanceof Error ? error.message : String(error),
           })
           .catch(() => {});
       }
 
-      console.error(
-        "[LaTeXSnipper] VS Code ecosystem action failed",
-        error,
-      );
+      console.error("[LaTeXSnipper] VS Code ecosystem action failed", error);
     } finally {
       running = false;
     }
