@@ -469,6 +469,7 @@ fn install_hybrid_office_integration() -> PlatformIntegrationResult {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
     // Delegate to WiX MSI — the sole owner of VSTO + OLE + certificate lifecycle.
     // The main program must NOT directly write VSTO/OLE registry to avoid
@@ -517,6 +518,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
 }
 
 /// Direct registration fallback — only used when MSI is not available (dev builds).
+#[cfg(target_os = "windows")]
 fn install_native_office_stack_direct() -> PlatformIntegrationResult {
     let vsto = install_native_office_vsto();
     if !vsto.success {
@@ -572,7 +574,17 @@ fn install_native_office_stack_direct() -> PlatformIntegrationResult {
     )
 }
 
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
+    PlatformIntegrationResult::fail(
+        "office",
+        "unsupported",
+        "Native Office is only available on Windows.",
+    )
+}
+
 /// Find the WiX MSI package file.
+#[cfg(target_os = "windows")]
 fn find_msi_package() -> Result<PathBuf, String> {
     let candidates = [
         // Tauri bundled resources
@@ -605,6 +617,7 @@ fn find_msi_package() -> Result<PathBuf, String> {
 }
 
 /// Run MSI install synchronously (with timeout).
+#[cfg(target_os = "windows")]
 fn run_msi_install(msi_path: &Path) -> PlatformIntegrationResult {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -3127,6 +3140,7 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
 }
 
 /// Direct cleanup fallback — only used when MSI is not available (dev builds).
+#[cfg(target_os = "windows")]
 fn uninstall_native_office_vsto_direct() -> PlatformIntegrationResult {
     // Step 1: Uninstall OLE component first
     let ole_result = uninstall_ole_component();
@@ -3213,6 +3227,7 @@ fn uninstall_native_office_vsto_direct() -> PlatformIntegrationResult {
 }
 
 /// Run MSI uninstall synchronously.
+#[cfg(target_os = "windows")]
 fn run_msi_uninstall(msi_path: &Path) -> PlatformIntegrationResult {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
