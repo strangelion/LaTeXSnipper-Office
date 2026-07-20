@@ -618,7 +618,7 @@ fn trust_cert_with_script(script_path: &std::path::Path) -> Result<bool, String>
 /// Check if we can verify the cert (basic check — not a full trust verification).
 #[cfg(target_os = "windows")]
 fn is_windows_cert_trusted() -> Result<bool, String> {
-    let mut cmd = std::process::Command::new("certutil");
+    let mut cmd = crate::platforms::process::background_command("certutil.exe");
     cmd.args(["-store", "-user", "Root", "localhost"]);
     let output =
         crate::platforms::process::run_with_timeout(&mut cmd, std::time::Duration::from_secs(15))

@@ -1326,6 +1326,39 @@ fn reg_delete_tree_both(key: &str) {
     let _ = reg_delete_tree_view(key, RegistryView::X86);
 }
 
+/// Batch-delete multiple registry keys in a single process to avoid
+/// flashing many individual `reg.exe` windows during uninstall.
+/// Each key is deleted from both 64-bit and 32-bit registry views.
+#[cfg(target_os = "windows")]
+fn reg_delete_tree_batch(keys: &[&str]) {
+    if keys.is_empty() {
+        return;
+    }
+    // Build PowerShell script that deletes all keys in one process
+    let mut script = String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
+    for key in keys {
+        // Escape single quotes for PowerShell string literals
+        let escaped = key.replace('\'', "''");
+        script.push_str(&format!(
+            "reg delete '{}' /f /reg:64 2>$null\n",
+            escaped
+        ));
+        script.push_str(&format!(
+            "reg delete '{}' /f /reg:32 2>$null\n",
+            escaped
+        ));
+    }
+
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let _ = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
 #[cfg(target_os = "windows")]
 fn office_addin_clsid() -> &'static str {
     "{71CE99BB-D608-45D7-B837-ABDE82B9B61A}"
@@ -2900,8 +2933,9 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
         );
     }
 
-    // Step 2: Remove VSTO registry keys
+    // Step 2: Remove VSTO registry keys — batch all deletions into one process
     let mut host_reg_keys: Vec<(String, String)> = Vec::new();
+    let mut keys_to_delete: Vec<&str> = Vec::new();
 
     for (host_name, addin_id, _, _) in NATIVE_OFFICE_ADDINS {
         let reg_key = format!(
@@ -2916,9 +2950,14 @@ fn uninstall_native_office_vsto() -> PlatformIntegrationResult {
             addin_id
         );
 
-        reg_delete_tree_both(&reg_key);
+        // Leaking the String is fine here — we need &str for the batch call.
+        // The strings live until the function returns.
+        keys_to_delete.push(Box::leak(reg_key.clone().into_boxed_str()));
         host_reg_keys.push((host_name.to_string(), reg_key));
     }
+
+    // Single process deletion — no flashing windows
+    reg_delete_tree_batch(&keys_to_delete);
 
     // Step 3: Verify VSTO removal
     let mut remaining_keys: Vec<String> = Vec::new();
@@ -3937,7 +3976,7 @@ fn uninstall_wps() -> PlatformIntegrationResult {
 fn detect_wps_host(host: &str, class_id: &str) -> WpsHostStatus {
     let key = format!(r"HKCR\{}\shell\open\command", class_id);
     for view in REGISTRY_VIEWS {
-        let mut command = Command::new("reg");
+        let mut command = super::process::background_command("reg.exe");
         command.args(["query", &key, "/ve", view.as_reg_arg()]);
         if let Ok(output) = run_windows_tool(&mut command, 5) {
             if output.status.success() {
@@ -5621,6 +5660,11 @@ pub fn uninstall_ole_component() -> OleComponentResult {
     let prog_id = ole_constants::PROG_ID;
     let prog_id_vi = ole_constants::PROG_ID_VERSION_INDEPENDENT;
 
+    // Collect all keys to delete, then batch into a single PowerShell process
+    let mut all_keys_to_delete: Vec<String> = Vec::new();
+    let mut pending_key = String::new();
+    let mut install_key = String::new();
+
     for view in &REGISTRY_VIEWS {
         let clsid_key = format!(r"HKCU\Software\Classes\CLSID\{}", clsid);
         let current_owner = query_registry_value_view(&clsid_key, Some("RegistrationOwner"), *view);
@@ -5636,108 +5680,93 @@ pub fn uninstall_ole_component() -> OleComponentResult {
             ));
             continue;
         }
-        for key in &[
+        all_keys_to_delete.extend([
             format!(r"HKCU\Software\Classes\CLSID\{}", clsid),
             format!(r"HKCU\Software\Classes\{}", prog_id),
             format!(r"HKCU\Software\Classes\{}\CLSID", prog_id),
             format!(r"HKCU\Software\Classes\{}\CurVer", prog_id),
             format!(r"HKCU\Software\Classes\{}", prog_id_vi),
             format!(r"HKCU\Software\Classes\{}\CLSID", prog_id_vi),
-        ] {
-            let result = run_windows_tool(
-                super::process::background_command("reg.exe").args([
-                    "delete",
-                    key,
-                    "/f",
-                    view.as_reg_arg(),
-                ]),
-                15,
-            );
-            match result {
-                Ok(out) if out.status.success() => {
-                    entries.push(format!("Deleted {} ({})", key, view.label()));
-                }
-                Ok(out) => {
-                    let stderr = String::from_utf8_lossy(&out.stderr);
-                    // "The system was unable to find the specified registry key" is OK (already deleted)
-                    if !stderr.contains("unable to find") {
-                        log::warn!("[OLE] Failed to delete {}: {}", key, stderr);
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[OLE] Failed to delete {}: {}", key, e);
-                }
-            }
+        ]);
+        pending_key = r"HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject".to_string();
+        install_key = r"HKCU\Software\LaTeXSnipper".to_string();
+    }
 
-            let verification = run_windows_tool(
-                super::process::background_command("reg.exe").args([
-                    "query",
-                    key,
-                    view.as_reg_arg(),
-                ]),
-                15,
-            );
-            if matches!(verification, Ok(ref out) if out.status.success()) {
-                remaining.push(format!("{} ({})", key, view.label()));
-            }
+    if !all_keys_to_delete.is_empty() {
+        // Batch all deletions into a single PowerShell process
+        let mut script = String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
+        for key in &all_keys_to_delete {
+            let escaped = key.replace('\'', "''");
+            script.push_str(&format!("reg delete '{}' /f /reg:64 2>$null\n", escaped));
+            script.push_str(&format!("reg delete '{}' /f /reg:32 2>$null\n", escaped));
+        }
+        if !pending_key.is_empty() {
+            let escaped = pending_key.replace('\'', "''");
+            script.push_str(&format!("reg delete '{}' /f /reg:64 2>$null\n", escaped));
+            script.push_str(&format!("reg delete '{}' /f /reg:32 2>$null\n", escaped));
+        }
+        if !install_key.is_empty() {
+            let escaped = install_key.replace('\'', "''");
+            script.push_str(&format!("reg delete '{}' /v InstallPath /f /reg:64 2>$null\n", escaped));
+            script.push_str(&format!("reg delete '{}' /v InstallPath /f /reg:32 2>$null\n", escaped));
         }
 
-        let pending_key = r"HKCU\Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
-        let pending_delete = run_windows_tool(
-            super::process::background_command("reg.exe").args([
-                "delete",
-                pending_key,
-                "/f",
-                view.as_reg_arg(),
-            ]),
-            15,
-        );
-        if matches!(pending_delete, Ok(ref out) if out.status.success()) {
-            entries.push(format!("Deleted {} ({})", pending_key, view.label()));
-        }
-        let pending_verification = run_windows_tool(
-            super::process::background_command("reg.exe").args([
-                "query",
-                pending_key,
-                view.as_reg_arg(),
-            ]),
-            15,
-        );
-        if matches!(pending_verification, Ok(ref out) if out.status.success()) {
-            remaining.push(format!("{} ({})", pending_key, view.label()));
-        }
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
 
-        let install_key = r"HKCU\Software\LaTeXSnipper";
-        let install_delete = run_windows_tool(
-            super::process::background_command("reg.exe").args([
-                "delete",
-                install_key,
-                "/v",
-                "InstallPath",
-                "/f",
-                view.as_reg_arg(),
-            ]),
-            15,
-        );
-        if matches!(install_delete, Ok(ref out) if out.status.success()) {
-            entries.push(format!(
-                "Deleted {}\\InstallPath ({})",
-                install_key,
-                view.label()
+        // Record deletions for the ledger
+        for key in &all_keys_to_delete {
+            entries.push(format!("Deleted {} (batched)", key));
+        }
+        if !pending_key.is_empty() {
+            entries.push(format!("Deleted {} (batched)", pending_key));
+        }
+        if !install_key.is_empty() {
+            entries.push(format!("Deleted {}\\InstallPath (batched)", install_key));
+        }
+    }
+
+    // Verification pass (queries only, batched)
+    {
+        let mut verify_script = String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
+        let mut verify_keys: Vec<String> = all_keys_to_delete.iter().map(|k| k.clone()).collect();
+        if !pending_key.is_empty() {
+            verify_keys.push(pending_key.clone());
+        }
+        for key in &verify_keys {
+            let escaped = key.replace('\'', "''");
+            verify_script.push_str(&format!(
+                "if (reg query '{}' /reg:64 2>$null) {{ Write-Output '{}' }}\n",
+                escaped, escaped
+            ));
+            verify_script.push_str(&format!(
+                "if (reg query '{}' /reg:32 2>$null) {{ Write-Output '{}' }}\n",
+                escaped, escaped
             ));
         }
-        let install_verification = run_windows_tool(
-            super::process::background_command("reg.exe").args([
-                "query",
-                install_key,
-                "/v",
-                "InstallPath",
-                view.as_reg_arg(),
-            ]),
-            15,
-        );
-        if matches!(install_verification, Ok(ref out) if out.status.success()) {
-            remaining.push(format!("{}\\InstallPath ({})", install_key, view.label()));
+
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        if let Ok(output) = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &verify_script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    remaining.push(trimmed.to_string());
+                }
+            }
         }
     }
 

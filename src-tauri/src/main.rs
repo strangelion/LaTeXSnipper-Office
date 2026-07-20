@@ -71,6 +71,10 @@ fn main() {
             ));
             app.manage(bridge_runtime.clone());
 
+            // Live editing session store (volatile in-memory layer)
+            let live_edit_store = platforms::office_live_edit::LiveOfficeEditSessionStore::new();
+            app.manage(live_edit_store);
+
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]
@@ -237,6 +241,12 @@ fn main() {
             platforms::office_transactions::cancel_office_edit_transaction,
             platforms::office_transactions::list_recoverable_office_transactions,
             platforms::office_transactions::discard_stale_office_transaction,
+            platforms::office_live_edit::start_live_office_edit,
+            platforms::office_live_edit::update_live_office_draft,
+            platforms::office_live_edit::submit_live_office_render,
+            platforms::office_live_edit::get_live_office_snapshot,
+            platforms::office_live_edit::close_live_office_edit,
+            platforms::office_live_edit::list_active_live_office_sessions,
             platforms::conversation_import::list_browser_imports,
             platforms::conversation_import::get_browser_import,
             platforms::conversation_import::update_browser_import_preview,
