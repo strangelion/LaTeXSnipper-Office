@@ -22,7 +22,9 @@ const root = resolve(__dirname, "..");
 function fileHash(filePath) {
   // Normalize line endings to LF before hashing to avoid false drift
   // from CRLF/LF differences between Windows and Linux builds
-  const content = readFileSync(filePath).toString("utf8").replace(/\r\n/g, "\n");
+  const content = readFileSync(filePath)
+    .toString("utf8")
+    .replace(/\r\n/g, "\n");
   return createHash("sha256").update(content).digest("hex");
 }
 
@@ -40,7 +42,9 @@ function getCommittedContent(relPath) {
 }
 
 function contentHash(content) {
-  return createHash("sha256").update(content.replace(/\r\n/g, "\n")).digest("hex");
+  return createHash("sha256")
+    .update(content.replace(/\r\n/g, "\n"))
+    .digest("hex");
 }
 
 function walkDir(dir) {
