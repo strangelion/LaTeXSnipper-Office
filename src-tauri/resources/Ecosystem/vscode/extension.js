@@ -149,37 +149,52 @@ function getSelectedText() {
 // src/commands.ts
 function registerCommands(context, bridge) {
   context.subscriptions.push(
-    vscode3.commands.registerCommand("latexsnipper.insertInlineFormula", async () => {
-      await insertText("$ $");
-      vscode3.window.showInformationMessage("Inline formula placeholder inserted.");
-    }),
-    vscode3.commands.registerCommand("latexsnipper.insertDisplayFormula", async () => {
-      await insertText("$$\n\n$$");
-      vscode3.window.showInformationMessage("Display formula placeholder inserted.");
-    }),
-    vscode3.commands.registerCommand("latexsnipper.openSelectionInDesktop", async () => {
-      const latex = getSelectedText();
-      if (!latex.trim()) {
-        vscode3.window.showWarningMessage("No formula selected.");
-        return;
+    vscode3.commands.registerCommand(
+      "latexsnipper.insertInlineFormula",
+      async () => {
+        await insertText("$ $");
+        vscode3.window.showInformationMessage(
+          "Inline formula placeholder inserted."
+        );
       }
-      try {
-        await bridge.enqueue({
-          actionType: "EditFormula",
-          origin: "vscode",
-          target: "desktop",
-          timeoutMs: 3e5,
-          payload: {
-            latex,
-            display: latex.includes("\n") || latex.startsWith("$$"),
-            source: "vscode-selection"
-          }
-        });
-        vscode3.window.showInformationMessage("Sent to LaTeXSnipper.");
-      } catch (e) {
-        vscode3.window.showErrorMessage(`Failed to send to LaTeXSnipper: ${e.message}`);
+    ),
+    vscode3.commands.registerCommand(
+      "latexsnipper.insertDisplayFormula",
+      async () => {
+        await insertText("$$\n\n$$");
+        vscode3.window.showInformationMessage(
+          "Display formula placeholder inserted."
+        );
       }
-    })
+    ),
+    vscode3.commands.registerCommand(
+      "latexsnipper.openSelectionInDesktop",
+      async () => {
+        const latex = getSelectedText();
+        if (!latex.trim()) {
+          vscode3.window.showWarningMessage("No formula selected.");
+          return;
+        }
+        try {
+          await bridge.enqueue({
+            actionType: "EditFormula",
+            origin: "vscode",
+            target: "desktop",
+            timeoutMs: 3e5,
+            payload: {
+              latex,
+              display: latex.includes("\n") || latex.startsWith("$$"),
+              source: "vscode-selection"
+            }
+          });
+          vscode3.window.showInformationMessage("Sent to LaTeXSnipper.");
+        } catch (e) {
+          vscode3.window.showErrorMessage(
+            `Failed to send to LaTeXSnipper: ${e.message}`
+          );
+        }
+      }
+    )
   );
 }
 
@@ -216,10 +231,7 @@ $$` : `$${latex}$`);
         }).catch(() => {
         });
       }
-      console.error(
-        "[LaTeXSnipper] VS Code ecosystem action failed",
-        error
-      );
+      console.error("[LaTeXSnipper] VS Code ecosystem action failed", error);
     } finally {
       running = false;
     }
@@ -232,7 +244,10 @@ $$` : `$${latex}$`);
 var statusBarItem;
 async function activate(context) {
   console.log("[LaTeXSnipper] Activating...");
-  statusBarItem = vscode4.window.createStatusBarItem(vscode4.StatusBarAlignment.Right, 100);
+  statusBarItem = vscode4.window.createStatusBarItem(
+    vscode4.StatusBarAlignment.Right,
+    100
+  );
   statusBarItem.text = "$(symbol-event) LaTeXSnipper";
   statusBarItem.tooltip = "LaTeXSnipper: click to insert inline formula";
   statusBarItem.command = "latexsnipper.insertInlineFormula";
