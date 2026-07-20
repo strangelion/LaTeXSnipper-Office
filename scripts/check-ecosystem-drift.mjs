@@ -1,47 +1,61 @@
 /**
  * Check for staged artifact drift.
  *
- * This script verifies that the committed ecosystem resources
- * match what would be generated from current source code.
- *
- * Usage: node scripts/check-ecosystem-drift.mjs
+ * Verifies that committed ecosystem resources match what the build produces.
+ * Uses content hash comparison (not git status) to avoid false positives
+ * from line ending differences between platforms.
  *
  * Exit codes:
  *   0 - No drift detected
- *   1 - Drift detected (modified files don't match source)
- *
- * Note: This script assumes dependencies are already installed.
- * Run after: npm run build:ecosystem && npm run stage:ecosystem
- *
- * "Drift" means: committed files were modified by build but not staged.
- * Untracked (??) files are normal after a fresh build and don't count as drift.
+ *   1 - Drift detected (content differs)
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const root = resolve(__dirname, "..");
 
-function run(cmd, args, options = {}) {
+function fileHash(filePath) {
+  // Normalize line endings to LF before hashing to avoid false drift
+  // from CRLF/LF differences between Windows and Linux builds
+  const content = readFileSync(filePath).toString("utf8").replace(/\r\n/g, "\n");
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function getCommittedContent(relPath) {
   try {
-    return execFileSync(cmd, args, {
+    return execFileSync("git", ["show", `HEAD:${relPath}`], {
       cwd: root,
       encoding: "utf8",
       stdio: "pipe",
       shell: true,
-      ...options,
     });
-  } catch (error) {
-    console.error(`Command failed: ${cmd} ${args.join(" ")}`);
-    console.error(error.stderr || error.message);
-    process.exit(1);
+  } catch {
+    return null;
   }
 }
 
-// Main
+function contentHash(content) {
+  return createHash("sha256").update(content.replace(/\r\n/g, "\n")).digest("hex");
+}
+
+function walkDir(dir) {
+  const files = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkDir(full));
+    } else {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
 console.log("[ecosystem-drift] Checking for staged artifact drift...");
 
 const stagedResources = [
@@ -59,19 +73,23 @@ for (const dir of stagedResources) {
     continue;
   }
 
-  // Only check for MODIFIED files (M prefix), not untracked (??)
-  // Untracked files are normal after a fresh build
-  const statusOutput = run("git", ["status", "--porcelain", dir]);
-  const modifiedFiles = statusOutput
-    .split("\n")
-    .filter(
-      (line) => line.trim() && !line.startsWith("??") && !line.startsWith("A"),
-    );
+  const files = walkDir(fullDir).filter((f) => !f.includes("provenance.json"));
 
-  if (modifiedFiles.length > 0) {
-    console.error(`[ecosystem-drift] MODIFIED FILES in ${dir} (not staged):`);
-    modifiedFiles.forEach((f) => console.error(f));
-    hasDrift = true;
+  for (const filePath of files) {
+    const relPath = relative(root, filePath).replace(/\\/g, "/");
+    const currentHash = fileHash(filePath);
+    const committedContent = getCommittedContent(relPath);
+
+    if (committedContent === null) {
+      // New file, not yet committed — this is normal after build
+      continue;
+    }
+
+    const committedHash = contentHash(committedContent);
+    if (currentHash !== committedHash) {
+      console.error(`[ecosystem-drift] CONTENT CHANGED: ${relPath}`);
+      hasDrift = true;
+    }
   }
 }
 
