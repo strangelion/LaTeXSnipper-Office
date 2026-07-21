@@ -966,13 +966,25 @@ pub async fn native_office_generate_and_import(
     ai_api_key: Option<String>,
     ai_model: Option<String>,
 ) -> Result<GenerateImportResult, String> {
+    // Step 0: Validate target is Word (IMPORT_CONVERSATION only supports Word)
+    let session = session_mgr
+        .list_sessions()
+        .await
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+        .ok_or("Session not found")?;
+
+    if session.host_type != crate::platforms::session::HostType::Word {
+        return Err("AI content import is only supported for Word. Please select a Word session.".into());
+    }
+
     let endpoint = ai_endpoint.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
     let api_key = ai_api_key.ok_or("AI API key is required")?;
     let model = ai_model.unwrap_or_else(|| "gpt-4o".to_string());
 
     // Step 1: Call AI with structured output prompt
     log::info!(
-        "[AI→Word] Generating content via AI (model={}, prompt={})",
+        "[AI->Word] Generating content via AI (model={}, prompt={})",
         model,
         &prompt.chars().take(60).collect::<String>()
     );
@@ -985,6 +997,9 @@ pub async fn native_office_generate_and_import(
     let operations: Vec<AiContentOperation> = raw_operations
         .into_iter()
         .map(|op| {
+            // Preserve legacy displayFormula display flag BEFORE kind mapping
+            let legacy_display = op.kind == "displayFormula";
+
             let kind = match op.kind.as_str() {
                 "heading" => "heading".to_string(),
                 "paragraph" => "paragraph".to_string(),
@@ -994,20 +1009,22 @@ pub async fn native_office_generate_and_import(
                 "code" => "code".to_string(),
                 other => {
                     log::warn!(
-                        "[AI→Word] Unknown operation kind '{}', mapping to paragraph",
+                        "[AI->Word] Unknown operation kind '{}', mapping to paragraph",
                         other
                     );
                     "paragraph".to_string()
                 }
             };
 
-            // Heading: Word importer handles level→style mapping internally
+            // Display: use AI value, fallback to legacy displayFormula flag
+            let display = op.display.or(Some(legacy_display));
+
+            // Heading: Word importer handles level->style mapping internally
             // Code: map to safe built-in style
-            // Other: no style (Word handles it)
             let style = if kind == "code" {
                 Some("LaTeXSnipper Code Block".to_string())
             } else {
-                None // Heading level is handled by InsertHeading in Word
+                None
             };
 
             AiContentOperation {
@@ -1017,19 +1034,21 @@ pub async fn native_office_generate_and_import(
                 ordered: op.ordered,
                 rows: op.rows,
                 omml: op.omml,
-                display: op.display,
+                display,
                 style,
             }
         })
         .collect();
 
     log::info!(
-        "[AI→Word] Parsed {} operations from AI response",
+        "[AI->Word] Parsed {} operations from AI response",
         operations.len()
     );
 
-    // Step 3: Convert any LaTeX in operations to OMML
+    // Step 3: Convert LaTeX formulas to OMML, tracking failures
     let mut converted_ops = Vec::new();
+    let mut diagnostics: Vec<String> = Vec::new();
+
     for mut op in operations {
         if op.kind == "formula" {
             if let Some(ref latex) = op.text {
@@ -1044,27 +1063,38 @@ pub async fn native_office_generate_and_import(
                 {
                     Ok(Ok(omml)) => {
                         op.omml = Some(omml);
-                        // Preserve display flag from AI response; default to false
+                        // Preserve display flag; default to false if not set
                         if op.display.is_none() {
                             op.display = Some(false);
                         }
                     }
                     Ok(Err(e)) => {
-                        log::warn!("[AI→Word] LaTeX→OMML failed for '{}': {}", op.text.as_deref().unwrap_or(""), e);
-                        // Skip this operation — don't send broken formula
-                        continue;
+                        let msg = format!(
+                            "Formula conversion failed: '{}' -> {}",
+                            op.text.as_deref().unwrap_or(""),
+                            e
+                        );
+                        log::warn!("[AI->Word] {}", msg);
+                        diagnostics.push(msg);
+                        continue; // Skip this operation
                     }
                     Err(e) => {
-                        log::warn!("[AI→Word] OMML conversion task failed: {}", e);
+                        let msg = format!("Formula conversion task failed: {}", e);
+                        log::warn!("[AI->Word] {}", msg);
+                        diagnostics.push(msg);
                         continue;
                     }
                 }
             } else {
-                // Formula without text — skip
+                diagnostics.push("Formula operation missing text content".to_string());
                 continue;
             }
         }
         converted_ops.push(op);
+    }
+
+    if converted_ops.is_empty() {
+        return Err("AI generated no valid operations after filtering".into());
     }
 
     // Step 4: Build WordImportPlan and send via IMPORT_CONVERSATION
@@ -1088,18 +1118,16 @@ pub async fn native_office_generate_and_import(
                 },
             )
             .collect(),
-        diagnostics: Vec::new(),
-        can_commit: true,
+        diagnostics: diagnostics
+            .iter()
+            .map(|d| crate::platforms::conversation_import::ImportDiagnostic {
+                code: "AI_FORMULA_CONVERSION".into(),
+                message: d.clone(),
+            })
+            .collect(),
+        can_commit: diagnostics.is_empty(),
         checksum: String::new(),
     };
-
-    // Store the plan for later commit
-    let session = session_mgr
-        .list_sessions()
-        .await
-        .into_iter()
-        .find(|s| s.session_id == session_id)
-        .ok_or("Session not found")?;
 
     let document_id = session.document_id.clone().unwrap_or_default();
 
@@ -1125,6 +1153,8 @@ pub async fn native_office_generate_and_import(
         plan_id,
         import_id,
         operation_count: converted_ops.len(),
+        skipped_count: diagnostics.len(),
+        diagnostics,
     })
 }
 
@@ -1135,6 +1165,8 @@ pub struct GenerateImportResult {
     pub plan_id: String,
     pub import_id: String,
     pub operation_count: usize,
+    pub skipped_count: usize,
+    pub diagnostics: Vec<String>,
 }
 
 /// A single operation in the AI-generated content plan.

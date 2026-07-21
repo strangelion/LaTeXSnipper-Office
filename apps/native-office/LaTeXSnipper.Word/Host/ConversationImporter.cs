@@ -109,7 +109,7 @@ namespace LaTeXSnipper.Word.Host
 
         /// <summary>
         /// Insert a heading at the specified level using Word's built-in heading styles.
-        /// This is more reliable than relying on custom style names from AI.
+        /// Uses WdBuiltinStyle enum to avoid localization issues with style names.
         /// </summary>
         private static void InsertHeading(InteropWord.Range cursor, string text, uint level)
         {
@@ -118,15 +118,23 @@ namespace LaTeXSnipper.Word.Host
             inserted.End = Math.Max(inserted.Start, inserted.End - 1);
             try
             {
-                // Map level 1-6 to Word's built-in Heading 1-6 styles
-                var styleName = $"Heading {Math.Clamp(level, 1, 6)}";
-                inserted.set_Style(styleName);
+                // Use WdBuiltinStyle enum for locale-independent heading styles
+                var styleId = level switch
+                {
+                    1 => (int)InteropWord.WdBuiltinStyle.wdStyleHeading1,
+                    2 => (int)InteropWord.WdBuiltinStyle.wdStyleHeading2,
+                    3 => (int)InteropWord.WdBuiltinStyle.wdStyleHeading3,
+                    4 => (int)InteropWord.WdBuiltinStyle.wdStyleHeading4,
+                    5 => (int)InteropWord.WdBuiltinStyle.wdStyleHeading5,
+                    _ => (int)InteropWord.WdBuiltinStyle.wdStyleHeading6,
+                };
+                inserted.set_Style(styleId);
             }
             catch
             {
                 // Fallback: apply bold formatting if heading style not available
                 inserted.Font.Bold = 1;
-                inserted.Font.Size = Math.Max(14f - (float)Math.Clamp(level, 1, 6) * 1.5f, 10f);
+                inserted.Font.Size = Math.Max(14f - (float)Math.Min(level, 6) * 1.5f, 10f);
             }
             cursor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
         }
