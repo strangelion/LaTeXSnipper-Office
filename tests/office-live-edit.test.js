@@ -36,6 +36,8 @@ const { OfficeRenderScheduler } =
   await import("../src/features/office-live-edit/office-render-scheduler.js");
 const { OfficeEditStateMachine, EditState } =
   await import("../src/features/office-live-edit/office-edit-state.js");
+const { OfficeEditController } =
+  await import("../src/features/office-live-edit/office-edit-controller.js");
 
 // ═══════════════════════════════════════════
 // State Machine Tests
@@ -175,6 +177,201 @@ console.log("--- Render Scheduler Tests ---");
 
   scheduler.dispose();
   console.log("PASS: flush() triggers immediate render");
+}
+
+// ═══════════════════════════════════════════
+// Conflict Resolution Tests
+// ═══════════════════════════════════════════
+
+console.log("--- Conflict Resolution Tests ---");
+
+// Test: retryAfterConflict saves both versions, returns conflict object
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  const fresh = {
+    success: true,
+    formulaId: "f-123",
+    formula: {
+      formulaId: "f-123",
+      revision: 7,
+      storageMode: "native-omml",
+      latex: "\\frac{x}{y}",
+    },
+  };
+
+  const conflict = ctrl.retryAfterConflict(fresh);
+  console.assert(conflict !== null, "Should return conflict object");
+  console.assert(
+    typeof conflict.localLatex === "string",
+    "Should capture localLatex",
+  );
+  console.assert(
+    conflict.remoteLatex === "\\frac{x}{y}",
+    "Should capture remoteLatex",
+  );
+  console.assert(
+    ctrl.conflict === conflict,
+    "conflict getter should return saved conflict",
+  );
+
+  ctrl.dispose();
+  console.log("PASS: retryAfterConflict saves dual versions");
+}
+
+// Test: resolveConflict("reload-remote") loads Office version
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  // Set up state so controller thinks it's in a live session
+  ctrl.state.transition(EditState.READY);
+  ctrl.state.transition(EditState.EDITING);
+  ctrl.state.transition(EditState.PREPARING);
+  ctrl.state.transition(EditState.COMMITTING);
+
+  const fresh = {
+    success: true,
+    formulaId: "f-456",
+    formula: {
+      formulaId: "f-456",
+      revision: 3,
+      storageMode: "native-omml",
+      latex: "E=mc^2",
+    },
+  };
+
+  // Save conflict
+  ctrl.retryAfterConflict(fresh);
+
+  // Simulate open() having set the transaction ID (needed for onInput)
+  ctrl._transactionId = "test-tx-456";
+
+  // Manually set to CONFLICT (simulating commit detection)
+  // retryAfterConflict doesn't change state on its own
+  ctrl.state.transition(EditState.CONFLICT);
+
+  const ok = ctrl.resolveConflict("reload-remote");
+  console.assert(ok === true, "reload-remote should return true");
+  console.assert(ctrl.conflict === null, "Conflict should be cleared");
+  // After reload-remote + onInput, state goes READY → EDITING
+  console.assert(
+    ctrl.state.state === EditState.EDITING,
+    `Expected EDITING after reload-remote, got ${ctrl.state.state}`,
+  );
+
+  ctrl.dispose();
+  console.log("PASS: resolveConflict(reload-remote)");
+}
+
+// Test: resolveConflict("keep-local") keeps local draft, bumps revision
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  ctrl.state.transition(EditState.READY);
+  ctrl.state.transition(EditState.EDITING);
+  ctrl.state.transition(EditState.PREPARING);
+  ctrl.state.transition(EditState.COMMITTING);
+
+  const fresh = {
+    success: true,
+    formulaId: "f-789",
+    formula: {
+      formulaId: "f-789",
+      revision: 10,
+      storageMode: "image",
+      latex: "a+b",
+    },
+  };
+
+  ctrl.retryAfterConflict(fresh);
+  ctrl.state.transition(EditState.CONFLICT);
+
+  const ok = ctrl.resolveConflict("keep-local");
+  console.assert(ok === true, "keep-local should return true");
+  console.assert(ctrl.conflict === null, "Conflict should be cleared");
+  console.assert(
+    ctrl.state.state === EditState.READY,
+    `Expected READY after keep-local, got ${ctrl.state.state}`,
+  );
+
+  ctrl.dispose();
+  console.log("PASS: resolveConflict(keep-local)");
+}
+
+// Test: resolveConflict rejects invalid action
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  ctrl.state.transition(EditState.READY);
+
+  const fresh = {
+    success: true,
+    formulaId: "f-000",
+    formula: {
+      formulaId: "f-000",
+      revision: 1,
+      latex: "x",
+    },
+  };
+
+  ctrl.retryAfterConflict(fresh);
+
+  const ok = ctrl.resolveConflict("invalid-action");
+  console.assert(ok === false, "Should reject invalid action");
+  console.assert(ctrl.conflict !== null, "Conflict should remain");
+
+  ctrl.dispose();
+  console.log("PASS: resolveConflict rejects invalid action");
+}
+
+// Test: resolveConflict with no conflict returns false
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  const ok = ctrl.resolveConflict("reload-remote");
+  console.assert(ok === false, "Should return false with no conflict");
+
+  ctrl.dispose();
+  console.log("PASS: resolveConflict guard with no conflict");
+}
+
+// Test: retryAfterConflict returns null on invalid data
+{
+  const ctrl = new OfficeEditController({
+    invokeTauri: mockInvoke,
+    listenTauri: mockListen,
+  });
+
+  console.assert(
+    ctrl.retryAfterConflict(null) === null,
+    "null payload returns null",
+  );
+  console.assert(
+    ctrl.retryAfterConflict({}) === null,
+    "empty payload returns null",
+  );
+  console.assert(
+    ctrl.retryAfterConflict({ formula: { formulaId: "x" } }) === null,
+    "missing revision returns null",
+  );
+
+  ctrl.dispose();
+  console.log("PASS: retryAfterConflict validation");
 }
 
 // ═══════════════════════════════════════════

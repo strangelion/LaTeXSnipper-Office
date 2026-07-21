@@ -467,14 +467,18 @@ export class OfficeEditController {
     this._storageMode = remoteFormula.storageMode || this._storageMode;
 
     if (action === "reload-remote") {
+      // Transition to READY first so onInput (which requires EDITING) can fire.
+      // CONFLICT → EDITING is not allowed by the state machine.
+      if (this.state.state === EditState.CONFLICT) {
+        this.state.transition(EditState.READY);
+      }
+
       // Replace editor content with Office version
       if (remoteLatex && this.state.canTransition(EditState.EDITING)) {
         this.onInput(remoteLatex);
       }
+
       this._conflict = null;
-      if (this.state.state === EditState.CONFLICT) {
-        this.state.transition(EditState.READY);
-      }
       console.info(
         `[LiveEdit] Conflict resolved (reload-remote): formulaId=${this._formulaId} rev=${this._revision}`,
       );

@@ -102,10 +102,7 @@ export class OfficeLiveEditBridge {
             const conflict = this.controller?.retryAfterConflict(fresh);
             if (conflict) {
               this._conflict = conflict;
-              this._toast(
-                "Office 版本已加载。请选择：重新加载 Office 版本 或 保留你的修改后重试",
-                "warning",
-              );
+              this._showConflictModal();
             } else {
               this._toast("公式重读成功但内容无效，请关闭后重试", "error");
             }
@@ -248,6 +245,61 @@ export class OfficeLiveEditBridge {
     return this._active;
   }
 
+  // ---- Conflict resolution modal ----
+
+  /**
+   * Show a DOM-based conflict resolution dialog.
+   * Called automatically by onConflict after re-reading the Office version.
+   */
+  _showConflictModal() {
+    this._removeConflictModal();
+
+    const overlay = document.createElement("div");
+    overlay.id = "liveEditConflictOverlay";
+    overlay.style.cssText =
+      "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;";
+
+    const dialog = document.createElement("div");
+    dialog.style.cssText =
+      "background:#fff;border-radius:8px;padding:24px;max-width:420px;box-shadow:0 4px 24px rgba(0,0,0,0.3);font-family:system-ui,sans-serif;";
+    dialog.innerHTML = `
+      <h3 style="margin:0 0 12px;font-size:16px">检测到 Office 中的公式已被修改</h3>
+      <p style="margin:0 0 20px;color:#666;font-size:13px;line-height:1.5">
+        另一个操作修改了此公式。请选择如何处理：
+      </p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button data-action="cancel" style="padding:8px 16px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;">取消</button>
+        <button data-action="keep-local" style="padding:8px 16px;border:1px solid #4caf50;border-radius:4px;background:#fff;color:#4caf50;cursor:pointer;font-size:13px;">保留我的修改</button>
+        <button data-action="reload-remote" style="padding:8px 16px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;font-size:13px;">加载 Office 版本</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    const cleanup = () => this._removeConflictModal();
+
+    dialog.querySelectorAll("button[data-action]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.action;
+        cleanup();
+        if (action === "keep-local" || action === "reload-remote") {
+          this.resolveConflict(action);
+        }
+      });
+    });
+
+    // Close on overlay background click
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cleanup();
+    });
+  }
+
+  _removeConflictModal() {
+    const el = document.getElementById("liveEditConflictOverlay");
+    if (el) el.remove();
+  }
+
   /**
    * Show commit status indicator in the UI.
    * @param {"ready"|"committing"|"failed"|"committed"} status
@@ -280,7 +332,9 @@ export class OfficeLiveEditBridge {
   dispose() {
     this.controller?.dispose();
     this.preview?.stop();
+    this._removeConflictModal();
     this._active = false;
+    this._conflict = null;
     this.controller = null;
     this.preview = null;
     this._clearCommitStatus();
