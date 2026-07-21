@@ -357,6 +357,24 @@ pub async fn send_read_formula(
     Ok(request_id)
 }
 
+/// Send read formula with a caller-provided requestId.
+/// Use this when the caller needs to register a waiter BEFORE sending.
+pub async fn send_read_formula_with_id(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+    request_id: String,
+    expected_context_id: Option<String>,
+    formula_id: String,
+) -> Result<(), super::session::SendError> {
+    let msg = DesktopMessage::RequestReadFormula {
+        requestId: request_id,
+        sessionId: session_id.to_string(),
+        expectedContextId: expected_context_id,
+        formulaId: formula_id,
+    };
+    session_mgr.send_to_session(session_id, msg).await
+}
+
 pub async fn send_insert_table(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,

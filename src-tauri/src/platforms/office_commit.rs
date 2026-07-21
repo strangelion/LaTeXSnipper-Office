@@ -176,7 +176,7 @@ impl CommitCoordinator {
 
 use tokio::sync::oneshot;
 
-/// The result of a host operation (insert, replace, import, etc.).
+/// The result of a host operation (insert, replace, import, read, etc.).
 #[derive(Debug, Clone)]
 #[allow(dead_code, reason = "Fields accessed by session.rs and commands")]
 pub struct HostResult {
@@ -191,6 +191,8 @@ pub struct HostResult {
     #[allow(dead_code, reason = "Available for error diagnostics")]
     pub error_code: Option<String>,
     pub error: Option<String>,
+    /// Additional structured data (e.g., full FormulaPayload for read operations).
+    pub data: Option<serde_json::Value>,
 }
 
 /// Unified waiter for pipe command results.

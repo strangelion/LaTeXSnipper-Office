@@ -3,7 +3,6 @@
  *
  * Handles Tauri event subscriptions for real-time editing:
  * - native-office-formula-loaded (ReadSelection result)
- * - native-office-formula-snapshot (ReadFormulaById result)
  * - native-office-open-editor (OPEN_EDITOR from VSTO)
  * - native-office-error (host errors)
  * - native-office-context-changed (document switch)
@@ -32,19 +31,13 @@ export class OfficeEditEvents {
         this.handlers.onFormulaLoaded?.(event.payload);
       },
     );
-    const unlisten2 = this.listenTauri(
-      "native-office-formula-snapshot",
-      (event) => {
-        this.handlers.onFormulaSnapshot?.(event.payload);
-      },
-    );
-    const unlisten3 = this.listenTauri("native-office-open-editor", (event) => {
+    const unlisten2 = this.listenTauri("native-office-open-editor", (event) => {
       this.handlers.onOpenEditor?.(event.payload);
     });
-    const unlisten4 = this.listenTauri("native-office-error", (event) => {
+    const unlisten3 = this.listenTauri("native-office-error", (event) => {
       this.handlers.onError?.(event.payload);
     });
-    const unlisten5 = this.listenTauri(
+    const unlisten4 = this.listenTauri(
       "native-office-context-changed",
       (event) => {
         this.handlers.onContextChanged?.(event.payload);
@@ -56,7 +49,6 @@ export class OfficeEditEvents {
       unlisten2,
       unlisten3,
       unlisten4,
-      unlisten5,
     ];
 
     return () => this.unsubscribe();

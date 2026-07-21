@@ -211,21 +211,68 @@ pub struct ReplaceResult {
     pub error: Option<String>,
 }
 
+/// Result of reading a formula back from the host.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadFormulaResult {
+    pub success: bool,
+    pub request_id: String,
+    pub formula_id: Option<String>,
+    pub formula: Option<FormulaPayload>,
+    pub error_code: Option<String>,
+    pub error: Option<String>,
+}
+
 #[tauri::command]
 pub async fn native_office_read_formula_by_id(
     session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
     session_id: String,
     formula_id: String,
     expected_document_id: Option<String>,
-) -> Result<String, String> {
-    crate::platforms::pipe_server::send_read_formula(
+) -> Result<ReadFormulaResult, String> {
+    // Step 1: Generate request ID
+    let request_id = format!("cmd-{}", uuid_simple());
+
+    // Step 2: Register waiter BEFORE sending (prevents race condition)
+    let rx = waiter.register(request_id.clone()).await;
+
+    // Step 3: Send REQUEST_READ_FORMULA command
+    crate::platforms::pipe_server::send_read_formula_with_id(
         &session_mgr,
         &session_id,
+        request_id.clone(),
         expected_document_id,
         formula_id,
     )
     .await
-    .map_err(|error| error.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // Step 4: Wait for Word FormulaSnapshot (with 15s timeout)
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
+        Ok(Ok(host_result)) => host_result,
+        Ok(Err(_)) => {
+            return Err("Read formula channel disconnected".to_string());
+        }
+        Err(_) => {
+            waiter.cancel(&request_id).await;
+            return Err("Read formula timed out waiting for Word response".to_string());
+        }
+    };
+
+    // Parse the formula from the data field
+    let formula: Option<FormulaPayload> = result
+        .data
+        .and_then(|v| serde_json::from_value(v).ok());
+
+    Ok(ReadFormulaResult {
+        success: result.success,
+        request_id: result.request_id,
+        formula_id: result.formula_id.clone().or(formula.as_ref().map(|f| f.formula_id.clone())),
+        formula,
+        error_code: result.error_code,
+        error: result.error,
+    })
 }
 
 /// Insert table into the current Office host.

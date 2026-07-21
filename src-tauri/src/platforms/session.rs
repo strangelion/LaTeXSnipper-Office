@@ -405,6 +405,30 @@ impl SessionManager {
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
+
+                // Resolve unified request waiter (like ReplaceResult/InsertResult)
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let success = formula.is_some() && errorCode.is_none();
+                let formula_json = formula
+                    .as_ref()
+                    .map(|f| serde_json::to_value(f).unwrap_or_default());
+                let host_result = super::office_commit::HostResult {
+                    success,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: formula.as_ref().map(|f| f.formula_id.clone()),
+                    revision: formula.as_ref().map(|f| f.revision as u64),
+                    actual_storage_mode: formula
+                        .as_ref()
+                        .and_then(|f| f.storage_mode.clone()),
+                    error_code: errorCode.clone(),
+                    error: error.clone(),
+                    data: formula_json,
+                };
+                waiter.resolve(host_result).await;
+
                 let document_context_id = self
                     .sessions
                     .read()
@@ -519,6 +543,7 @@ impl SessionManager {
                     actual_storage_mode: actualStorageMode.clone(),
                     error_code: errorCode.clone(),
                     error: error.clone(),
+                    data: None,
                 };
                 waiter.resolve(host_result).await;
 
@@ -572,6 +597,7 @@ impl SessionManager {
                     actual_storage_mode: None,
                     error_code: errorCode.clone(),
                     error: error.clone(),
+                    data: None,
                 };
                 waiter.resolve(host_result).await;
 
@@ -692,6 +718,7 @@ impl SessionManager {
                     actual_storage_mode: actualStorageMode.clone(),
                     error_code: errorCode.clone(),
                     error: error.clone(),
+                    data: None,
                 };
                 waiter.resolve(host_result).await;
 
