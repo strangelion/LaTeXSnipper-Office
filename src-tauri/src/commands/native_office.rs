@@ -997,7 +997,9 @@ pub async fn native_office_generate_and_import(
         .ok_or("Session not found")?;
 
     if session.host_type != crate::platforms::session::HostType::Word {
-        return Err("AI content import is only supported for Word. Please select a Word session.".into());
+        return Err(
+            "AI content import is only supported for Word. Please select a Word session.".into(),
+        );
     }
 
     let endpoint = ai_endpoint.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
@@ -1142,10 +1144,12 @@ pub async fn native_office_generate_and_import(
             .collect(),
         diagnostics: diagnostics
             .iter()
-            .map(|d| crate::platforms::conversation_import::ImportDiagnostic {
-                code: "AI_FORMULA_CONVERSION".into(),
-                message: d.clone(),
-            })
+            .map(
+                |d| crate::platforms::conversation_import::ImportDiagnostic {
+                    code: "AI_FORMULA_CONVERSION".into(),
+                    message: d.clone(),
+                },
+            )
             .collect(),
         can_commit: diagnostics.is_empty(),
         checksum: String::new(),
@@ -1161,10 +1165,9 @@ pub async fn native_office_generate_and_import(
     }
 
     // Require document identity for context protection
-    let document_id = session
-        .document_id
-        .clone()
-        .ok_or("Word destination document identity is unavailable. Please ensure a Word document is open.")?;
+    let document_id = session.document_id.clone().ok_or(
+        "Word destination document identity is unavailable. Please ensure a Word document is open.",
+    )?;
 
     // Send IMPORT_CONVERSATION to Word
     let request_id = format!("cmd-{}", uuid_simple());
