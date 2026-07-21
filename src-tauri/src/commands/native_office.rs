@@ -692,6 +692,44 @@ pub async fn native_office_import_conversation(
     Ok("Conversation import commit requested".into())
 }
 
+/// Test AI API connection by sending a minimal request.
+#[tauri::command]
+pub async fn native_office_ai_test_connection(
+    endpoint: String,
+    api_key: String,
+    model: String,
+) -> Result<String, String> {
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": "Reply with just: OK"}],
+        "max_tokens": 5,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client creation failed: {}", e))?;
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Connection test failed: {}", e))?;
+
+    if response.status().is_success() {
+        Ok("Connection successful".to_string())
+    } else {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        Err(format!("API error ({}): {}", status, text))
+    }
+}
+
 /// AI → Office orchestrator: generate formula via AI and insert into Word.
 ///
 /// Complete pipeline:
@@ -915,7 +953,7 @@ impl std::str::FromStr for FormulaIntegrationMode {
 #[allow(clippy::too_many_arguments)]
 pub async fn native_office_generate_and_import(
     session_mgr: State<'_, Arc<SessionManager>>,
-    conversation_store: State<'_, Arc<crate::platforms::conversation_import::ConversationImportStore>>,
+    _conversation_store: State<'_, Arc<crate::platforms::conversation_import::ConversationImportStore>>,
     session_id: String,
     prompt: String,
     ai_endpoint: Option<String>,
@@ -935,7 +973,45 @@ pub async fn native_office_generate_and_import(
     let content_json = call_ai_for_content(&endpoint, &api_key, &model, &prompt).await?;
 
     // Step 2: Parse AI response into WordImportPlan operations
-    let operations = parse_ai_content_to_operations(&content_json)?;
+    let raw_operations = parse_ai_content_to_operations(&content_json)?;
+
+    // Map AI operation kinds to Word importer kinds
+    let operations: Vec<AiContentOperation> = raw_operations.into_iter().map(|op| {
+        let kind = match op.kind.as_str() {
+            "heading" => "heading".to_string(),
+            "paragraph" => "paragraph".to_string(),
+            "formula" | "displayFormula" => "formula".to_string(),
+            "table" => "table".to_string(),
+            "list" => "list-item".to_string(),
+            "code" => "code".to_string(),
+            other => {
+                log::warn!("[AI→Word] Unknown operation kind '{}', mapping to paragraph", other);
+                "paragraph".to_string()
+            }
+        };
+
+        // Map heading level to proper style name if not provided
+        let style = op.style.clone().or_else(|| {
+            if kind == "heading" {
+                op.level.map(|l| format!("LaTeXSnipper Heading {}", l))
+            } else if kind == "code" {
+                Some("LaTeXSnipper Code Block".to_string())
+            } else {
+                None
+            }
+        });
+
+        AiContentOperation {
+            kind,
+            text: op.text,
+            level: op.level,
+            ordered: op.ordered,
+            rows: op.rows,
+            omml: op.omml,
+            display: op.display,
+            style,
+        }
+    }).collect();
 
     log::info!(
         "[AI→Word] Parsed {} operations from AI response",
@@ -1034,21 +1110,34 @@ pub struct GenerateImportResult {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AiContentOperation {
+    /// Operation type: "paragraph", "heading", "formula", "table", "list", "code"
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    /// Heading level 1-6 (for "heading")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<u32>,
+    /// true for ordered list, false for bullet list (for "list")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ordered: Option<bool>,
+    /// Table rows (for "table")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rows: Option<Vec<Vec<String>>>,
+    /// OMML formula content (for "formula")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub omml: Option<String>,
+    /// true for display math, false for inline (for "formula")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display: Option<bool>,
+    /// Word style name (for "heading"): "LaTeXSnipper Heading 1" etc.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
+}
+
+/// AI response wrapper — object with operations array.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct AiContentResponse {
+    pub operations: Vec<AiContentOperation>,
 }
 
 /// Call AI to generate structured content as JSON operations.
@@ -1060,31 +1149,33 @@ async fn call_ai_for_content(
 ) -> Result<String, String> {
     let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
 
-    let system_prompt = r#"You are a document content generator. Given a natural language request, output a JSON array of operations that will be inserted into a Word document.
+    let system_prompt = r#"You are a document content generator. Given a natural language request, output a JSON object with an "operations" array of operations that will be inserted into a Word document.
+
+Output format: {"operations": [...]}
 
 Each operation is an object with these fields:
-- "kind": one of "heading", "paragraph", "formula", "displayFormula", "table", "list", "code"
-- "text": the text content (for heading, paragraph, code) or LaTeX formula (for formula/displayFormula)
+- "kind": one of "paragraph", "heading", "formula", "table", "list", "code"
+- "text": the text content (for paragraph, code) or LaTeX formula (for formula)
 - "level": heading level 1-6 (for heading)
 - "ordered": true for numbered list, false for bullet list (for list)
 - "rows": array of arrays of strings (for table)
-- "display": true for display math, false for inline (for formula/displayFormula)
-- "style": optional style hint like "bold", "italic", "code"
+- "display": true for display math, false for inline (for formula)
+- "style": Word style name like "LaTeXSnipper Heading 1", "LaTeXSnipper Quote", "LaTeXSnipper Code Block" (for heading, code)
 
 Rules:
-- Output ONLY the JSON array, no markdown, no explanation
+- Output ONLY the JSON object, no markdown, no explanation
 - Use LaTeX for math formulas (e.g., "\\frac{a}{b}", "x^2")
 - Tables should have consistent column counts
-- Headings should form a logical document structure
+- Headings should form a logical document structure with proper levels
 - Keep content concise and well-structured
 
 Example output:
-[
-  {"kind": "heading", "text": "Quadratic Formula", "level": 2},
+{"operations": [
+  {"kind": "heading", "text": "Quadratic Formula", "level": 2, "style": "LaTeXSnipper Heading 2"},
   {"kind": "paragraph", "text": "The quadratic formula solves ax² + bx + c = 0:"},
-  {"kind": "displayFormula", "text": "\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}"},
+  {"kind": "formula", "text": "\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}", "display": true},
   {"kind": "paragraph", "text": "Where a, b, and c are coefficients."}
-]"#;
+]}"#;
 
     let body = serde_json::json!({
         "model": model,
@@ -1137,7 +1228,6 @@ Example output:
 
 /// Parse AI JSON response into WordImportPlan operations.
 fn parse_ai_content_to_operations(json_str: &str) -> Result<Vec<AiContentOperation>, String> {
-    // Try to parse as JSON array directly
     let cleaned = json_str.trim();
 
     // Handle markdown code blocks
@@ -1149,8 +1239,17 @@ fn parse_ai_content_to_operations(json_str: &str) -> Result<Vec<AiContentOperati
         cleaned
     };
 
+    // Try to parse as object with operations array (preferred format)
+    if let Ok(response) = serde_json::from_str::<AiContentResponse>(json_str) {
+        if response.operations.is_empty() {
+            return Err("AI returned empty operations array".to_string());
+        }
+        return Ok(response.operations);
+    }
+
+    // Fallback: try to parse as bare array (backward compatibility)
     let operations: Vec<AiContentOperation> = serde_json::from_str(json_str)
-        .map_err(|e| format!("Failed to parse AI response as JSON operations: {}", e))?;
+        .map_err(|e| format!("Failed to parse AI response as JSON: {}", e))?;
 
     if operations.is_empty() {
         return Err("AI returned empty operations array".to_string());
@@ -1177,10 +1276,18 @@ mod tests {
 
     #[test]
     fn parse_ai_content_basic() {
-        let json = r#"[{"kind": "heading", "text": "Title", "level": 1}]"#;
+        let json = r#"{"operations": [{"kind": "heading", "text": "Title", "level": 1}]}"#;
         let ops = parse_ai_content_to_operations(json).unwrap();
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].kind, "heading");
+    }
+
+    #[test]
+    fn parse_ai_content_fallback_array() {
+        let json = r#"[{"kind": "paragraph", "text": "Hello"}]"#;
+        let ops = parse_ai_content_to_operations(json).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].kind, "paragraph");
     }
 }
 

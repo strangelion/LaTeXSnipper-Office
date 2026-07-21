@@ -826,7 +826,10 @@ class SettingsManager {
   set(key, value) {
     this.settings[key] = value;
     this.save();
-    Logger.debug(`Setting ${key} = ${value}`);
+    // Never log sensitive fields (API keys, tokens, etc.)
+    if (!key.toLowerCase().includes("key") && !key.toLowerCase().includes("secret") && !key.toLowerCase().includes("token")) {
+      Logger.debug(`Setting ${key} = ${value}`);
+    }
   }
 }
 
@@ -2538,6 +2541,40 @@ class UIController {
       aiModel.value = this.settingsManager.get("aiModel") || "";
       aiModel.addEventListener("change", (e) => {
         this.settingsManager.set("aiModel", e.target.value);
+      });
+    }
+
+    // Test AI connection button
+    const testAiBtn = document.getElementById("testAiBtn");
+    const aiTestResult = document.getElementById("aiTestResult");
+    if (testAiBtn) {
+      testAiBtn.addEventListener("click", async () => {
+        const endpoint = this.settingsManager.get("aiEndpoint");
+        const apiKey = this.settingsManager.get("aiApiKey");
+        const model = this.settingsManager.get("aiModel");
+        if (!apiKey) {
+          aiTestResult.textContent = "请先填写 API Key";
+          aiTestResult.className = "settings-hint error";
+          return;
+        }
+        testAiBtn.disabled = true;
+        aiTestResult.textContent = "测试中...";
+        aiTestResult.className = "settings-hint";
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("native_office_ai_test_connection", {
+            endpoint,
+            apiKey,
+            model: model || "gpt-4o",
+          });
+          aiTestResult.textContent = "连接成功";
+          aiTestResult.className = "settings-hint success";
+        } catch (e) {
+          aiTestResult.textContent = `连接失败: ${e.message || e}`;
+          aiTestResult.className = "settings-hint error";
+        } finally {
+          testAiBtn.disabled = false;
+        }
       });
     }
 
