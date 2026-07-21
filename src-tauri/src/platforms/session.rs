@@ -1,4 +1,4 @@
-﻿//! Session management for Native Office VSTO connections.
+//! Session management for Native Office VSTO connections.
 //!
 //! Each VSTO Add-in (Word / Excel / PowerPoint / Visio) maintains one session.
 //! The SessionManager routes incoming messages to the correct handler
@@ -410,7 +410,7 @@ impl SessionManager {
                 let waiter = self
                     .app_handle
                     .state::<Arc<super::office_commit::RequestWaiter>>();
-                let success = formula.is_some() && errorCode.is_none();
+                let success = formula.is_some() && errorCode.is_none() && error.is_none();
                 let formula_json = formula
                     .as_ref()
                     .map(|f| serde_json::to_value(f).unwrap_or_default());
@@ -420,9 +420,7 @@ impl SessionManager {
                     session_id: sid.clone(),
                     formula_id: formula.as_ref().map(|f| f.formula_id.clone()),
                     revision: formula.as_ref().map(|f| f.revision as u64),
-                    actual_storage_mode: formula
-                        .as_ref()
-                        .and_then(|f| f.storage_mode.clone()),
+                    actual_storage_mode: formula.as_ref().and_then(|f| f.storage_mode.clone()),
                     error_code: errorCode.clone(),
                     error: error.clone(),
                     data: formula_json,

@@ -386,28 +386,52 @@ export class OfficeEditController {
 
   /**
    * Retry a failed commit after conflict resolution.
-   * Updates formula revision/storageMode from re-read payload, then resets state.
    *
-   * @param {object} freshPayload - FormulaSnapshot payload from reReadFormula
+   * Loads Word's latest formula content into the editing pipeline so
+   * the user can review before re-committing. This prevents silent
+   * overwrites: without this step, only the revision number is bumped
+   * while the stale local draft would overwrite Word's version on the
+   * next commit.
+   *
+   * @param {object} freshPayload - ReadFormulaResult from reReadFormula
+   * @returns {boolean} true if conflict was resolved successfully
    */
   retryAfterConflict(freshPayload) {
-    if (!freshPayload) return;
+    if (!freshPayload) return false;
 
-    // ReadFormulaResult: { success, formulaId, formula: { revision, storageMode, ... }, ... }
+    // ReadFormulaResult: { success, formulaId, formula: { formulaId, revision, storageMode, latex, ... } }
     const formula = freshPayload.formula || freshPayload;
 
-    this._formulaId = formula.formulaId || freshPayload.formulaId || this._formulaId;
-    this._revision = formula.revision ?? this._revision;
+    // Validate required fields — must have a real formula with revision
+    if (!formula.formulaId || formula.revision == null) {
+      console.warn(
+        "[LiveEdit] retryAfterConflict: invalid fresh formula data",
+      );
+      return false;
+    }
+
+    this._formulaId = formula.formulaId;
+    this._revision = formula.revision;
     this._storageMode = formula.storageMode || this._storageMode;
 
-    // Reset state to ready so a new commit can be attempted
+    const freshLatex = formula.latex;
+
+    // Reset state to ready first
     if (this.state.state === EditState.CONFLICT) {
       this.state.transition(EditState.READY);
     }
 
+    // Load Word's latest LaTeX into the editing pipeline.
+    // onInput triggers volatile session update and generates a fresh preview
+    // so the user sees what's actually in Word before deciding to re-commit.
+    if (freshLatex && this.state.canTransition(EditState.EDITING)) {
+      this.onInput(freshLatex);
+    }
+
     console.info(
-      `[LiveEdit] Conflict resolved: formulaId=${this._formulaId} rev=${this._revision}`,
+      `[LiveEdit] Conflict resolved: formulaId=${this._formulaId} rev=${this._revision} latex=${freshLatex?.slice(0, 50)}`,
     );
+    return true;
   }
 
   /**

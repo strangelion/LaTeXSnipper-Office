@@ -97,11 +97,15 @@ export class OfficeLiveEditBridge {
         this._toast("公式已被其他操作修改，正在重新读取...", "warning");
         try {
           const fresh = await this.controller?.reReadFormula();
-          if (fresh) {
-            this.controller?.retryAfterConflict(fresh);
-            this._toast("已重新加载公式，请检查后重新保存", "info");
+          if (fresh?.formula?.latex) {
+            const ok = this.controller?.retryAfterConflict(fresh);
+            if (ok) {
+              this._toast("已加载 Office 最新版本，请检查后重新保存", "info");
+            } else {
+              this._toast("公式重读成功但内容无效，请关闭后重试", "error");
+            }
           } else {
-            this._toast("无法重新读取公式，请关闭后重试", "error");
+            this._toast("无法重新读取公式内容，请关闭后重试", "error");
           }
         } catch (e) {
           this._toast(`冲突恢复失败: ${e.message}`, "error");

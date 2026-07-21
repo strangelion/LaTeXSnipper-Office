@@ -340,6 +340,10 @@ pub async fn send_replace_formula_with_id(
     session_mgr.send_to_session(session_id, msg).await
 }
 
+#[allow(
+    dead_code,
+    reason = "Retained for backward compatibility with callers that don't pre-generate requestId"
+)]
 pub async fn send_read_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
