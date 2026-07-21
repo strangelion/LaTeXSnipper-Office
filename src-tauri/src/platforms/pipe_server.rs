@@ -265,16 +265,18 @@ pub async fn send_insert_formula(
     formula: FormulaPayload,
     mode: InsertMode,
     integration_mode: Option<FormulaIntegrationMode>,
-) -> Result<(), super::session::SendError> {
+) -> Result<String, super::session::SendError> {
+    let request_id = format!("cmd-{}", uuid_simple());
     let msg = DesktopMessage::InsertFormula {
-        requestId: format!("cmd-{}", uuid_simple()),
+        requestId: request_id.clone(),
         sessionId: session_id.to_string(),
         expectedContextId: None,
         formula,
         mode,
         integration_mode,
     };
-    session_mgr.send_to_session(session_id, msg).await
+    session_mgr.send_to_session(session_id, msg).await?;
+    Ok(request_id)
 }
 
 pub async fn send_replace_formula(

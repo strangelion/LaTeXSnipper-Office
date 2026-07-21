@@ -743,6 +743,7 @@ pub async fn native_office_ai_test_connection(
 #[allow(clippy::too_many_arguments)]
 pub async fn native_office_generate_and_insert(
     session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
     session_id: String,
     prompt: String,
     display: String,
@@ -811,7 +812,8 @@ pub async fn native_office_generate_and_insert(
         .ok()
         .unwrap_or(FormulaIntegrationMode::Auto);
 
-    crate::platforms::pipe_server::send_insert_formula(
+    // Register waiter before sending (so we don't miss the result)
+    let request_id = crate::platforms::pipe_server::send_insert_formula(
         &session_mgr,
         &session_id,
         payload,
@@ -821,7 +823,26 @@ pub async fn native_office_generate_and_insert(
     .await
     .map_err(|e| format!("Failed to send insert command: {}", e))?;
 
-    log::info!("[AI→Office] Formula inserted into Word");
+    // Wait for Word to confirm insertion (with 15s timeout)
+    let rx = waiter.register(request_id.clone()).await;
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
+        Ok(Ok(host_result)) => host_result,
+        Ok(Err(_)) => {
+            return Err("Insert result channel disconnected".to_string());
+        }
+        Err(_) => {
+            return Err("Insert timed out waiting for Word response".to_string());
+        }
+    };
+
+    if !result.success {
+        return Err(format!(
+            "Word insert failed: {}",
+            result.error.unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+
+    log::info!("[AI→Office] Formula confirmed inserted into Word");
 
     Ok(GenerateInsertResult {
         formula_id,
@@ -956,6 +977,7 @@ impl std::str::FromStr for FormulaIntegrationMode {
 #[allow(clippy::too_many_arguments)]
 pub async fn native_office_generate_and_import(
     session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
     _conversation_store: State<
         '_,
         Arc<crate::platforms::conversation_import::ConversationImportStore>,
@@ -1129,11 +1151,25 @@ pub async fn native_office_generate_and_import(
         checksum: String::new(),
     };
 
-    let document_id = session.document_id.clone().unwrap_or_default();
+    // Strict mode: reject if any formula conversion failed
+    if !diagnostics.is_empty() {
+        return Err(format!(
+            "AI content has {} formula conversion error(s): {}",
+            diagnostics.len(),
+            diagnostics.join("; ")
+        ));
+    }
+
+    // Require document identity for context protection
+    let document_id = session
+        .document_id
+        .clone()
+        .ok_or("Word destination document identity is unavailable. Please ensure a Word document is open.")?;
 
     // Send IMPORT_CONVERSATION to Word
+    let request_id = format!("cmd-{}", uuid_simple());
     let msg = DesktopMessage::ImportConversation {
-        requestId: format!("cmd-{}", uuid_simple()),
+        requestId: request_id.clone(),
         sessionId: session_id.clone(),
         expectedContextId: document_id,
         plan,
@@ -1144,8 +1180,27 @@ pub async fn native_office_generate_and_import(
         .await
         .map_err(|e| format!("Failed to send import conversation: {}", e))?;
 
+    // Wait for Word to confirm import (with 30s timeout for large content)
+    let rx = waiter.register(request_id).await;
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(host_result)) => host_result,
+        Ok(Err(_)) => {
+            return Err("Import result channel disconnected".to_string());
+        }
+        Err(_) => {
+            return Err("Import timed out waiting for Word response".to_string());
+        }
+    };
+
+    if !result.success {
+        return Err(format!(
+            "Word import failed: {}",
+            result.error.unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+
     log::info!(
-        "[AI→Word] IMPORT_CONVERSATION sent with {} operations",
+        "[AI→Word] IMPORT_CONVERSATION confirmed with {} operations",
         converted_ops.len()
     );
 

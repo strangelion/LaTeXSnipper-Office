@@ -171,6 +171,73 @@ impl CommitCoordinator {
 }
 
 // ---------------------------------------------------------------------------
+// Request Waiter — unified async confirmation for all pipe commands
+// ---------------------------------------------------------------------------
+
+use tokio::sync::oneshot;
+
+/// The result of a host operation (insert, replace, import, etc.).
+#[derive(Debug, Clone)]
+pub struct HostResult {
+    pub success: bool,
+    pub request_id: String,
+    pub session_id: String,
+    pub formula_id: Option<String>,
+    pub revision: Option<u64>,
+    pub error_code: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Unified waiter for pipe command results.
+///
+/// Any code that sends a command to the VSTO host can register a waiter
+/// by requestId. When the host responds (InsertResult, ReplaceResult, etc.),
+/// the waiter resolves with the result.
+///
+/// This replaces the pattern of "send and hope" with "send and await".
+pub struct RequestWaiter {
+    waiters: Mutex<HashMap<String, oneshot::Sender<HostResult>>>,
+}
+
+impl RequestWaiter {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            waiters: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// Create a oneshot receiver for a given requestId.
+    /// Returns (request_id, receiver) — caller sends the request, then awaits receiver.
+    pub async fn register(&self, request_id: String) -> oneshot::Receiver<HostResult> {
+        let (tx, rx) = oneshot::channel();
+        self.waiters.lock().await.insert(request_id, tx);
+        rx
+    }
+
+    /// Resolve a pending waiter with the host result.
+    /// Returns true if a waiter was found and resolved, false if unknown requestId.
+    pub async fn resolve(&self, result: HostResult) -> bool {
+        let sender = self.waiters.lock().await.remove(&result.request_id);
+        if let Some(tx) = sender {
+            let _ = tx.send(result);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Cancel all pending waiters (e.g., on shutdown).
+    pub async fn cancel_all(&self) {
+        self.waiters.lock().await.clear();
+    }
+
+    /// Get the number of pending waiters.
+    pub async fn pending_count(&self) -> usize {
+        self.waiters.lock().await.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
 

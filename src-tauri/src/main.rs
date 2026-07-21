@@ -79,6 +79,10 @@ fn main() {
             let commit_coordinator = platforms::office_commit::CommitCoordinator::new();
             app.manage(commit_coordinator);
 
+            // Unified request waiter for pipe command results
+            let request_waiter = platforms::office_commit::RequestWaiter::new();
+            app.manage(request_waiter);
+
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]

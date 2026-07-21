@@ -1,4 +1,4 @@
-﻿//! Session management for Native Office VSTO connections.
+//! Session management for Native Office VSTO connections.
 //!
 //! Each VSTO Add-in (Word / Excel / PowerPoint / Visio) maintains one session.
 //! The SessionManager routes incoming messages to the correct handler
@@ -505,6 +505,22 @@ impl SessionManager {
                     fallbackReason,
                     error
                 );
+
+                // Resolve unified request waiter
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let host_result = super::office_commit::HostResult {
+                    success,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: formulaId.clone(),
+                    revision: None,
+                    error_code: errorCode.clone(),
+                    error: error.clone(),
+                };
+                waiter.resolve(host_result).await;
+
                 let _ = self.app_handle.emit(
                     "native-office-insert-result",
                     serde_json::json!({
@@ -541,6 +557,22 @@ impl SessionManager {
             } => {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
+
+                // Resolve unified request waiter
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let host_result = super::office_commit::HostResult {
+                    success,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: None,
+                    revision: None,
+                    error_code: errorCode.clone(),
+                    error: error.clone(),
+                };
+                waiter.resolve(host_result).await;
+
                 let _ = self.app_handle.emit(
                     "native-word-conversation-import-result",
                     serde_json::json!({
@@ -644,6 +676,21 @@ impl SessionManager {
                     .as_ref()
                     .map(|r| r.transaction_id.clone())
                     .unwrap_or_default();
+
+                // Resolve unified request waiter
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let host_result = super::office_commit::HostResult {
+                    success,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: formulaId.clone(),
+                    revision,
+                    error_code: errorCode.clone(),
+                    error: error.clone(),
+                };
+                waiter.resolve(host_result).await;
 
                 let _ = self.app_handle.emit(
                     "native-office-replace-result",
