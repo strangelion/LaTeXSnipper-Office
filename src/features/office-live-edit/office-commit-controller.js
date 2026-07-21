@@ -18,14 +18,21 @@ export class OfficeCommitController {
    * @param {Function} options.invokeTauri - Tauri invoke wrapper
    */
   constructor(options = {}) {
-    this.invokeTauri = options.invokeTauri || (() => Promise.reject("no invoke"));
+    this.invokeTauri =
+      options.invokeTauri || (() => Promise.reject("no invoke"));
     this._committing = false;
   }
 
   /**
    * Prepare a commit: freeze the draft and render the final asset.
    */
-  async prepare(transactionId, draftLatex, displayMode, numbering, renderedAsset) {
+  async prepare(
+    transactionId,
+    draftLatex,
+    displayMode,
+    numbering,
+    renderedAsset,
+  ) {
     return this.invokeTauri("prepare_office_edit_commit", {
       request: {
         transactionId,

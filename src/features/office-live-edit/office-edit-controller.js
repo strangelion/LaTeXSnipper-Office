@@ -231,11 +231,19 @@ export class OfficeEditController {
    */
   async commit(renderData = null) {
     if (this._disposed || !this._transactionId) {
-      return { success: false, errorCode: "NOT_READY", error: "Controller disposed or no transaction" };
+      return {
+        success: false,
+        errorCode: "NOT_READY",
+        error: "Controller disposed or no transaction",
+      };
     }
     if (this.commitCtrl.isCommitting) {
       console.warn("[LiveEdit] Commit already in progress");
-      return { success: false, errorCode: "ALREADY_COMMITTING", error: "Commit already in progress" };
+      return {
+        success: false,
+        errorCode: "ALREADY_COMMITTING",
+        error: "Commit already in progress",
+      };
     }
 
     // Flush any pending render and wait for it to complete
@@ -247,7 +255,11 @@ export class OfficeEditController {
         "[LiveEdit] Cannot transition to PREPARING from",
         this.state.state,
       );
-      return { success: false, errorCode: "STATE_ERROR", error: "Cannot transition to PREPARING" };
+      return {
+        success: false,
+        errorCode: "STATE_ERROR",
+        error: "Cannot transition to PREPARING",
+      };
     }
 
     // Stop checkpoint timer
@@ -320,7 +332,11 @@ export class OfficeEditController {
       return result;
     } catch (err) {
       console.error("[LiveEdit] Commit failed:", err);
-      const errorResult = { success: false, errorCode: "CONTROLLER_ERROR", error: err.message || String(err) };
+      const errorResult = {
+        success: false,
+        errorCode: "CONTROLLER_ERROR",
+        error: err.message || String(err),
+      };
       this.state.transition(EditState.FAILED, errorResult);
       this._onCommitFailure?.(errorResult);
       return errorResult;
@@ -406,18 +422,14 @@ export class OfficeEditController {
 
     // Validate required fields
     if (!formula.formulaId || formula.revision == null) {
-      console.warn(
-        "[LiveEdit] retryAfterConflict: invalid fresh formula data",
-      );
+      console.warn("[LiveEdit] retryAfterConflict: invalid fresh formula data");
       return null;
     }
 
     // Save both versions — do NOT overwrite the editor yet
     this._conflict = {
       localLatex:
-        this.scheduler._pendingInput?.latex ||
-        this._lastPreview?.latex ||
-        "",
+        this.scheduler._pendingInput?.latex || this._lastPreview?.latex || "",
       remoteFormula: formula,
       remoteLatex: formula.latex || "",
     };
@@ -452,15 +464,11 @@ export class OfficeEditController {
     // Update identity to Office version so re-commit won't conflict again
     this._formulaId = remoteFormula.formulaId;
     this._revision = remoteFormula.revision;
-    this._storageMode =
-      remoteFormula.storageMode || this._storageMode;
+    this._storageMode = remoteFormula.storageMode || this._storageMode;
 
     if (action === "reload-remote") {
       // Replace editor content with Office version
-      if (
-        remoteLatex &&
-        this.state.canTransition(EditState.EDITING)
-      ) {
+      if (remoteLatex && this.state.canTransition(EditState.EDITING)) {
         this.onInput(remoteLatex);
       }
       this._conflict = null;

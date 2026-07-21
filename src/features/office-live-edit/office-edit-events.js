@@ -44,12 +44,7 @@ export class OfficeEditEvents {
       },
     );
 
-    this._unlisteners = [
-      unlisten1,
-      unlisten2,
-      unlisten3,
-      unlisten4,
-    ];
+    this._unlisteners = [unlisten1, unlisten2, unlisten3, unlisten4];
 
     return () => this.unsubscribe();
   }
