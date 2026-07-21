@@ -232,9 +232,9 @@ if ($runningOnWindows) {
     $msiPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.msi"
     Require-File $msiPath "NativeOffice MSI package"
 
-    # Bootstrapper — launches MSI install/repair/uninstall
-    $bootstrapperPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.exe"
-    Require-File $bootstrapperPath "NativeOffice bootstrapper"
+    # Bootstrapper — offline installer with embedded prerequisites
+    $bootstrapperPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
+    Require-File $bootstrapperPath "NativeOffice offline bootstrapper"
 
     # Certificate — needed for VSTO trust verification during MSI install
     $certDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "WiX")
@@ -251,7 +251,7 @@ if ($runningOnWindows) {
         schemaVersion = 1
         installerType = "msi"
         msiFile = "LaTeXSnipper.NativeOffice.msi"
-        bootstrapperFile = "LaTeXSnipper.NativeOffice.exe"
+        bootstrapperFile = "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
     }
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $vstoDest "installer.json") -Encoding UTF8
 
@@ -370,7 +370,7 @@ foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
     }
 }
 if ($runningOnWindows) {
-    foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.exe")) {
+    foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.OfflineSetup.exe", "LaTeXSnipper.NativeOffice.WebSetup.exe")) {
         $filePath = Join-Path $vstoDest $name
         if (Test-Path -LiteralPath $filePath -PathType Leaf) {
             $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $filePath).Hash

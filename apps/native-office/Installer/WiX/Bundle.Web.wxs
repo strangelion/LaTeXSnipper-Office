@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Bundle Name="LaTeXSnipper Native Office (Online Installer)"
+           Manufacturer="LaTeXSnipper"
+           Version="$(var.Version)"
+           UpgradeCode="F6A7B8C9-AAAA-BBBB-CCCC-DDDDDDDDDDDD"
+           Copyright="Copyright (c) LaTeXSnipper 2026">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+        Theme="hyperlinkLicense"
+        LicenseUrl="" />
+    </BootstrapperApplication>
+
+    <util:RegistrySearch
+      Id="FindNetFx48"
+      Variable="NetFx48Release"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full"
+      Value="Release"
+      Result="value"
+      Bitness="always64" />
+    <util:RegistrySearch
+      Id="FindVstoRuntime64"
+      Variable="VstoRuntime64Installed"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\VSTO Runtime Setup\v4R"
+      Value="Version"
+      Result="exists"
+      Bitness="always64" />
+    <util:RegistrySearch
+      Id="FindVstoRuntime32"
+      Variable="VstoRuntime32Installed"
+      Root="HKLM"
+      Key="SOFTWARE\Microsoft\VSTO Runtime Setup\v4R"
+      Value="Version"
+      Result="exists"
+      Bitness="always32" />
+
+    <Chain>
+      <!-- .NET Framework 4.8 — downloaded from Microsoft on demand -->
+      <ExePackage Id="NetFx48"
+                  Compressed="no"
+                  Cache="keep"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes"
+                  InstallArguments="/q /norestart"
+                  DetectCondition="NetFx48Release &gt;= 528040">
+        <RemotePayload
+          Hash="$(var.NetFx48Hash)"
+          ProductName="Microsoft .NET Framework 4.8"
+          Size="$(var.NetFx48Size)"
+          Version="4.8.4115.0"
+          Url="$(var.NetFx48Url)" />
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="1641" Behavior="success" />
+        <ExitCode Value="3010" Behavior="success" />
+        <ExitCode Value="5100" Behavior="error" />
+      </ExePackage>
+
+      <!-- VSTO Runtime — downloaded from Microsoft on demand -->
+      <ExePackage Id="VstoRuntime"
+                  Compressed="no"
+                  Cache="keep"
+                  PerMachine="yes"
+                  Permanent="yes"
+                  Vital="yes"
+                  InstallArguments="/quiet /norestart"
+                  DetectCondition="VstoRuntime64Installed OR VstoRuntime32Installed">
+        <RemotePayload
+          Hash="$(var.VstoRuntimeHash)"
+          ProductName="Microsoft VSTO Runtime"
+          Size="$(var.VstoRuntimeSize)"
+          Version="10.0.50903.0"
+          Url="$(var.VstoRuntimeUrl)" />
+        <ExitCode Value="0" Behavior="success" />
+        <ExitCode Value="1641" Behavior="success" />
+        <ExitCode Value="3010" Behavior="success" />
+      </ExePackage>
+
+      <!-- Main MSI (1.6 MB, always embedded) -->
+      <MsiPackage Id="MainMsi"
+                  Cache="keep"
+                  Vital="yes"
+                  SourceFile="$(var.MsiDir)\LaTeXSnipper.NativeOffice.msi" />
+    </Chain>
+
+  </Bundle>
+
+</Wix>

@@ -689,9 +689,8 @@ if ($externalCabinets.Count -gt 0) {
 
 Write-Host "  MSI is self-contained; no external cabinet files were generated." -ForegroundColor Green
 
-# ─── Build Bundle (Bootstrapper) ───────────────────────────────────
-Write-Host "`n[4/4] Building Bootstrapper..." -ForegroundColor Cyan
-$bundleOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.exe"
+# ─── Build Bundles (Bootstrappers) ────────────────────────────────
+Write-Host "`n[4/4] Building Bootstrappers..." -ForegroundColor Cyan
 
 Write-Host "  Restoring WiX Bootstrapper Applications and Util extensions..." -ForegroundColor Gray
 & $WixPath extension add -g $bootstrapperExtension 2>$null
@@ -775,20 +774,62 @@ foreach ($download in @(
     Get-PrerequisiteExecutable -Name $download.Name -Url $download.Url -Path $download.Path
 }
 
+# Compute hashes and sizes for the web bundle RemotePayload elements
+$netFx48Hash = (Get-FileHash -LiteralPath $netFx48Exe -Algorithm SHA256).Hash
+$netFx48Size = (Get-Item -LiteralPath $netFx48Exe).Length
+$vstoRuntimeHash = (Get-FileHash -LiteralPath $vstoRuntimeExe -Algorithm SHA256).Hash
+$vstoRuntimeSize = (Get-Item -LiteralPath $vstoRuntimeExe).Length
+
+Write-Host "  NetFx48 SHA256: $netFx48Hash" -ForegroundColor Gray
+Write-Host "  NetFx48 Size: $netFx48Size" -ForegroundColor Gray
+Write-Host "  VstoRuntime SHA256: $vstoRuntimeHash" -ForegroundColor Gray
+Write-Host "  VstoRuntime Size: $vstoRuntimeSize" -ForegroundColor Gray
+
+# ─── Build Offline Bootstrapper (embeds all prerequisites, ~160 MB) ──
+$offlineOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
+
+Write-Host "  Building Offline Bootstrapper..." -ForegroundColor Cyan
 & $WixPath build "$wixSrc\Bundle.wxs" `
     -arch x64 `
-    -o $bundleOutput `
+    -o $offlineOutput `
     -d Version=$Version `
     -d NetFx48Exe=$netFx48Exe `
     -d VstoRuntimeExe=$vstoRuntimeExe `
     -d MsiDir=$env:MsiDir `
     -ext $bootstrapperExtension `
     -ext $utilExtension
-if ($LASTEXITCODE -ne 0) { throw "WiX Bootstrapper build failed" }
+if ($LASTEXITCODE -ne 0) { throw "WiX Offline Bootstrapper build failed" }
+
+if (-not (Test-Path -LiteralPath $offlineOutput -PathType Leaf)) {
+    throw "Offline bootstrapper output is missing: $offlineOutput"
+}
+Write-Host "  OfflineSetup: $offlineOutput" -ForegroundColor Yellow
+
+# ─── Build Web Bootstrapper (downloads prerequisites on demand, ~2 MB) ──
+$webOutput = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.WebSetup.exe"
+
+Write-Host "  Building Web Bootstrapper..." -ForegroundColor Cyan
+& $WixPath build "$wixSrc\Bundle.Web.wxs" `
+    -arch x64 `
+    -o $webOutput `
+    -d Version=$Version `
+    -d NetFx48Url=$env:NetFx48Url `
+    -d NetFx48Hash=$netFx48Hash `
+    -d NetFx48Size=$netFx48Size `
+    -d VstoRuntimeUrl=$env:VstoRuntimeUrl `
+    -d VstoRuntimeHash=$vstoRuntimeHash `
+    -d VstoRuntimeSize=$vstoRuntimeSize `
+    -d MsiDir=$env:MsiDir `
+    -ext $bootstrapperExtension `
+    -ext $utilExtension
+if ($LASTEXITCODE -ne 0) { throw "WiX Web Bootstrapper build failed" }
+
+if (-not (Test-Path -LiteralPath $webOutput -PathType Leaf)) {
+    throw "Web bootstrapper output is missing: $webOutput"
+}
+Write-Host "  WebSetup: $webOutput" -ForegroundColor Yellow
 
 Write-Host "`n=== Build Complete ===" -ForegroundColor Green
 Write-Host "MSI: $msiOutput" -ForegroundColor Yellow
-if (-not (Test-Path -LiteralPath $bundleOutput -PathType Leaf)) {
-    throw "Bootstrapper output is missing: $bundleOutput"
-}
-Write-Host "Bootstrapper: $bundleOutput" -ForegroundColor Yellow
+Write-Host "OfflineSetup: $offlineOutput" -ForegroundColor Yellow
+Write-Host "WebSetup: $webOutput" -ForegroundColor Yellow

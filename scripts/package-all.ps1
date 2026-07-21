@@ -101,7 +101,7 @@ $(if ($found["tauri-linux"]) { "- linux/ — Desktop application for Linux (DEB/
 
 Installation:
 - Windows: Run windows/LaTeXSnipper*.exe (or .msi) for desktop app.
-           Run windows/vsto/LaTeXSnipper.NativeOffice.exe for VSTO add-in.
+           Run windows/vsto/LaTeXSnipper.NativeOffice.OfflineSetup.exe for VSTO add-in.
 - macOS:   Open macos/*.dmg and drag to Applications.
 - Linux:   Install the .deb or .rpm package.
 

@@ -70,7 +70,7 @@ if ($WindowsPackageRoots.Count -gt 0) {
 
     # Check if this is MSI-only staging (new model) or legacy VSTO staging
     $msiPath = Join-Path $staging "LaTeXSnipper.NativeOffice.msi"
-    $bootstrapperPath = Join-Path $staging "LaTeXSnipper.NativeOffice.exe"
+    $bootstrapperPath = Join-Path $staging "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
     $isMsiOnly = (Test-Path -LiteralPath $msiPath -PathType Leaf) -and
                  (Test-Path -LiteralPath $bootstrapperPath -PathType Leaf)
 
@@ -88,7 +88,7 @@ if ($WindowsPackageRoots.Count -gt 0) {
             }
             Write-Host "    MSI: found in ${root}" -ForegroundColor Green
 
-            $bootMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.exe")
+            $bootMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.OfflineSetup.exe")
             if ($bootMatches.Count -eq 0) {
                 throw "Bootstrapper is missing from ${root}"
             }
