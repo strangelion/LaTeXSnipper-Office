@@ -318,7 +318,7 @@ jobs:
         run: |
           & scripts\verify-package-contents.ps1 `
             -StagingRoot src-tauri\resources\NativeOffice `
-            -WindowsPackageRoots @('package-extract\native', 'package-extract\tauri-msi', 'package-extract\nsis') `
+            -WindowsPackageRoots @('package-extract\tauri-msi', 'package-extract\nsis') `
             -WpsStaging $env:WPS_STAGING `
             -WpsPackageRoots @('package-extract\tauri-msi', 'package-extract\nsis') `
             -ResourceStagingRoot src-tauri\resources `
