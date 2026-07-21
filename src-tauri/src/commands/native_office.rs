@@ -263,11 +263,15 @@ pub async fn native_office_read_formula_by_id(
         }
     };
 
-    // Parse the formula from the data field
+    // Parse the formula from the data field.
+    // If the HostResult claims success but the formula payload failed to
+    // deserialise, treat the overall result as failed to avoid returning
+    // `success: true, formula: null` to the frontend.
     let formula: Option<FormulaPayload> = result.data.and_then(|v| serde_json::from_value(v).ok());
+    let success = result.success && formula.is_some();
 
     Ok(ReadFormulaResult {
-        success: result.success,
+        success,
         request_id: result.request_id,
         formula_id: result
             .formula_id

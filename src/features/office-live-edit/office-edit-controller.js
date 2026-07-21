@@ -132,6 +132,10 @@ export class OfficeEditController {
 
     // Latest preview data (OMML + SVG) for commit
     this._lastPreview = null;
+
+    // Conflict state: saved when a commit detects OFFICE_TARGET_CHANGED.
+    // Holds both versions until the caller explicitly resolves.
+    this._conflict = null;
   }
 
   /**
@@ -385,53 +389,107 @@ export class OfficeEditController {
   }
 
   /**
-   * Retry a failed commit after conflict resolution.
+   * Prepare conflict data after a commit is rejected with OFFICE_TARGET_CHANGED.
    *
-   * Loads Word's latest formula content into the editing pipeline so
-   * the user can review before re-committing. This prevents silent
-   * overwrites: without this step, only the revision number is bumped
-   * while the stale local draft would overwrite Word's version on the
-   * next commit.
+   * Saves both the user's local draft and the Office remote version WITHOUT
+   * automatically choosing one. Call {@link resolveConflict} afterward to
+   * explicitly pick "reload-remote" or "keep-local".
    *
    * @param {object} freshPayload - ReadFormulaResult from reReadFormula
-   * @returns {boolean} true if conflict was resolved successfully
+   * @returns {object|null} conflict info { localLatex, remoteFormula, remoteLatex }
    */
   retryAfterConflict(freshPayload) {
-    if (!freshPayload) return false;
+    if (!freshPayload) return null;
 
     // ReadFormulaResult: { success, formulaId, formula: { formulaId, revision, storageMode, latex, ... } }
     const formula = freshPayload.formula || freshPayload;
 
-    // Validate required fields — must have a real formula with revision
+    // Validate required fields
     if (!formula.formulaId || formula.revision == null) {
       console.warn(
         "[LiveEdit] retryAfterConflict: invalid fresh formula data",
       );
+      return null;
+    }
+
+    // Save both versions — do NOT overwrite the editor yet
+    this._conflict = {
+      localLatex:
+        this.scheduler._pendingInput?.latex ||
+        this._lastPreview?.latex ||
+        "",
+      remoteFormula: formula,
+      remoteLatex: formula.latex || "",
+    };
+
+    console.info(
+      `[LiveEdit] Conflict saved: local=${this._conflict.localLatex.slice(0, 50)} remote=${this._conflict.remoteLatex.slice(0, 50)}`,
+    );
+    return this._conflict;
+  }
+
+  /**
+   * Resolve a pending conflict with an explicit user choice.
+   *
+   * @param {"reload-remote"|"keep-local"} action
+   *   - "reload-remote": replace editor content with Office version
+   *   - "keep-local": keep user's draft, update revision to Office version
+   * @returns {boolean} true if resolved successfully
+   */
+  resolveConflict(action) {
+    if (!this._conflict) {
+      console.warn("[LiveEdit] resolveConflict: no pending conflict");
       return false;
     }
 
-    this._formulaId = formula.formulaId;
-    this._revision = formula.revision;
-    this._storageMode = formula.storageMode || this._storageMode;
+    if (action !== "reload-remote" && action !== "keep-local") {
+      console.warn(`[LiveEdit] resolveConflict: unknown action "${action}"`);
+      return false;
+    }
 
-    const freshLatex = formula.latex;
+    const { remoteFormula, remoteLatex } = this._conflict;
 
-    // Reset state to ready first
+    // Update identity to Office version so re-commit won't conflict again
+    this._formulaId = remoteFormula.formulaId;
+    this._revision = remoteFormula.revision;
+    this._storageMode =
+      remoteFormula.storageMode || this._storageMode;
+
+    if (action === "reload-remote") {
+      // Replace editor content with Office version
+      if (
+        remoteLatex &&
+        this.state.canTransition(EditState.EDITING)
+      ) {
+        this.onInput(remoteLatex);
+      }
+      this._conflict = null;
+      if (this.state.state === EditState.CONFLICT) {
+        this.state.transition(EditState.READY);
+      }
+      console.info(
+        `[LiveEdit] Conflict resolved (reload-remote): formulaId=${this._formulaId} rev=${this._revision}`,
+      );
+      return true;
+    }
+
+    // "keep-local": retain local draft, just bump revision
+    this._conflict = null;
     if (this.state.state === EditState.CONFLICT) {
       this.state.transition(EditState.READY);
     }
-
-    // Load Word's latest LaTeX into the editing pipeline.
-    // onInput triggers volatile session update and generates a fresh preview
-    // so the user sees what's actually in Word before deciding to re-commit.
-    if (freshLatex && this.state.canTransition(EditState.EDITING)) {
-      this.onInput(freshLatex);
-    }
-
     console.info(
-      `[LiveEdit] Conflict resolved: formulaId=${this._formulaId} rev=${this._revision} latex=${freshLatex?.slice(0, 50)}`,
+      `[LiveEdit] Conflict resolved (keep-local): formulaId=${this._formulaId} rev=${this._revision}`,
     );
     return true;
+  }
+
+  /**
+   * The current conflict data, if any.
+   * @type {{ localLatex: string, remoteFormula: object, remoteLatex: string } | null}
+   */
+  get conflict() {
+    return this._conflict;
   }
 
   /**

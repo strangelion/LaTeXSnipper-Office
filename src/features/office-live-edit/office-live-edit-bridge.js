@@ -30,6 +30,7 @@ export class OfficeLiveEditBridge {
     this.preview = null;
     this.svgRenderer = new FormulaSvgRenderer();
     this._active = false;
+    this._conflict = null;
   }
 
   /**
@@ -98,9 +99,13 @@ export class OfficeLiveEditBridge {
         try {
           const fresh = await this.controller?.reReadFormula();
           if (fresh?.formula?.latex) {
-            const ok = this.controller?.retryAfterConflict(fresh);
-            if (ok) {
-              this._toast("已加载 Office 最新版本，请检查后重新保存", "info");
+            const conflict = this.controller?.retryAfterConflict(fresh);
+            if (conflict) {
+              this._conflict = conflict;
+              this._toast(
+                "Office 版本已加载。请选择：重新加载 Office 版本 或 保留你的修改后重试",
+                "warning",
+              );
             } else {
               this._toast("公式重读成功但内容无效，请关闭后重试", "error");
             }
@@ -203,6 +208,40 @@ export class OfficeLiveEditBridge {
     this._toast("编辑已取消", "info");
     this.controller = null;
     this.preview = null;
+  }
+
+  /**
+   * Resolve a pending conflict with an explicit user action.
+   *
+   * Call this after the user chooses how to handle the conflict.
+   *
+   * @param {"reload-remote"|"keep-local"} action
+   * @returns {boolean}
+   */
+  resolveConflict(action) {
+    if (!this.controller || !this._conflict) {
+      console.warn("[LiveEditBridge] resolveConflict: no pending conflict");
+      return false;
+    }
+    const ok = this.controller.resolveConflict(action);
+    if (ok) {
+      this._conflict = null;
+      this._showCommitStatus("ready");
+      if (action === "reload-remote") {
+        this._toast("已加载 Office 版本，请检查后重新保存", "info");
+      } else {
+        this._toast("已保留你的修改，点击保存以覆盖 Office 版本", "warning");
+      }
+    }
+    return ok;
+  }
+
+  /**
+   * Current conflict data, if any.
+   * @type {{ localLatex: string, remoteLatex: string } | null}
+   */
+  get conflict() {
+    return this._conflict || null;
   }
 
   get isActive() {
