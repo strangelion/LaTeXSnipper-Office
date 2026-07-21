@@ -132,34 +132,6 @@ export class OfficeCommitController {
     }
   }
 
-  /**
-   * Re-read the formula from the host after a conflict.
-   * Sends READ_FORMULA and waits for FormulaSnapshot.
-   *
-   * @returns {Promise<object|null>} Formula payload with updated revision
-   */
-  async reReadFormula(sessionId, formulaId, expectedDocumentId) {
-    try {
-      // Generate request ID
-      const requestId = `read-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-      // Send READ_FORMULA — result comes via native-office-formula-snapshot event
-      await this.invokeTauri("native_office_read_formula_by_id", {
-        sessionId,
-        formulaId,
-        expectedDocumentId: expectedDocumentId || null,
-      });
-
-      // Note: The actual FormulaSnapshot arrives asynchronously via Tauri events.
-      // The caller should listen for native-office-formula-snapshot and correlate
-      // by formulaId. For now, return a marker that re-read was initiated.
-      return { requestId, formulaId, pending: true };
-    } catch (err) {
-      console.error("[CommitController] reReadFormula error:", err);
-      return null;
-    }
-  }
-
   get isCommitting() {
     return this._committing;
   }

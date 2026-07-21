@@ -36,8 +36,6 @@ const { OfficeRenderScheduler } =
   await import("../src/features/office-live-edit/office-render-scheduler.js");
 const { OfficeEditStateMachine, EditState } =
   await import("../src/features/office-live-edit/office-edit-state.js");
-const { OfficeCommitController } =
-  await import("../src/features/office-live-edit/office-commit-controller.js");
 
 // ═══════════════════════════════════════════
 // State Machine Tests
@@ -177,90 +175,6 @@ console.log("--- Render Scheduler Tests ---");
 
   scheduler.dispose();
   console.log("PASS: flush() triggers immediate render");
-}
-
-// ═══════════════════════════════════════════
-// Commit Controller Tests
-// ═══════════════════════════════════════════
-
-console.log("--- Commit Controller Tests ---");
-
-// Test: requestId -> transactionId correlation
-{
-  let successResult = null;
-  const ctrl = new OfficeCommitController({
-    invokeTauri: mockInvoke,
-    onCommitSuccess: (r) => {
-      successResult = r;
-    },
-    onCommitFailure: () => {},
-    onConflict: () => {},
-  });
-
-  // Register a pending commit
-  ctrl._pendingCommits.set("req-123", {
-    transactionId: "tx-456",
-    formulaId: "f-789",
-    sessionId: "s-1",
-    timestamp: Date.now(),
-  });
-
-  // Simulate host result
-  const result = await ctrl.handleReplaceResult({
-    requestId: "req-123",
-    success: true,
-    formulaId: "f-789",
-    revision: 2,
-    actualStorageMode: "native-omml",
-    errorCode: null,
-    error: null,
-  });
-
-  console.assert(result.handled === true, "Should handle result");
-  console.assert(result.success === true, "Should be success");
-  console.assert(successResult !== null, "Should call onCommitSuccess");
-  console.assert(successResult.revision === 2, "Should pass revision");
-  console.assert(
-    !ctrl._pendingCommits.has("req-123"),
-    "Should remove pending commit",
-  );
-
-  console.log("PASS: requestId -> transactionId correlation");
-}
-
-// Test: OFFICE_TARGET_CHANGED triggers conflict
-{
-  let conflictResult = null;
-  const ctrl = new OfficeCommitController({
-    invokeTauri: mockInvoke,
-    onCommitSuccess: () => {},
-    onCommitFailure: () => {},
-    onConflict: (r) => {
-      conflictResult = r;
-    },
-  });
-
-  ctrl._pendingCommits.set("req-999", {
-    transactionId: "tx-888",
-    formulaId: "f-777",
-    sessionId: "s-1",
-    timestamp: Date.now(),
-  });
-
-  const result = await ctrl.handleReplaceResult({
-    requestId: "req-999",
-    success: false,
-    formulaId: "f-777",
-    revision: null,
-    actualStorageMode: null,
-    errorCode: "OFFICE_TARGET_CHANGED",
-    error: "Formula was modified",
-  });
-
-  console.assert(result.conflict === true, "Should detect conflict");
-  console.assert(conflictResult !== null, "Should call onConflict");
-
-  console.log("PASS: OFFICE_TARGET_CHANGED triggers conflict");
 }
 
 // ═══════════════════════════════════════════

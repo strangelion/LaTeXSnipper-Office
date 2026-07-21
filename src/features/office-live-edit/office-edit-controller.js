@@ -95,21 +95,13 @@ export class OfficeEditController {
       },
     });
 
+    // Callback hooks (owned by OfficeEditController, not passed to data layer)
+    this._onCommitSuccess = options.onCommitSuccess || null;
+    this._onCommitFailure = options.onCommitFailure || null;
+    this._onConflict = options.onConflict || null;
+
     this.commitCtrl = new OfficeCommitController({
       invokeTauri: this.invokeTauri,
-      onCommitSuccess: (result) => {
-        this.state.transition(EditState.COMMITTED);
-        options.onCommitSuccess?.(result);
-        this._cleanup();
-      },
-      onCommitFailure: (result) => {
-        this.state.transition(EditState.FAILED);
-        options.onCommitFailure?.(result);
-      },
-      onConflict: (result) => {
-        this.state.transition(EditState.CONFLICT);
-        options.onConflict?.(result);
-      },
     });
 
     this.events = new OfficeEditEvents({
@@ -117,7 +109,6 @@ export class OfficeEditController {
       handlers: {
         onFormulaLoaded: (payload) => this._handleFormulaLoaded(payload),
         onFormulaSnapshot: (payload) => this._handleFormulaSnapshot(payload),
-        onReplaceResult: (payload) => this._handleReplaceResult(payload),
         onOpenEditor: (payload) => this._handleOpenEditor(payload),
         onError: (payload) => this._handleError(payload),
         onContextChanged: (payload) => this._handleContextChanged(payload),
@@ -139,6 +130,9 @@ export class OfficeEditController {
 
     // SVG renderer for preview (optional, FormulaSvgRenderer instance)
     this._svgRenderer = options.svgRenderer || null;
+
+    // Pending reads: requestId -> { resolve, reject, timeout }
+    this._pendingReads = new Map();
 
     // Latest preview data (OMML + SVG) for commit
     this._lastPreview = null;
@@ -283,6 +277,19 @@ export class OfficeEditController {
         finalRenderData,
       );
 
+      // Transition to committing before calling the host
+      if (!this.state.transition(EditState.COMMITTING)) {
+        console.warn(
+          "[LiveEdit] Cannot transition to COMMITTING from",
+          this.state.state,
+        );
+        return {
+          success: false,
+          errorCode: "STATE_ERROR",
+          error: "Invalid state transition",
+        };
+      }
+
       // Commit — this awaits the real host result via RequestWaiter
       const result = await this.commitCtrl.commit(
         this._transactionId,
@@ -299,10 +306,14 @@ export class OfficeEditController {
 
       if (result.success) {
         this.state.transition(EditState.COMMITTED);
+        this._onCommitSuccess?.(result);
+        this._cleanup();
       } else if (result.errorCode === "OFFICE_TARGET_CHANGED") {
         this.state.transition(EditState.CONFLICT, result);
+        this._onConflict?.(result);
       } else {
         this.state.transition(EditState.FAILED, result);
+        this._onCommitFailure?.(result);
       }
       return result;
     } catch (err) {
@@ -345,25 +356,58 @@ export class OfficeEditController {
    */
   async reReadFormula() {
     if (!this._sessionId || !this._formulaId) return null;
-    return this.commitCtrl.reReadFormula(
-      this._sessionId,
-      this._formulaId,
-      this._documentId,
-    );
+
+    try {
+      // Send read command and get actual requestId from Rust
+      const response = await this.invokeTauri(
+        "native_office_read_formula_by_id",
+        {
+          sessionId: this._sessionId,
+          formulaId: this._formulaId,
+          expectedDocumentId: this._documentId || null,
+        },
+      );
+
+      const actualRequestId = response?.requestId;
+      if (!actualRequestId) {
+        console.warn("[LiveEdit] reReadFormula - no requestId from Rust");
+        return null;
+      }
+
+      // Wait for FormulaSnapshot event to arrive via event listener
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          this._pendingReads.delete(actualRequestId);
+          reject(new Error("FormulaSnapshot timeout"));
+        }, 10000);
+
+        this._pendingReads.set(actualRequestId, {
+          resolve,
+          reject,
+          timeout,
+        });
+      });
+    } catch (err) {
+      console.error("[LiveEdit] reReadFormula error:", err);
+      return null;
+    }
   }
 
   /**
    * Retry a failed commit after conflict resolution.
-   * Re-reads the formula, updates revision, and allows a new commit attempt.
+   * Updates formula revision/storageMode from re-read payload, then resets state.
    *
-   * @param {object} freshFormula - Updated formula payload from re-read
+   * @param {object} freshPayload - FormulaSnapshot payload from reReadFormula
    */
-  retryAfterConflict(freshFormula) {
-    if (!freshFormula) return;
+  retryAfterConflict(freshPayload) {
+    if (!freshPayload) return;
 
-    this._formulaId = freshFormula.formulaId || this._formulaId;
-    this._revision = freshFormula.revision ?? this._revision;
-    this._storageMode = freshFormula.storageMode || this._storageMode;
+    // Handle both { formula: {...}, requestId } wrapper and direct formula payload
+    const formula = freshPayload.formula || freshPayload;
+
+    this._formulaId = formula.formulaId || this._formulaId;
+    this._revision = formula.revision ?? this._revision;
+    this._storageMode = formula.storageMode || this._storageMode;
 
     // Reset state to ready so a new commit can be attempted
     if (this.state.state === EditState.CONFLICT) {
@@ -381,6 +425,13 @@ export class OfficeEditController {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+
+    // Reject all pending reads so callers don't hang
+    for (const [requestId, pending] of this._pendingReads) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error("Controller disposed"));
+    }
+    this._pendingReads.clear();
 
     this.scheduler.dispose();
     this.commitCtrl.dispose();
@@ -472,15 +523,18 @@ export class OfficeEditController {
 
   _handleFormulaSnapshot(payload) {
     if (payload.requestId) {
-      // Correlate with pending read
-      console.debug("[LiveEdit] Formula snapshot received:", payload);
+      const pending = this._pendingReads.get(payload.requestId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        this._pendingReads.delete(payload.requestId);
+        pending.resolve(payload);
+      } else {
+        console.debug(
+          "[LiveEdit] Formula snapshot received (no pending read):",
+          payload,
+        );
+      }
     }
-  }
-
-  _handleReplaceResult(payload) {
-    this.commitCtrl.handleReplaceResult(payload).catch((err) => {
-      console.error("[LiveEdit] handleReplaceResult error:", err);
-    });
   }
 
   _handleOpenEditor(payload) {
