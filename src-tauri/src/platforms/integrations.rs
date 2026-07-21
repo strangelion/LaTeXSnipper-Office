@@ -4143,7 +4143,24 @@ fn write_wps_publish(enabled: bool) -> Result<HashSet<String>, String> {
     } else {
         String::new()
     };
-    let updated = transform_wps_publish(&current, enabled)?;
+    let updated = match transform_wps_publish(&current, enabled) {
+        Ok(result) => result,
+        Err(parse_error) => {
+            // Backup the broken file and rebuild from scratch.
+            log::warn!("[WPS] publish.xml is corrupted, backing up and rebuilding: {parse_error}");
+            let backup = path.with_extension(format!("xml.bak-{}", generate_install_id()));
+            if let Err(e) = fs::write(&backup, &current) {
+                log::error!("[WPS] Failed to write publish.xml backup: {e}");
+            } else {
+                log::info!(
+                    "[WPS] Corrupted publish.xml backed up to {}",
+                    backup.display()
+                );
+            }
+            let fresh = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><jsplugins></jsplugins>";
+            transform_wps_publish(fresh, enabled)?
+        }
+    };
     validate_wps_publish(&updated, enabled)?;
     let temporary = path.with_extension(format!("tmp-{}", generate_install_id()));
     fs::write(&temporary, updated.as_bytes()).map_err(|error| error.to_string())?;
