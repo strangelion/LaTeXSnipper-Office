@@ -616,19 +616,26 @@ fn find_msi_package() -> Result<PathBuf, String> {
     Err("LaTeXSnipper.NativeOffice.msi not found in any expected location".to_string())
 }
 
-/// Run MSI install synchronously (with timeout).
+/// Run MSI install synchronously (with verbose logging).
+///
+/// MSI exit codes 0 (success) and 3010 / 1641 (success, reboot required)
+/// are treated as success. Any other exit code is a failure and the verbose
+/// log path is included in the error message for diagnostics.
 #[cfg(target_os = "windows")]
 fn run_msi_install(msi_path: &Path) -> PlatformIntegrationResult {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    let log_path = std::env::temp_dir().join("LaTeXSnipper-NativeOffice-install.log");
+
     let result = std::process::Command::new("msiexec.exe")
         .args([
             "/i",
             &msi_path.to_string_lossy(),
-            "/quiet",
+            "/qn",
             "/norestart",
-            "ALLUSERS=0",
+            "/L*V",
+            &log_path.to_string_lossy(),
         ])
         .creation_flags(CREATE_NO_WINDOW)
         .stdout(std::process::Stdio::piped())
@@ -636,23 +643,42 @@ fn run_msi_install(msi_path: &Path) -> PlatformIntegrationResult {
         .output();
 
     match result {
-        Ok(output) if output.status.success() => {
-            log::info!("[Office] MSI install succeeded");
-            PlatformIntegrationResult::ok(
-                "office",
-                "native-stack",
-                "MSI install completed successfully.",
-                true,
-            )
-        }
         Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            log::error!("[Office] MSI install failed: {}", stderr);
-            PlatformIntegrationResult::fail(
-                "office",
-                "native-stack",
-                format!("MSI install failed: {}", stderr.trim()),
-            )
+            let code = output.status.code().unwrap_or(-1);
+            match code {
+                0 => {
+                    log::info!("[Office] MSI install succeeded (exit 0)");
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-stack",
+                        "Native Office installed successfully.",
+                        false,
+                    )
+                }
+                1641 | 3010 => {
+                    log::info!("[Office] MSI install succeeded with reboot hint (exit {code})");
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-stack",
+                        "Native Office installed successfully. A restart is required.",
+                        true,
+                    )
+                }
+                code => {
+                    log::error!(
+                        "[Office] MSI install failed (exit {code}). Log: {}",
+                        log_path.display()
+                    );
+                    PlatformIntegrationResult::fail(
+                        "office",
+                        "native-stack",
+                        format!(
+                            "MSI installation failed with exit code {code}. Log: {}",
+                            log_path.display()
+                        ),
+                    )
+                }
+            }
         }
         Err(e) => {
             log::error!("[Office] Failed to start MSI installer: {}", e);
@@ -3218,31 +3244,69 @@ fn run_msi_uninstall(msi_path: &Path) -> PlatformIntegrationResult {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+    let log_path = std::env::temp_dir().join("LaTeXSnipper-NativeOffice-uninstall.log");
+
     let result = std::process::Command::new("msiexec.exe")
-        .args(["/x", &msi_path.to_string_lossy(), "/quiet", "/norestart"])
+        .args([
+            "/x",
+            &msi_path.to_string_lossy(),
+            "/qn",
+            "/norestart",
+            "/L*V",
+            &log_path.to_string_lossy(),
+        ])
         .creation_flags(CREATE_NO_WINDOW)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output();
 
     match result {
-        Ok(output) if output.status.success() => {
-            log::info!("[Office] MSI uninstall succeeded");
-            PlatformIntegrationResult::ok(
-                "office",
-                "native-vsto",
-                "MSI uninstall completed successfully. Restart Office to finish.",
-                true,
-            )
-        }
         Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            log::error!("[Office] MSI uninstall failed: {}", stderr);
-            PlatformIntegrationResult::fail(
-                "office",
-                "native-vsto",
-                format!("MSI uninstall failed: {}", stderr.trim()),
-            )
+            let code = output.status.code().unwrap_or(-1);
+            match code {
+                0 => {
+                    log::info!("[Office] MSI uninstall succeeded (exit 0)");
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-vsto",
+                        "MSI uninstall completed successfully. Restart Office to finish.",
+                        true,
+                    )
+                }
+                1641 | 3010 => {
+                    log::info!("[Office] MSI uninstall succeeded with reboot hint (exit {code})");
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-vsto",
+                        "MSI uninstall completed successfully. A restart is required.",
+                        true,
+                    )
+                }
+                1605 => {
+                    // Product not installed — treat as success
+                    log::info!("[Office] MSI uninstall: product not installed (exit 1605)");
+                    PlatformIntegrationResult::ok(
+                        "office",
+                        "native-vsto",
+                        "MSI product was not installed.",
+                        false,
+                    )
+                }
+                code => {
+                    log::error!(
+                        "[Office] MSI uninstall failed (exit {code}). Log: {}",
+                        log_path.display()
+                    );
+                    PlatformIntegrationResult::fail(
+                        "office",
+                        "native-vsto",
+                        format!(
+                            "MSI uninstall failed with exit code {code}. Log: {}",
+                            log_path.display()
+                        ),
+                    )
+                }
+            }
         }
         Err(e) => {
             log::error!("[Office] Failed to start MSI uninstaller: {}", e);
