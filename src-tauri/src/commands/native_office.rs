@@ -901,6 +901,289 @@ impl std::str::FromStr for FormulaIntegrationMode {
     }
 }
 
+/// AI → Word full content orchestrator: generate structured content via AI
+/// and insert as a complete conversation into Word.
+///
+/// Pipeline:
+///   1. User prompt → AI API (structured JSON output)
+///   2. AI response → parse into WordImportPlan operations
+///   3. LaTeX formulas in operations → OMML conversion
+///   4. WordImportPlan → IMPORT_CONVERSATION to Word
+///
+/// Supports: headings, paragraphs, inline/display formulas, tables, lists.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn native_office_generate_and_import(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    conversation_store: State<'_, Arc<crate::platforms::conversation_import::ConversationImportStore>>,
+    session_id: String,
+    prompt: String,
+    ai_endpoint: Option<String>,
+    ai_api_key: Option<String>,
+    ai_model: Option<String>,
+) -> Result<GenerateImportResult, String> {
+    let endpoint = ai_endpoint.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+    let api_key = ai_api_key.ok_or("AI API key is required")?;
+    let model = ai_model.unwrap_or_else(|| "gpt-4o".to_string());
+
+    // Step 1: Call AI with structured output prompt
+    log::info!(
+        "[AI→Word] Generating content via AI (model={}, prompt={})",
+        model,
+        &prompt.chars().take(60).collect::<String>()
+    );
+    let content_json = call_ai_for_content(&endpoint, &api_key, &model, &prompt).await?;
+
+    // Step 2: Parse AI response into WordImportPlan operations
+    let operations = parse_ai_content_to_operations(&content_json)?;
+
+    log::info!(
+        "[AI→Word] Parsed {} operations from AI response",
+        operations.len()
+    );
+
+    // Step 3: Convert any LaTeX in operations to OMML
+    let mut converted_ops = Vec::new();
+    for mut op in operations {
+        if op.kind == "formula" || op.kind == "displayFormula" {
+            if let Some(ref latex) = op.text {
+                let latex_clone = latex.clone();
+                if let Some(omml) = tokio::task::spawn_blocking(move || {
+                    latexsnipper_conversion::DocumentConverter::convert_latex_string(
+                        &latex_clone,
+                        latexsnipper_conversion::OutputFormat::OMML,
+                    )
+                    .ok()
+                })
+                .await
+                .unwrap_or(None)
+                {
+                    op.omml = Some(omml);
+                    op.display = Some(op.kind == "displayFormula");
+                }
+            }
+        }
+        converted_ops.push(op);
+    }
+
+    // Step 4: Build WordImportPlan and send via IMPORT_CONVERSATION
+    let plan_id = format!("ai-{}", uuid_simple());
+    let import_id = format!("import-{}", uuid_simple());
+    let plan = crate::platforms::conversation_import::WordImportPlan {
+        plan_id: plan_id.clone(),
+        import_id: import_id.clone(),
+        operations: converted_ops.iter()
+            .map(|op| crate::platforms::conversation_import::WordImportOperation {
+                kind: op.kind.clone(),
+                text: op.text.clone(),
+                level: op.level,
+                ordered: op.ordered,
+                rows: op.rows.clone(),
+                omml: op.omml.clone(),
+                display: op.display,
+                style: op.style.clone(),
+            })
+            .collect(),
+        diagnostics: Vec::new(),
+        can_commit: true,
+        checksum: String::new(),
+    };
+
+    // Store the plan for later commit
+    let session = session_mgr.list_sessions().await
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+        .ok_or("Session not found")?;
+
+    let document_id = session.document_id.clone().unwrap_or_default();
+
+    // Send IMPORT_CONVERSATION to Word
+    let msg = DesktopMessage::ImportConversation {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.clone(),
+        expectedContextId: document_id,
+        plan,
+    };
+
+    session_mgr.send_to_session(&session_id, msg)
+        .await
+        .map_err(|e| format!("Failed to send import conversation: {}", e))?;
+
+    log::info!(
+        "[AI→Word] IMPORT_CONVERSATION sent with {} operations",
+        converted_ops.len()
+    );
+
+    Ok(GenerateImportResult {
+        plan_id,
+        import_id,
+        operation_count: converted_ops.len(),
+    })
+}
+
+/// Result of a generate-and-import operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateImportResult {
+    pub plan_id: String,
+    pub import_id: String,
+    pub operation_count: usize,
+}
+
+/// A single operation in the AI-generated content plan.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AiContentOperation {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordered: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Vec<Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub omml: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+}
+
+/// Call AI to generate structured content as JSON operations.
+async fn call_ai_for_content(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let system_prompt = r#"You are a document content generator. Given a natural language request, output a JSON array of operations that will be inserted into a Word document.
+
+Each operation is an object with these fields:
+- "kind": one of "heading", "paragraph", "formula", "displayFormula", "table", "list", "code"
+- "text": the text content (for heading, paragraph, code) or LaTeX formula (for formula/displayFormula)
+- "level": heading level 1-6 (for heading)
+- "ordered": true for numbered list, false for bullet list (for list)
+- "rows": array of arrays of strings (for table)
+- "display": true for display math, false for inline (for formula/displayFormula)
+- "style": optional style hint like "bold", "italic", "code"
+
+Rules:
+- Output ONLY the JSON array, no markdown, no explanation
+- Use LaTeX for math formulas (e.g., "\\frac{a}{b}", "x^2")
+- Tables should have consistent column counts
+- Headings should form a logical document structure
+- Keep content concise and well-structured
+
+Example output:
+[
+  {"kind": "heading", "text": "Quadratic Formula", "level": 2},
+  {"kind": "paragraph", "text": "The quadratic formula solves ax² + bx + c = 0:"},
+  {"kind": "displayFormula", "text": "\\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}"},
+  {"kind": "paragraph", "text": "Where a, b, and c are coefficients."}
+]"#;
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048,
+        "response_format": {"type": "json_object"},
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("HTTP client creation failed: {}", e))?;
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("AI API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("AI API error ({}): {}", status, text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("AI API response parse failed: {}", e))?;
+
+    let content = data["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("AI response missing content")?
+        .trim()
+        .to_string();
+
+    log::info!(
+        "[AI→Word] AI content response: {}",
+        &content.chars().take(100).collect::<String>()
+    );
+    Ok(content)
+}
+
+/// Parse AI JSON response into WordImportPlan operations.
+fn parse_ai_content_to_operations(json_str: &str) -> Result<Vec<AiContentOperation>, String> {
+    // Try to parse as JSON array directly
+    let cleaned = json_str.trim();
+
+    // Handle markdown code blocks
+    let json_str = if cleaned.starts_with("```json") {
+        cleaned[7..].trim_end_matches("```").trim()
+    } else if cleaned.starts_with("```") {
+        cleaned[3..].trim_end_matches("```").trim()
+    } else {
+        cleaned
+    };
+
+    let operations: Vec<AiContentOperation> = serde_json::from_str(json_str)
+        .map_err(|e| format!("Failed to parse AI response as JSON operations: {}", e))?;
+
+    if operations.is_empty() {
+        return Err("AI returned empty operations array".to_string());
+    }
+
+    Ok(operations)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_latex_removes_code_blocks() {
+        let input = "```latex\n\\frac{a}{b}\n```";
+        assert_eq!(clean_ai_latex_response(input), "\\frac{a}{b}");
+    }
+
+    #[test]
+    fn clean_latex_removes_dollar_delimiters() {
+        let input = "$$\\frac{a}{b}$$";
+        assert_eq!(clean_ai_latex_response(input), "\\frac{a}{b}");
+    }
+
+    #[test]
+    fn parse_ai_content_basic() {
+        let json = r#"[{"kind": "heading", "text": "Title", "level": 1}]"#;
+        let ops = parse_ai_content_to_operations(json).unwrap();
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].kind, "heading");
+    }
+}
+
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

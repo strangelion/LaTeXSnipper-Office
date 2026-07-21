@@ -301,6 +301,8 @@ fn main() {
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_generate_and_insert,
             #[cfg(target_os = "windows")]
+            commands::native_office::native_office_generate_and_import,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_install,
