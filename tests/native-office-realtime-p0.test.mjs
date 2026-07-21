@@ -68,12 +68,12 @@ test("Native Office replacement preserves result correlation and concurrency dat
   assert.match(pipeServer, /expected_context_id: Option<String>/);
   assert.match(pipeServer, /expectedContextId: expected_context_id/);
   assert.match(command, /expected_document_id: Option<String>/);
-  assert.match(command, /Ok\(request_id\)/);
+  assert.match(command, /Ok\(ReplaceResult/);
   assert.match(
     frontend,
     /expectedDocumentId: officeTransaction\.sourceDocumentId \|\| null/,
   );
-  assert.match(frontend, /commitRequestId = requestId/);
+  assert.match(frontend, /replaceResult\.success/);
 });
 
 test("Native Office selection loads a complete formula payload", () => {
