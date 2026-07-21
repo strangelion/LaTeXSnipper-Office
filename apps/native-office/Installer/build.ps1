@@ -642,6 +642,53 @@ Write-Host "  Restoring WiX IIS extension for certificate deployment..." -Foregr
 & $WixPath extension add -g $iisExtension 2>$null
 if ($LASTEXITCODE -ne 0) { throw "WiX IIS extension install failed" }
 
+# Generate HostComponents.wxi from staging directories so every DLL that
+# appears in a .dll.manifest dependencyType="install" entry is included.
+$hostComponentsPath = Join-Path $wixSrc "HostComponents.wxi"
+$hostComponentsXml = New-Object System.Text.StringBuilder
+[void]$hostComponentsXml.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+[void]$hostComponentsXml.AppendLine('<Include>')
+
+$hostDirs = @{
+    Shared = @{ Dir = $sharedDst; ComponentGuid = "A1B2C3D4-1111-2222-3333-444455556666" }
+    Word = @{ Dir = "$stagingAbs\Word"; ComponentGuid = "B2C3D4E5-2222-3333-4444-555566667777" }
+    Excel = @{ Dir = "$stagingAbs\Excel"; ComponentGuid = "C3D4E5F6-3333-4444-5555-666677778888" }
+    PowerPoint = @{ Dir = "$stagingAbs\PowerPoint"; ComponentGuid = "D4E5F6A7-4444-5555-6666-777788889999" }
+    Visio = @{ Dir = "$stagingAbs\Visio"; ComponentGuid = "0A7ADDD0-AC39-4D56-B5A1-56A294D15D4F" }
+}
+
+foreach ($entry in $hostDirs.GetEnumerator()) {
+    $hostName = $entry.Key
+    $hostDir = $entry.Value.Dir
+    $guid = $entry.Value.ComponentGuid
+
+    if (-not (Test-Path -LiteralPath $hostDir -PathType Container)) {
+        Write-Warning "  Staging directory not found: $hostDir"
+        continue
+    }
+
+    $files = Get-ChildItem -LiteralPath $hostDir -File |
+        Where-Object { $_.Extension -ne '.pdb' } |
+        Sort-Object Name
+
+    if ($files.Count -eq 0) {
+        Write-Warning "  No files in staging directory: $hostDir"
+        continue
+    }
+
+    [void]$hostComponentsXml.AppendLine("  <ComponentGroup Id=`"${hostName}Files`" Directory=`"${hostName}Dir`">")
+    foreach ($file in $files) {
+        $sourcePath = $file.FullName
+        $fileName = $file.Name
+        [void]$hostComponentsXml.AppendLine("    <File Source=`"$sourcePath`" />")
+    }
+    [void]$hostComponentsXml.AppendLine("  </ComponentGroup>")
+    Write-Host "  ${hostName}: $($files.Count) files harvested" -ForegroundColor Gray
+}
+
+[void]$hostComponentsXml.AppendLine('</Include>')
+$hostComponentsXml.ToString() | Set-Content -LiteralPath $hostComponentsPath -Encoding UTF8
+
 # Set WiX variables (absolute paths — WiX resolves relative to .wxs file, not CWD)
 $env:SharedBinDir = $sharedDst
 $env:WordBinDir = $stagingAbs + "\Word"

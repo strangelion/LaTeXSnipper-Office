@@ -188,7 +188,7 @@ test("Visio payload is staged, installed, verified, and excluded off Windows", (
   const packageVerifier = read("scripts", "verify-package-contents.ps1");
   const manifestVerifier = read("scripts", "verify-vsto-manifests.ps1");
   const nonWindowsVerifier = read("scripts", "verify-package-contents.ps1");
-  assert.match(installer, /VisioComponent/);
+  assert.match(installer, /VisioRegistration|VisioFiles/);
   assert.match(
     installer,
     /Office\\Visio\\Addins\\LaTeXSnipper\.NativeOffice\.Visio/,
