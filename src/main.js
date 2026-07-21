@@ -827,7 +827,11 @@ class SettingsManager {
     this.settings[key] = value;
     this.save();
     // Never log sensitive fields (API keys, tokens, etc.)
-    if (!key.toLowerCase().includes("key") && !key.toLowerCase().includes("secret") && !key.toLowerCase().includes("token")) {
+    if (
+      !key.toLowerCase().includes("key") &&
+      !key.toLowerCase().includes("secret") &&
+      !key.toLowerCase().includes("token")
+    ) {
       Logger.debug(`Setting ${key} = ${value}`);
     }
   }

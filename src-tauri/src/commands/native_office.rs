@@ -896,7 +896,10 @@ async fn call_ai_for_formula(
     // Clean up the response: remove markdown code blocks, $$ delimiters, etc.
     let latex = clean_ai_latex_response(&content);
 
-    log::info!("[AI→Office] AI response: {}", &latex.chars().take(80).collect::<String>());
+    log::info!(
+        "[AI→Office] AI response: {}",
+        &latex.chars().take(80).collect::<String>()
+    );
     Ok(latex)
 }
 
@@ -953,7 +956,10 @@ impl std::str::FromStr for FormulaIntegrationMode {
 #[allow(clippy::too_many_arguments)]
 pub async fn native_office_generate_and_import(
     session_mgr: State<'_, Arc<SessionManager>>,
-    _conversation_store: State<'_, Arc<crate::platforms::conversation_import::ConversationImportStore>>,
+    _conversation_store: State<
+        '_,
+        Arc<crate::platforms::conversation_import::ConversationImportStore>,
+    >,
     session_id: String,
     prompt: String,
     ai_endpoint: Option<String>,
@@ -976,42 +982,48 @@ pub async fn native_office_generate_and_import(
     let raw_operations = parse_ai_content_to_operations(&content_json)?;
 
     // Map AI operation kinds to Word importer kinds
-    let operations: Vec<AiContentOperation> = raw_operations.into_iter().map(|op| {
-        let kind = match op.kind.as_str() {
-            "heading" => "heading".to_string(),
-            "paragraph" => "paragraph".to_string(),
-            "formula" | "displayFormula" => "formula".to_string(),
-            "table" => "table".to_string(),
-            "list" => "list-item".to_string(),
-            "code" => "code".to_string(),
-            other => {
-                log::warn!("[AI→Word] Unknown operation kind '{}', mapping to paragraph", other);
-                "paragraph".to_string()
-            }
-        };
+    let operations: Vec<AiContentOperation> = raw_operations
+        .into_iter()
+        .map(|op| {
+            let kind = match op.kind.as_str() {
+                "heading" => "heading".to_string(),
+                "paragraph" => "paragraph".to_string(),
+                "formula" | "displayFormula" => "formula".to_string(),
+                "table" => "table".to_string(),
+                "list" => "list-item".to_string(),
+                "code" => "code".to_string(),
+                other => {
+                    log::warn!(
+                        "[AI→Word] Unknown operation kind '{}', mapping to paragraph",
+                        other
+                    );
+                    "paragraph".to_string()
+                }
+            };
 
-        // Map heading level to proper style name if not provided
-        let style = op.style.clone().or_else(|| {
-            if kind == "heading" {
-                op.level.map(|l| format!("LaTeXSnipper Heading {}", l))
-            } else if kind == "code" {
-                Some("LaTeXSnipper Code Block".to_string())
-            } else {
-                None
-            }
-        });
+            // Map heading level to proper style name if not provided
+            let style = op.style.clone().or_else(|| {
+                if kind == "heading" {
+                    op.level.map(|l| format!("LaTeXSnipper Heading {}", l))
+                } else if kind == "code" {
+                    Some("LaTeXSnipper Code Block".to_string())
+                } else {
+                    None
+                }
+            });
 
-        AiContentOperation {
-            kind,
-            text: op.text,
-            level: op.level,
-            ordered: op.ordered,
-            rows: op.rows,
-            omml: op.omml,
-            display: op.display,
-            style,
-        }
-    }).collect();
+            AiContentOperation {
+                kind,
+                text: op.text,
+                level: op.level,
+                ordered: op.ordered,
+                rows: op.rows,
+                omml: op.omml,
+                display: op.display,
+                style,
+            }
+        })
+        .collect();
 
     log::info!(
         "[AI→Word] Parsed {} operations from AI response",
@@ -1048,17 +1060,20 @@ pub async fn native_office_generate_and_import(
     let plan = crate::platforms::conversation_import::WordImportPlan {
         plan_id: plan_id.clone(),
         import_id: import_id.clone(),
-        operations: converted_ops.iter()
-            .map(|op| crate::platforms::conversation_import::WordImportOperation {
-                kind: op.kind.clone(),
-                text: op.text.clone(),
-                level: op.level,
-                ordered: op.ordered,
-                rows: op.rows.clone(),
-                omml: op.omml.clone(),
-                display: op.display,
-                style: op.style.clone(),
-            })
+        operations: converted_ops
+            .iter()
+            .map(
+                |op| crate::platforms::conversation_import::WordImportOperation {
+                    kind: op.kind.clone(),
+                    text: op.text.clone(),
+                    level: op.level,
+                    ordered: op.ordered,
+                    rows: op.rows.clone(),
+                    omml: op.omml.clone(),
+                    display: op.display,
+                    style: op.style.clone(),
+                },
+            )
             .collect(),
         diagnostics: Vec::new(),
         can_commit: true,
@@ -1066,7 +1081,9 @@ pub async fn native_office_generate_and_import(
     };
 
     // Store the plan for later commit
-    let session = session_mgr.list_sessions().await
+    let session = session_mgr
+        .list_sessions()
+        .await
         .into_iter()
         .find(|s| s.session_id == session_id)
         .ok_or("Session not found")?;
@@ -1081,7 +1098,8 @@ pub async fn native_office_generate_and_import(
         plan,
     };
 
-    session_mgr.send_to_session(&session_id, msg)
+    session_mgr
+        .send_to_session(&session_id, msg)
         .await
         .map_err(|e| format!("Failed to send import conversation: {}", e))?;
 
