@@ -647,7 +647,8 @@ if ($LASTEXITCODE -ne 0) { throw "WiX IIS extension install failed" }
 $hostComponentsPath = Join-Path $wixSrc "HostComponents.wxi"
 $hostComponentsXml = New-Object System.Text.StringBuilder
 [void]$hostComponentsXml.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
-[void]$hostComponentsXml.AppendLine('<Include>')
+[void]$hostComponentsXml.AppendLine('<Include xmlns="http://wixtoolset.org/schemas/v4/wxs">')
+[void]$hostComponentsXml.AppendLine('  <Fragment>')
 
 $hostDirs = @{
     Shared = @{ Dir = $sharedDst; ComponentGuid = "A1B2C3D4-1111-2222-3333-444455556666" }
@@ -676,16 +677,17 @@ foreach ($entry in $hostDirs.GetEnumerator()) {
         continue
     }
 
-    [void]$hostComponentsXml.AppendLine("  <ComponentGroup Id=`"${hostName}Files`" Directory=`"${hostName}Dir`">")
+    [void]$hostComponentsXml.AppendLine("    <ComponentGroup Id=`"${hostName}Files`" Directory=`"${hostName}Dir`">")
     foreach ($file in $files) {
         $sourcePath = $file.FullName
         $fileName = $file.Name
-        [void]$hostComponentsXml.AppendLine("    <File Source=`"$sourcePath`" />")
+        [void]$hostComponentsXml.AppendLine("      <File Source=`"$sourcePath`" />")
     }
-    [void]$hostComponentsXml.AppendLine("  </ComponentGroup>")
+    [void]$hostComponentsXml.AppendLine("    </ComponentGroup>")
     Write-Host "  ${hostName}: $($files.Count) files harvested" -ForegroundColor Gray
 }
 
+[void]$hostComponentsXml.AppendLine('  </Fragment>')
 [void]$hostComponentsXml.AppendLine('</Include>')
 $hostComponentsXml.ToString() | Set-Content -LiteralPath $hostComponentsPath -Encoding UTF8
 
