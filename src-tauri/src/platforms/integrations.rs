@@ -5041,12 +5041,22 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         }
     }
 
-    // Check DLLs exist in resources
-    let x64_dll_found = find_ole_dll_path(ole_constants::DLL_NAME_X64).is_some();
-    let x86_dll_found = find_ole_dll_path(ole_constants::DLL_NAME_X86).is_some();
-
     // Check InprocServer32 path matches actual DLL (primary 64-bit view)
     let inproc_key = format!(r"{}\InprocServer32", clsid_key);
+
+    // Check DLLs exist at their registered InprocServer32 paths (the MSI install
+    // target), NOT in the application resources directory.
+    let x64_registry_path_val = query_registry_default_view(&inproc_key, RegistryView::X64);
+    let x86_registry_path_val = query_registry_default_view(&inproc_key, RegistryView::X86);
+    let x64_dll_found = x64_registry_path_val
+        .as_ref()
+        .map(|p| std::path::Path::new(p).exists())
+        .unwrap_or(false);
+    let x86_dll_found = x86_registry_path_val
+        .as_ref()
+        .map(|p| std::path::Path::new(p).exists())
+        .unwrap_or(false);
+
     let inproc_wide: Vec<u16> = OsStr::new(&inproc_key)
         .encode_wide()
         .chain(std::iter::once(0))
@@ -5153,21 +5163,11 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         }
     };
 
-    let x64_registry_path = query_registry_default_view(&inproc_key, RegistryView::X64);
-    let x86_registry_path = query_registry_default_view(&inproc_key, RegistryView::X86);
-    let x64_path_exists = x64_registry_path
-        .as_ref()
-        .map(|path| Path::new(path).is_file())
-        .unwrap_or(false);
-    let x86_path_exists = x86_registry_path
-        .as_ref()
-        .map(|path| Path::new(path).is_file())
-        .unwrap_or(false);
-    let x64_architecture_correct = x64_registry_path
+    let x64_architecture_correct = x64_registry_path_val
         .as_ref()
         .map(|path| read_pe_machine(Path::new(path)) == Some(0x8664))
         .unwrap_or(false);
-    let x86_architecture_correct = x86_registry_path
+    let x86_architecture_correct = x86_registry_path_val
         .as_ref()
         .map(|path| read_pe_machine(Path::new(path)) == Some(0x014c))
         .unwrap_or(false);
@@ -5222,12 +5222,12 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         bitness_mismatch: !matching_view_healthy,
         x64_registered: registry_64,
         x86_registered: registry_32,
-        x64_dll_exists: x64_path_exists,
-        x86_dll_exists: x86_path_exists,
+        x64_dll_exists: x64_dll_found,
+        x86_dll_exists: x86_dll_found,
         health: final_health,
         detail: final_detail,
-        x64_registry_path,
-        x86_registry_path,
+        x64_registry_path: x64_registry_path_val,
+        x86_registry_path: x86_registry_path_val,
         x64_architecture_correct,
         x86_architecture_correct,
         current_office_bitness,
