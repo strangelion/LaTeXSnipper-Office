@@ -70,9 +70,11 @@ namespace LaTeXSnipper.Word.Host
         {
             switch (operation.Kind)
             {
+                case "heading":
+                    InsertHeading(cursor, operation.Text ?? "", operation.Level ?? 1);
+                    return;
                 case "message-header":
                 case "paragraph":
-                case "heading":
                 case "quote":
                 case "code":
                 case "horizontal-rule":
@@ -97,7 +99,35 @@ namespace LaTeXSnipper.Word.Host
             cursor.Text = text + "\r";
             InteropWord.Range inserted = cursor.Duplicate;
             inserted.End = Math.Max(inserted.Start, inserted.End - 1);
-            if (!string.IsNullOrWhiteSpace(style)) inserted.set_Style(style);
+            if (!string.IsNullOrWhiteSpace(style))
+            {
+                try { inserted.set_Style(style); }
+                catch { /* style not found — fall through to normal paragraph */ }
+            }
+            cursor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+        }
+
+        /// <summary>
+        /// Insert a heading at the specified level using Word's built-in heading styles.
+        /// This is more reliable than relying on custom style names from AI.
+        /// </summary>
+        private static void InsertHeading(InteropWord.Range cursor, string text, uint level)
+        {
+            cursor.Text = text + "\r";
+            InteropWord.Range inserted = cursor.Duplicate;
+            inserted.End = Math.Max(inserted.Start, inserted.End - 1);
+            try
+            {
+                // Map level 1-6 to Word's built-in Heading 1-6 styles
+                var styleName = $"Heading {Math.Clamp(level, 1, 6)}";
+                inserted.set_Style(styleName);
+            }
+            catch
+            {
+                // Fallback: apply bold formatting if heading style not available
+                inserted.Font.Bold = 1;
+                inserted.Font.Size = Math.Max(14f - (float)Math.Clamp(level, 1, 6) * 1.5f, 10f);
+            }
             cursor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
         }
 

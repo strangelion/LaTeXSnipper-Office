@@ -1001,16 +1001,14 @@ pub async fn native_office_generate_and_import(
                 }
             };
 
-            // Map heading level to proper style name if not provided
-            let style = op.style.clone().or_else(|| {
-                if kind == "heading" {
-                    op.level.map(|l| format!("LaTeXSnipper Heading {}", l))
-                } else if kind == "code" {
-                    Some("LaTeXSnipper Code Block".to_string())
-                } else {
-                    None
-                }
-            });
+            // Heading: Word importer handles level→style mapping internally
+            // Code: map to safe built-in style
+            // Other: no style (Word handles it)
+            let style = if kind == "code" {
+                Some("LaTeXSnipper Code Block".to_string())
+            } else {
+                None // Heading level is handled by InsertHeading in Word
+            };
 
             AiContentOperation {
                 kind,
@@ -1033,22 +1031,37 @@ pub async fn native_office_generate_and_import(
     // Step 3: Convert any LaTeX in operations to OMML
     let mut converted_ops = Vec::new();
     for mut op in operations {
-        if op.kind == "formula" || op.kind == "displayFormula" {
+        if op.kind == "formula" {
             if let Some(ref latex) = op.text {
                 let latex_clone = latex.clone();
-                if let Some(omml) = tokio::task::spawn_blocking(move || {
+                match tokio::task::spawn_blocking(move || {
                     latexsnipper_conversion::DocumentConverter::convert_latex_string(
                         &latex_clone,
                         latexsnipper_conversion::OutputFormat::OMML,
                     )
-                    .ok()
                 })
                 .await
-                .unwrap_or(None)
                 {
-                    op.omml = Some(omml);
-                    op.display = Some(op.kind == "displayFormula");
+                    Ok(Ok(omml)) => {
+                        op.omml = Some(omml);
+                        // Preserve display flag from AI response; default to false
+                        if op.display.is_none() {
+                            op.display = Some(false);
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        log::warn!("[AI→Word] LaTeX→OMML failed for '{}': {}", op.text.as_deref().unwrap_or(""), e);
+                        // Skip this operation — don't send broken formula
+                        continue;
+                    }
+                    Err(e) => {
+                        log::warn!("[AI→Word] OMML conversion task failed: {}", e);
+                        continue;
+                    }
                 }
+            } else {
+                // Formula without text — skip
+                continue;
             }
         }
         converted_ops.push(op);
