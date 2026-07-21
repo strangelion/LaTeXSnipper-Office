@@ -210,6 +210,10 @@ pub struct RequestWaiter {
     waiters: Mutex<HashMap<String, oneshot::Sender<HostResult>>>,
 }
 
+#[allow(
+    dead_code,
+    reason = "Methods called from Windows-only native-office Tauri commands"
+)]
 impl RequestWaiter {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
