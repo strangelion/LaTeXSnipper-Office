@@ -794,6 +794,10 @@ class SettingsManager {
       officeEnabled: true,
       officeIntegrationMode: "auto",
       ocrEnabled: true,
+      aiEnabled: false,
+      aiEndpoint: "https://api.openai.com/v1",
+      aiApiKey: "",
+      aiModel: "gpt-4o",
     };
     this.settings = this.load();
     Logger.info("Settings loaded");
@@ -2502,6 +2506,40 @@ class UIController {
         this.updateTabVisibility();
         Logger.info(`Settings: ocrEnabled = ${e.target.checked}`);
       });
+
+    // AI settings
+    const aiToggle = document.getElementById("aiEnabledToggle");
+    const aiConfig = document.getElementById("aiConfigSection");
+    if (aiToggle) {
+      aiToggle.checked = this.settingsManager.get("aiEnabled") || false;
+      aiConfig.style.display = aiToggle.checked ? "block" : "none";
+      aiToggle.addEventListener("change", (e) => {
+        this.settingsManager.set("aiEnabled", e.target.checked);
+        aiConfig.style.display = e.target.checked ? "block" : "none";
+        Logger.info(`Settings: aiEnabled = ${e.target.checked}`);
+      });
+    }
+    const aiEndpoint = document.getElementById("aiEndpointInput");
+    if (aiEndpoint) {
+      aiEndpoint.value = this.settingsManager.get("aiEndpoint") || "";
+      aiEndpoint.addEventListener("change", (e) => {
+        this.settingsManager.set("aiEndpoint", e.target.value);
+      });
+    }
+    const aiApiKey = document.getElementById("aiApiKeyInput");
+    if (aiApiKey) {
+      aiApiKey.value = this.settingsManager.get("aiApiKey") || "";
+      aiApiKey.addEventListener("change", (e) => {
+        this.settingsManager.set("aiApiKey", e.target.value);
+      });
+    }
+    const aiModel = document.getElementById("aiModelInput");
+    if (aiModel) {
+      aiModel.value = this.settingsManager.get("aiModel") || "";
+      aiModel.addEventListener("change", (e) => {
+        this.settingsManager.set("aiModel", e.target.value);
+      });
+    }
 
     Logger.debug("Event listeners ready");
 

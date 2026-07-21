@@ -221,6 +221,11 @@
             <span class="settings-item-label" data-i18n="settings.officeIntegration"></span>
             <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           </div>
+          <div class="settings-item" data-page="settingsAi">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            <span class="settings-item-label">AI 辅助</span>
+            <svg class="settings-item-arrow" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
           <div class="settings-item" data-page="settingsAbout">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
             <span class="settings-item-label">关于</span>
@@ -364,6 +369,48 @@
             <div class="settings-row" id="officeOleActionRow" style="display:none">
               <button id="officeOleInstallBtn" class="btn secondary" style="display:none">安装 OLE 公式对象</button>
               <button id="officeOleUninstallBtn" class="btn secondary" style="display:none">移除 OLE</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsAi" class="settings-subpage">
+          <div class="settings-subpage-header">
+            <button class="settings-back" id="settingsAiBack">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+            <span>AI 辅助</span>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-row">
+              <span class="settings-label">启用 AI 辅助</span>
+              <label class="custom-toggle">
+                <input type="checkbox" id="aiEnabledToggle">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+            <p style="font-size:0.7rem;color:var(--muted);margin:0 0 0.5rem;">启用后可通过 AI 自动生成公式并插入 Office</p>
+          </div>
+
+          <div class="settings-card" id="aiConfigSection" style="display:none;">
+            <div class="settings-row settings-row-column">
+              <span class="settings-label">API 端点</span>
+              <input type="text" id="aiEndpointInput" class="settings-input" placeholder="https://api.openai.com/v1">
+              <p class="settings-hint">OpenAI-compatible API 地址</p>
+            </div>
+            <div class="settings-row settings-row-column">
+              <span class="settings-label">API Key</span>
+              <input type="password" id="aiApiKeyInput" class="settings-input" placeholder="sk-...">
+              <p class="settings-hint">密钥仅存储在本地，不会上传</p>
+            </div>
+            <div class="settings-row settings-row-column">
+              <span class="settings-label">模型</span>
+              <input type="text" id="aiModelInput" class="settings-input" placeholder="gpt-4o">
+              <p class="settings-hint">如 gpt-4o, claude-3-opus 等</p>
+            </div>
+            <div class="settings-row">
+              <button id="testAiBtn" class="btn secondary">测试连接</button>
+              <span id="aiTestResult" class="settings-hint"></span>
             </div>
           </div>
         </div>
