@@ -1,4 +1,4 @@
-﻿//! Tauri commands for Native Office VSTO integration.
+//! Tauri commands for Native Office VSTO integration.
 //!
 //! These commands replace the old Office.js Bridge commands and use
 //! the Named Pipe communication with VSTO Add-ins.
@@ -1400,10 +1400,10 @@ fn parse_ai_content_to_operations(json_str: &str) -> Result<Vec<AiContentOperati
     let cleaned = json_str.trim();
 
     // Handle markdown code blocks
-    let json_str = if cleaned.starts_with("```json") {
-        cleaned[7..].trim_end_matches("```").trim()
-    } else if cleaned.starts_with("```") {
-        cleaned[3..].trim_end_matches("```").trim()
+    let json_str = if let Some(s) = cleaned.strip_prefix("```json") {
+        s.trim_end_matches("```").trim()
+    } else if let Some(s) = cleaned.strip_prefix("```") {
+        s.trim_end_matches("```").trim()
     } else {
         cleaned
     };
@@ -1425,6 +1425,15 @@ fn parse_ai_content_to_operations(json_str: &str) -> Result<Vec<AiContentOperati
     }
 
     Ok(operations)
+}
+
+fn uuid_simple() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("{:x}", t)
 }
 
 #[cfg(test)]
@@ -1458,13 +1467,4 @@ mod tests {
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].kind, "paragraph");
     }
-}
-
-fn uuid_simple() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", t)
 }

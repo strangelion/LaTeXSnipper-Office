@@ -51,6 +51,7 @@ fn certificate_sha256_from_pem_bytes(pem: &[u8]) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     use std::fmt::Write as _;
 
+    #[allow(clippy::useless_asref)]
     let certificates = rustls_pemfile::certs(&mut pem.as_ref())
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("Failed to parse TLS certificate for fingerprinting: {error}"))?;

@@ -1,4 +1,4 @@
-﻿//! Named Pipe server for LaTeXSnipper Native Office v3.
+//! Named Pipe server for LaTeXSnipper Native Office v3.
 //!
 //! Listens on `\\.\pipe\LaTeXSnipper.NativeOffice.v3.<SID>` and handles
 //! bidirectional communication with VSTO Add-ins.
@@ -300,6 +300,7 @@ pub async fn send_insert_formula_with_id(
     session_mgr.send_to_session(session_id, msg).await
 }
 
+#[allow(dead_code, reason = "Retained for backward compatibility")]
 pub async fn send_replace_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,

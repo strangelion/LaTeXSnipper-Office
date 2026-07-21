@@ -178,12 +178,15 @@ use tokio::sync::oneshot;
 
 /// The result of a host operation (insert, replace, import, etc.).
 #[derive(Debug, Clone)]
+#[allow(dead_code, reason = "Fields accessed by session.rs and commands")]
 pub struct HostResult {
     pub success: bool,
     pub request_id: String,
+    #[allow(dead_code, reason = "Available for session correlation")]
     pub session_id: String,
     pub formula_id: Option<String>,
     pub revision: Option<u64>,
+    #[allow(dead_code, reason = "Available for error diagnostics")]
     pub error_code: Option<String>,
     pub error: Option<String>,
 }
@@ -237,11 +240,13 @@ impl RequestWaiter {
     }
 
     /// Cancel all pending waiters (e.g., on shutdown).
+    #[allow(dead_code, reason = "Available for shutdown cleanup")]
     pub async fn cancel_all(&self) {
         self.waiters.lock().await.clear();
     }
 
     /// Get the number of pending waiters.
+    #[allow(dead_code, reason = "Available for diagnostics")]
     pub async fn pending_count(&self) -> usize {
         self.waiters.lock().await.len()
     }

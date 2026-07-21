@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 #[cfg(target_os = "windows")]
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -5998,7 +5998,7 @@ pub fn uninstall_ole_component() -> OleComponentResult {
     {
         let mut verify_script =
             String::from("Stop-Process -Name reg -Force -ErrorAction SilentlyContinue\n");
-        let mut verify_keys: Vec<String> = all_keys_to_delete.iter().map(|k| k.clone()).collect();
+        let mut verify_keys: Vec<String> = all_keys_to_delete.to_vec();
         if !pending_key.is_empty() {
             verify_keys.push(pending_key.clone());
         }
