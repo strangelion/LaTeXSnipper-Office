@@ -228,35 +228,30 @@ $vstoDest = Join-Path $resourcesDir "NativeOffice"
 if ($runningOnWindows) {
     $installerDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output")
 
-    # MSI package — the authoritative installer
+    # MSI package — the authoritative installer (settings page runs this directly)
     $msiPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.msi"
     Require-File $msiPath "NativeOffice MSI package"
-
-    # Bootstrapper — offline installer with embedded prerequisites
-    $bootstrapperPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
-    Require-File $bootstrapperPath "NativeOffice offline bootstrapper"
 
     # Certificate — needed for VSTO trust verification during MSI install
     $certDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "WiX")
     $certPath = Join-Path $certDir "LaTeXSnipperOffice.cer"
     # Certificate is optional at staging time; MSI bundles it internally
 
-    # Copy only installer payload — not individual VSTO DLLs
+    # Copy only the MSI — bootstrappers (OfflineSetup/WebSetup) are separate
+    # GitHub Release artifacts, not embedded in the main Tauri installer.
     New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
     Copy-Item -LiteralPath $msiPath -Destination $vstoDest -Force
-    Copy-Item -LiteralPath $bootstrapperPath -Destination $vstoDest -Force
 
     # Write metadata for runtime discovery
     $metadata = [ordered]@{
         schemaVersion = 1
         installerType = "msi"
         msiFile = "LaTeXSnipper.NativeOffice.msi"
-        bootstrapperFile = "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
     }
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $vstoDest "installer.json") -Encoding UTF8
 
     $nativeCount = (Get-ChildItem -LiteralPath $vstoDest -Recurse -File).Count
-    Write-Host "  NativeOffice: $nativeCount installer files staged (MSI + bootstrapper)" -ForegroundColor Green
+    Write-Host "  NativeOffice: $nativeCount installer files staged (MSI only)" -ForegroundColor Green
 } else {
     if (Test-Path -LiteralPath $vstoDest) {
         Remove-Item -LiteralPath $vstoDest -Recurse -Force
@@ -370,7 +365,7 @@ foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
     }
 }
 if ($runningOnWindows) {
-    foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.OfflineSetup.exe", "LaTeXSnipper.NativeOffice.WebSetup.exe")) {
+    foreach ($name in @("LaTeXSnipper.NativeOffice.msi")) {
         $filePath = Join-Path $vstoDest $name
         if (Test-Path -LiteralPath $filePath -PathType Leaf) {
             $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $filePath).Hash

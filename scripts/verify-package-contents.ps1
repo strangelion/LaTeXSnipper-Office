@@ -68,16 +68,13 @@ if ($WindowsPackageRoots.Count -gt 0) {
     if ([string]::IsNullOrWhiteSpace($StagingRoot)) { throw "StagingRoot is required for Windows package verification" }
     $staging = (Resolve-Path -LiteralPath $StagingRoot).Path
 
-    # Check if this is MSI-only staging (new model) or legacy VSTO staging
+    # Check if this is MSI staging (new model) or legacy VSTO staging.
+    # Only the MSI is embedded in the main Tauri installer; bootstrappers
+    # (OfflineSetup/WebSetup) are separate GitHub Release artifacts.
     $msiPath = Join-Path $staging "LaTeXSnipper.NativeOffice.msi"
-    $bootstrapperPath = Join-Path $staging "LaTeXSnipper.NativeOffice.OfflineSetup.exe"
-    $isMsiOnly = (Test-Path -LiteralPath $msiPath -PathType Leaf) -and
-                 (Test-Path -LiteralPath $bootstrapperPath -PathType Leaf)
+    $isMsiOnly = Test-Path -LiteralPath $msiPath -PathType Leaf
 
     if ($isMsiOnly) {
-        # MSI-only model: verify MSI + bootstrapper are present in the package.
-        # Hash verification is skipped because Tauri bundling (NSIS/MSI) may
-        # compress or encode binaries differently from the staging source.
         Write-Host "  Using MSI-only verification model" -ForegroundColor Green
 
         foreach ($rootValue in $WindowsPackageRoots) {
@@ -87,12 +84,6 @@ if ($WindowsPackageRoots.Count -gt 0) {
                 throw "MSI package is missing from ${root}"
             }
             Write-Host "    MSI: found in ${root}" -ForegroundColor Green
-
-            $bootMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.OfflineSetup.exe")
-            if ($bootMatches.Count -eq 0) {
-                throw "Bootstrapper is missing from ${root}"
-            }
-            Write-Host "    Bootstrapper: found in ${root}" -ForegroundColor Green
         }
     } else {
         # Legacy VSTO staging model (fallback for dev builds)
