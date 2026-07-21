@@ -291,6 +291,9 @@ namespace LaTeXSnipper.Excel
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            Application.WorkbookActivate -= OnWorkbookChange;
+            Application.SheetActivate -= OnWorkbookChange;
+
             _pipeReconnect?.Dispose();
             _pipeClient?.Disconnect();
             _staDispatcher?.Dispose();
