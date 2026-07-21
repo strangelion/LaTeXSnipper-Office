@@ -1,14 +1,14 @@
 /**
  * Office Commit Controller
  *
- * Manages the commit lifecycle: prepare -> committing -> await host result -> complete.
- * Correlates requestId with transactionId for reliable result tracking.
+ * Manages the commit lifecycle: prepare -> commit -> await host result.
+ * Uses the Rust-side RequestWaiter for reliable host confirmation.
  *
  * The commit flow:
- * 1. prepare: freeze draft, render final asset
+ * 1. prepare: freeze draft in durable store
  * 2. mark_committing: transition transaction state
- * 3. send_replace_formula to host
- * 4. await ReplaceResult from VSTO
+ * 3. send_replace_formula to host (awaited by Rust RequestWaiter)
+ * 4. receive ReplaceResult with success/formulaId/revision/error
  * 5. complete: update transaction, close live session
  */
 
@@ -26,21 +26,11 @@ export class OfficeCommitController {
     this.onCommitSuccess = options.onCommitSuccess || (() => {});
     this.onCommitFailure = options.onCommitFailure || (() => {});
     this.onConflict = options.onConflict || (() => {});
-
-    /** Maps requestId -> transactionId for correlation */
-    this._pendingCommits = new Map();
-    this._disposed = false;
+    this._committing = false;
   }
 
   /**
    * Prepare a commit: freeze the draft and render the final asset.
-   *
-   * @param {string} transactionId
-   * @param {string} draftLatex
-   * @param {string} displayMode
-   * @param {object} numbering
-   * @param {object} renderedAsset - Optional pre-rendered asset
-   * @returns {Promise<object>} Prepared transaction
    */
   async prepare(
     transactionId,
@@ -61,19 +51,15 @@ export class OfficeCommitController {
   }
 
   /**
-   * Send the replace formula command to the host and track the result.
+   * Send the replace formula command to the host and await the result.
    *
-   * @param {string} transactionId
-   * @param {string} sessionId
-   * @param {string} formulaId
-   * @param {string} expectedDocumentId
-   * @param {string} latex
-   * @param {string} omml
-   * @param {string} display
-   * @param {object} renderData - SVG/PNG/dimensions
-   * @param {string} storageMode
-   * @param {number} expectedRevision
-   * @returns {Promise<string>} requestId
+   * The Rust side:
+   * 1. Registers RequestWaiter (before send, no race)
+   * 2. Sends REPLACE_FORMULA
+   * 3. Awaits VstoReplaceResult with timeout
+   * 4. Returns ReplaceResult { success, formulaId, revision, error }
+   *
+   * @returns {Promise<{success: boolean, formulaId?: string, revision?: number, error?: string}>}
    */
   async commit(
     transactionId,
@@ -87,187 +73,108 @@ export class OfficeCommitController {
     storageMode,
     expectedRevision,
   ) {
-    // Mark transaction as committing
-    await this.invokeTauri("mark_office_edit_committing", {
-      transactionId,
-    });
+    this._committing = true;
 
-    // Send replace command to host
-    const requestId = await this.invokeTauri("native_office_replace_formula", {
-      sessionId,
-      formulaId,
-      latex,
-      omml,
-      display,
-      svg: renderData?.svg || null,
-      png: renderData?.png || null,
-      widthPt: renderData?.widthPt || null,
-      heightPt: renderData?.heightPt || null,
-      storageMode: storageMode || null,
-      expectedRevision: expectedRevision ?? null,
-      expectedDocumentId: expectedDocumentId || null,
-    });
+    try {
+      // Mark transaction as committing
+      await this.invokeTauri("mark_office_edit_committing", {
+        transactionId,
+      });
 
-    // Register in Rust CommitCoordinator so ReplaceResult can resolve transactionId
-    this.invokeTauri("register_pending_commit", {
-      requestId,
-      transactionId,
-      formulaId,
-      sessionId,
-      documentId: expectedDocumentId || null,
-    }).catch((err) => {
-      console.warn("[CommitController] register_pending_commit failed:", err);
-    });
+      // Call Rust — this now awaits the host result via RequestWaiter
+      const result = await this.invokeTauri("native_office_replace_formula", {
+        sessionId,
+        formulaId,
+        latex,
+        omml,
+        display,
+        svg: renderData?.svg || null,
+        png: renderData?.png || null,
+        widthPt: renderData?.widthPt || null,
+        heightPt: renderData?.heightPt || null,
+        storageMode: storageMode || null,
+        expectedRevision: expectedRevision ?? null,
+        expectedDocumentId: expectedDocumentId || null,
+      });
 
-    // Track the commit
-    this._pendingCommits.set(requestId, {
-      transactionId,
-      formulaId,
-      sessionId,
-      timestamp: Date.now(),
-    });
-
-    return requestId;
-  }
-
-  /**
-   * Handle a ReplaceResult from the VSTO host.
-   * Called when the native-office-replace-result event fires.
-   *
-   * @param {object} result - ReplaceResult data from VSTO
-   * @returns {Promise<object>} Completion status
-   */
-  async handleReplaceResult(result) {
-    const {
-      requestId,
-      success,
-      formulaId,
-      revision,
-      actualStorageMode,
-      errorCode,
-      error,
-    } = result;
-
-    const tracked = this._pendingCommits.get(requestId);
-    if (!tracked) {
-      console.warn(
-        `[CommitController] Received result for unknown requestId: ${requestId}`,
-      );
-      return { handled: false };
-    }
-
-    this._pendingCommits.delete(requestId);
-
-    if (success) {
-      await this.invokeTauri("complete_office_edit_transaction", {
-        request: {
-          transactionId: tracked.transactionId,
+      // result is ReplaceResult { success, formulaId, revision, error }
+      if (result.success) {
+        await this.invokeTauri("complete_office_edit_transaction", {
+          request: {
+            transactionId,
+            success: true,
+            error: null,
+          },
+        });
+        this.onCommitSuccess({
+          transactionId,
+          formulaId: result.formulaId || formulaId,
+          revision: result.revision,
+        });
+        return {
           success: true,
-          error: null,
-        },
-      });
-      this.onCommitSuccess({
-        transactionId: tracked.transactionId,
-        formulaId: formulaId || tracked.formulaId,
-        revision,
-        actualStorageMode,
-      });
-      return { handled: true, success: true };
-    }
+          formulaId: result.formulaId,
+          revision: result.revision,
+        };
+      }
 
-    // Failure or conflict
-    if (errorCode === "OFFICE_TARGET_CHANGED") {
+      // Check for conflict
+      if (result.error && result.error.includes("OFFICE_TARGET_CHANGED")) {
+        await this.invokeTauri("complete_office_edit_transaction", {
+          request: {
+            transactionId,
+            success: false,
+            error: {
+              errorCode: "OFFICE_TARGET_CHANGED",
+              operation: "replace",
+              host: "word",
+              message: result.error,
+            },
+          },
+        });
+        this.onConflict({
+          transactionId,
+          formulaId,
+          error: result.error,
+        });
+        return { success: false, conflict: true, error: result.error };
+      }
+
+      // Other failure
       await this.invokeTauri("complete_office_edit_transaction", {
         request: {
-          transactionId: tracked.transactionId,
+          transactionId,
           success: false,
           error: {
-            errorCode: "OFFICE_TARGET_CHANGED",
+            errorCode: "HOST_COMMIT_FAILED",
             operation: "replace",
             host: "word",
-            message: error || "Formula was modified by another operation",
+            message: result.error || "Unknown error",
           },
         },
       });
-      this.onConflict({
-        transactionId: tracked.transactionId,
-        formulaId: tracked.formulaId,
-        error,
+      this.onCommitFailure({
+        transactionId,
+        formulaId,
+        error: result.error,
       });
-      return { handled: true, success: false, conflict: true };
+      return { success: false, error: result.error };
+    } catch (err) {
+      console.error("[CommitController] commit error:", err);
+      return { success: false, error: err.message || String(err) };
+    } finally {
+      this._committing = false;
     }
-
-    // Other failure
-    await this.invokeTauri("complete_office_edit_transaction", {
-      request: {
-        transactionId: tracked.transactionId,
-        success: false,
-        error: {
-          errorCode: errorCode || "HOST_COMMIT_FAILED",
-          operation: "replace",
-          host: "word",
-          message: error || "Unknown commit failure",
-        },
-      },
-    });
-    this.onCommitFailure({
-      transactionId: tracked.transactionId,
-      formulaId: tracked.formulaId,
-      errorCode,
-      error,
-    });
-    return { handled: true, success: false, conflict: false };
   }
 
   /**
-   * Check if there are any pending commits.
+   * Whether a commit is currently in progress.
    */
-  get hasPendingCommits() {
-    return this._pendingCommits.size > 0;
-  }
-
-  /**
-   * Get the number of pending commits.
-   */
-  get pendingCount() {
-    return this._pendingCommits.size;
+  get isCommitting() {
+    return this._committing;
   }
 
   dispose() {
-    this._disposed = true;
-    this._pendingCommits.clear();
-  }
-
-  /**
-   * Re-read a formula from the host after a conflict.
-   * Used when OFFICE_TARGET_CHANGED occurs — the user can reload the
-   * current state and decide whether to retry or abort.
-   *
-   * @param {string} sessionId
-   * @param {string} formulaId
-   * @param {string} expectedDocumentId
-   * @returns {Promise<object|null>} Current formula payload from host
-   */
-  async reReadFormula(sessionId, formulaId, expectedDocumentId) {
-    if (this._disposed) return null;
-
-    try {
-      // Send read request to host
-      const requestId = await this.invokeTauri(
-        "native_office_read_formula_by_id",
-        {
-          sessionId,
-          formulaId,
-          expectedDocumentId: expectedDocumentId || null,
-        },
-      );
-
-      // The result comes back via native-office-formula-snapshot event
-      // Return the requestId so the caller can correlate
-      return { requestId, formulaId };
-    } catch (err) {
-      console.error("[CommitController] reReadFormula failed:", err);
-      return null;
-    }
+    this._committing = false;
   }
 }

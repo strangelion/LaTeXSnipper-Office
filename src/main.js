@@ -4949,7 +4949,8 @@ class UIController {
             return;
           }
         } else {
-          const requestId = await invoke("native_office_replace_formula", {
+          // Direct replace (non-bridge path) — also uses awaited result
+          const replaceResult = await invoke("native_office_replace_formula", {
             sessionId,
             formulaId: officeTransaction.formulaId,
             latex,
@@ -4963,18 +4964,13 @@ class UIController {
             expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
             expectedDocumentId: officeTransaction.sourceDocumentId || null,
           });
-          this._pendingOfficeEditorRequest.commitRequestId = requestId;
 
-          // Register in Rust CommitCoordinator for ReplaceResult correlation
-          invoke("register_pending_commit", {
-            requestId,
-            transactionId: officeTransaction.transactionId,
-            formulaId: officeTransaction.formulaId,
-            sessionId,
-            documentId: officeTransaction.sourceDocumentId || null,
-          }).catch((e) =>
-            Logger.warn("[LiveEdit] register_pending_commit:", e),
-          );
+          if (!replaceResult.success) {
+            this.showToast(
+              `保存失败: ${replaceResult.error || "unknown error"}`,
+            );
+            return;
+          }
         }
       } else {
         await invoke("native_office_insert_formula", {

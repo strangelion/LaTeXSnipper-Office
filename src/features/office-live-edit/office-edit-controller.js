@@ -237,7 +237,7 @@ export class OfficeEditController {
    */
   async commit(renderData = null) {
     if (this._disposed || !this._transactionId) return false;
-    if (this.commitCtrl.hasPendingCommits) {
+    if (this.commitCtrl.isCommitting) {
       console.warn("[LiveEdit] Commit already in progress");
       return false;
     }
@@ -283,8 +283,8 @@ export class OfficeEditController {
         finalRenderData,
       );
 
-      // Send commit to host with OMML
-      const requestId = await this.commitCtrl.commit(
+      // Commit — this awaits the real host result via RequestWaiter
+      const result = await this.commitCtrl.commit(
         this._transactionId,
         this._sessionId,
         this._formulaId,
@@ -297,8 +297,16 @@ export class OfficeEditController {
         this._revision,
       );
 
-      this.state.transition(EditState.COMMITTING);
-      return true;
+      if (result.success) {
+        this.state.transition(EditState.COMMITTED);
+        return true;
+      } else if (result.conflict) {
+        this.state.transition(EditState.CONFLICT, result);
+        return false;
+      } else {
+        this.state.transition(EditState.FAILED, result);
+        return false;
+      }
     } catch (err) {
       console.error("[LiveEdit] Commit failed:", err);
       this.state.transition(EditState.FAILED, { error: err });

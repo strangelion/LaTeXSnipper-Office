@@ -171,12 +171,17 @@ export class OfficeLiveEditBridge {
     this._showCommitStatus("committing");
 
     try {
+      // controller.commit() returns { success, formulaId?, revision?, error?, conflict? }
       const result = await this.controller.commit(renderData);
-      if (result) {
+      if (result.success) {
+        this._showCommitStatus("committed");
         return { success: true };
+      } else if (result.conflict) {
+        this._showCommitStatus("failed", "Conflict: formula modified");
+        return { success: false, conflict: true, error: result.error };
       } else {
-        this._showCommitStatus("failed", "Commit returned false");
-        return { success: false, error: "Commit returned false" };
+        this._showCommitStatus("failed", result.error || "unknown error");
+        return { success: false, error: result.error };
       }
     } catch (err) {
       this._showCommitStatus("failed", err.message);
