@@ -41,21 +41,19 @@
       Bitness="always32" />
 
     <Chain>
-      <!-- .NET Framework 4.8 — downloaded from Microsoft on demand -->
+      <!-- .NET Framework 4.8 — downloaded from Microsoft on demand.
+           SourceFile is used at build time for metadata (hash/size).
+           Compressed="no" + DownloadUrl tells Burn to fetch at install time. -->
       <ExePackage Id="NetFx48"
+                  SourceFile="$(var.NetFx48Exe)"
                   Compressed="no"
+                  DownloadUrl="$(var.NetFx48Url)"
                   Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
                   InstallArguments="/q /norestart"
                   DetectCondition="NetFx48Release &gt;= 528040">
-        <RemotePayload
-          Hash="$(var.NetFx48Hash)"
-          ProductName="Microsoft .NET Framework 4.8"
-          Size="$(var.NetFx48Size)"
-          Version="4.8.4115.0"
-          Url="$(var.NetFx48Url)" />
         <ExitCode Value="0" Behavior="success" />
         <ExitCode Value="1641" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />
@@ -64,19 +62,15 @@
 
       <!-- VSTO Runtime — downloaded from Microsoft on demand -->
       <ExePackage Id="VstoRuntime"
+                  SourceFile="$(var.VstoRuntimeExe)"
                   Compressed="no"
+                  DownloadUrl="$(var.VstoRuntimeUrl)"
                   Cache="keep"
                   PerMachine="yes"
                   Permanent="yes"
                   Vital="yes"
                   InstallArguments="/quiet /norestart"
                   DetectCondition="VstoRuntime64Installed OR VstoRuntime32Installed">
-        <RemotePayload
-          Hash="$(var.VstoRuntimeHash)"
-          ProductName="Microsoft VSTO Runtime"
-          Size="$(var.VstoRuntimeSize)"
-          Version="10.0.50903.0"
-          Url="$(var.VstoRuntimeUrl)" />
         <ExitCode Value="0" Behavior="success" />
         <ExitCode Value="1641" Behavior="success" />
         <ExitCode Value="3010" Behavior="success" />

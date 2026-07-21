@@ -813,12 +813,10 @@ Write-Host "  Building Web Bootstrapper..." -ForegroundColor Cyan
     -arch x64 `
     -o $webOutput `
     -d Version=$Version `
+    -d NetFx48Exe=$netFx48Exe `
     -d NetFx48Url=$env:NetFx48Url `
-    -d NetFx48Hash=$netFx48Hash `
-    -d NetFx48Size=$netFx48Size `
+    -d VstoRuntimeExe=$vstoRuntimeExe `
     -d VstoRuntimeUrl=$env:VstoRuntimeUrl `
-    -d VstoRuntimeHash=$vstoRuntimeHash `
-    -d VstoRuntimeSize=$vstoRuntimeSize `
     -d MsiDir=$env:MsiDir `
     -ext $bootstrapperExtension `
     -ext $utilExtension
