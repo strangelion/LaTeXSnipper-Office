@@ -198,7 +198,9 @@
     } catch (error) {
       try {
         inserted.Delete();
-      } catch (_) {}
+      } catch (_deleteError) {
+        // Best-effort cleanup — ignore if range is already invalid
+      }
 
       throw Object.assign(
         new Error("WPS OMath BuildUp failed: " + (error.message || error)),
