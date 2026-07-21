@@ -692,6 +692,215 @@ pub async fn native_office_import_conversation(
     Ok("Conversation import commit requested".into())
 }
 
+/// AI → Office orchestrator: generate formula via AI and insert into Word.
+///
+/// Complete pipeline:
+///   1. User prompt → AI API (OpenAI-compatible)
+///   2. AI response → parse LaTeX
+///   3. LaTeX → OMML via core
+///   4. FormulaPayload{latex, omml} → INSERT_FORMULA to Word
+///
+/// This is the unified entry point for "AI generate and insert formula".
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn native_office_generate_and_insert(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+    prompt: String,
+    display: String,
+    ai_endpoint: Option<String>,
+    ai_api_key: Option<String>,
+    ai_model: Option<String>,
+    storage_mode: Option<String>,
+) -> Result<GenerateInsertResult, String> {
+    let endpoint = ai_endpoint.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+    let api_key = ai_api_key.ok_or("AI API key is required")?;
+    let model = ai_model.unwrap_or_else(|| "gpt-4o".to_string());
+
+    // Step 1: Call AI to generate LaTeX
+    log::info!(
+        "[AI→Office] Generating formula via AI (model={}, endpoint={})",
+        model,
+        endpoint
+    );
+    let latex = call_ai_for_formula(&endpoint, &api_key, &model, &prompt).await?;
+
+    // Step 2: Convert LaTeX to OMML
+    log::info!("[AI→Office] Converting LaTeX to OMML...");
+    let latex_clone = latex.clone();
+    let omml = tokio::task::spawn_blocking(move || {
+        latexsnipper_conversion::DocumentConverter::convert_latex_string(
+            &latex_clone,
+            latexsnipper_conversion::OutputFormat::OMML,
+        )
+        .ok()
+    })
+    .await
+    .map_err(|e| format!("OMML conversion task failed: {}", e))?
+    .ok_or("LaTeX to OMML conversion failed")?;
+
+    log::info!(
+        "[AI→Office] OMML generated ({} bytes) from LaTeX: {}",
+        omml.len(),
+        &latex.chars().take(50).collect::<String>()
+    );
+
+    // Step 3: Build FormulaPayload and send to Word
+    let formula_id = uuid_simple();
+    let integration_mode = storage_mode.as_deref().unwrap_or("auto");
+    let insert_mode = match display.as_str() {
+        "numbered" | "displayNumbered" => InsertMode::DisplayNumbered,
+        "display" | "block" => InsertMode::Display,
+        _ => InsertMode::Inline,
+    };
+
+    let payload = FormulaPayload {
+        schema_version: Some(3),
+        formula_id: formula_id.clone(),
+        latex: latex.clone(),
+        omml: omml.clone(),
+        display: display.clone(),
+        presentation: None,
+        render: None,
+        source: None,
+        storage_mode: storage_mode.clone(),
+        revision: 0,
+        created_utc_ticks: 0,
+    };
+
+    let im = integration_mode
+        .parse::<FormulaIntegrationMode>()
+        .ok()
+        .unwrap_or(FormulaIntegrationMode::Auto);
+
+    crate::platforms::pipe_server::send_insert_formula(
+        &session_mgr,
+        &session_id,
+        payload,
+        insert_mode,
+        Some(im),
+    )
+    .await
+    .map_err(|e| format!("Failed to send insert command: {}", e))?;
+
+    log::info!("[AI→Office] Formula inserted into Word");
+
+    Ok(GenerateInsertResult {
+        formula_id,
+        latex,
+        omml,
+        display,
+    })
+}
+
+/// Result of a generate-and-insert operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateInsertResult {
+    pub formula_id: String,
+    pub latex: String,
+    pub omml: String,
+    pub display: String,
+}
+
+/// Call an OpenAI-compatible API to generate a LaTeX formula from a natural language prompt.
+async fn call_ai_for_formula(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<String, String> {
+    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+
+    let system_prompt = "You are a LaTeX formula generator. Given a natural language description, output ONLY the LaTeX math formula. No explanations, no markdown, no $$ delimiters. Just the raw LaTeX code. For example, for 'quadratic formula' output: \\frac{-b\\pm\\sqrt{b^2-4ac}}{2a}";
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 256,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client creation failed: {}", e))?;
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("AI API request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("AI API error ({}): {}", status, text));
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("AI API response parse failed: {}", e))?;
+
+    let content = data["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or("AI response missing content")?
+        .trim()
+        .to_string();
+
+    // Clean up the response: remove markdown code blocks, $$ delimiters, etc.
+    let latex = clean_ai_latex_response(&content);
+
+    log::info!("[AI→Office] AI response: {}", &latex.chars().take(80).collect::<String>());
+    Ok(latex)
+}
+
+/// Clean up AI-generated LaTeX response by removing common formatting artifacts.
+fn clean_ai_latex_response(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+
+    // Remove ```latex ... ``` code blocks
+    if s.starts_with("```latex") {
+        s = s[8..].to_string();
+    } else if s.starts_with("```") {
+        s = s[3..].to_string();
+    }
+    if s.ends_with("```") {
+        s = s[..s.len() - 3].to_string();
+    }
+
+    // Remove $$ delimiters
+    s = s.trim().to_string();
+    if s.starts_with("$$") && s.ends_with("$$") && s.len() > 4 {
+        s = s[2..s.len() - 2].trim().to_string();
+    } else if s.starts_with('$') && s.ends_with('$') && s.len() > 2 {
+        s = s[1..s.len() - 1].trim().to_string();
+    }
+
+    // Remove any leading/trailing whitespace
+    s.trim().to_string()
+}
+
+impl std::str::FromStr for FormulaIntegrationMode {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s.to_lowercase().as_str() {
+            "ole" => Ok(FormulaIntegrationMode::Ole),
+            "native" => Ok(FormulaIntegrationMode::Native),
+            "image" => Ok(FormulaIntegrationMode::Image),
+            "vector" => Ok(FormulaIntegrationMode::Vector),
+            _ => Ok(FormulaIntegrationMode::Auto),
+        }
+    }
+}
+
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()
