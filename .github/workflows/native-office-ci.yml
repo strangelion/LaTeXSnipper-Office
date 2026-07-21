@@ -16,8 +16,8 @@ jobs:
         platform: [Win32, x64]
         configuration: [Debug, Release]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -55,7 +55,7 @@ jobs:
           if ($exitCode -ne 0) { exit $exitCode }
       - name: Upload native test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-test-logs-${{ matrix.platform }}-${{ matrix.configuration }}
           path: native-test-logs/
@@ -65,7 +65,7 @@ jobs:
   managed-tests:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: microsoft/setup-msbuild@v2
       - name: Verify WPS artifact staging contract
         shell: pwsh
@@ -86,7 +86,7 @@ jobs:
   vsto-build:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Windows Native Office CI dependencies
         uses: ./.github/actions/setup-native-office
         with:
@@ -101,7 +101,7 @@ jobs:
     needs: [native-matrix, managed-tests, vsto-build]
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Set up Windows Native Office CI dependencies
         uses: ./.github/actions/setup-native-office
         with:
@@ -126,7 +126,7 @@ jobs:
             -DiagnosticsDirectory vsto-diagnostics
       - name: Upload VSTO activation diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: vsto-diagnostics
           path: vsto-diagnostics/

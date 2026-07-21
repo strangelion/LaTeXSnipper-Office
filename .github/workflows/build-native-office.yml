@@ -31,7 +31,7 @@ jobs:
       SOLUTION_DIR: apps/native-office
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -85,7 +85,7 @@ jobs:
 
       - name: Upload build output
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-office-${{ env.CONFIGURATION }}-${{ github.sha }}
           if-no-files-found: error
@@ -96,7 +96,7 @@ jobs:
 
       - name: Upload Native Office diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: native-office-diagnostics-${{ github.sha }}
           path: native-office-diagnostics/

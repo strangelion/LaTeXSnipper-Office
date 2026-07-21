@@ -23,10 +23,10 @@ jobs:
   build-browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with: { fetch-depth: 0 }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -59,7 +59,7 @@ jobs:
       - name: Verify packaged manifests, locales, provenance, and CSP
         run: node scripts/verify-browser-packages.mjs
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: browser-extension
           path: |
@@ -73,7 +73,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: browser-extension
       - name: Create Release

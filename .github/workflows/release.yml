@@ -29,7 +29,7 @@ jobs:
       prior_tag: ${{ steps.release.outputs.prior_tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -195,13 +195,13 @@ jobs:
       VERSION: ${{ needs.prepare-release.outputs.version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -326,7 +326,7 @@ jobs:
           mkdir -p release-components
           cp "$source" release-components/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-component-packages
           path: release-components/
@@ -344,26 +344,26 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.tag }}
           fetch-depth: 0
           fetch-tags: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
       - run: npm ci
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           pattern: verified-*-packages
           path: downloaded/packages
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: release-component-packages
           path: downloaded/components

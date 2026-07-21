@@ -52,7 +52,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
           fetch-depth: 0
@@ -108,7 +108,7 @@ jobs:
             $path = Join-Path 'src-tauri\resources' $name
             if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
           }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -482,7 +482,7 @@ jobs:
           }
       - name: Upload package diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: package-diagnostics-windows
           path: package-diagnostics/
@@ -490,7 +490,7 @@ jobs:
           retention-days: 14
       - name: Upload verified Windows packages
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: verified-windows-packages
           path: |

@@ -1,6 +1,6 @@
 // LaTeXSnipper Office - Main JavaScript
 
-import { t, applyTranslations, setLocale, getResolvedLocale } from "./i18n.js";
+import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
 import { OfficeLiveEditBridge } from "./features/office-live-edit/office-live-edit-bridge.js";
 import {
@@ -52,7 +52,7 @@ function matchesOfficeEditAction(action) {
 // ═══════════════════════════════════════════
 // MathLive Chinese Translation
 // ═══════════════════════════════════════════
-const MATHLIVE_I18N = {
+const _MATHLIVE_I18N = {
   "keyboard.tooltip.symbols": "符号",
   "keyboard.tooltip.greek": "希腊字母",
   "keyboard.tooltip.numeric": "数字",
@@ -908,7 +908,7 @@ class ThemeManager {
 // ═══════════════════════════════════════════
 // UnicodeMath → LaTeX
 // ═══════════════════════════════════════════
-function unicodeMathToLatex(s) {
+function _unicodeMathToLatex(s) {
   if (!s) return "";
   const mathItalicA = 0x1d434;
   const mathBoldA = 0x1d400;
@@ -1064,7 +1064,7 @@ function unicodeMathToLatex(s) {
 // ═══════════════════════════════════════════
 // Extract OMML math element from Word document XML
 // ═══════════════════════════════════════════
-function extractMathElement(xml) {
+function _extractMathElement(xml) {
   let decoded = xml;
   if (
     xml.indexOf("&lt;") !== -1 ||
@@ -1136,7 +1136,7 @@ function extractMathElement(xml) {
 // OMML → LaTeX
 // ═══════════════════════════════════════════
 const OMML_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math";
-const W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const _W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
 function ommlToLatex(omml) {
   if (!omml) return "";
@@ -1235,7 +1235,7 @@ function _walkOmml(node) {
 
   // N-ary (sum, integral, product, etc.)
   if (tag === "nary") {
-    const chr = _ommlEl(node, "chr");
+    const _chr = _ommlEl(node, "chr");
     const sub = _ommlEl(node, "sub");
     const sup = _ommlEl(node, "sup");
     const e = _ommlEl(node, "e");
@@ -1457,7 +1457,7 @@ function _walkOmml(node) {
 // ═══════════════════════════════════════════
 // MathML → LaTeX
 // ═══════════════════════════════════════════
-function mathmlToLatex(mathml) {
+function _mathmlToLatex(mathml) {
   if (!mathml) return "";
   const parser = new DOMParser();
   const doc = parser.parseFromString(
@@ -3161,7 +3161,7 @@ class UIController {
 
       // Office error
       listen("native-office-error", async (event) => {
-        const { error, errorCode, sessionId } = event.payload;
+        const { error, errorCode } = event.payload;
         Logger.error(`Native Office error [${errorCode}]: ${error}`);
         this.showToast("Office 错误: " + error);
       });
@@ -4541,7 +4541,7 @@ class UIController {
     };
 
     const snapTo = (dir) => {
-      const wrapWidth = wrap.offsetWidth;
+      const _wrapWidth = wrap.offsetWidth;
       const pos = dir > 0 ? 100 : -160;
       card.style.transition = "transform 0.28s cubic-bezier(0.32, 0.72, 0, 1)";
       card.style.transform = `translateX(${pos}px)`;
@@ -4617,7 +4617,7 @@ class UIController {
       card.classList.remove("swiping");
 
       const duration = Date.now() - startTime;
-      const velocity = Math.abs(currentDx) / duration;
+      const _velocity = Math.abs(currentDx) / duration;
       const wrapWidth = wrap.offsetWidth;
 
       if (currentDx > wrapWidth * 0.3) {

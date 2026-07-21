@@ -24,7 +24,10 @@ export class OfficeRenderScheduler {
    * @param {Function} options.onStateChange - Called on scheduler state changes
    */
   constructor(options = {}) {
-    this.debounceMs = options.debounceMs || DEFAULT_DEBOUNCE_MS;
+    this.debounceMs = Math.min(
+      MAX_DEBOUNCE_MS,
+      Math.max(0, options.debounceMs ?? DEFAULT_DEBOUNCE_MS),
+    );
     this.onRenderRequest = options.onRenderRequest || (() => {});
     this.onPreviewUpdate = options.onPreviewUpdate || (() => {});
     this.onStateChange = options.onStateChange || (() => {});

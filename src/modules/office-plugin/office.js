@@ -61,7 +61,7 @@ const OFFICE_API = {
     }
   },
 
-  async insertOMML(ommlXml, latex) {
+  async insertOMML(ommlXml, _latex) {
     return new Promise((resolve, reject) => {
       Office.context.document.setSelectedDataAsync(
         { omml: ommlXml },

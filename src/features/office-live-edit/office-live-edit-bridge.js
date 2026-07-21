@@ -51,7 +51,7 @@ export class OfficeLiveEditBridge {
    * Called when OPEN_EDITOR event arrives.
    */
   onOpenEditor(payload) {
-    const { sessionId, action, latex, transaction, sourceHost } = payload;
+    const { sessionId, action, latex, transaction } = payload;
 
     if (action === "delete" || !matchesOfficeEditAction(action)) {
       return;
@@ -83,7 +83,7 @@ export class OfficeLiveEditBridge {
       onStateChange: (state, prev) => {
         console.debug(`[LiveEditBridge] State: ${prev} -> ${state}`);
       },
-      onCommitSuccess: (result) => {
+      onCommitSuccess: () => {
         this._toast("公式已保存到 Office", "success");
         this._active = false;
         this._clearCommitStatus();
@@ -94,7 +94,7 @@ export class OfficeLiveEditBridge {
         // Keep editor active so user can retry
         this._showCommitStatus("failed", msg);
       },
-      onConflict: async (result) => {
+      onConflict: async () => {
         this._toast("公式已被其他操作修改，正在重新读取...", "warning");
         try {
           const fresh = await this.controller?.reReadFormula();

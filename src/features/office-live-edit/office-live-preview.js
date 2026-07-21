@@ -173,7 +173,7 @@ export class OfficeLivePreview {
     }
   }
 
-  _renderSvg(svg, widthPt, heightPt) {
+  _renderSvg(svg, _widthPt, _heightPt) {
     if (!this.container) return;
     this.container.innerHTML = "";
     this.container.classList.remove(this.errorClass);
