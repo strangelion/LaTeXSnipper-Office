@@ -186,6 +186,8 @@ pub struct HostResult {
     pub session_id: String,
     pub formula_id: Option<String>,
     pub revision: Option<u64>,
+    #[allow(dead_code, reason = "Available for storage mode tracking")]
+    pub actual_storage_mode: Option<String>,
     #[allow(dead_code, reason = "Available for error diagnostics")]
     pub error_code: Option<String>,
     pub error: Option<String>,

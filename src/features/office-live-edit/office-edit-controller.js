@@ -299,18 +299,17 @@ export class OfficeEditController {
 
       if (result.success) {
         this.state.transition(EditState.COMMITTED);
-        return true;
-      } else if (result.conflict) {
+      } else if (result.errorCode === "OFFICE_TARGET_CHANGED") {
         this.state.transition(EditState.CONFLICT, result);
-        return false;
       } else {
         this.state.transition(EditState.FAILED, result);
-        return false;
       }
+      return result;
     } catch (err) {
       console.error("[LiveEdit] Commit failed:", err);
-      this.state.transition(EditState.FAILED, { error: err });
-      return false;
+      const errorResult = { success: false, error: err.message || String(err) };
+      this.state.transition(EditState.FAILED, errorResult);
+      return errorResult;
     }
   }
 

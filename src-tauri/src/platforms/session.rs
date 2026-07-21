@@ -1,4 +1,4 @@
-//! Session management for Native Office VSTO connections.
+﻿//! Session management for Native Office VSTO connections.
 //!
 //! Each VSTO Add-in (Word / Excel / PowerPoint / Visio) maintains one session.
 //! The SessionManager routes incoming messages to the correct handler
@@ -516,6 +516,7 @@ impl SessionManager {
                     session_id: sid.clone(),
                     formula_id: formulaId.clone(),
                     revision: None,
+                    actual_storage_mode: actualStorageMode.clone(),
                     error_code: errorCode.clone(),
                     error: error.clone(),
                 };
@@ -568,6 +569,7 @@ impl SessionManager {
                     session_id: sid.clone(),
                     formula_id: None,
                     revision: None,
+                    actual_storage_mode: None,
                     error_code: errorCode.clone(),
                     error: error.clone(),
                 };
@@ -687,6 +689,7 @@ impl SessionManager {
                     session_id: sid.clone(),
                     formula_id: formulaId.clone(),
                     revision,
+                    actual_storage_mode: actualStorageMode.clone(),
                     error_code: errorCode.clone(),
                     error: error.clone(),
                 };

@@ -176,7 +176,7 @@ export class OfficeLiveEditBridge {
       if (result.success) {
         this._showCommitStatus("committed");
         return { success: true };
-      } else if (result.conflict) {
+      } else if (result.errorCode === "OFFICE_TARGET_CHANGED") {
         this._showCommitStatus("failed", "Conflict: formula modified");
         return { success: false, conflict: true, error: result.error };
       } else {

@@ -163,7 +163,7 @@ pub async fn native_office_replace_formula(
     let rx = waiter.register(request_id.clone()).await;
 
     // Step 3: Send REPLACE command
-    crate::platforms::pipe_server::send_replace_formula_with_id(
+    if let Err(e) = crate::platforms::pipe_server::send_replace_formula_with_id(
         &session_mgr,
         &session_id,
         request_id.clone(),
@@ -172,7 +172,10 @@ pub async fn native_office_replace_formula(
         payload,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    {
+        waiter.cancel(&request_id).await;
+        return Err(e.to_string());
+    }
 
     // Step 4: Wait for Word to confirm replacement (with 15s timeout)
     let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
@@ -190,6 +193,8 @@ pub async fn native_office_replace_formula(
         success: result.success,
         formula_id: result.formula_id,
         revision: result.revision,
+        actual_storage_mode: result.actual_storage_mode,
+        error_code: result.error_code,
         error: result.error,
     })
 }
@@ -201,6 +206,8 @@ pub struct ReplaceResult {
     pub success: bool,
     pub formula_id: Option<String>,
     pub revision: Option<u64>,
+    pub actual_storage_mode: Option<String>,
+    pub error_code: Option<String>,
     pub error: Option<String>,
 }
 
@@ -855,7 +862,7 @@ pub async fn native_office_generate_and_insert(
     let rx = waiter.register(request_id.clone()).await;
 
     // Step 3: Send command with pre-generated request ID
-    crate::platforms::pipe_server::send_insert_formula_with_id(
+    if let Err(e) = crate::platforms::pipe_server::send_insert_formula_with_id(
         &session_mgr,
         &session_id,
         request_id.clone(),
@@ -864,7 +871,10 @@ pub async fn native_office_generate_and_insert(
         Some(im),
     )
     .await
-    .map_err(|e| format!("Failed to send insert command: {}", e))?;
+    {
+        waiter.cancel(&request_id).await;
+        return Err(format!("Failed to send insert command: {}", e));
+    }
 
     // Step 4: Wait for Word to confirm insertion (with 15s timeout)
     let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
@@ -1227,10 +1237,10 @@ pub async fn native_office_generate_and_import(
         plan,
     };
 
-    session_mgr
-        .send_to_session(&session_id, msg)
-        .await
-        .map_err(|e| format!("Failed to send import conversation: {}", e))?;
+    if let Err(e) = session_mgr.send_to_session(&session_id, msg).await {
+        waiter.cancel(&request_id).await;
+        return Err(format!("Failed to send import conversation: {}", e));
+    }
 
     // Step 4: Wait for Word to confirm import (with 30s timeout for large content)
     let result = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
@@ -1239,6 +1249,7 @@ pub async fn native_office_generate_and_import(
             return Err("Import result channel disconnected".to_string());
         }
         Err(_) => {
+            waiter.cancel(&request_id).await;
             return Err("Import timed out waiting for Word response".to_string());
         }
     };
