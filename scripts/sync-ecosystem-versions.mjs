@@ -18,9 +18,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const dryRun = process.argv.includes("--dry-run");
 
-const rootPkg = JSON.parse(
-  readFileSync(resolve(root, "package.json"), "utf8"),
-);
+const rootPkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const targetVersion = rootPkg.version;
 
 const targets = [
