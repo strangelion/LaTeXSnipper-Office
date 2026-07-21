@@ -1,4 +1,4 @@
-//! Tauri commands for Native Office VSTO integration.
+﻿//! Tauri commands for Native Office VSTO integration.
 //!
 //! These commands replace the old Office.js Bridge commands and use
 //! the Named Pipe communication with VSTO Add-ins.
@@ -109,6 +109,7 @@ pub async fn native_office_insert_formula(
 )]
 pub async fn native_office_replace_formula(
     session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
     session_id: String,
     formula_id: String,
     latex: String,
@@ -121,7 +122,7 @@ pub async fn native_office_replace_formula(
     storage_mode: Option<String>,
     expected_revision: Option<u64>,
     expected_document_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<ReplaceResult, String> {
     let revision = expected_revision
         .map(i32::try_from)
         .transpose()
@@ -155,17 +156,52 @@ pub async fn native_office_replace_formula(
         created_utc_ticks: 0,
     };
 
-    let request_id = crate::platforms::pipe_server::send_replace_formula(
+    // Step 1: Generate request ID
+    let request_id = format!("cmd-{}", uuid_simple());
+
+    // Step 2: Register waiter BEFORE sending (prevents race condition)
+    let rx = waiter.register(request_id.clone()).await;
+
+    // Step 3: Send REPLACE command
+    crate::platforms::pipe_server::send_replace_formula_with_id(
         &session_mgr,
         &session_id,
+        request_id.clone(),
         expected_document_id,
-        formula_id,
+        formula_id.clone(),
         payload,
     )
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok(request_id)
+    // Step 4: Wait for Word to confirm replacement (with 15s timeout)
+    let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
+        Ok(Ok(host_result)) => host_result,
+        Ok(Err(_)) => {
+            return Err("Replace result channel disconnected".to_string());
+        }
+        Err(_) => {
+            waiter.cancel(&request_id).await;
+            return Err("Replace timed out waiting for Word response".to_string());
+        }
+    };
+
+    Ok(ReplaceResult {
+        success: result.success,
+        formula_id: result.formula_id,
+        revision: result.revision,
+        error: result.error,
+    })
+}
+
+/// Result of a replace formula operation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceResult {
+    pub success: bool,
+    pub formula_id: Option<String>,
+    pub revision: Option<u64>,
+    pub error: Option<String>,
 }
 
 #[tauri::command]
@@ -812,10 +848,17 @@ pub async fn native_office_generate_and_insert(
         .ok()
         .unwrap_or(FormulaIntegrationMode::Auto);
 
-    // Register waiter before sending (so we don't miss the result)
-    let request_id = crate::platforms::pipe_server::send_insert_formula(
+    // Step 1: Generate request ID
+    let request_id = format!("cmd-{}", uuid_simple());
+
+    // Step 2: Register waiter BEFORE sending (prevents race condition)
+    let rx = waiter.register(request_id.clone()).await;
+
+    // Step 3: Send command with pre-generated request ID
+    crate::platforms::pipe_server::send_insert_formula_with_id(
         &session_mgr,
         &session_id,
+        request_id.clone(),
         payload,
         insert_mode,
         Some(im),
@@ -823,14 +866,15 @@ pub async fn native_office_generate_and_insert(
     .await
     .map_err(|e| format!("Failed to send insert command: {}", e))?;
 
-    // Wait for Word to confirm insertion (with 15s timeout)
-    let rx = waiter.register(request_id.clone()).await;
+    // Step 4: Wait for Word to confirm insertion (with 15s timeout)
     let result = match tokio::time::timeout(std::time::Duration::from_secs(15), rx).await {
         Ok(Ok(host_result)) => host_result,
         Ok(Err(_)) => {
             return Err("Insert result channel disconnected".to_string());
         }
         Err(_) => {
+            // Clean up waiter on timeout
+            waiter.cancel(&request_id).await;
             return Err("Insert timed out waiting for Word response".to_string());
         }
     };
@@ -1169,8 +1213,13 @@ pub async fn native_office_generate_and_import(
         "Word destination document identity is unavailable. Please ensure a Word document is open.",
     )?;
 
-    // Send IMPORT_CONVERSATION to Word
+    // Step 1: Generate request ID
     let request_id = format!("cmd-{}", uuid_simple());
+
+    // Step 2: Register waiter BEFORE sending (prevents race condition)
+    let rx = waiter.register(request_id.clone()).await;
+
+    // Step 3: Send IMPORT_CONVERSATION to Word
     let msg = DesktopMessage::ImportConversation {
         requestId: request_id.clone(),
         sessionId: session_id.clone(),
@@ -1183,8 +1232,7 @@ pub async fn native_office_generate_and_import(
         .await
         .map_err(|e| format!("Failed to send import conversation: {}", e))?;
 
-    // Wait for Word to confirm import (with 30s timeout for large content)
-    let rx = waiter.register(request_id).await;
+    // Step 4: Wait for Word to confirm import (with 30s timeout for large content)
     let result = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
         Ok(Ok(host_result)) => host_result,
         Ok(Err(_)) => {

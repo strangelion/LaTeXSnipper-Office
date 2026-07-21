@@ -190,11 +190,15 @@ pub struct HostResult {
 
 /// Unified waiter for pipe command results.
 ///
-/// Any code that sends a command to the VSTO host can register a waiter
-/// by requestId. When the host responds (InsertResult, ReplaceResult, etc.),
-/// the waiter resolves with the result.
+/// **Critical usage pattern — must be followed exactly:**
+/// ```text
+/// let rx = waiter.register(request_id.clone()).await;  // Step 1: register FIRST
+/// send_command(request_id).await?;                       // Step 2: send SECOND
+/// let result = timeout(.., rx).await?;                   // Step 3: await
+/// ```
 ///
-/// This replaces the pattern of "send and hope" with "send and await".
+/// If register happens AFTER send, the host may respond before the waiter
+/// exists, causing the result to be lost and a timeout.
 pub struct RequestWaiter {
     waiters: Mutex<HashMap<String, oneshot::Sender<HostResult>>>,
 }
@@ -206,8 +210,8 @@ impl RequestWaiter {
         })
     }
 
-    /// Create a oneshot receiver for a given requestId.
-    /// Returns (request_id, receiver) — caller sends the request, then awaits receiver.
+    /// Register a waiter BEFORE sending the command.
+    /// Returns a receiver that will resolve when the host responds.
     pub async fn register(&self, request_id: String) -> oneshot::Receiver<HostResult> {
         let (tx, rx) = oneshot::channel();
         self.waiters.lock().await.insert(request_id, tx);
@@ -215,7 +219,7 @@ impl RequestWaiter {
     }
 
     /// Resolve a pending waiter with the host result.
-    /// Returns true if a waiter was found and resolved, false if unknown requestId.
+    /// Returns true if a waiter was found and resolved.
     pub async fn resolve(&self, result: HostResult) -> bool {
         let sender = self.waiters.lock().await.remove(&result.request_id);
         if let Some(tx) = sender {
@@ -224,6 +228,12 @@ impl RequestWaiter {
         } else {
             false
         }
+    }
+
+    /// Cancel a specific waiter (e.g., on timeout or explicit cancel).
+    /// Prevents the sender from being dropped without resolution.
+    pub async fn cancel(&self, request_id: &str) {
+        self.waiters.lock().await.remove(request_id);
     }
 
     /// Cancel all pending waiters (e.g., on shutdown).

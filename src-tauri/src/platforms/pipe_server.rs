@@ -1,4 +1,4 @@
-//! Named Pipe server for LaTeXSnipper Native Office v3.
+﻿//! Named Pipe server for LaTeXSnipper Native Office v3.
 //!
 //! Listens on `\\.\pipe\LaTeXSnipper.NativeOffice.v3.<SID>` and handles
 //! bidirectional communication with VSTO Add-ins.
@@ -279,6 +279,27 @@ pub async fn send_insert_formula(
     Ok(request_id)
 }
 
+/// Send insert formula with a caller-provided requestId.
+/// Use this when the caller needs to register a waiter BEFORE sending.
+pub async fn send_insert_formula_with_id(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+    request_id: String,
+    formula: FormulaPayload,
+    mode: InsertMode,
+    integration_mode: Option<FormulaIntegrationMode>,
+) -> Result<(), super::session::SendError> {
+    let msg = DesktopMessage::InsertFormula {
+        requestId: request_id.clone(),
+        sessionId: session_id.to_string(),
+        expectedContextId: None,
+        formula,
+        mode,
+        integration_mode,
+    };
+    session_mgr.send_to_session(session_id, msg).await
+}
+
 pub async fn send_replace_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
@@ -296,6 +317,26 @@ pub async fn send_replace_formula(
     };
     session_mgr.send_to_session(session_id, msg).await?;
     Ok(request_id)
+}
+
+/// Send replace formula with a caller-provided requestId.
+/// Use this when the caller needs to register a waiter BEFORE sending.
+pub async fn send_replace_formula_with_id(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+    request_id: String,
+    expected_context_id: Option<String>,
+    formula_id: String,
+    formula: FormulaPayload,
+) -> Result<(), super::session::SendError> {
+    let msg = DesktopMessage::ReplaceFormula {
+        requestId: request_id,
+        sessionId: session_id.to_string(),
+        expectedContextId: expected_context_id,
+        formulaId: formula_id,
+        formula,
+    };
+    session_mgr.send_to_session(session_id, msg).await
 }
 
 pub async fn send_read_formula(
