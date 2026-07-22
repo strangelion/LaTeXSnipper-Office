@@ -520,6 +520,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle, state: Arc<Bridge
             "/api/wps/temp-assets/{asset_id}",
             delete(handle_delete_wps_temp_asset),
         )
+        .route("/api/wps/log", post(handle_wps_log))
         // Serve static files at root so `/taskpane.html` and `/assets/*.js` resolve
         .fallback_service(ServeDir::new(&dist_path))
         .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
@@ -1915,6 +1916,47 @@ async fn cleanup_expired_wps_assets(state: &BridgeRuntimeState) {
     for asset in expired {
         let _ = fs::remove_file(asset.path);
     }
+}
+
+async fn handle_wps_log(
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let level = body
+        .get("level")
+        .and_then(|v| v.as_str())
+        .unwrap_or("error");
+    let operation = body
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let host = body
+        .get("host")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let formula_id = body
+        .get("formulaId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let error_code = body
+        .get("errorCode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let message = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    log::warn!(
+        "[WPS-{}] host={} op={} fid={} code={} msg={}",
+        level,
+        host,
+        operation,
+        formula_id,
+        error_code,
+        message
+    );
+
+    Json(serde_json::json!({"ok": true}))
 }
 
 async fn handle_create_wps_temp_asset(

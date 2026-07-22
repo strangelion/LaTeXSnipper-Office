@@ -5,6 +5,7 @@ pub mod ecosystem;
 #[cfg(target_os = "windows")]
 pub mod handshake;
 pub mod integrations;
+pub mod logging;
 pub mod office;
 pub mod office_bridge;
 pub mod office_commit;

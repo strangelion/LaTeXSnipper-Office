@@ -21,6 +21,12 @@ fn main() {
     let log_dir = dirs_next::data_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("LaTeXSnipper");
+
+    // In release builds, capture all log output to a persistent file.
+    // env_logger still runs for console output in debug builds.
+    #[cfg(not(debug_assertions))]
+    platforms::logging::init_file_logging(&log_dir);
+
     std::fs::create_dir_all(&log_dir).ok();
     let log_path = log_dir.join("crash.log");
     let prev_hook = std::panic::take_hook();
@@ -49,7 +55,7 @@ fn main() {
         .position(|a| a == "--ole-edit")
         .and_then(|i| args.get(i + 1).cloned());
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init().ok();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
