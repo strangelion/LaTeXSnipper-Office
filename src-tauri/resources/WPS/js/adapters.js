@@ -404,6 +404,9 @@
     }
 
     if (mode === "numbered") {
+      // Wrap synchronous setup in Promise so UndoRecord.EndCustomRecord
+      // is always called even if Tables.Add or column setup throws.
+      return Promise.resolve().then(function () {
       var sequence =
         (existingMetadata && existingMetadata.sequence) || payload.sequence || nextSequence(document);
       var table = document.Tables.Add(insertion, 1, 3);
@@ -460,6 +463,7 @@
         endUndoRecord();
         throw error;
       });
+      });  // close Promise.resolve().then() wrapper
     }
 
     return addNativeMath(
@@ -539,6 +543,7 @@
     document.Range(originalEnd, originalEnd).Select();
 
     var candidateId = formulaId();
+    var candidateMetadata = null;  // outer scope for catch cleanup
 
     // insertWriterNative returns a Promise since addNativeMath is async.
     // Chain the entire candidate-first transaction as a Promise.
@@ -553,7 +558,7 @@
         restoreRange(document, originalStart, originalEnd);
         return candidate;
       }
-      var candidateMetadata = candidate.data;
+      candidateMetadata = candidate.data;
 
       var candidateRange;
       try {
@@ -612,9 +617,9 @@
       return { ok: true, data: finalMetadata };
     }).catch(function (error) {
       logFailure("candidate-first-writer-update", metadata.formulaId, error);
-      if (error && error.candidateMetadata && error.candidateMetadata.bookmark) {
+      if (candidateMetadata && candidateMetadata.bookmark) {
         try {
-          document.Bookmarks.Item(error.candidateMetadata.bookmark).Range.Delete();
+          document.Bookmarks.Item(candidateMetadata.bookmark).Range.Delete();
         } catch (cleanupError) {
           logFailure("cleanup-writer-candidate", metadata.formulaId, cleanupError);
         }
