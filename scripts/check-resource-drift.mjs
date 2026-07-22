@@ -178,36 +178,57 @@ function checkOfficeJs() {
     return;
   }
 
-  // Compare staged files against git HEAD (same approach as ecosystem check).
-  // Vite produces hashed filenames that differ every build, so comparing
-  // against a fresh build is nondeterministic. Instead we verify that the
-  // committed staged resources haven't drifted from HEAD.
-  let fileCount = 0;
-  let officeJsOk = true;
+  // OfficeJS uses Vite which produces non-deterministic hashed filenames.
+  // In CI (where a fresh build just ran), we use git diff to detect whether
+  // the committed resources are stale. Locally (no fresh build), comparing
+  // against git HEAD catches pre-commit drift.
+  const buildDir = resolve(root, "apps", "office-addin", "dist");
+  const freshBuildExists = existsSync(buildDir) && walkDir(buildDir).length > 0;
 
-  for (const dir of [stagedSiteDir, stagedManifestDir]) {
-    const files = walkDir(dir);
-    for (const filePath of files) {
-      const relPath = relative(root, filePath).replace(/\\/g, "/");
-      const currentHash = fileHash(filePath);
-      const committedContent = getCommittedContent(relPath);
-
-      if (committedContent === null) {
-        // New file not yet committed — acceptable after build
-        continue;
-      }
-
-      const committedHash = contentHash(committedContent);
-      if (currentHash !== committedHash) {
-        fail(`OfficeJS: content changed vs HEAD — ${relPath}`);
-        officeJsOk = false;
-      }
-      fileCount++;
+  if (freshBuildExists) {
+    // CI path: a fresh build was just staged. Check if git sees any
+    // uncommitted changes — if so, the developer forgot to commit.
+    try {
+      execFileSync(
+        "git",
+        ["diff", "--exit-code", "--", "src-tauri/resources/OfficeJS/"],
+        { cwd: root, encoding: "utf8", stdio: "pipe" },
+      );
+      console.log("  OfficeJS: staged resources match committed (post-build)");
+    } catch {
+      // git diff --exit-code returns non-zero when there are changes
+      fail(
+        "OfficeJS: staged resources differ from committed — run npm run build:office-addin and commit the result",
+      );
     }
-  }
+  } else {
+    // Local path: compare staged files against git HEAD
+    let fileCount = 0;
+    let officeJsOk = true;
 
-  if (officeJsOk) {
-    console.log(`  OfficeJS: ${fileCount} files in sync with HEAD`);
+    for (const dir of [stagedSiteDir, stagedManifestDir]) {
+      const files = walkDir(dir);
+      for (const filePath of files) {
+        const relPath = relative(root, filePath).replace(/\\/g, "/");
+        const currentHash = fileHash(filePath);
+        const committedContent = getCommittedContent(relPath);
+
+        if (committedContent === null) {
+          continue;
+        }
+
+        const committedHash = contentHash(committedContent);
+        if (currentHash !== committedHash) {
+          fail(`OfficeJS: content changed vs HEAD — ${relPath}`);
+          officeJsOk = false;
+        }
+        fileCount++;
+      }
+    }
+
+    if (officeJsOk) {
+      console.log(`  OfficeJS: ${fileCount} files in sync with HEAD`);
+    }
   }
 }
 
