@@ -1,6 +1,7 @@
 #include "StorageUtil.h"
 
 #include "OleFormulaIds.h"
+#include "Presentation.h"
 #include "SvgToEmf.h"
 
 #include <vector>
@@ -146,7 +147,19 @@ HRESULT LoadPresentationFromStorage(IStorage* storage, FormulaPresentation* pres
         }
         std::wstring reason;
         const bool raster = ContainsRasterEmfRecords(emfBytes, &reason);
+
+        // Restore natural size from the saved EMF's rclFrame, not from
+        // payload width/height. The original render dimensions lack the
+        // padding added during EMF generation; using them after reload
+        // creates a smaller OLE extent that clips the formula.
+        SIZEL storedExtent{};
+        if (!TryReadEmfFrameHimetric(emfBytes, &storedExtent))
+        {
+            return STG_E_DOCFILECORRUPT;
+        }
+
         loaded.enhancedMetafile = std::move(emfBytes);
+        loaded.himetricSize = storedExtent;
         loaded.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
         loaded.isVector = !raster;
     }
