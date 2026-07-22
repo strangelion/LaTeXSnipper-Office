@@ -1,7 +1,7 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "6c26a70463f3fa5535ac4b7e73d36f44af9c1737",
+    "sourceCommitSha":  "0063b9e9717dae5bef7790a58e232d0f41750ee7",
     "packageVersion":  "1.5.1",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
@@ -54,7 +54,7 @@
                                        "images/settings.svg":  "E662352477D9C4E76583A1A020D5352A98003E1BEAA6935F5D5FAB8215724431",
                                        "images/task_pane.svg":  "1F8E99AC14A093BC5303D825D7370DF155B056078D3AEF775BFED001A50F9AFC",
                                        "index.html":  "92AC742B4C94F2BDD433B197F2CCC236F0B362EC3CF6648528555213C42EE61A",
-                                       "js/adapters.js":  "BDF16E90B1418E0DDAD44AA0030F87676884AF8E44A73703A705F6A305C1A25D",
+                                       "js/adapters.js":  "06053ECF4F120BB4523CA5FF8356B2C5C78230066E459FDA3CBF4D599EFABAEB",
                                        "js/bridge-client.js":  "C8CD8FAD7F211CD285C582D07B030EC8F78C515AA7E8D1D0EF4A0648C475EA28",
                                        "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6",
                                        "js/host-detect.js":  "1ECCC790C0BE889C7EA151D506E17A224EF97947F5DC94EDE26EFD47D9D82C34",

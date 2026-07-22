@@ -180,37 +180,18 @@
   // (UnicodeMath) via Core. When the Bridge is unreachable, a local
   // subset converter handles basic formulas.
   function addNativeMath(document, range, latex, display) {
-    if (
-      window.WpsBridgeClient &&
-      typeof window.WpsBridgeClient.convert === "function"
-    ) {
-      return window.WpsBridgeClient
-        .convert(latex, display ? "block" : "inline", "linear-math")
-        .then(function (result) {
-          if (result && result.content) {
-            return insertLinearMath(
-              document,
-              range,
-              result.content,
-              display,
-            );
-          }
-          throw new Error("Bridge returned empty linear math");
-        })
-        .catch(function (bridgeError) {
-          logFailure("linear-math-bridge-fallback", null, bridgeError);
-          return insertLinearMath(
-            document,
-            range,
-            latexToUnicodeMath(latex),
-            display,
-          );
-        });
-    }
-
-    return Promise.resolve(
-      insertLinearMath(document, range, latexToUnicodeMath(latex), display),
-    );
+    // TODO: When Core supports latex→linear-math, use Bridge here:
+    //   WpsBridgeClient.convert(latex, display, "linear-math")
+    // For now, the Bridge does not serve this format — go directly to
+    // the local fallback to avoid a guaranteed-failed HTTP round-trip.
+    return Promise.resolve().then(function () {
+      return insertLinearMath(
+        document,
+        range,
+        latexToUnicodeMath(latex),
+        display,
+      );
+    });
   }
 
   function insertLinearMath(document, range, linear, display) {
@@ -548,28 +529,40 @@
     var originalRange;
     var originalStart;
     var originalEnd;
-    var candidateMetadata = null;
     try {
       originalRange = document.Bookmarks.Item(metadata.bookmark).Range;
       originalStart = originalRange.Start;
       originalEnd = originalRange.End;
-      document.Range(originalEnd, originalEnd).Select();
+    } catch (_e) {
+      return failure("BOOKMARK_STALE", "The formula bookmark is no longer valid.");
+    }
+    document.Range(originalEnd, originalEnd).Select();
 
-      var candidateId = formulaId();
-      var candidate = insertWriterNative({
-        formulaId: candidateId,
-        latex: payload.latex,
-        mode: payload.mode || metadata.displayMode,
-        sequence: metadata.sequence,
-        label: metadata.label,
-      });
-      if (!candidate.ok) {
+    var candidateId = formulaId();
+
+    // insertWriterNative returns a Promise since addNativeMath is async.
+    // Chain the entire candidate-first transaction as a Promise.
+    return insertWriterNative({
+      formulaId: candidateId,
+      latex: payload.latex,
+      mode: payload.mode || metadata.displayMode,
+      sequence: metadata.sequence,
+      label: metadata.label,
+    }).then(function (candidate) {
+      if (!candidate || !candidate.ok) {
         restoreRange(document, originalStart, originalEnd);
         return candidate;
       }
-      candidateMetadata = candidate.data;
+      var candidateMetadata = candidate.data;
 
-      var candidateRange = document.Bookmarks.Item(candidateMetadata.bookmark).Range;
+      var candidateRange;
+      try {
+        candidateRange = document.Bookmarks.Item(candidateMetadata.bookmark).Range;
+      } catch (_crError) {
+        throw Object.assign(new Error("Candidate bookmark is unreadable."), {
+          code: "CANDIDATE_VALIDATION_FAILED",
+        });
+      }
       if (!candidateRange || candidateRange.End <= candidateRange.Start) {
         throw Object.assign(new Error("Candidate formula could not be read back."), {
           code: "CANDIDATE_VALIDATION_FAILED",
@@ -614,16 +607,14 @@
       try {
         candidateRange.Select();
       } catch (selectionError) {
-        // Selection is not part of the ownership commit and cannot trigger rollback
-        // after the original range has already been deleted.
         logFailure("select-writer-replacement", metadata.formulaId, selectionError);
       }
       return { ok: true, data: finalMetadata };
-    } catch (error) {
+    }).catch(function (error) {
       logFailure("candidate-first-writer-update", metadata.formulaId, error);
-      if (candidateMetadata && candidateMetadata.bookmark) {
+      if (error && error.candidateMetadata && error.candidateMetadata.bookmark) {
         try {
-          document.Bookmarks.Item(candidateMetadata.bookmark).Range.Delete();
+          document.Bookmarks.Item(error.candidateMetadata.bookmark).Range.Delete();
         } catch (cleanupError) {
           logFailure("cleanup-writer-candidate", metadata.formulaId, cleanupError);
         }
@@ -637,7 +628,7 @@
       }
       restoreRange(document, originalStart, originalEnd);
       return failure(error.code || "WRITER_UPDATE_FAILED", error.message || String(error));
-    }
+    });
   }
 
   function writerRenumber() {
