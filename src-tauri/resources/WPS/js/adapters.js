@@ -141,9 +141,14 @@
 
   function addNativeMath(document, range, latex, display) {
     var start = range.Start;
-    range.Text = latex;
 
-    var inserted = document.Range(start, start + latex.length);
+    // Convert LaTeX to UnicodeMath linear format for WPS OMath.
+    // WPS BuildUp() expects UnicodeMath syntax — raw LaTeX braces and
+    // backslash commands won't be recognised.
+    var linear = latexToUnicodeMath(latex);
+    range.Text = linear;
+
+    var inserted = document.Range(start, start + linear.length);
     var collection = document.OMaths || app().Selection.OMaths;
 
     if (!collection || typeof collection.Add !== "function") {
@@ -207,6 +212,170 @@
         { code: error.code || "OMATH_BUILD_FAILED" }
       );
     }
+  }
+
+  // Convert a subset of LaTeX math syntax to WPS UnicodeMath linear format.
+  // WPS BuildUp() uses the Office Math Linear Format (UnicodeMath, UTN #28).
+  // Raw LaTeX like \mathbf{A}\mapsto\mathbf{A}+\nabla\chi won't be
+  // parsed; we must convert it to UnicodeMath first.
+  function latexToUnicodeMath(latex) {
+    // Replace Greek letter commands with Unicode characters
+    var greek = {
+      "\\alpha": "\u03B1", "\\beta": "\u03B2", "\\gamma": "\u03B3",
+      "\\delta": "\u03B4", "\\epsilon": "\u03B5", "\\zeta": "\u03B6",
+      "\\eta": "\u03B7", "\\theta": "\u03B8", "\\iota": "\u03B9",
+      "\\kappa": "\u03BA", "\\lambda": "\u03BB", "\\mu": "\u03BC",
+      "\\nu": "\u03BD", "\\xi": "\u03BE", "\\pi": "\u03C0",
+      "\\rho": "\u03C1", "\\sigma": "\u03C3", "\\tau": "\u03C4",
+      "\\upsilon": "\u03C5", "\\phi": "\u03C6", "\\chi": "\u03C7",
+      "\\psi": "\u03C8", "\\omega": "\u03C9",
+      "\\Alpha": "\u0391", "\\Beta": "\u0392", "\\Gamma": "\u0393",
+      "\\Delta": "\u0394", "\\Epsilon": "\u0395", "\\Zeta": "\u0396",
+      "\\Eta": "\u0397", "\\Theta": "\u0398", "\\Iota": "\u0399",
+      "\\Kappa": "\u039A", "\\Lambda": "\u039B", "\\Mu": "\u039C",
+      "\\Nu": "\u039D", "\\Xi": "\u039E", "\\Pi": "\u03A0",
+      "\\Rho": "\u03A1", "\\Sigma": "\u03A3", "\\Tau": "\u03A4",
+      "\\Upsilon": "\u03A5", "\\Phi": "\u03A6", "\\Chi": "\u03A7",
+      "\\Psi": "\u03A8", "\\Omega": "\u03A9",
+    };
+
+    var result = latex;
+
+    // Replace Greek commands (longest-match first to avoid partial matches)
+    var greekKeys = Object.keys(greek).sort(function (a, b) {
+      return b.length - a.length;
+    });
+    for (var gi = 0; gi < greekKeys.length; gi++) {
+      var cmd = greekKeys[gi];
+      // Use split-join for simple replacement (no regex escaping needed)
+      result = result.split(cmd).join(greek[cmd]);
+    }
+
+    // Convert \mathbf{...}, \mathit{...}, etc. to UnicodeMath form.
+    // UnicodeMath uses parentheses or spaces for arguments, not braces.
+    // \mathbf{ABC} → \mathbf(ABC)
+    // \mathbf{A}  → \mathbf A   (single char gets space)
+    var fontCommands = [
+      "\\mathbf", "\\mathit", "\\mathsf", "\\mathtt",
+      "\\mathcal", "\\mathbb", "\\mathfrak", "\\mathscr",
+      "\\boldsymbol", "\\mathrm",
+    ];
+
+    for (var fi = 0; fi < fontCommands.length; fi++) {
+      var fcmd = fontCommands[fi];
+      var pattern = fcmd + "{";
+      var idx = result.indexOf(pattern);
+      while (idx !== -1) {
+        // Find the matching closing brace
+        var depth = 1;
+        var close = idx + pattern.length;
+        while (close < result.length && depth > 0) {
+          if (result[close] === "{") depth++;
+          else if (result[close] === "}") depth--;
+          close++;
+        }
+        if (depth === 0) {
+          var content = result.slice(idx + pattern.length, close - 1);
+          var replacement;
+          if (content.length <= 1 || content.indexOf(" ") !== -1 || content.indexOf("^") !== -1 || content.indexOf("_") !== -1) {
+            replacement = fcmd + " " + content;
+          } else {
+            replacement = fcmd + "(" + content + ")";
+          }
+          result = result.slice(0, idx) + replacement + result.slice(close);
+          idx = result.indexOf(fcmd + " ", idx + replacement.length);
+          if (idx === -1) idx = result.indexOf(fcmd + "(", 0);
+        } else {
+          break;
+        }
+        idx = result.indexOf(pattern, idx + 1);
+      }
+    }
+
+    // Convert common LaTeX commands to UnicodeMath equivalents
+    var symbols = {
+      "\\times": "\u00D7",
+      "\\cdot": "\u22C5",
+      "\\pm": "\u00B1",
+      "\\mp": "\u2213",
+      "\\div": "\u00F7",
+      "\\infty": "\u221E",
+      "\\partial": "\u2202",
+      "\\nabla": "\u2207",
+      "\\forall": "\u2200",
+      "\\exists": "\u2203",
+      "\\neg": "\u00AC",
+      "\\emptyset": "\u2205",
+      "\\in": "\u2208",
+      "\\notin": "\u2209",
+      "\\subset": "\u2282",
+      "\\supset": "\u2283",
+      "\\subseteq": "\u2286",
+      "\\supseteq": "\u2287",
+      "\\cup": "\u222A",
+      "\\cap": "\u2229",
+      "\\land": "\u2227",
+      "\\lor": "\u2228",
+      "\\rightarrow": "\u2192",
+      "\\leftarrow": "\u2190",
+      "\\leftrightarrow": "\u2194",
+      "\\Rightarrow": "\u21D2",
+      "\\Leftarrow": "\u21D0",
+      "\\Leftrightarrow": "\u21D4",
+      "\\mapsto": "\u21A6",
+      "\\to": "\u2192",
+      "\\sim": "\u223C",
+      "\\approx": "\u2248",
+      "\\equiv": "\u2261",
+      "\\neq": "\u2260",
+      "\\leq": "\u2264",
+      "\\geq": "\u2265",
+      "\\ll": "\u226A",
+      "\\gg": "\u226B",
+      "\\propto": "\u221D",
+      "\\parallel": "\u2225",
+      "\\perp": "\u27C2",
+      "\\angle": "\u2220",
+      "\\triangle": "\u25B3",
+      "\\hbar": "\u0127",
+      "\\ell": "\u2113",
+      "\\wp": "\u2118",
+      "\\Re": "\u211C",
+      "\\Im": "\u2111",
+      "\\aleph": "\u2135",
+      "\\nabla": "\u2207",
+      "\\surd": "\u221A",
+      "\\Box": "\u25A1",
+      "\\Diamond": "\u25C7",
+      "\\otimes": "\u2297",
+      "\\oplus": "\u2295",
+      "\\odot": "\u2299",
+      "\\bullet": "\u2219",
+      "\\circ": "\u2218",
+      "\\star": "\u22C6",
+      "\\setminus": "\u2216",
+      "\\wedge": "\u2227",
+      "\\vee": "\u2228",
+      "\\wr": "\u2240",
+      "\\cong": "\u2245",
+      "\\simeq": "\u2243",
+      "\\doteq": "\u2250",
+      "\\models": "\u22A8",
+      "\\vdash": "\u22A2",
+      "\\dashv": "\u22A3",
+      "\\sqsubseteq": "\u2291",
+      "\\sqsupseteq": "\u2292",
+    };
+
+    var symKeys = Object.keys(symbols).sort(function (a, b) {
+      return b.length - a.length;
+    });
+    for (var si = 0; si < symKeys.length; si++) {
+      var sym = symKeys[si];
+      result = result.split(sym).join(symbols[sym]);
+    }
+
+    return result;
   }
 
   function nextSequence(document) {
