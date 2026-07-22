@@ -334,6 +334,7 @@ fn main() {
             commands::native_office::native_office_validate_ole,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_repair_vsto,
+            commands::native_office::export_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -18,13 +18,39 @@
     var host = window.WpsHostDetection
       ? window.WpsHostDetection.detectHost(window.Application)
       : "unknown";
+    var errorCode = (error && error.code) || "WPS_API_ERROR";
+    var message = (error && error.message) || String(error || "unknown error");
+
     console.warn("[LaTeXSnipper WPS] operation failed", {
       operation: operation,
       host: host,
       formulaId: formulaIdValue || null,
-      errorCode: (error && error.code) || "WPS_API_ERROR",
-      message: (error && error.message) || String(error || "unknown error"),
+      errorCode: errorCode,
+      message: message,
     });
+
+    // Fire-and-forget report to Desktop Bridge for persistent logging
+    if (
+      window.WpsBridgeClient &&
+      typeof window.WpsBridgeClient.request === "function"
+    ) {
+      window.WpsBridgeClient
+        .request("/api/wps/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            level: "error",
+            host: host,
+            operation: operation,
+            formulaId: formulaIdValue || "",
+            errorCode: errorCode,
+            message: message,
+          }),
+        })
+        .catch(function () {
+          // Best-effort — Bridge may be offline
+        });
+    }
   }
 
   function formulaId() {

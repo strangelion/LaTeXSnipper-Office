@@ -346,6 +346,7 @@
     baseUrl: baseUrl,
     connect: connect,
     convert: convert,
+    request: request,
     createTempAsset: createTempAsset,
     deleteTempAsset: deleteTempAsset,
     register: doRegister,

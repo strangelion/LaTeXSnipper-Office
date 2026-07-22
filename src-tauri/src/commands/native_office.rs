@@ -4,6 +4,7 @@
 //! the Named Pipe communication with VSTO Add-ins.
 
 use std::sync::Arc;
+use tauri::Manager;
 use tauri::State;
 
 use crate::platforms::pipe_protocol::*;
@@ -1500,6 +1501,72 @@ fn uuid_simple() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("{:x}", t)
+}
+
+/// Export a diagnostic summary of the current state.
+/// Returns a JSON object with version, OS, Office/WPS/Bridge status.
+#[tauri::command]
+pub fn export_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
+    let version = env!("CARGO_PKG_VERSION");
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+
+    // Build summary
+    let mut summary = serde_json::json!({
+        "appVersion": version,
+        "os": os,
+        "arch": arch,
+        "timestamp": chrono::Local::now().to_rfc3339(),
+    });
+
+    // Office status
+    #[cfg(target_os = "windows")]
+    {
+        let integration = crate::platforms::integrations::check_platform_integration_sync(
+            "office-native".to_string(),
+        );
+        let ole = crate::platforms::integrations::check_ole_status();
+        summary["nativeOffice"] = serde_json::json!({
+            "installed": integration.success,
+            "oleX64Registered": ole.x64_registered,
+            "oleX86Registered": ole.x86_registered,
+            "oleHealth": ole.health,
+            "activationPassed": ole.activation_result,
+        });
+
+        // Active sessions
+        let sessions = {
+            let mgr = app.state::<std::sync::Arc<crate::platforms::session::SessionManager>>();
+            let list = tauri::async_runtime::block_on(async { mgr.list_sessions().await });
+            let mut hosts = serde_json::Map::new();
+            for s in &list {
+                hosts.insert(
+                    format!("{:?}", s.host_type).to_lowercase(),
+                    serde_json::json!({
+                        "connected": true,
+                        "documentId": s.document_id,
+                        "documentTitle": s.document_title,
+                    }),
+                );
+            }
+            serde_json::Value::Object(hosts)
+        };
+        summary["sessions"] = sessions;
+    }
+
+    // Bridge health
+    {
+        let bridge_ok = crate::platforms::integrations::is_taskpane_connected();
+        summary["bridge"] = serde_json::json!({
+            "taskpaneConnected": bridge_ok,
+        });
+    }
+
+    // Desktop log tail (last 200 lines)
+    let log_tail = crate::platforms::logging::collect_recent_log(200);
+    summary["logTail"] = serde_json::Value::String(log_tail);
+
+    summary
 }
 
 #[cfg(test)]

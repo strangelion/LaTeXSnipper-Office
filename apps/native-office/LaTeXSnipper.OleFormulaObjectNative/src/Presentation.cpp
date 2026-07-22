@@ -358,6 +358,20 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
         PointsToHimetric(dimensions.heightPt)
     };
 
+    // Helper to log non-sensitive geometry diagnostics for every route.
+    auto logGeometry = [&](const wchar_t* route, SIZEL frameHimetric) {
+        double framePtW = frameHimetric.cx * 72.0 / 2540.0;
+        double framePtH = frameHimetric.cy * 72.0 / 2540.0;
+        wchar_t buf[512];
+        swprintf_s(buf,
+            L"OLE geometry: route=%s renderPt=%.1fx%.1f emfFramePt=%.1fx%.1f emfFrameHi=%dx%d",
+            route,
+            dimensions.widthPt, dimensions.heightPt,
+            framePtW, framePtH,
+            (int)frameHimetric.cx, (int)frameHimetric.cy);
+        WriteNativeOleLog(buf);
+    };
+
     std::wstring diagnostics;
 
     // ================================================================
@@ -418,6 +432,8 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
 
                     WriteNativeOleLog(
                         L"Presentation route: SVG_VECTOR_EMF");
+
+                    logGeometry(L"SVG_VECTOR_EMF", actualExtent);
 
                     return presentation;
                 }
@@ -564,6 +580,10 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
                         ? L"Presentation route: EMBEDDED_RASTER_EMF"
                         : L"Presentation route: EMBEDDED_VECTOR_EMF");
 
+                logGeometry(
+                    raster ? L"EMBEDDED_RASTER_EMF" : L"EMBEDDED_VECTOR_EMF",
+                    embeddedExtent);
+
                 return presentation;
             }
 
@@ -608,6 +628,9 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
 
         WriteNativeOleLog(
             L"Presentation route: PNG_RASTER_EMF_FALLBACK");
+
+        if (actualExtent.cx > 0)
+            logGeometry(L"PNG_RASTER_EMF", actualExtent);
 
         return pngPresentation;
     }
