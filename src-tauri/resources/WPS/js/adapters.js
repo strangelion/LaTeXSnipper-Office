@@ -142,32 +142,71 @@
   function addNativeMath(document, range, latex, display) {
     var start = range.Start;
     range.Text = latex;
+
     var inserted = document.Range(start, start + latex.length);
     var collection = document.OMaths || app().Selection.OMaths;
+
     if (!collection || typeof collection.Add !== "function") {
       inserted.Delete();
-      throw Object.assign(new Error("WPS native math API is unavailable."), {
-        code: "NATIVE_MATH_UNAVAILABLE",
-      });
+      throw Object.assign(
+        new Error("WPS native math API is unavailable."),
+        { code: "NATIVE_MATH_UNAVAILABLE" }
+      );
     }
-    var math = collection.Add(inserted);
-    if (!math && collection.Count > 0) math = collection.Item(collection.Count);
-    if (!math) {
-      inserted.Delete();
-      throw Object.assign(new Error("WPS did not create an OMath object."), {
-        code: "OMATH_CREATE_FAILED",
-      });
-    }
+
     try {
-      if (display && "Justification" in math) math.Justification = 1;
-      math.BuildUp();
+      // WPS OMaths.Add() returns a Range, not an OMath.
+      // Get the actual OMath via Range.OMaths.Item(1).
+      var mathRange = collection.Add(inserted);
+
+      if (!mathRange) {
+        throw Object.assign(
+          new Error("WPS did not return the created formula range."),
+          { code: "OMATH_CREATE_FAILED" }
+        );
+      }
+
+      var math = null;
+
+      if (mathRange.OMaths && mathRange.OMaths.Count > 0) {
+        math = mathRange.OMaths.Item(1);
+      } else if (inserted.OMaths && inserted.OMaths.Count > 0) {
+        math = inserted.OMaths.Item(1);
+      }
+
+      if (!math) {
+        throw Object.assign(
+          new Error("WPS did not expose the created OMath object."),
+          { code: "OMATH_CREATE_FAILED" }
+        );
+      }
+
+      if (display && "Justification" in math) {
+        math.Justification = 1;
+      }
+
+      if (typeof math.BuildUp === "function") {
+        math.BuildUp();
+      } else {
+        throw Object.assign(
+          new Error("WPS OMath BuildUp API is unavailable."),
+          { code: "OMATH_BUILD_UNAVAILABLE" }
+        );
+      }
+
+      return math.Range || mathRange || inserted;
     } catch (error) {
-      inserted.Delete();
-      throw Object.assign(new Error("WPS OMath BuildUp failed: " + error.message), {
-        code: "OMATH_BUILD_FAILED",
-      });
+      try {
+        inserted.Delete();
+      } catch (_deleteError) {
+        // Best-effort cleanup — ignore if range is already invalid
+      }
+
+      throw Object.assign(
+        new Error("WPS OMath BuildUp failed: " + (error.message || error)),
+        { code: error.code || "OMATH_BUILD_FAILED" }
+      );
     }
-    return math.Range || inserted;
   }
 
   function nextSequence(document) {

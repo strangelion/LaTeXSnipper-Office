@@ -81,6 +81,12 @@ jobs:
           npm run build:ecosystem
           npm run stage:ecosystem
           npm run check:ecosystem-drift
+      - name: Build WPS plugin for drift check
+        run: npm run build:wps
+      - name: Stage WPS and NativeOffice resources
+        run: npm run stage:resources
+      - name: Verify all staged resource freshness
+        run: npm run check:resource-drift
 
   rust:
     runs-on: ubuntu-24.04

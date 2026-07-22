@@ -149,6 +149,12 @@
         online ? "Bridge 已连接，宿主心跳正常。" : "BRIDGE_OFFLINE：" + error.message,
       );
     })
+    .then(function (registration) {
+      // Start action poller to receive desktop insert commands
+      bridge.startActionPoller(registration, function (command) {
+        return layer.dispatch(adapterKey, command);
+      });
+    })
     .catch(function (error) {
       status("error", (error.code || "BRIDGE_OFFLINE") + "：" + error.message);
     });

@@ -34,6 +34,12 @@
     "build:ecosystem": "npm run build:obsidian && npm run build:vscode && npm run build:browser",
     "stage:ecosystem": "node scripts/stage-ecosystem-resources.js",
     "check:ecosystem-drift": "node scripts/check-ecosystem-drift.mjs",
+    "check:resource-drift": "node scripts/check-resource-drift.mjs",
+    "sync:wps": "npm run build:wps && npm run stage:resources",
+    "sync:office-addin": "npm run build:office-addin",
+    "sync:native-office": "npm run build:native-office && npm run stage:resources",
+    "sync:ecosystem": "npm run build:ecosystem && npm run stage:ecosystem",
+    "sync:all": "npm run sync:wps && npm run sync:office-addin && npm run sync:ecosystem",
     "package:vscode": "npm --prefix apps/vscode-extension run package",
     "package:obsidian": "node scripts/package-obsidian.js"
   },
