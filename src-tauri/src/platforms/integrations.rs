@@ -5124,7 +5124,7 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     };
 
     // Determine health level
-    let (health, detail, available) = match registered_dll {
+    let (_health, detail, available) = match registered_dll {
         Some(dll_path) => {
             let path_obj = std::path::Path::new(&dll_path);
             if path_obj.exists() {
@@ -5215,11 +5215,13 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
             Some("Matching registry view or PE architecture is unhealthy.".to_string()),
         )
     };
-    let final_available = available && matching_view_healthy && activation_result;
+    // Activation probe is diagnostic only — a PowerShell timeout does not mean
+    // OLE is broken. VSTO + registry + DLL existence are the hard requirements.
+    let final_available = available && matching_view_healthy;
     let final_health = if activation_result {
         "Activatable".to_string()
     } else if matching_view_healthy {
-        health
+        "RegisteredButActivationUnverified".to_string()
     } else {
         "BitnessMismatch".to_string()
     };
@@ -5231,7 +5233,7 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     } else if !matching_view_healthy {
         Some("OLE_BITNESS_MISMATCH".to_string())
     } else {
-        Some("OLE_ACTIVATION_TIMEOUT".to_string())
+        Some("OLE_NOT_REGISTERED".to_string())
     };
 
     crate::commands::native_office::OleStatus {

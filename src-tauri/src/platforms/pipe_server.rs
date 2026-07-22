@@ -198,13 +198,15 @@ async fn handle_client(
                                     result.response.response
                                 {
                                     log::warn!("[Pipe] HELLO_NACK: {}. Disconnecting.", error);
-                                    let frame = encode_frame(&result.response);
+                                    let frame = encode_frame(&result.response.response);
                                     let _ = pipe.write_all(&frame).await;
                                     return Err(format!("HELLO_NACK: {}", error));
                                 }
 
-                                // Send response
-                                let frame = encode_frame(&result.response);
+                                // Send the inner DesktopMessage directly.
+                                // C# expects { "type": "HELLO_ACK", ... } at the wire
+                                // level, NOT a nested ResponseEnvelope wrapper.
+                                let frame = encode_frame(&result.response.response);
                                 if let Err(e) = pipe.write_all(&frame).await {
                                     log::error!("[Pipe] Write error: {}", e);
                                     return Err(format!("Write error: {}", e));
