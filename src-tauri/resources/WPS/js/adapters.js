@@ -203,24 +203,62 @@
       }
 
       var flatOpc = wrapOMML(result.content, display);
+      var beforeCount = document.OMaths ? document.OMaths.Count : 0;
 
-      // Try Range.InsertXML first (WPS Word-compatible API)
+      // Range.InsertXML is a Word-compatible API that may exist in some
+      // WPS versions but is NOT in the official WPS JSAPI documentation.
+      // Feature-detect and verify with OMaths.Count post-insertion.
       if (typeof range.InsertXML === "function") {
         range.InsertXML(flatOpc);
-        return range;
-      }
-
-      // Fallback: use Selection.InsertXML if Range method unavailable
-      if (
+      } else if (
         app().Selection &&
         typeof app().Selection.InsertXML === "function"
       ) {
         range.Select();
         app().Selection.InsertXML(flatOpc);
-        return app().Selection.Range;
+      } else {
+        throw new Error("WPS InsertXML API is unavailable");
       }
 
-      throw new Error("WPS InsertXML API is unavailable");
+      // Verify that InsertXML actually produced an OMath.
+      // No exception does NOT mean the formula was created.
+      var afterCount = document.OMaths ? document.OMaths.Count : 0;
+      if (afterCount <= beforeCount) {
+        throw new Error("OMML insertion produced no OMath");
+      }
+
+      // Find the newly created OMath closest to the insertion point.
+      // Walk backwards from the end of the OMaths collection to find
+      // one whose Range overlaps or is near the insertion range.
+      var insertionStart = range.Start;
+      for (var i = afterCount; i >= 1; i--) {
+        try {
+          var math = document.OMaths.Item(i);
+          if (math && math.Range) {
+            // Accept if the OMath starts at or after the insertion point
+            if (math.Range.Start >= insertionStart) {
+              if (display && "Justification" in math) {
+                math.Justification = 1;
+              }
+              return math.Range;
+            }
+          }
+        } catch (_itemError) {
+          // Skip inaccessible OMath items
+        }
+      }
+
+      // Last resort: return the last OMath's range
+      try {
+        var lastMath = document.OMaths.Item(afterCount);
+        if (lastMath && lastMath.Range) {
+          return lastMath.Range;
+        }
+      } catch (_lastError) {
+        // Fall through to error
+      }
+
+      throw new Error("Could not locate the inserted OMath");
     });
   }
 
