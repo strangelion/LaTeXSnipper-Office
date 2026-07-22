@@ -540,8 +540,12 @@ bool HasCatastrophicFrameOverflow(const std::vector<BYTE>& emfBytes, std::wstrin
     const double frameWidth = frameRight - frameLeft;
     const double frameHeight = frameBottom - frameTop;
 
-    const double toleranceX = (std::max)(8.0, frameWidth * 0.25);
-    const double toleranceY = (std::max)(8.0, frameHeight * 0.25);
+    // Drawing bounds must stay within ~2% of the frame.
+    // Larger overflow means the EMF geometry is inconsistent and
+    // OLE Draw() will clip the formula (IntersectClipRect).
+    // Reject such EMFs so the SVG→EMF fallback regenerates a clean one.
+    const double toleranceX = (std::max)(2.0, frameWidth * 0.02);
+    const double toleranceY = (std::max)(2.0, frameHeight * 0.02);
 
     const bool overflow =
         header.rclBounds.left < std::floor(frameLeft - toleranceX) ||

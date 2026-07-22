@@ -727,7 +727,10 @@ STDMETHODIMP FormulaOleObject::GetData(FORMATETC* format, STGMEDIUM* medium)
         return S_OK;
     }
 
-    HGLOBAL metafilePict = CreateMetaFilePictFromEnhancedMetafile(presentation_, GetEffectiveExtent());
+    // CF_METAFILEPICT xExt/yExt must be the intrinsic EMF natural size,
+    // not the container display extent. Word sets its own InlineShape.Width
+    // separately; mixing the two creates dual display-size state.
+    HGLOBAL metafilePict = CreateMetaFilePictFromEnhancedMetafile(presentation_, presentation_.himetricSize);
     if (metafilePict == nullptr)
     {
         return E_FAIL;
