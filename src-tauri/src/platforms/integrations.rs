@@ -483,15 +483,21 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                 let vsto_ok = check_native_office_vsto();
                 let ole_status = check_ole_status();
                 if vsto_ok && ole_status.available {
-                    PlatformIntegrationResult::ok(
-                        "office",
-                        "native-stack",
-                        format!(
-                            "MSI install completed. VSTO and OLE verified. {}",
-                            ole_status.detail
-                        ),
-                        true,
-                    )
+                    PlatformIntegrationResult {
+                        success: true,
+                        platform: "office".to_string(),
+                        mode: "native-stack".to_string(),
+                        message: "Microsoft Office 集成已成功启用。".to_string(),
+                        restart_required: true,
+                        details: Some(serde_json::json!({
+                            "vstoVerified": true,
+                            "oleHealth": ole_status.health,
+                            "oleDetail": ole_status.detail,
+                            "x64Dll": ole_status.x64_registry_path,
+                            "x86Dll": ole_status.x86_registry_path,
+                            "activationPassed": ole_status.activation_result,
+                        })),
+                    }
                 } else {
                     PlatformIntegrationResult::fail(
                         "office",

@@ -333,107 +333,303 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
     FormulaPresentation presentation{};
     presentation.latex = JsonReadString(payloadJson, L"latex");
     presentation.payloadJson = payloadJson;
-    ApplyPayloadSize(payloadJson, &presentation);
+
+    const PayloadDimensions dimensions = ReadPayloadDimensions(payloadJson);
+
     if (presentation.latex.empty())
     {
-        presentation.diagnostic = L"OLE_PRESENTATION_INVALID: latex is empty";
-        return presentation;
-    }
-    if (presentation.himetricSize.cx <= 0 || presentation.himetricSize.cy <= 0)
-    {
-        presentation.diagnostic = L"OLE_PRESENTATION_INVALID: widthPt and heightPt must be positive";
+        presentation.diagnostic =
+            L"OLE_PRESENTATION_INVALID: latex is empty";
         return presentation;
     }
 
-    std::wstring emfBase64 = JsonReadNestedString(payloadJson, L"presentation", L"emfBase64");
-    if (emfBase64.empty()) emfBase64 = ExtractJsonString(payloadJson, L"emfBase64");
-    std::vector<BYTE> emfFromPresentation = DecodeBase64(emfBase64);
-    if (!emfFromPresentation.empty() && HasValidEmf(emfFromPresentation))
+    if (!dimensions.IsValid())
     {
-        const std::wstring emfKind = JsonReadNestedString(payloadJson, L"presentation", L"emfKind");
-        std::wstring reason;
-        const bool raster = ContainsRasterEmfRecords(emfFromPresentation, &reason);
-        if (Lowercase(emfKind) == L"vector" && (raster || !HasVectorDrawingEmfRecords(emfFromPresentation, &reason)))
+        presentation.diagnostic =
+            L"OLE_PRESENTATION_INVALID: render widthPt/heightPt must be positive";
+        return presentation;
+    }
+
+    // Initial fallback size only.
+    // Once an EMF is generated/accepted, himetricSize MUST be replaced by
+    // the actual final EMF rclFrame.
+    presentation.himetricSize = {
+        PointsToHimetric(dimensions.widthPt),
+        PointsToHimetric(dimensions.heightPt)
+    };
+
+    std::wstring diagnostics;
+
+    // ================================================================
+    // Route 1 — SVG -> native vector EMF
+    //
+    // This is now the preferred route because:
+    // 1. SVG is the authoritative rendered vector content.
+    // 2. We control the final EMF frame ourselves.
+    // 3. It avoids trusting a potentially stale/malformed embedded EMF.
+    // ================================================================
+
+    const std::wstring svg =
+        JsonReadNestedString(payloadJson, L"render", L"svg");
+
+    if (!svg.empty())
+    {
+        const std::wstring color =
+            JsonReadNestedString(payloadJson, L"presentation", L"color");
+
+        SvgToEmfResult vectorResult =
+            ConvertMathJaxSvgToVectorEmf(
+                svg,
+                dimensions.widthPt,
+                dimensions.heightPt,
+                color);
+
+        if (vectorResult.success &&
+            !vectorResult.emfBytes.empty() &&
+            HasValidEmf(vectorResult.emfBytes))
         {
-            presentation.diagnostic = L"OLE_VECTOR_PREVIEW_FAILED: " + reason;
+            std::wstring geometryReason;
+
+            if (!HasCatastrophicFrameOverflow(
+                    vectorResult.emfBytes,
+                    &geometryReason))
+            {
+                // IMPORTANT:
+                // Always use the actual final EMF rclFrame as the
+                // authoritative OLE natural extent.
+                //
+                // Do not use render.widthPt/heightPt after this point.
+                SIZEL actualExtent{};
+
+                if (TryReadEmfFrameHimetric(
+                        vectorResult.emfBytes,
+                        &actualExtent))
+                {
+                    presentation.enhancedMetafile =
+                        std::move(vectorResult.emfBytes);
+
+                    presentation.himetricSize = actualExtent;
+                    presentation.previewKind =
+                        PreviewKind::GeneratedVectorEmf;
+
+                    presentation.isVector = true;
+                    presentation.diagnostic =
+                        L"SVG vector EMF generated and validated";
+
+                    WriteNativeOleLog(
+                        L"Presentation route: SVG_VECTOR_EMF");
+
+                    return presentation;
+                }
+
+                diagnostics +=
+                    L"SVG_VECTOR_EMF_INVALID_FRAME";
+            }
+            else
+            {
+                diagnostics += geometryReason;
+
+                WriteNativeOleLog(
+                    geometryReason.c_str());
+            }
         }
         else
         {
-            // Check for catastrophic geometric overflow before accepting.
-            std::wstring geometryReason;
-            if (HasCatastrophicFrameOverflow(emfFromPresentation, &geometryReason))
+            if (!vectorResult.error.empty())
             {
-                presentation.diagnostic = geometryReason;
-                WriteNativeOleLog(geometryReason.c_str());
-                // Fall through to SVG and PNG fallback instead of returning.
+                diagnostics += vectorResult.error;
             }
             else
             {
-                SIZEL emfExtent{};
-                if (!TryReadEmfFrameHimetric(emfFromPresentation, &emfExtent))
-                {
-                    presentation.diagnostic = L"OLE_EMBEDDED_EMF_INVALID_FRAME";
-                }
-                else
-                {
-                    presentation.enhancedMetafile = std::move(emfFromPresentation);
-                    presentation.himetricSize = emfExtent;
-                    presentation.previewKind = raster ? PreviewKind::RasterEmfFallback : PreviewKind::EmbeddedVectorEmf;
-                    presentation.isVector = !raster;
-                    presentation.diagnostic = raster ? L"Embedded EMF contains raster records" : L"Embedded vector EMF validated";
-                    WriteNativeOleLog(raster ? L"Presentation route: EMBEDDED_RASTER_EMF" : L"Presentation route: EMBEDDED_VECTOR_EMF");
-                    return presentation;
-                }
+                diagnostics +=
+                    L"SVG_VECTOR_EMF_GENERATION_FAILED";
             }
         }
     }
-
-    const std::wstring svg = JsonReadNestedString(payloadJson, L"render", L"svg");
-    if (!svg.empty())
+    else
     {
-        const PayloadDimensions dimensions = ReadPayloadDimensions(payloadJson);
-        if (!dimensions.IsValid())
+        diagnostics += L"SVG_PREVIEW_MISSING";
+    }
+
+    // ================================================================
+    // Route 2 — Embedded EMF
+    //
+    // Compatibility fallback only.
+    // Do not prefer it over SVG because an upstream generated EMF may
+    // contain an internally valid but incorrectly cropped frame.
+    // ================================================================
+
+    std::wstring emfBase64 =
+        JsonReadNestedString(
+            payloadJson,
+            L"presentation",
+            L"emfBase64");
+
+    if (emfBase64.empty())
+    {
+        emfBase64 =
+            ExtractJsonString(
+                payloadJson,
+                L"emfBase64");
+    }
+
+    std::vector<BYTE> embeddedEmf =
+        DecodeBase64(emfBase64);
+
+    if (!embeddedEmf.empty() &&
+        HasValidEmf(embeddedEmf))
+    {
+        const std::wstring emfKind =
+            JsonReadNestedString(
+                payloadJson,
+                L"presentation",
+                L"emfKind");
+
+        std::wstring recordReason;
+
+        const bool raster =
+            ContainsRasterEmfRecords(
+                embeddedEmf,
+                &recordReason);
+
+        bool acceptable = true;
+
+        if (Lowercase(emfKind) == L"vector")
         {
-            presentation.diagnostic = L"OLE_PRESENTATION_INVALID: render dimensions are missing";
-            return presentation;
-        }
-        const std::wstring color = JsonReadNestedString(payloadJson, L"presentation", L"color");
-        SvgToEmfResult vectorResult = ConvertMathJaxSvgToVectorEmf(svg, dimensions.widthPt, dimensions.heightPt, color);
-        if (vectorResult.success)
-        {
-            // Reject EMFs where drawing bounds substantially exceed the frame.
-            std::wstring geometryReason;
-            if (HasCatastrophicFrameOverflow(vectorResult.emfBytes, &geometryReason))
+            if (raster ||
+                !HasVectorDrawingEmfRecords(
+                    embeddedEmf,
+                    &recordReason))
             {
-                WriteNativeOleLog(geometryReason.c_str());
-                presentation.diagnostic = geometryReason;
+                acceptable = false;
+
+                if (!diagnostics.empty())
+                    diagnostics += L"; ";
+
+                diagnostics +=
+                    L"OLE_VECTOR_PREVIEW_FAILED: " +
+                    recordReason;
             }
-            else
+        }
+
+        if (acceptable)
+        {
+            std::wstring geometryReason;
+
+            if (HasCatastrophicFrameOverflow(
+                    embeddedEmf,
+                    &geometryReason))
             {
-                presentation.enhancedMetafile = std::move(vectorResult.emfBytes);
-                presentation.himetricSize = vectorResult.himetricSize;
-                presentation.previewKind = PreviewKind::GeneratedVectorEmf;
-                presentation.isVector = true;
-                presentation.diagnostic = L"SVG vector EMF generated and validated";
-                WriteNativeOleLog(L"Presentation route: SVG_VECTOR_EMF");
+                acceptable = false;
+
+                if (!diagnostics.empty())
+                    diagnostics += L"; ";
+
+                diagnostics += geometryReason;
+
+                WriteNativeOleLog(
+                    geometryReason.c_str());
+            }
+        }
+
+        if (acceptable)
+        {
+            SIZEL embeddedExtent{};
+
+            if (TryReadEmfFrameHimetric(
+                    embeddedEmf,
+                    &embeddedExtent))
+            {
+                presentation.enhancedMetafile =
+                    std::move(embeddedEmf);
+
+                presentation.himetricSize =
+                    embeddedExtent;
+
+                presentation.previewKind =
+                    raster
+                        ? PreviewKind::RasterEmfFallback
+                        : PreviewKind::EmbeddedVectorEmf;
+
+                presentation.isVector =
+                    !raster;
+
+                presentation.diagnostic =
+                    raster
+                        ? L"Embedded raster EMF validated"
+                        : L"Embedded vector EMF validated";
+
+                WriteNativeOleLog(
+                    raster
+                        ? L"Presentation route: EMBEDDED_RASTER_EMF"
+                        : L"Presentation route: EMBEDDED_VECTOR_EMF");
+
                 return presentation;
             }
+
+            if (!diagnostics.empty())
+                diagnostics += L"; ";
+
+            diagnostics +=
+                L"OLE_EMBEDDED_EMF_INVALID_FRAME";
         }
-        if (!vectorResult.error.empty())
-            presentation.diagnostic = vectorResult.error;
     }
 
-    FormulaPresentation pngPres = CreatePresentationFromPayloadPng(payloadJson);
-    if (!pngPres.enhancedMetafile.empty())
+    // ================================================================
+    // Route 3 — PNG -> raster EMF
+    //
+    // Last-resort compatibility fallback.
+    // ================================================================
+
+    FormulaPresentation pngPresentation =
+        CreatePresentationFromPayloadPng(
+            payloadJson);
+
+    if (!pngPresentation.enhancedMetafile.empty())
     {
-        WriteNativeOleLog(L"Presentation route: PNG_RASTER_EMF_FALLBACK");
-        if (!presentation.diagnostic.empty()) pngPres.diagnostic = presentation.diagnostic + L"; fallback: " + pngPres.diagnostic;
-        return pngPres;
+        // Again: trust the final actual EMF frame, not payload dimensions.
+        SIZEL actualExtent{};
+
+        if (TryReadEmfFrameHimetric(
+                pngPresentation.enhancedMetafile,
+                &actualExtent))
+        {
+            pngPresentation.himetricSize =
+                actualExtent;
+        }
+
+        if (!diagnostics.empty())
+        {
+            pngPresentation.diagnostic =
+                diagnostics +
+                L"; fallback: " +
+                pngPresentation.diagnostic;
+        }
+
+        WriteNativeOleLog(
+            L"Presentation route: PNG_RASTER_EMF_FALLBACK");
+
+        return pngPresentation;
     }
 
-    if (presentation.diagnostic.empty()) presentation.diagnostic = pngPres.diagnostic.empty()
-        ? L"OLE_PRESENTATION_INVALID: payload has no valid EMF, SVG, or PNG"
-        : pngPres.diagnostic;
+    // ================================================================
+    // Nothing worked
+    // ================================================================
+
+    if (!pngPresentation.diagnostic.empty())
+    {
+        if (!diagnostics.empty())
+            diagnostics += L"; ";
+
+        diagnostics +=
+            pngPresentation.diagnostic;
+    }
+
+    presentation.diagnostic =
+        diagnostics.empty()
+            ? L"OLE_PRESENTATION_INVALID: payload has no usable SVG, EMF, or PNG"
+            : diagnostics;
+
     return presentation;
 }
 
