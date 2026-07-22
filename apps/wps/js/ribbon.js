@@ -115,13 +115,8 @@ function OnAction(control) {
     case "btnDeleteSelected":
       deleteSelectedFormula();
       break;
-    case "btnAutoNumber":
-    case "btnRenumber":
-      renumberOwnedEquations();
-      break;
     case "btnScreenshotOcr":
-    case "btnShowTaskPane":
-    case "btnSettings":
+    case "btnOpenEditor":
       dispatchWps({ type: "OpenEditor" });
       break;
     case "btnHelp":
@@ -139,10 +134,7 @@ function GetImage(control) {
     btnScreenshotOcr: "images/screenshot_ocr.svg",
     btnLoadSelected: "images/load_selected.svg",
     btnDeleteSelected: "images/delete_selected.svg",
-    btnAutoNumber: "images/auto_number.svg",
-    btnRenumber: "images/renumber.svg",
-    btnShowTaskPane: "images/task_pane.svg",
-    btnSettings: "images/settings.svg",
+    btnOpenEditor: "images/settings.svg",
     btnHelp: "images/help.svg",
   };
   return images[String(control && control.Id)] || "images/insert_inline.svg";
@@ -151,7 +143,7 @@ function GetImage(control) {
 function OnGetEnabled(control) {
   var id = String(control && control.Id ? control.Id : "");
   var capabilities = activeWpsCapabilities();
-  if (id === "btnInsertNumbered" || id === "btnAutoNumber" || id === "btnRenumber") {
+  if (id === "btnInsertNumbered") {
     return capabilities.numberedEquation === true;
   }
   if (id === "btnLoadSelected") return capabilities.readFormula === true;

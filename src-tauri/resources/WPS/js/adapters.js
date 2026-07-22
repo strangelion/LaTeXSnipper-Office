@@ -37,9 +37,34 @@
     return ("LSN_" + id + (suffix || "")).replace(/[^A-Za-z0-9_]/g, "_").slice(0, 40);
   }
 
+  // Find a document variable by name with index-iteration fallback.
+  // Some WPS versions only support numeric index on Variables.Item(),
+  // so we iterate by index when the name-based lookup fails.
+  function findVariable(document, name) {
+    try {
+      var v = document.Variables.Item(name);
+      if (v) return v;
+    } catch (_e) {
+      // Name-based lookup failed — try index iteration
+    }
+
+    try {
+      for (var i = 1; i <= document.Variables.Count; i++) {
+        var item = document.Variables.Item(i);
+        if (item && String(item.Name) === name) {
+          return item;
+        }
+      }
+    } catch (_iterError) {
+      logFailure("iterate-document-variables", null, _iterError);
+    }
+
+    return null;
+  }
+
   function getVariable(document, name) {
     try {
-      var variable = document.Variables.Item(name);
+      var variable = findVariable(document, name);
       return variable ? String(variable.Value || "") : "";
     } catch (_error) {
       logFailure("read-document-variable", null, _error);
@@ -49,17 +74,21 @@
 
   function setVariable(document, name, value) {
     try {
-      var existing = document.Variables.Item(name);
-      existing.Value = String(value);
-      return true;
-    } catch (_error) {
-      try {
-        document.Variables.Add(name, String(value));
+      var existing = findVariable(document, name);
+      if (existing) {
+        existing.Value = String(value);
         return true;
-      } catch (_addError) {
-        logFailure("add-document-variable", null, _addError);
-        return false;
       }
+    } catch (_error) {
+      // Existing variable not found — try Add below
+    }
+
+    try {
+      document.Variables.Add(name, String(value));
+      return true;
+    } catch (_addError) {
+      logFailure("add-document-variable", null, _addError);
+      return false;
     }
   }
 
