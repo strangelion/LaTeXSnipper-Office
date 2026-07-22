@@ -55,6 +55,7 @@ $MsiVersion = ConvertTo-MsiVersion -SemVer $Version
 if ($MsiVersion -ne $Version) {
     Write-Host "MSI version: $Version -> $MsiVersion" -ForegroundColor Cyan
 }
+$VstoApplicationVersion = "$MsiVersion.0"
 
 Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor Green
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
@@ -445,7 +446,7 @@ foreach ($hostName in $hosts) {
         "/p:PublishUrl=$hostPublishUrl",
         "/p:PublishDir=$hostPublishUrl",
         "/p:InstallUrl=$hostPublishUrl",
-        "/p:ApplicationVersion=$Version.0",
+        "/p:ApplicationVersion=$VstoApplicationVersion",
         "/p:ApplicationRevision=1",
         "/p:BootstrapperEnabled=false",
         "/p:GenerateBootstrapper=false",
