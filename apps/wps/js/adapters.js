@@ -168,12 +168,66 @@
     }
   }
 
-  function addNativeMath(document, range, latex, display) {
-    var start = range.Start;
+  // Wrap OMML in Flat OPC so Range.InsertXML accepts it as a formula.
+  // Mirrors what Office VSTO does: Flat OPC → range.InsertXML(flatOpc).
+  function wrapOMML(omml, display) {
+    var tag = display ? "m:oMathPara" : "m:oMath";
+    var wrapped = omml.indexOf("<" + tag) === 0
+      ? omml
+      : "<" + tag + ">" + omml + "</" + tag + ">";
 
-    // Convert LaTeX to UnicodeMath linear format for WPS OMath.
-    // WPS BuildUp() expects UnicodeMath syntax — raw LaTeX braces and
-    // backslash commands won't be recognised.
+    return '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">' +
+      '<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">' +
+      '<pkg:xmlData>' +
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' +
+      ' xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">' +
+      '<w:body><w:p>' + wrapped + '</w:p></w:body>' +
+      '</w:document>' +
+      '</pkg:xmlData>' +
+      '</pkg:part>' +
+      '</pkg:package>';
+  }
+
+  // Primary path: LaTeX → Core OMML (via Bridge) → Range.InsertXML.
+  // Same approach as Office VSTO: convert LaTeX to OMML via Core, then
+  // insert the OMML directly into the document.
+  function addNativeMathViaOMML(document, range, latex, display) {
+    return window.WpsBridgeClient.convert(
+      latex,
+      display ? "block" : "inline",
+      "omml"
+    ).then(function (result) {
+      if (!result || !result.content) {
+        throw new Error("Bridge returned empty OMML");
+      }
+
+      var flatOpc = wrapOMML(result.content, display);
+
+      // Try Range.InsertXML first (WPS Word-compatible API)
+      if (typeof range.InsertXML === "function") {
+        range.InsertXML(flatOpc);
+        return range;
+      }
+
+      // Fallback: use Selection.InsertXML if Range method unavailable
+      if (
+        app().Selection &&
+        typeof app().Selection.InsertXML === "function"
+      ) {
+        range.Select();
+        app().Selection.InsertXML(flatOpc);
+        return app().Selection.Range;
+      }
+
+      throw new Error("WPS InsertXML API is unavailable");
+    });
+  }
+
+  // Fallback path: LaTeX → UnicodeMath linear format → OMaths.Add → BuildUp.
+  // Used when the Bridge is unreachable (desktop not running).
+  function addNativeMathFallback(document, range, latex, display) {
+    var start = range.Start;
     var linear = latexToUnicodeMath(latex);
     range.Text = linear;
 
@@ -188,67 +242,77 @@
       );
     }
 
-    try {
-      // WPS OMaths.Add() returns a Range, not an OMath.
-      // Get the actual OMath via Range.OMaths.Item(1).
-      var mathRange = collection.Add(inserted);
-
-      if (!mathRange) {
-        throw Object.assign(
-          new Error("WPS did not return the created formula range."),
-          { code: "OMATH_CREATE_FAILED" }
-        );
-      }
-
-      var math = null;
-
-      if (mathRange.OMaths && mathRange.OMaths.Count > 0) {
-        math = mathRange.OMaths.Item(1);
-      } else if (inserted.OMaths && inserted.OMaths.Count > 0) {
-        math = inserted.OMaths.Item(1);
-      }
-
-      if (!math) {
-        throw Object.assign(
-          new Error("WPS did not expose the created OMath object."),
-          { code: "OMATH_CREATE_FAILED" }
-        );
-      }
-
-      if (display && "Justification" in math) {
-        math.Justification = 1;
-      }
-
-      if (typeof math.BuildUp === "function") {
-        math.BuildUp();
-      } else {
-        throw Object.assign(
-          new Error("WPS OMath BuildUp API is unavailable."),
-          { code: "OMATH_BUILD_UNAVAILABLE" }
-        );
-      }
-
-      return math.Range || mathRange || inserted;
-    } catch (error) {
-      try {
-        inserted.Delete();
-      } catch (_deleteError) {
-        // Best-effort cleanup — ignore if range is already invalid
-      }
-
+    var mathRange = collection.Add(inserted);
+    if (!mathRange) {
+      inserted.Delete();
       throw Object.assign(
-        new Error("WPS OMath BuildUp failed: " + (error.message || error)),
-        { code: error.code || "OMATH_BUILD_FAILED" }
+        new Error("WPS did not return the created formula range."),
+        { code: "OMATH_CREATE_FAILED" }
       );
     }
+
+    var math = null;
+    if (mathRange.OMaths && mathRange.OMaths.Count > 0) {
+      math = mathRange.OMaths.Item(1);
+    } else if (inserted.OMaths && inserted.OMaths.Count > 0) {
+      math = inserted.OMaths.Item(1);
+    }
+
+    if (!math) {
+      inserted.Delete();
+      throw Object.assign(
+        new Error("WPS did not expose the created OMath object."),
+        { code: "OMATH_CREATE_FAILED" }
+      );
+    }
+
+    if (display && "Justification" in math) {
+      math.Justification = 1;
+    }
+
+    if (typeof math.BuildUp === "function") {
+      math.BuildUp();
+    } else {
+      inserted.Delete();
+      throw Object.assign(
+        new Error("WPS OMath BuildUp API is unavailable."),
+        { code: "OMATH_BUILD_UNAVAILABLE" }
+      );
+    }
+
+    return math.Range || mathRange || inserted;
   }
 
-  // Convert a subset of LaTeX math syntax to WPS UnicodeMath linear format.
-  // WPS BuildUp() uses the Office Math Linear Format (UnicodeMath, UTN #28).
-  // Raw LaTeX like \mathbf{A}\mapsto\mathbf{A}+\nabla\chi won't be
-  // parsed; we must convert it to UnicodeMath first.
+  function addNativeMath(document, range, latex, display) {
+    // Primary: Bridge-based OMML insertion (same as Office VSTO path)
+    if (
+      window.WpsBridgeClient &&
+      typeof window.WpsBridgeClient.convert === "function"
+    ) {
+      return addNativeMathViaOMML(document, range, latex, display).catch(
+        function (bridgeError) {
+          // Bridge failed — fall back to UnicodeMath
+          logFailure("omml-insert-fallback", null, bridgeError);
+          try {
+            return addNativeMathFallback(document, range, latex, display);
+          } catch (fallbackError) {
+            throw fallbackError;
+          }
+        }
+      );
+    }
+
+    // No Bridge: use UnicodeMath fallback directly
+    return Promise.resolve(
+      addNativeMathFallback(document, range, latex, display)
+    );
+  }
+
+  // Minimal LaTeX → UnicodeMath converter for offline fallback.
+  // Covers Greek letters, common symbols, and math-font commands.
+  // Complex structures (\frac, \sqrt, \sum, \int, matrices) require
+  // the Bridge-based OMML path for full fidelity.
   function latexToUnicodeMath(latex) {
-    // Replace Greek letter commands with Unicode characters
     var greek = {
       "\\alpha": "\u03B1", "\\beta": "\u03B2", "\\gamma": "\u03B3",
       "\\delta": "\u03B4", "\\epsilon": "\u03B5", "\\zeta": "\u03B6",
@@ -258,32 +322,41 @@
       "\\rho": "\u03C1", "\\sigma": "\u03C3", "\\tau": "\u03C4",
       "\\upsilon": "\u03C5", "\\phi": "\u03C6", "\\chi": "\u03C7",
       "\\psi": "\u03C8", "\\omega": "\u03C9",
-      "\\Alpha": "\u0391", "\\Beta": "\u0392", "\\Gamma": "\u0393",
-      "\\Delta": "\u0394", "\\Epsilon": "\u0395", "\\Zeta": "\u0396",
-      "\\Eta": "\u0397", "\\Theta": "\u0398", "\\Iota": "\u0399",
-      "\\Kappa": "\u039A", "\\Lambda": "\u039B", "\\Mu": "\u039C",
-      "\\Nu": "\u039D", "\\Xi": "\u039E", "\\Pi": "\u03A0",
-      "\\Rho": "\u03A1", "\\Sigma": "\u03A3", "\\Tau": "\u03A4",
-      "\\Upsilon": "\u03A5", "\\Phi": "\u03A6", "\\Chi": "\u03A7",
-      "\\Psi": "\u03A8", "\\Omega": "\u03A9",
+      "\\Gamma": "\u0393", "\\Delta": "\u0394", "\\Theta": "\u0398",
+      "\\Lambda": "\u039B", "\\Xi": "\u039E", "\\Pi": "\u03A0",
+      "\\Sigma": "\u03A3", "\\Phi": "\u03A6", "\\Psi": "\u03A8",
+      "\\Omega": "\u03A9",
+    };
+
+    var symbols = {
+      "\\times": "\u00D7", "\\cdot": "\u22C5", "\\pm": "\u00B1",
+      "\\infty": "\u221E", "\\partial": "\u2202", "\\nabla": "\u2207",
+      "\\forall": "\u2200", "\\exists": "\u2203", "\\neg": "\u00AC",
+      "\\rightarrow": "\u2192", "\\leftarrow": "\u2190",
+      "\\Rightarrow": "\u21D2", "\\Leftarrow": "\u21D0",
+      "\\mapsto": "\u21A6", "\\to": "\u2192", "\\sim": "\u223C",
+      "\\approx": "\u2248", "\\equiv": "\u2261", "\\neq": "\u2260",
+      "\\leq": "\u2264", "\\geq": "\u2265", "\\ll": "\u226A",
+      "\\gg": "\u226B", "\\propto": "\u221D",
+      "\\otimes": "\u2297", "\\oplus": "\u2295",
+      "\\odot": "\u2299", "\\bullet": "\u2219",
     };
 
     var result = latex;
 
-    // Replace Greek commands (longest-match first to avoid partial matches)
-    var greekKeys = Object.keys(greek).sort(function (a, b) {
-      return b.length - a.length;
-    });
-    for (var gi = 0; gi < greekKeys.length; gi++) {
-      var cmd = greekKeys[gi];
-      // Use split-join for simple replacement (no regex escaping needed)
-      result = result.split(cmd).join(greek[cmd]);
+    // Replace commands (longest-match first)
+    var all = {};
+    var keys = [];
+    var k;
+    for (k in greek) { if (greek.hasOwnProperty(k)) all[k] = greek[k]; }
+    for (k in symbols) { if (symbols.hasOwnProperty(k)) all[k] = symbols[k]; }
+    for (k in all) { if (all.hasOwnProperty(k)) keys.push(k); }
+    keys.sort(function (a, b) { return b.length - a.length; });
+    for (var i = 0; i < keys.length; i++) {
+      result = result.split(keys[i]).join(all[keys[i]]);
     }
 
-    // Convert \mathbf{...}, \mathit{...}, etc. to UnicodeMath form.
-    // UnicodeMath uses parentheses or spaces for arguments, not braces.
-    // \mathbf{ABC} → \mathbf(ABC)
-    // \mathbf{A}  → \mathbf A   (single char gets space)
+    // Convert \mathbf{...} etc. to UnicodeMath form (parentheses, not braces)
     var fontCommands = [
       "\\mathbf", "\\mathit", "\\mathsf", "\\mathtt",
       "\\mathcal", "\\mathbb", "\\mathfrak", "\\mathscr",
@@ -295,7 +368,6 @@
       var pattern = fcmd + "{";
       var idx = result.indexOf(pattern);
       while (idx !== -1) {
-        // Find the matching closing brace
         var depth = 1;
         var close = idx + pattern.length;
         while (close < result.length && depth > 0) {
@@ -306,102 +378,22 @@
         if (depth === 0) {
           var content = result.slice(idx + pattern.length, close - 1);
           var replacement;
-          if (content.length <= 1 || content.indexOf(" ") !== -1 || content.indexOf("^") !== -1 || content.indexOf("_") !== -1) {
+          if (
+            content.length <= 1 ||
+            content.indexOf(" ") !== -1 ||
+            content.indexOf("^") !== -1 ||
+            content.indexOf("_") !== -1
+          ) {
             replacement = fcmd + " " + content;
           } else {
             replacement = fcmd + "(" + content + ")";
           }
           result = result.slice(0, idx) + replacement + result.slice(close);
-          idx = result.indexOf(fcmd + " ", idx + replacement.length);
-          if (idx === -1) idx = result.indexOf(fcmd + "(", 0);
         } else {
           break;
         }
         idx = result.indexOf(pattern, idx + 1);
       }
-    }
-
-    // Convert common LaTeX commands to UnicodeMath equivalents
-    var symbols = {
-      "\\times": "\u00D7",
-      "\\cdot": "\u22C5",
-      "\\pm": "\u00B1",
-      "\\mp": "\u2213",
-      "\\div": "\u00F7",
-      "\\infty": "\u221E",
-      "\\partial": "\u2202",
-      "\\nabla": "\u2207",
-      "\\forall": "\u2200",
-      "\\exists": "\u2203",
-      "\\neg": "\u00AC",
-      "\\emptyset": "\u2205",
-      "\\in": "\u2208",
-      "\\notin": "\u2209",
-      "\\subset": "\u2282",
-      "\\supset": "\u2283",
-      "\\subseteq": "\u2286",
-      "\\supseteq": "\u2287",
-      "\\cup": "\u222A",
-      "\\cap": "\u2229",
-      "\\land": "\u2227",
-      "\\lor": "\u2228",
-      "\\rightarrow": "\u2192",
-      "\\leftarrow": "\u2190",
-      "\\leftrightarrow": "\u2194",
-      "\\Rightarrow": "\u21D2",
-      "\\Leftarrow": "\u21D0",
-      "\\Leftrightarrow": "\u21D4",
-      "\\mapsto": "\u21A6",
-      "\\to": "\u2192",
-      "\\sim": "\u223C",
-      "\\approx": "\u2248",
-      "\\equiv": "\u2261",
-      "\\neq": "\u2260",
-      "\\leq": "\u2264",
-      "\\geq": "\u2265",
-      "\\ll": "\u226A",
-      "\\gg": "\u226B",
-      "\\propto": "\u221D",
-      "\\parallel": "\u2225",
-      "\\perp": "\u27C2",
-      "\\angle": "\u2220",
-      "\\triangle": "\u25B3",
-      "\\hbar": "\u0127",
-      "\\ell": "\u2113",
-      "\\wp": "\u2118",
-      "\\Re": "\u211C",
-      "\\Im": "\u2111",
-      "\\aleph": "\u2135",
-      "\\nabla": "\u2207",
-      "\\surd": "\u221A",
-      "\\Box": "\u25A1",
-      "\\Diamond": "\u25C7",
-      "\\otimes": "\u2297",
-      "\\oplus": "\u2295",
-      "\\odot": "\u2299",
-      "\\bullet": "\u2219",
-      "\\circ": "\u2218",
-      "\\star": "\u22C6",
-      "\\setminus": "\u2216",
-      "\\wedge": "\u2227",
-      "\\vee": "\u2228",
-      "\\wr": "\u2240",
-      "\\cong": "\u2245",
-      "\\simeq": "\u2243",
-      "\\doteq": "\u2250",
-      "\\models": "\u22A8",
-      "\\vdash": "\u22A2",
-      "\\dashv": "\u22A3",
-      "\\sqsubseteq": "\u2291",
-      "\\sqsupseteq": "\u2292",
-    };
-
-    var symKeys = Object.keys(symbols).sort(function (a, b) {
-      return b.length - a.length;
-    });
-    for (var si = 0; si < symKeys.length; si++) {
-      var sym = symKeys[si];
-      result = result.split(sym).join(symbols[sym]);
     }
 
     return result;
@@ -438,56 +430,76 @@
     var mode = payload.mode || payload.display || "inline";
     var insertion = document.Range(originalStart, originalStart);
 
-    try {
-      if (mode === "numbered") {
-        var sequence =
-          (existingMetadata && existingMetadata.sequence) || payload.sequence || nextSequence(document);
-        var table = document.Tables.Add(insertion, 1, 3);
-        table.Borders.Enable = 0;
-        if ("AllowAutoFit" in table) table.AllowAutoFit = false;
-        var page = document.PageSetup;
-        var contentWidth =
-          Number(page.PageWidth || 612) -
-          Number(page.LeftMargin || 72) -
-          Number(page.RightMargin || 72);
-        var side = Math.max(48, contentWidth / 6);
-        table.Columns.Item(1).Width = side;
-        table.Columns.Item(2).Width = Math.max(96, contentWidth - side * 2);
-        table.Columns.Item(3).Width = side;
-
-        var equationCell = table.Cell(1, 2).Range;
-        equationCell.Text = "";
-        addNativeMath(document, equationCell, payload.latex, true);
-        equationCell.ParagraphFormat.Alignment = 1;
-
-        var numberCell = table.Cell(1, 3).Range;
-        numberCell.Text = "(" + sequence + ")";
-        numberCell.ParagraphFormat.Alignment = 2;
-        var numberBookmark = bookmarkName(id, "_number");
-        document.Bookmarks.Add(numberBookmark, numberCell);
-
-        var ownedRange = table.Range;
-        var ownedBookmark = bookmarkName(id);
-        document.Bookmarks.Add(ownedBookmark, ownedRange);
-        var numberedMetadata = {
-          schema: "urn:latexsnipper:wps-formula:v1",
-          schemaVersion: 1,
-          formulaId: id,
-          revision: Number((existingMetadata && existingMetadata.revision) || 0) + 1,
-          latex: payload.latex,
-          displayMode: "numbered",
-          sequence: sequence,
-          label: payload.label || null,
-          bookmark: ownedBookmark,
-          numberBookmark: numberBookmark,
-        };
-        saveMetadata(document, numberedMetadata);
-        ownedRange.Collapse(0);
-        ownedRange.Select();
-        return { ok: true, data: numberedMetadata };
+    function rollback(error) {
+      try {
+        var rollbackEnd = Math.max(originalStart, application.Selection.Range.End);
+        document.Range(originalStart, rollbackEnd).Delete();
+      } catch (_rollbackError) {
+        logFailure("rollback-writer-insert", id, _rollbackError);
       }
+      restoreRange(document, originalStart, originalEnd);
+      return failure(error.code || "WRITER_INSERT_FAILED", error.message || String(error));
+    }
 
-      var mathRange = addNativeMath(document, insertion, payload.latex, mode !== "inline");
+    if (mode === "numbered") {
+      var sequence =
+        (existingMetadata && existingMetadata.sequence) || payload.sequence || nextSequence(document);
+      var table = document.Tables.Add(insertion, 1, 3);
+      table.Borders.Enable = 0;
+      if ("AllowAutoFit" in table) table.AllowAutoFit = false;
+      var page = document.PageSetup;
+      var contentWidth =
+        Number(page.PageWidth || 612) -
+        Number(page.LeftMargin || 72) -
+        Number(page.RightMargin || 72);
+      var side = Math.max(48, contentWidth / 6);
+      table.Columns.Item(1).Width = side;
+      table.Columns.Item(2).Width = Math.max(96, contentWidth - side * 2);
+      table.Columns.Item(3).Width = side;
+
+      var equationCell = table.Cell(1, 2).Range;
+      equationCell.Text = "";
+      return addNativeMath(document, equationCell, payload.latex, true).then(
+        function () {
+          equationCell.ParagraphFormat.Alignment = 1;
+
+          var numberCell = table.Cell(1, 3).Range;
+          numberCell.Text = "(" + sequence + ")";
+          numberCell.ParagraphFormat.Alignment = 2;
+          var numberBookmark = bookmarkName(id, "_number");
+          document.Bookmarks.Add(numberBookmark, numberCell);
+
+          var ownedRange = table.Range;
+          var ownedBookmark = bookmarkName(id);
+          document.Bookmarks.Add(ownedBookmark, ownedRange);
+          var numberedMetadata = {
+            schema: "urn:latexsnipper:wps-formula:v1",
+            schemaVersion: 1,
+            formulaId: id,
+            revision: Number((existingMetadata && existingMetadata.revision) || 0) + 1,
+            latex: payload.latex,
+            displayMode: "numbered",
+            sequence: sequence,
+            label: payload.label || null,
+            bookmark: ownedBookmark,
+            numberBookmark: numberBookmark,
+          };
+          saveMetadata(document, numberedMetadata);
+          ownedRange.Collapse(0);
+          ownedRange.Select();
+          return { ok: true, data: numberedMetadata };
+        },
+      ).catch(function (error) {
+        return rollback(error);
+      });
+    }
+
+    return addNativeMath(
+      document,
+      insertion,
+      payload.latex,
+      mode !== "inline",
+    ).then(function (mathRange) {
       var bookmark = bookmarkName(id);
       document.Bookmarks.Add(bookmark, mathRange);
       var metadata = {
@@ -503,16 +515,9 @@
       mathRange.Collapse(0);
       mathRange.Select();
       return { ok: true, data: metadata };
-    } catch (error) {
-      try {
-        var rollbackEnd = Math.max(originalStart, application.Selection.Range.End);
-        document.Range(originalStart, rollbackEnd).Delete();
-      } catch (_rollbackError) {
-        logFailure("rollback-writer-insert", id, _rollbackError);
-      }
-      restoreRange(document, originalStart, originalEnd);
-      return failure(error.code || "WRITER_INSERT_FAILED", error.message || String(error));
-    }
+    }).catch(function (error) {
+      return rollback(error);
+    });
   }
 
   function writerRead() {
