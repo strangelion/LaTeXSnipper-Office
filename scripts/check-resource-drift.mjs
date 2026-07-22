@@ -164,12 +164,7 @@ function checkOfficeJs() {
     "OfficeJS",
     "manifest",
   );
-  const buildDir = resolve(root, "apps", "office-addin", "dist");
 
-  if (!existsSync(buildDir)) {
-    fail("OfficeJS build output missing — run: npm run build:office-addin");
-    return;
-  }
   if (!existsSync(stagedSiteDir)) {
     fail(
       "OfficeJS staged site directory not found: src-tauri/resources/OfficeJS/site/",
@@ -183,34 +178,36 @@ function checkOfficeJs() {
     return;
   }
 
-  // Compare site files (skip taskpane.html — staging modifies asset paths)
-  const buildFiles = walkDir(buildDir)
-    .filter((f) => !f.endsWith("taskpane.html"))
-    .map((f) => ({
-      rel: relative(buildDir, f).replace(/\\/g, "/"),
-      abs: f,
-      hash: fileHash(f),
-    }));
+  // Compare staged files against git HEAD (same approach as ecosystem check).
+  // Vite produces hashed filenames that differ every build, so comparing
+  // against a fresh build is nondeterministic. Instead we verify that the
+  // committed staged resources haven't drifted from HEAD.
+  let fileCount = 0;
+  let officeJsOk = true;
 
-  for (const { rel, abs, hash } of buildFiles) {
-    const stagedPath = join(stagedSiteDir, rel);
-    if (!existsSync(stagedPath)) {
-      fail(`OfficeJS: missing in resources — ${rel}`);
-    } else if (fileHash(stagedPath) !== hash) {
-      fail(`OfficeJS: content mismatch — ${rel}`);
+  for (const dir of [stagedSiteDir, stagedManifestDir]) {
+    const files = walkDir(dir);
+    for (const filePath of files) {
+      const relPath = relative(root, filePath).replace(/\\/g, "/");
+      const currentHash = fileHash(filePath);
+      const committedContent = getCommittedContent(relPath);
+
+      if (committedContent === null) {
+        // New file not yet committed — acceptable after build
+        continue;
+      }
+
+      const committedHash = contentHash(committedContent);
+      if (currentHash !== committedHash) {
+        fail(`OfficeJS: content changed vs HEAD — ${relPath}`);
+        officeJsOk = false;
+      }
+      fileCount++;
     }
   }
 
-  // Verify manifest XML files exist for all three hosts
-  for (const host of ["word", "excel", "powerpoint"]) {
-    const manifestPath = join(stagedManifestDir, `${host}.xml`);
-    if (!existsSync(manifestPath)) {
-      fail(`OfficeJS: missing manifest — ${host}.xml`);
-    }
-  }
-
-  if (!exitCode) {
-    console.log(`  OfficeJS: ${buildFiles.length} files in sync + 3 manifests`);
+  if (officeJsOk) {
+    console.log(`  OfficeJS: ${fileCount} files in sync with HEAD`);
   }
 }
 

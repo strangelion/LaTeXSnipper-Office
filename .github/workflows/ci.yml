@@ -60,8 +60,8 @@ jobs:
         run: node core-protocol/schema-validate.mjs
       - name: Install Office.js dependencies
         run: npm --prefix apps/office-addin ci
-      - name: Build Office.js add-in
-        run: npm --prefix apps/office-addin run build
+      - name: Build and stage Office.js add-in
+        run: npm run build:office-addin
       - name: Office.js academic layout and lifecycle tests
         run: node --test tests/officejs-academic-layout.test.mjs
       - name: Real MathJax golden fixtures
