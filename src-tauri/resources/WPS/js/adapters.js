@@ -168,105 +168,53 @@
     }
   }
 
-  // Wrap OMML in Flat OPC so Range.InsertXML accepts it as a formula.
-  // Mirrors what Office Word add-in does: Flat OPC → range.InsertXML(flatOpc).
-  function wrapOMML(omml, display) {
-    var tag = display ? "m:oMathPara" : "m:oMath";
-    var wrapped = omml.indexOf("<" + tag) === 0
-      ? omml
-      : "<" + tag + ">" + omml + "</" + tag + ">";
-
-    return '<?xml version="1.0" encoding="UTF-8"?>' +
-      '<pkg:package xmlns:pkg="http://schemas.microsoft.com/office/2006/xmlPackage">' +
-      '<pkg:part pkg:name="/word/document.xml" pkg:contentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml">' +
-      '<pkg:xmlData>' +
-      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"' +
-      ' xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">' +
-      '<w:body><w:p>' + wrapped + '</w:p></w:body>' +
-      '</w:document>' +
-      '</pkg:xmlData>' +
-      '</pkg:part>' +
-      '</pkg:package>';
-  }
-
-  // Primary path: LaTeX → Core OMML (via Bridge) → Range.InsertXML.
-  // Same approach as Office Word add-in: convert LaTeX to OMML via Core, then
-  // insert the OMML directly into the document.
-  function addNativeMathViaOMML(document, range, latex, display) {
-    return window.WpsBridgeClient.convert(
-      latex,
-      display ? "block" : "inline",
-      "omml"
-    ).then(function (result) {
-      if (!result || !result.content) {
-        throw new Error("Bridge returned empty OMML");
-      }
-
-      var flatOpc = wrapOMML(result.content, display);
-      var beforeCount = document.OMaths ? document.OMaths.Count : 0;
-
-      // Range.InsertXML is a Word-compatible API that may exist in some
-      // WPS versions but is NOT in the official WPS JSAPI documentation.
-      // Feature-detect and verify with OMaths.Count post-insertion.
-      if (typeof range.InsertXML === "function") {
-        range.InsertXML(flatOpc);
-      } else if (
-        app().Selection &&
-        typeof app().Selection.InsertXML === "function"
-      ) {
-        range.Select();
-        app().Selection.InsertXML(flatOpc);
-      } else {
-        throw new Error("WPS InsertXML API is unavailable");
-      }
-
-      // Verify that InsertXML actually produced an OMath.
-      // No exception does NOT mean the formula was created.
-      var afterCount = document.OMaths ? document.OMaths.Count : 0;
-      if (afterCount <= beforeCount) {
-        throw new Error("OMML insertion produced no OMath");
-      }
-
-      // Find the newly created OMath closest to the insertion point.
-      // Walk backwards from the end of the OMaths collection to find
-      // one whose Range overlaps or is near the insertion range.
-      var insertionStart = range.Start;
-      for (var i = afterCount; i >= 1; i--) {
-        try {
-          var math = document.OMaths.Item(i);
-          if (math && math.Range) {
-            // Accept if the OMath starts at or after the insertion point
-            if (math.Range.Start >= insertionStart) {
-              if (display && "Justification" in math) {
-                math.Justification = 1;
-              }
-              return math.Range;
-            }
+  // Insert a formula into WPS Writer using the documented native math API.
+  //
+  // Standard WPS JSAPI path (see WPS开放平台):
+  //   Range.Text = linear math
+  //   → OMaths.Add(Range)       — returns Range, per WPS docs
+  //   → Range.OMaths.Item(1)    — get the OMath
+  //   → OMath.BuildUp()         — convert linear to professional
+  //
+  // The Bridge (when available) converts LaTeX to Office Linear Math
+  // (UnicodeMath) via Core. When the Bridge is unreachable, a local
+  // subset converter handles basic formulas.
+  function addNativeMath(document, range, latex, display) {
+    if (
+      window.WpsBridgeClient &&
+      typeof window.WpsBridgeClient.convert === "function"
+    ) {
+      return window.WpsBridgeClient
+        .convert(latex, display ? "block" : "inline", "linear-math")
+        .then(function (result) {
+          if (result && result.content) {
+            return insertLinearMath(
+              document,
+              range,
+              result.content,
+              display,
+            );
           }
-        } catch (_itemError) {
-          // Skip inaccessible OMath items
-        }
-      }
+          throw new Error("Bridge returned empty linear math");
+        })
+        .catch(function (bridgeError) {
+          logFailure("linear-math-bridge-fallback", null, bridgeError);
+          return insertLinearMath(
+            document,
+            range,
+            latexToUnicodeMath(latex),
+            display,
+          );
+        });
+    }
 
-      // Last resort: return the last OMath's range
-      try {
-        var lastMath = document.OMaths.Item(afterCount);
-        if (lastMath && lastMath.Range) {
-          return lastMath.Range;
-        }
-      } catch (_lastError) {
-        // Fall through to error
-      }
-
-      throw new Error("Could not locate the inserted OMath");
-    });
+    return Promise.resolve(
+      insertLinearMath(document, range, latexToUnicodeMath(latex), display),
+    );
   }
 
-  // Fallback path: LaTeX → UnicodeMath linear format → OMaths.Add → BuildUp.
-  // Used when the Bridge is unreachable (desktop not running).
-  function addNativeMathFallback(document, range, latex, display) {
+  function insertLinearMath(document, range, linear, display) {
     var start = range.Start;
-    var linear = latexToUnicodeMath(latex);
     range.Text = linear;
 
     var inserted = document.Range(start, start + linear.length);
@@ -276,16 +224,17 @@
       inserted.Delete();
       throw Object.assign(
         new Error("WPS native math API is unavailable."),
-        { code: "NATIVE_MATH_UNAVAILABLE" }
+        { code: "NATIVE_MATH_UNAVAILABLE" },
       );
     }
 
+    // OMaths.Add() returns a Range (per WPS official JSAPI docs)
     var mathRange = collection.Add(inserted);
     if (!mathRange) {
       inserted.Delete();
       throw Object.assign(
         new Error("WPS did not return the created formula range."),
-        { code: "OMATH_CREATE_FAILED" }
+        { code: "OMATH_CREATE_FAILED" },
       );
     }
 
@@ -300,7 +249,7 @@
       inserted.Delete();
       throw Object.assign(
         new Error("WPS did not expose the created OMath object."),
-        { code: "OMATH_CREATE_FAILED" }
+        { code: "OMATH_CREATE_FAILED" },
       );
     }
 
@@ -314,36 +263,11 @@
       inserted.Delete();
       throw Object.assign(
         new Error("WPS OMath BuildUp API is unavailable."),
-        { code: "OMATH_BUILD_UNAVAILABLE" }
+        { code: "OMATH_BUILD_UNAVAILABLE" },
       );
     }
 
     return math.Range || mathRange || inserted;
-  }
-
-  function addNativeMath(document, range, latex, display) {
-    // Primary: Bridge-based OMML insertion (same as Office Word add-in path)
-    if (
-      window.WpsBridgeClient &&
-      typeof window.WpsBridgeClient.convert === "function"
-    ) {
-      return addNativeMathViaOMML(document, range, latex, display).catch(
-        function (bridgeError) {
-          // Bridge failed — fall back to UnicodeMath
-          logFailure("omml-insert-fallback", null, bridgeError);
-          try {
-            return addNativeMathFallback(document, range, latex, display);
-          } catch (fallbackError) {
-            throw fallbackError;
-          }
-        }
-      );
-    }
-
-    // No Bridge: use UnicodeMath fallback directly
-    return Promise.resolve(
-      addNativeMathFallback(document, range, latex, display)
-    );
   }
 
   // Minimal LaTeX → UnicodeMath converter for offline fallback.
@@ -468,6 +392,25 @@
     var mode = payload.mode || payload.display || "inline";
     var insertion = document.Range(originalStart, originalStart);
 
+    // Merge all WPS API calls into a single undo step.
+    // Without this, the user sees VBA-Range.InsertXML, VBA-Range.Text,
+    // and VBA-OMaths.Add as separate undo entries.
+    var undoRecord =
+      application.UndoRecord ||
+      (application.ActiveWindow && application.ActiveWindow.UndoRecord);
+    if (undoRecord && typeof undoRecord.StartCustomRecord === "function") {
+      undoRecord.StartCustomRecord("插入 LaTeXSnipper 公式");
+    }
+    function endUndoRecord() {
+      if (undoRecord && typeof undoRecord.EndCustomRecord === "function") {
+        try {
+          undoRecord.EndCustomRecord();
+        } catch (_e) {
+          // Best-effort — UndoRecord may not be available in all WPS versions
+        }
+      }
+    }
+
     function rollback(error) {
       try {
         var rollbackEnd = Math.max(originalStart, application.Selection.Range.End);
@@ -529,6 +472,12 @@
         },
       ).catch(function (error) {
         return rollback(error);
+      }).then(function (result) {
+        endUndoRecord();
+        return result;
+      }, function (error) {
+        endUndoRecord();
+        throw error;
       });
     }
 
@@ -555,6 +504,12 @@
       return { ok: true, data: metadata };
     }).catch(function (error) {
       return rollback(error);
+    }).then(function (result) {
+      endUndoRecord();
+      return result;
+    }, function (error) {
+      endUndoRecord();
+      throw error;
     });
   }
 
