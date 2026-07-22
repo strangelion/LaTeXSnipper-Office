@@ -11,6 +11,10 @@ on:
         type: string
         default: ''
 
+      full_version:
+        type: string
+        default: ''
+
       prior_tag:
         type: string
         default: v1.2.1
@@ -95,6 +99,13 @@ jobs:
 
           "VERSION=$expected" |
             Out-File $env:GITHUB_ENV -Append -Encoding UTF8
+
+          # Pass full semver (including prerelease) for MSI ProductVersion,
+          # so RC builds get distinct version numbers for MajorUpgrade.
+          $fullVersion = '${{ inputs.full_version }}'
+          if (-not $fullVersion) { $fullVersion = $expected }
+          "FULL_VERSION=$fullVersion" |
+            Out-File $env:GITHUB_ENV -Append -Encoding UTF8
       - name: Initialize package diagnostics
         shell: pwsh
         run: |
@@ -177,7 +188,7 @@ jobs:
       - name: Build current NativeOffice MSI and bootstrapper
         shell: pwsh
         run: |
-          $version = $env:VERSION
+          $version = if ($env:FULL_VERSION) { $env:FULL_VERSION } else { $env:VERSION }
           & powershell -NoProfile -ExecutionPolicy Bypass -File apps\native-office\Installer\build.ps1 `
             -Configuration Release -Version $version *>&1 |
             Tee-Object package-diagnostics\current-native-office-build.log

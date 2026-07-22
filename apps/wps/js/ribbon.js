@@ -89,14 +89,6 @@ function deleteSelectedFormula() {
   });
 }
 
-function renumberOwnedEquations() {
-  dispatchWps({ type: "RenumberEquations" }).then(function (result) {
-    if (!result.ok) {
-      alert("重新编号失败 [" + (result.errorCode || "UNKNOWN") + "]: " + result.error);
-    }
-  });
-}
-
 function OnAction(control) {
   var id = String(control && control.Id ? control.Id : "");
   switch (id) {

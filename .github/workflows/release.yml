@@ -25,6 +25,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
+      full_version: ${{ steps.release.outputs.full_version }}
       source_sha: ${{ steps.release.outputs.source_sha }}
       prior_tag: ${{ steps.release.outputs.prior_tag }}
 
@@ -158,8 +159,13 @@ jobs:
 
           rm -f "$releases_file"
 
+          # Full semver including prerelease suffix (e.g. 1.5.1-rc.4)
+          # Used for MSI ProductVersion so MajorUpgrade can distinguish RC builds.
+          full_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "full_version=$full_version" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "prior_tag=$prior_tag" >> "$GITHUB_OUTPUT"
 
@@ -168,6 +174,7 @@ jobs:
             echo
             echo "- tag: \`$tag\`"
             echo "- version: \`$version\`"
+            echo "- full_version: \`$full_version\`"
             echo "- source SHA: \`$source_sha\`"
             echo "- prior stable tag: \`${prior_tag:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -178,6 +185,7 @@ jobs:
     with:
       source_ref: ${{ needs.prepare-release.outputs.tag }}
       expected_version: ${{ needs.prepare-release.outputs.version }}
+      full_version: ${{ needs.prepare-release.outputs.full_version }}
       prior_tag: ${{ needs.prepare-release.outputs.prior_tag }}
       run_windows: true
       run_linux: true

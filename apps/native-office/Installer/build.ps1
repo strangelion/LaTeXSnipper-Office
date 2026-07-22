@@ -21,6 +21,41 @@ if ($OutputDir -eq ".\output") {
 }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
+# Convert semver to MSI ProductVersion (major.minor.build).
+# Windows Installer only uses the first THREE fields for version comparison;
+# the 4th field is ignored. We encode the RC number in the 3rd (build) field
+# so MajorUpgrade can distinguish RC builds.
+#
+#   "1.5.1-rc.1"  -> "1.5.101"
+#   "1.5.1-rc.4"  -> "1.5.104"
+#   "1.5.1"       -> "1.5.199"
+#   "1.5.2-rc.1"  -> "1.5.201"
+function ConvertTo-MsiVersion([string]$SemVer) {
+    if ($SemVer -match '^(\d+)\.(\d+)\.(\d+)(?:-(rc|alpha|beta)\.(\d+))?$') {
+        $major = $Matches[1]
+        $minor = $Matches[2]
+        $patch = [int]$Matches[3]
+        $kind = $Matches[4]
+        $num = if ($Matches[5]) { [int]$Matches[5] } else { 0 }
+
+        if (-not $kind) {
+            $build = ($patch * 100 + 99).ToString("D2")
+        } elseif ($kind -eq "rc") {
+            $build = ($patch * 100 + $num).ToString("D2")
+        } elseif ($kind -eq "alpha") {
+            $build = ($patch * 100 + 200 + $num).ToString("D2")
+        } else {
+            $build = ($patch * 100 + 250 + $num).ToString("D2")
+        }
+        return "$major.$minor.$build"
+    }
+    return $SemVer
+}
+$MsiVersion = ConvertTo-MsiVersion -SemVer $Version
+if ($MsiVersion -ne $Version) {
+    Write-Host "MSI version: $Version -> $MsiVersion" -ForegroundColor Cyan
+}
+
 Write-Host "=== LaTeXSnipper Native Office Installer Build ===" -ForegroundColor Green
 Write-Host "Configuration: $Configuration" -ForegroundColor Yellow
 
@@ -702,7 +737,7 @@ $env:CertificateDir = $stagingAbs + "\certificates"
 & $WixPath build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -arch x64 `
     -o $msiOutput `
-    -d Version=$Version `
+    -d Version=$MsiVersion `
     -d SharedBinDir=$env:SharedBinDir `
     -d WordBinDir=$env:WordBinDir `
     -d ExcelBinDir=$env:ExcelBinDir `
@@ -841,7 +876,7 @@ Write-Host "  Building Offline Bootstrapper..." -ForegroundColor Cyan
 & $WixPath build "$wixSrc\Bundle.wxs" `
     -arch x64 `
     -o $offlineOutput `
-    -d Version=$Version `
+    -d Version=$MsiVersion `
     -d NetFx48Exe=$netFx48Exe `
     -d VstoRuntimeExe=$vstoRuntimeExe `
     -d MsiDir=$env:MsiDir `
@@ -861,7 +896,7 @@ Write-Host "  Building Web Bootstrapper..." -ForegroundColor Cyan
 & $WixPath build "$wixSrc\Bundle.Web.wxs" `
     -arch x64 `
     -o $webOutput `
-    -d Version=$Version `
+    -d Version=$MsiVersion `
     -d NetFx48Exe=$netFx48Exe `
     -d NetFx48Url=$env:NetFx48Url `
     -d VstoRuntimeExe=$vstoRuntimeExe `
