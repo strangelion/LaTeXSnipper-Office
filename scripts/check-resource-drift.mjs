@@ -150,8 +150,20 @@ function checkWps() {
 // Checker: OfficeJS
 // ---------------------------------------------------------------------------
 function checkOfficeJs() {
-  const stagedSiteDir = resolve(root, "src-tauri", "resources", "OfficeJS", "site");
-  const stagedManifestDir = resolve(root, "src-tauri", "resources", "OfficeJS", "manifest");
+  const stagedSiteDir = resolve(
+    root,
+    "src-tauri",
+    "resources",
+    "OfficeJS",
+    "site",
+  );
+  const stagedManifestDir = resolve(
+    root,
+    "src-tauri",
+    "resources",
+    "OfficeJS",
+    "manifest",
+  );
   const buildDir = resolve(root, "apps", "office-addin", "dist");
 
   if (!existsSync(buildDir)) {
@@ -159,11 +171,15 @@ function checkOfficeJs() {
     return;
   }
   if (!existsSync(stagedSiteDir)) {
-    fail("OfficeJS staged site directory not found: src-tauri/resources/OfficeJS/site/");
+    fail(
+      "OfficeJS staged site directory not found: src-tauri/resources/OfficeJS/site/",
+    );
     return;
   }
   if (!existsSync(stagedManifestDir)) {
-    fail("OfficeJS staged manifest directory not found: src-tauri/resources/OfficeJS/manifest/");
+    fail(
+      "OfficeJS staged manifest directory not found: src-tauri/resources/OfficeJS/manifest/",
+    );
     return;
   }
 
@@ -208,10 +224,18 @@ function checkNativeOffice() {
   }
 
   const stagedDir = resolve(root, "src-tauri", "resources", "NativeOffice");
-  const buildDir = resolve(root, "apps", "native-office", "Installer", "output");
+  const buildDir = resolve(
+    root,
+    "apps",
+    "native-office",
+    "Installer",
+    "output",
+  );
 
   if (!existsSync(stagedDir)) {
-    fail("NativeOffice staged directory not found: src-tauri/resources/NativeOffice/");
+    fail(
+      "NativeOffice staged directory not found: src-tauri/resources/NativeOffice/",
+    );
     return;
   }
 
@@ -220,18 +244,24 @@ function checkNativeOffice() {
   const stagedMsi = join(stagedDir, msiName);
 
   if (!existsSync(buildMsi)) {
-    fail(`NativeOffice MSI missing in build output — run: npm run build:native-office`);
+    fail(
+      `NativeOffice MSI missing in build output — run: npm run build:native-office`,
+    );
     return;
   }
   if (!existsSync(stagedMsi)) {
-    fail(`NativeOffice MSI missing in staged resources — run: npm run stage:resources`);
+    fail(
+      `NativeOffice MSI missing in staged resources — run: npm run stage:resources`,
+    );
     return;
   }
 
   const buildHash = binaryHash(buildMsi);
   const stagedHash = binaryHash(stagedMsi);
   if (buildHash !== stagedHash) {
-    fail("NativeOffice: MSI content mismatch — staged MSI differs from build output");
+    fail(
+      "NativeOffice: MSI content mismatch — staged MSI differs from build output",
+    );
     return;
   }
 
@@ -247,7 +277,9 @@ function checkEcosystem() {
 
   // --- Ecosystem ---
   if (!existsSync(ecosystemDir)) {
-    fail("Ecosystem staged directory not found: src-tauri/resources/Ecosystem/");
+    fail(
+      "Ecosystem staged directory not found: src-tauri/resources/Ecosystem/",
+    );
   } else {
     const files = walkDir(ecosystemDir).filter(
       (f) => !f.includes("provenance.json"),
@@ -313,7 +345,9 @@ function checkEcosystem() {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
-console.log("[resource-drift] Checking staged resource drift across all plugins...\n");
+console.log(
+  "[resource-drift] Checking staged resource drift across all plugins...\n",
+);
 
 checkWps();
 checkOfficeJs();
@@ -326,15 +360,25 @@ if (exitCode !== 0) {
     console.error(`  • ${issue}`);
   }
   console.error("\n---");
-  console.error("The staged Tauri resources are out of sync with build outputs.");
+  console.error(
+    "The staged Tauri resources are out of sync with build outputs.",
+  );
   console.error("This means the desktop app will run OLD plugin code.\n");
   console.error("Fix (run in order):");
   console.error("  npm run build:wps            # rebuild WPS plugin");
   console.error("  npm run build:office-addin    # rebuild Office.js add-in");
-  console.error("  npm run build:native-office   # rebuild NativeOffice (Windows only)");
-  console.error("  npm run build:ecosystem       # rebuild Obsidian + VS Code + Browser");
-  console.error("  npm run stage:resources       # copy WPS + NativeOffice to resources");
-  console.error("  npm run stage:ecosystem       # copy Ecosystem to resources");
+  console.error(
+    "  npm run build:native-office   # rebuild NativeOffice (Windows only)",
+  );
+  console.error(
+    "  npm run build:ecosystem       # rebuild Obsidian + VS Code + Browser",
+  );
+  console.error(
+    "  npm run stage:resources       # copy WPS + NativeOffice to resources",
+  );
+  console.error(
+    "  npm run stage:ecosystem       # copy Ecosystem to resources",
+  );
   console.error("\nThen commit the updated src-tauri/resources/ files.");
   console.error("---");
   process.exit(1);
