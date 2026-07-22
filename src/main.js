@@ -5807,15 +5807,18 @@ class UIController {
 
   loadPlatforms() {
     try {
+      this._platformsLoadedFromStorage = new Set();
       const saved = JSON.parse(localStorage.getItem("platforms") || "[]");
       this.platforms.forEach((p) => {
         const s = saved.find((x) => x.id === p.id);
         if (s) {
           p.enabled = s.enabled;
           p.shortcut = s.shortcut;
+          this._platformsLoadedFromStorage.add(p.id);
         }
       });
     } catch (error) {
+      this._platformsLoadedFromStorage = new Set();
       Logger.warn(
         `[Platforms] operation=load host=desktop formulaId=<none> error=${error?.message || error}`,
       );
@@ -5842,6 +5845,55 @@ class UIController {
 
   _officeStatusCache = null;
   _officeWebDiagnostics = null;
+
+  /**
+   * Run a one-shot startup detection for Office VSTO state.
+   * If VSTO is pre-installed (e.g. MSI) but no localStorage preference
+   * exists (first run), auto-enable the Office toggle.
+   */
+  async initOfficeDetection() {
+    try {
+      const officePlatform = this.platforms.find((p) => p.id === "office");
+      if (!officePlatform) return;
+
+      // If already enabled from localStorage, nothing to do
+      if (officePlatform.enabled) {
+        Logger.info("[Office] Startup: already enabled from saved preference");
+        return;
+      }
+
+      // If user previously explicitly disabled, don't override
+      if (this._platformsLoadedFromStorage?.has("office")) {
+        Logger.info(
+          "[Office] Startup: disabled by saved preference, skipping auto-detect",
+        );
+        return;
+      }
+
+      // First run — check actual installation status
+      const status = await this.getPlatformIntegrationStatus("office");
+      if (status.success) {
+        officePlatform.enabled = true;
+        this.savePlatforms();
+        const officeToggle =
+          document.getElementById("officeEnabledToggle");
+        if (officeToggle) {
+          officeToggle.checked = true;
+          this.settingsManager.set("officeEnabled", true);
+        }
+        this.updateOfficeInsertButton();
+        Logger.info(
+          "[Office] Startup: VSTO detected, auto-enabled (first run)",
+        );
+      } else {
+        Logger.info(
+          "[Office] Startup: VSTO not detected, leaving disabled",
+        );
+      }
+    } catch (error) {
+      Logger.warn("[Office] Startup detection failed:", error);
+    }
+  }
 
   async getOfficeStatus() {
     if (this._officeStatusCache) return this._officeStatusCache;
@@ -6026,6 +6078,25 @@ class UIController {
           detectedHosts ||
           officeIntegrationStatus.message ||
           "Office 集成已安装";
+
+        // Auto-enable Office on first run when VSTO is already installed
+        // (e.g. MSI pre-installed, no localStorage record yet)
+        if (
+          !officePlatform.enabled &&
+          !this._platformsLoadedFromStorage?.has("office")
+        ) {
+          officePlatform.enabled = true;
+          this.savePlatforms();
+          const officeToggle =
+            document.getElementById("officeEnabledToggle");
+          if (officeToggle) {
+            officeToggle.checked = true;
+            this.settingsManager.set("officeEnabled", true);
+          }
+          Logger.info(
+            "[Office] Auto-enabled: VSTO detected on first run (no saved preference)",
+          );
+        }
       } else if (officeIntegrationStatus.message) {
         officePlatform.desc = detectedHosts
           ? `${detectedHosts} · ${officeIntegrationStatus.message}`
@@ -6953,6 +7024,10 @@ async function setupBrowserImportInbox(controller) {
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
+  // Detect actual Office VSTO state on startup and auto-enable if pre-installed
+  controller.initOfficeDetection().catch((error) =>
+    Logger.warn("Office startup detection failed", error),
+  );
   setupBrowserImportInbox(controller).catch((error) =>
     Logger.error("Browser import inbox setup failed", error),
   );
