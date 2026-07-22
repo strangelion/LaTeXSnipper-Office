@@ -5875,8 +5875,7 @@ class UIController {
       if (status.success) {
         officePlatform.enabled = true;
         this.savePlatforms();
-        const officeToggle =
-          document.getElementById("officeEnabledToggle");
+        const officeToggle = document.getElementById("officeEnabledToggle");
         if (officeToggle) {
           officeToggle.checked = true;
           this.settingsManager.set("officeEnabled", true);
@@ -5886,9 +5885,7 @@ class UIController {
           "[Office] Startup: VSTO detected, auto-enabled (first run)",
         );
       } else {
-        Logger.info(
-          "[Office] Startup: VSTO not detected, leaving disabled",
-        );
+        Logger.info("[Office] Startup: VSTO not detected, leaving disabled");
       }
     } catch (error) {
       Logger.warn("[Office] Startup detection failed:", error);
@@ -6087,8 +6084,7 @@ class UIController {
         ) {
           officePlatform.enabled = true;
           this.savePlatforms();
-          const officeToggle =
-            document.getElementById("officeEnabledToggle");
+          const officeToggle = document.getElementById("officeEnabledToggle");
           if (officeToggle) {
             officeToggle.checked = true;
             this.settingsManager.set("officeEnabled", true);
@@ -7025,9 +7021,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
   // Detect actual Office VSTO state on startup and auto-enable if pre-installed
-  controller.initOfficeDetection().catch((error) =>
-    Logger.warn("Office startup detection failed", error),
-  );
+  controller
+    .initOfficeDetection()
+    .catch((error) => Logger.warn("Office startup detection failed", error));
   setupBrowserImportInbox(controller).catch((error) =>
     Logger.error("Browser import inbox setup failed", error),
   );
