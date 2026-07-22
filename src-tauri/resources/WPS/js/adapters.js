@@ -169,7 +169,7 @@
   }
 
   // Wrap OMML in Flat OPC so Range.InsertXML accepts it as a formula.
-  // Mirrors what Office VSTO does: Flat OPC → range.InsertXML(flatOpc).
+  // Mirrors what Office Word add-in does: Flat OPC → range.InsertXML(flatOpc).
   function wrapOMML(omml, display) {
     var tag = display ? "m:oMathPara" : "m:oMath";
     var wrapped = omml.indexOf("<" + tag) === 0
@@ -190,7 +190,7 @@
   }
 
   // Primary path: LaTeX → Core OMML (via Bridge) → Range.InsertXML.
-  // Same approach as Office VSTO: convert LaTeX to OMML via Core, then
+  // Same approach as Office Word add-in: convert LaTeX to OMML via Core, then
   // insert the OMML directly into the document.
   function addNativeMathViaOMML(document, range, latex, display) {
     return window.WpsBridgeClient.convert(
@@ -284,7 +284,7 @@
   }
 
   function addNativeMath(document, range, latex, display) {
-    // Primary: Bridge-based OMML insertion (same as Office VSTO path)
+    // Primary: Bridge-based OMML insertion (same as Office Word add-in path)
     if (
       window.WpsBridgeClient &&
       typeof window.WpsBridgeClient.convert === "function"
