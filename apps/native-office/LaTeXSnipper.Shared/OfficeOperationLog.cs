@@ -61,15 +61,15 @@ public static class OfficeOperationLog
                 if (fi.Exists && fi.Length > 512 * 1024)
                 {
                     var oldPath = Path.ChangeExtension(path, ".old.log");
-                    try { File.Delete(oldPath); } catch { }
-                    try { File.Move(path, oldPath); } catch { }
+                    try { File.Delete(oldPath); } catch { /* best-effort rotation */ }
+                    try { File.Move(path, oldPath); } catch { /* best-effort rotation */ }
                 }
                 File.AppendAllText(path, entry);
             }
         }
         catch
         {
-            // Logging must never throw
+            // Logging is fire-and-forget; swallowing ensures it never breaks the caller.
         }
     }
 
