@@ -125,6 +125,7 @@ pub async fn native_office_insert_formula(
     crate::platforms::pipe_server::send_insert_formula(
         &session_mgr,
         &session_id,
+        expected_document_id,
         payload,
         insert_mode,
         im,
@@ -333,7 +334,7 @@ pub async fn native_office_insert_table(
     let table: TablePayload =
         serde_json::from_str(&table_json).map_err(|e| format!("Invalid table JSON: {}", e))?;
 
-    crate::platforms::pipe_server::send_insert_table(&session_mgr, &session_id, table)
+    crate::platforms::pipe_server::send_insert_table(&session_mgr, &session_id, None, table)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -967,6 +968,7 @@ pub async fn native_office_generate_and_insert(
         &session_mgr,
         &session_id,
         request_id.clone(),
+        None,
         payload,
         insert_mode,
         Some(im),

@@ -99,17 +99,6 @@ fn main() {
                 .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
 
-            // Office integration coordinator
-            #[cfg(target_os = "windows")]
-            {
-                let coordinator = office_integration::OfficeCoordinator::new(
-                    app.state::<Arc<platforms::session::SessionManager>>()
-                        .inner()
-                        .clone(),
-                );
-                app.manage(coordinator);
-            }
-
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]
@@ -188,6 +177,12 @@ fn main() {
                 let app_handle = app.handle().clone();
                 let session_manager = Arc::new(SessionManager::new(app_handle.clone()));
                 app.manage(session_manager.clone());
+
+                // Coordinator needs SessionManager already managed
+                let coordinator =
+                    office_integration::OfficeCoordinator::new(session_manager.clone());
+                app.manage(coordinator);
+
                 tauri::async_runtime::spawn(async move {
                     platforms::pipe_server::start_pipe_server(app_handle, session_manager).await;
                 });

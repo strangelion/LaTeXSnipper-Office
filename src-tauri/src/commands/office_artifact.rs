@@ -115,6 +115,7 @@ pub async fn office_insert_artifact(
                 crate::platforms::pipe_server::send_insert_formula(
                     &session_mgr,
                     session_id,
+                    None,
                     payload,
                     mode,
                     im,
@@ -130,9 +131,14 @@ pub async fn office_insert_artifact(
                     serde_json::from_value(artifact.payload.clone())
                         .map_err(|e| format!("Invalid table payload: {e}"))?;
 
-                crate::platforms::pipe_server::send_insert_table(&session_mgr, session_id, table)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                crate::platforms::pipe_server::send_insert_table(
+                    &session_mgr,
+                    session_id,
+                    None,
+                    table,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
 
                 Ok("Table inserted".to_string())
             }

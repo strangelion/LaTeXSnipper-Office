@@ -86,6 +86,7 @@ async function insertTable(payload, targetHost, options = {}) {
 
   return invoke("native_office_insert_table", {
     sessionId: route.target.sessionId,
+    expectedDocumentId: route.target.documentContext ?? null,
     tableJson: JSON.stringify(payload),
   });
 }
@@ -93,8 +94,21 @@ async function insertTable(payload, targetHost, options = {}) {
 /**
  * Insert a full document into Office.
  */
-async function insertDocument(_payload, _targetHost, _options) {
-  throw new Error("Document insertion not yet implemented");
+async function insertDocument(payload, targetHost, options = {}) {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const route = await invoke("office_resolve_route", {
+    host: targetHost,
+    preferredSessionId: options.sessionId ?? null,
+    expectedDocumentId: options.documentContext ?? null,
+  });
+  return invoke("office_insert_artifact", {
+    artifact: {
+      artifactType: "document",
+      payload,
+      target: route.target,
+      options: {},
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -264,6 +264,7 @@ async fn handle_client(
 pub async fn send_insert_formula(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
+    expected_context_id: Option<String>,
     formula: FormulaPayload,
     mode: InsertMode,
     integration_mode: Option<FormulaIntegrationMode>,
@@ -272,7 +273,7 @@ pub async fn send_insert_formula(
     let msg = DesktopMessage::InsertFormula {
         requestId: request_id.clone(),
         sessionId: session_id.to_string(),
-        expectedContextId: None,
+        expectedContextId: expected_context_id,
         formula,
         mode,
         integration_mode,
@@ -287,6 +288,7 @@ pub async fn send_insert_formula_with_id(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
     request_id: String,
+    expected_context_id: Option<String>,
     formula: FormulaPayload,
     mode: InsertMode,
     integration_mode: Option<FormulaIntegrationMode>,
@@ -294,7 +296,7 @@ pub async fn send_insert_formula_with_id(
     let msg = DesktopMessage::InsertFormula {
         requestId: request_id.clone(),
         sessionId: session_id.to_string(),
-        expectedContextId: None,
+        expectedContextId: expected_context_id,
         formula,
         mode,
         integration_mode,
@@ -384,12 +386,13 @@ pub async fn send_read_formula_with_id(
 pub async fn send_insert_table(
     session_mgr: &Arc<SessionManager>,
     session_id: &str,
+    expected_context_id: Option<String>,
     table: TablePayload,
 ) -> Result<(), super::session::SendError> {
     let msg = DesktopMessage::InsertTable {
         requestId: format!("cmd-{}", uuid_simple()),
         sessionId: session_id.to_string(),
-        expectedContextId: None,
+        expectedContextId: expected_context_id,
         table,
     };
     session_mgr.send_to_session(session_id, msg).await
