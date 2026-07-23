@@ -18,6 +18,7 @@ use crate::office_integration::dto::*;
 /// - A single formula
 /// - A single table
 /// - A full document (multi-block)
+#[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn office_insert_artifact(
     #[cfg(target_os = "windows")] session_mgr: State<'_, Arc<SessionManager>>,
