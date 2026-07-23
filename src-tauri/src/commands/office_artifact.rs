@@ -10,6 +10,7 @@ use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use tauri::State;
 
+#[cfg(target_os = "windows")]
 use crate::office_integration::dto::*;
 
 /// Insert a recognition artifact into Office.
