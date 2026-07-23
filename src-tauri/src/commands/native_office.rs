@@ -70,6 +70,10 @@ pub async fn native_office_insert_formula(
         }),
         revision: 0,
         created_utc_ticks: 0,
+        host: None,
+        document_context: None,
+        object_context: None,
+        protocol_version: None,
     };
 
     let insert_mode = match mode.as_str() {
@@ -155,6 +159,10 @@ pub async fn native_office_replace_formula(
         storage_mode,
         revision,
         created_utc_ticks: 0,
+        host: None,
+        document_context: None,
+        object_context: None,
+        protocol_version: None,
     };
 
     // Step 1: Generate request ID
@@ -904,6 +912,10 @@ pub async fn native_office_generate_and_insert(
         storage_mode: storage_mode.clone(),
         revision: 0,
         created_utc_ticks: 0,
+        host: None,
+        document_context: None,
+        object_context: None,
+        protocol_version: None,
     };
 
     let im = integration_mode

@@ -462,6 +462,31 @@ public class FormulaPayload
     [JsonPropertyName("storageMode")] public string? StorageMode { get; set; }
     [JsonPropertyName("revision")] public int Revision { get; set; }
     [JsonPropertyName("createdUtcTicks")] public long CreatedUtcTicks { get; set; }
+
+    // -------------------------------------------------------------------
+    // OLE round-trip metadata (Protocol v4 fields)
+    // Backward-compatible: null when not available (v3 clients ignore).
+    // -------------------------------------------------------------------
+
+    /// <summary>Host application that owns this formula: "word", "excel", "powerpoint".</summary>
+    [JsonPropertyName("host")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Host { get; set; }
+
+    /// <summary>Document context identifier at insertion time.</summary>
+    [JsonPropertyName("documentContext")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DocumentContext { get; set; }
+
+    /// <summary>Host-specific object context (e.g., Worksheet+Cell for Excel, Slide# for PPT).</summary>
+    [JsonPropertyName("objectContext")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ObjectContext { get; set; }
+
+    /// <summary>Protocol version under which this formula was created.</summary>
+    [JsonPropertyName("protocolVersion")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ProtocolVersion { get; set; }
 }
 
 public class PresentationData

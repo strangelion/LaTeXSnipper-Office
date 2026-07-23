@@ -6,6 +6,7 @@ pub mod models;
 pub mod native_office;
 pub mod ocr;
 pub mod office;
+pub mod office_artifact;
 pub mod office_batch;
 pub mod recognition_cmd;
 pub mod recognition_export;

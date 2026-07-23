@@ -452,6 +452,20 @@ pub struct FormulaPayload {
     pub revision: i32,
     #[serde(rename = "createdUtcTicks", default)]
     pub created_utc_ticks: i64,
+
+    // OLE round-trip metadata (v4 fields, backward-compatible)
+    /// Host application: "word", "excel", "powerpoint"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Document context identifier at insertion time
+    #[serde(rename = "documentContext", skip_serializing_if = "Option::is_none")]
+    pub document_context: Option<String>,
+    /// Host-specific object context (e.g., Worksheet+Cell for Excel)
+    #[serde(rename = "objectContext", skip_serializing_if = "Option::is_none")]
+    pub object_context: Option<String>,
+    /// Protocol version at creation time
+    #[serde(rename = "protocolVersion", skip_serializing_if = "Option::is_none")]
+    pub protocol_version: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

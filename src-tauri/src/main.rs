@@ -247,6 +247,7 @@ fn main() {
             commands::office_batch::office_batch_scan_latex,
             commands::office_batch::office_batch_convert_plan,
             commands::office_batch::office_batch_execute,
+            commands::office_artifact::office_insert_artifact,
             commands::office::insert_formula,
             commands::office::load_selection,
             commands::office::delete_selection,
