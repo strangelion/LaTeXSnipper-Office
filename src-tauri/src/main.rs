@@ -245,9 +245,12 @@ fn main() {
             commands::runtimes::runtime_list,
             commands::runtimes::runtime_probe,
             commands::runtimes::runtime_open_directory,
+            #[cfg(target_os = "windows")]
             commands::office_batch::office_batch_scan_latex,
             commands::office_batch::office_batch_convert_plan,
+            #[cfg(target_os = "windows")]
             commands::office_batch::office_batch_execute,
+            #[cfg(target_os = "windows")]
             commands::office_artifact::office_insert_artifact,
             commands::office::insert_formula,
             commands::office::load_selection,
@@ -363,6 +366,7 @@ fn main() {
             commands::native_office::native_office_validate_ole,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_repair_vsto,
+            #[cfg(target_os = "windows")]
             commands::native_office::export_diagnostics,
         ])
         .run(tauri::generate_context!())
