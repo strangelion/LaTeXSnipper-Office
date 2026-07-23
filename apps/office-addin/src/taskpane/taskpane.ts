@@ -340,7 +340,7 @@ async function pollActions(): Promise<void> {
     );
     if (!response.ok) return;
     const result = await response.json();
-    if (!result.action || !result.action_id) return;
+    if (!result.action || !result.actionId) return;
     if (result.expectedDocumentContext) {
       const currentContext = await resolveDocumentContext();
       if (result.expectedDocumentContext !== currentContext) {
@@ -348,7 +348,7 @@ async function pollActions(): Promise<void> {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action_id: result.action_id,
+            actionId: result.actionId,
             success: false,
             error: "CONTEXT_CHANGED",
           }),
@@ -360,7 +360,7 @@ async function pollActions(): Promise<void> {
     await fetch(`${bridgeBase}/api/office/actions/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action_id: result.action_id }),
+      body: JSON.stringify({ actionId: result.actionId }),
     });
   } catch {
     /* bridge temporarily offline */
@@ -379,30 +379,35 @@ function bridgeModeToDisplay(mode: string): "inline" | "block" | "numbered" {
   }
 }
 
-async function executeBridgeAction(action: any): Promise<void> {
+interface BridgeActionResult {
+  success: boolean;
+  error?: string;
+}
+
+async function executeBridgeAction(action: any): Promise<BridgeActionResult> {
   if (action.type === "InsertFormula") {
     const latex = action.latex ?? "";
     setEditorContent(latex);
     const result = await exec({
       type: "InsertFormula",
-      payload: { latex, display: bridgeModeToDisplay(action.mode ?? "inline") },
+      payload: {
+        latex,
+        display: bridgeModeToDisplay(action.mode ?? "inline"),
+      },
     });
     setStatus(
       result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
       result.ok ? "success" : "error",
     );
-  } else if (action.type === "InsertTable") {
-    const result = await exec({
-      type: "InsertTable",
-      payload: action.table ?? {},
-    });
-    setStatus(
-      result.ok
-        ? "Auto-inserted table"
-        : `Table insert failed: ${result.error}`,
-      result.ok ? "success" : "error",
-    );
+    return {
+      success: result.ok,
+      error: result.ok ? undefined : result.error,
+    };
   }
+  return {
+    success: false,
+    error: `Unsupported action: ${action.type}`,
+  };
 }
 
 function setBusy(value: boolean): void {

@@ -102,20 +102,9 @@ async function insertTable(payload, targetHost, options = {}) {
   });
 
   if (route.actualRoute === "officeJs") {
-    const url = "https://127.0.0.1:19876/api/office/insert-direct";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        targetClientId: route.target.sessionId,
-        expectedDocumentContext: route.target.documentContext,
-        actionType: "InsertTable",
-        table: payload,
-      }),
-    });
-    if (!resp.ok)
-      throw new Error(`Office.js table insert failed: ${resp.status}`);
-    return { success: true };
+    throw new Error(
+      "OFFICEJS_TABLE_UNSUPPORTED: Office.js table insertion is not yet supported.",
+    );
   }
 
   return invoke("native_office_insert_table", {
