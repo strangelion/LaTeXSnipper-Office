@@ -105,12 +105,7 @@ internal sealed class PowerPointBatchConversionExecutor
                 Format = "omml", Content = item.Omml!,
                 Display = "inline", FormulaId = $"batch-{item.SourceId}",
                 OriginalLatex = item.NormalizedLatex,
-            }, new PowerPointMathTarget
-            {
-                Slide = slide,
-                Left = shape.Left,
-                Top = shape.Top,
-            });
+            }, BuildTextRangeTarget(slide, foundRange));
 
             if (!result.Success) return false;
             foundRange.Delete();

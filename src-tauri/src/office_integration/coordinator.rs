@@ -6,7 +6,6 @@
 //! - Document context validation
 //! - Routing Named Pipe requests to the correct session
 
-#[cfg(target_os = "windows")]
 use std::sync::Arc;
 
 #[cfg(target_os = "windows")]
@@ -214,12 +213,5 @@ impl OfficeCoordinator {
                 actual_route: super::dto::OfficeRouteMode::OfficeJs,
             })
             .map_err(|e| format!("No Office.js {host_str} client is active: {e}"))
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-impl Default for OfficeCoordinator {
-    fn default() -> Self {
-        Self::new()
     }
 }

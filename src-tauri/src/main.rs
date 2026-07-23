@@ -204,6 +204,12 @@ fn main() {
                 platforms::integrations::register_install_path();
             }
 
+            #[cfg(not(target_os = "windows"))]
+            {
+                let coordinator = office_integration::OfficeCoordinator::new(js_registry.clone());
+                app.manage(coordinator);
+            }
+
             // Start Office Bridge (HTTPS, port 19876) — always needed for rendering
             let bridge_handle = app.handle().clone();
             let bridge_state = bridge_runtime.clone();

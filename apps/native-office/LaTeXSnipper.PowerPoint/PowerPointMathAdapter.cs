@@ -119,7 +119,7 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
                     {
                         try
                         {
-                            var shape = slide.Shapes.Item(i);
+                            var shape = slide.Shapes[i];
                             if (target.Left.HasValue) shape.Left = target.Left.Value;
                             if (target.Top.HasValue) shape.Top = target.Top.Value;
                             if (target.Width > 0) shape.Width = target.Width;

@@ -1293,6 +1293,10 @@ pub struct InsertDirectRequest {
     pub latex: String,
     #[serde(default)]
     pub display: bool,
+    #[serde(default, rename = "targetClientId")]
+    pub target_client_id: Option<String>,
+    #[serde(default, rename = "expectedDocumentContext")]
+    pub expected_document_context: Option<String>,
 }
 
 async fn handle_insert_direct(
@@ -1319,7 +1323,8 @@ async fn handle_insert_direct(
     let action_id = format!("act_{}", counter);
     {
         let mut queue = state.action_queue.lock().await;
-        queue.push_back((action_id.clone(), String::new(), action));
+        let client_id = req.target_client_id.unwrap_or_default();
+        queue.push_back((action_id.clone(), client_id, action));
     }
 
     Json(OfficeResponse {

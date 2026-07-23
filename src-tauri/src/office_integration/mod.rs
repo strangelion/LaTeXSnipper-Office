@@ -15,5 +15,4 @@ pub mod dto;
 pub mod office_js_registry;
 pub mod sessions;
 
-#[cfg(target_os = "windows")]
 pub use coordinator::{OfficeCoordinator, ResolvedRoute};
