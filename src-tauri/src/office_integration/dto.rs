@@ -235,6 +235,11 @@ pub struct BatchConversionPlan {
     /// Unique plan identifier.
     pub id: String,
 
+    /// Office target (host + session + document) that was scanned.
+    /// Used at execution time to verify document identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<OfficeTarget>,
+
     /// Items to convert.
     pub items: Vec<BatchConversionItem>,
 }

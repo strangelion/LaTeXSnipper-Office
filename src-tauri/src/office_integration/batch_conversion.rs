@@ -66,7 +66,11 @@ pub fn build_conversion_plan(
         }
     }
 
-    Ok(BatchConversionPlan { id: plan_id, items })
+    Ok(BatchConversionPlan {
+        id: plan_id,
+        target: None,
+        items,
+    })
 }
 
 /// Compute a summary result from a completed plan.

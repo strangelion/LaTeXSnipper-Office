@@ -1090,24 +1090,16 @@ impl SessionManager {
                     "failed": failed,
                     "failures": failures,
                 });
-                let success = failed == 0;
+                // success=true means the command executed; item failures are in data
                 let host_result = super::office_commit::HostResult {
-                    success,
+                    success: true,
                     request_id: rid.clone(),
                     session_id: sid.clone(),
                     formula_id: None,
                     revision: None,
                     actual_storage_mode: None,
-                    error_code: if success {
-                        None
-                    } else {
-                        Some("BATCH_FAILED".to_string())
-                    },
-                    error: if success {
-                        None
-                    } else {
-                        Some(format!("{failed} items failed"))
-                    },
+                    error_code: None,
+                    error: None,
                     data: Some(data),
                 };
                 waiter.resolve(host_result).await;

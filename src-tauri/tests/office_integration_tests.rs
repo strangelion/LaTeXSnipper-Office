@@ -73,6 +73,7 @@ mod office_tests {
     fn test_batch_result_counts() {
         let plan = BatchConversionPlan {
             id: "plan-1".to_string(),
+            target: None,
             items: vec![
                 BatchConversionItem {
                     source_id: "1".to_string(),
