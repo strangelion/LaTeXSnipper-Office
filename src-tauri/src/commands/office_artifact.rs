@@ -140,7 +140,7 @@ pub async fn office_insert_artifact(
     }
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

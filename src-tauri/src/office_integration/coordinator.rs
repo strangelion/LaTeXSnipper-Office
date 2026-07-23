@@ -17,20 +17,20 @@ use super::dto::{OfficeHost, OfficeTarget};
 /// Result of route resolution: which channel was selected and why.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct ResolvedRoute {
     pub target: OfficeTarget,
     pub actual_route: super::dto::OfficeRouteMode,
 }
 
 /// The unified Office integration coordinator.
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,
 }
 
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 impl OfficeCoordinator {
     /// Create a new coordinator.
     #[cfg(target_os = "windows")]
