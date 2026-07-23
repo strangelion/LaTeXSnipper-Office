@@ -3024,6 +3024,7 @@ dependencies = [
  "latexsnipper-conversion",
  "latexsnipper-engine",
  "latexsnipper-image",
+ "latexsnipper-model",
  "latexsnipper-pipeline",
  "log",
  "quick-xml 0.37.5",

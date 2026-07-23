@@ -39,6 +39,7 @@ latexsnipper-ast = { path = "latexsnipper-core/crates/ast", optional = true, def
 latexsnipper-engine = { path = "latexsnipper-core/crates/engine", optional = true, default-features = false, features = ["native"] }
 latexsnipper-api-types = { path = "latexsnipper-core/crates/api-types", optional = true }
 latexsnipper-image = { path = "latexsnipper-core/crates/image", optional = true, default-features = false }
+latexsnipper-model = { path = "latexsnipper-core/crates/model", optional = true, default-features = false }
 latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline", optional = true, default-features = false }
 
 # Windows-specific dependencies for SID and DPAPI
@@ -68,6 +69,7 @@ recognition = [
     "dep:latexsnipper-api-types",
     "dep:latexsnipper-ast",
     "dep:latexsnipper-image",
+    "dep:latexsnipper-model",
     "dep:latexsnipper-pipeline",
 ]
 
