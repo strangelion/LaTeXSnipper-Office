@@ -8,8 +8,8 @@
 //! creates a new `RecognitionService` wrapped in `Arc`. In-flight jobs
 //! retain their existing `Arc<Service>`, while new jobs use the latest one.
 //!
-//! Per-job model overrides: when a RecognitionStartRequest specifies
-//! model_overrides, a temporary engine is built with those overrides.
+//! Per-job overrides: when a RecognitionStartRequest specifies
+//! parse_mode or model_overrides, a temporary engine is built.
 //! The shared engine is NOT affected.
 
 use std::path::{Path, PathBuf};
@@ -67,16 +67,18 @@ impl RecognitionService {
             .map(|e| e.eq_ignore_ascii_case("pdf"))
             .unwrap_or(false);
 
-        if request.model_overrides.is_some() {
-            let temp_engine = self.build_engine_with_overrides(request)?;
+        let needs_custom = request.model_overrides.is_some() || request.parse_mode.is_some();
+
+        if needs_custom {
+            let temp_engine = self.build_engine_for_request(request)?;
             run_recognition(&temp_engine, path, mode, is_pdf).await
         } else {
             run_recognition(&self.engine, path, mode, is_pdf).await
         }
     }
 
-    /// Build a temporary engine with per-job model overrides.
-    fn build_engine_with_overrides(
+    /// Build a temporary engine with per-job overrides (parse_mode + model_overrides).
+    fn build_engine_for_request(
         &self,
         request: &RecognitionStartRequest,
     ) -> Result<latexsnipper_engine::SnipperEngine, String> {
@@ -106,9 +108,7 @@ impl RecognitionService {
         }
 
         if let Some(ref pm) = request.parse_mode {
-            if let Some(parsed) = parse_document_mode(pm) {
-                config = config.set_parse_mode(parsed);
-            }
+            config = config.set_parse_mode(parse_document_mode(pm)?);
         }
 
         let registry = default_runtime_registry(&self.models_dir)
@@ -221,13 +221,13 @@ fn parse_recognize_mode(s: &str) -> Result<latexsnipper_engine::RecognizeMode, S
 }
 
 #[cfg(feature = "recognition")]
-fn parse_document_mode(s: &str) -> Option<latexsnipper_pipeline::DocumentParseMode> {
+fn parse_document_mode(s: &str) -> Result<latexsnipper_pipeline::DocumentParseMode, String> {
     match s {
-        "specialized" | "stable" => {
-            Some(latexsnipper_pipeline::DocumentParseMode::SpecializedStable)
-        }
-        "openocr" | "openocr-text" => Some(latexsnipper_pipeline::DocumentParseMode::OpenOcrText),
-        "opendoc" | "hybrid" => Some(latexsnipper_pipeline::DocumentParseMode::OpenDocHybrid),
-        _ => None,
+        "specialized" | "stable" => Ok(latexsnipper_pipeline::DocumentParseMode::SpecializedStable),
+        "openocr" | "openocr-text" => Ok(latexsnipper_pipeline::DocumentParseMode::OpenOcrText),
+        "opendoc" | "hybrid" => Ok(latexsnipper_pipeline::DocumentParseMode::OpenDocHybrid),
+        other => Err(format!(
+            "Unknown parse mode '{other}'. Valid: specialized, openocr, opendoc"
+        )),
     }
 }

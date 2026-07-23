@@ -15,33 +15,24 @@ use crate::recognition::validation;
 
 /// Query what the recognition backend supports.
 #[tauri::command]
-pub async fn recognition_get_capabilities() -> Result<RecognitionCapabilities, String> {
+pub async fn recognition_get_capabilities(
+    state: State<'_, RecognitionState>,
+) -> Result<RecognitionCapabilities, String> {
     #[cfg(feature = "recognition")]
     {
+        let job_count = state.jobs.list_snapshots().await.len();
         Ok(RecognitionCapabilities {
             available: true,
-            modes: vec![
-                "auto".to_string(),
-                "formula".to_string(),
-                "text".to_string(),
-                "table".to_string(),
-                "full-document".to_string(),
-            ],
-            output_formats: vec![
-                "markdown".to_string(),
-                "latex".to_string(),
-                "typst".to_string(),
-                "html".to_string(),
-                "omml".to_string(),
-                "json".to_string(),
-            ],
+            modes: validation::supported_modes(),
+            output_formats: validation::supported_output_formats(),
             max_resolution: Some(4096),
-            active_jobs: 0,
+            active_jobs: job_count,
         })
     }
 
     #[cfg(not(feature = "recognition"))]
     {
+        let _ = state;
         Ok(RecognitionCapabilities {
             available: false,
             modes: vec![],
@@ -62,6 +53,13 @@ pub async fn recognition_start(
     // Validate input
     validation::validate_input_path(&request.path)?;
     validation::validate_mode(&request.mode)?;
+    // Reject unsupported execution policies (only "async" is valid v1)
+    validation::validate_execution_policy(request.execution_policy.as_deref())?;
+    // Validate parse_mode early so we fail before creating a job
+    if let Some(ref pm) = request.parse_mode {
+        // parse_document_mode is called inside recognize(), but we validate early
+        let _ = validate_parse_mode_precheck(pm)?;
+    }
 
     #[cfg(not(feature = "recognition"))]
     {
@@ -227,7 +225,13 @@ async fn run_recognition_job(
 
     let result = {
         let mut snap = job.snapshot.write().await;
-        snap.stage = RecognitionStage::RecognizingFormula;
+        // Set stage based on actual mode, not hard-coded "RecognizingFormula"
+        snap.stage = match mode_label.as_str() {
+            "formula" => RecognitionStage::RecognizingFormula,
+            "text" => RecognitionStage::RecognizingText,
+            "table" => RecognitionStage::RecognizingTable,
+            _ => RecognitionStage::DetectingLayout,
+        };
         snap.message = Some(format!("Recognizing ({mode_label})..."));
         drop(snap);
 
@@ -326,6 +330,23 @@ fn convert_document_to_format(
     DocumentConverter::new(output_format)
         .convert(document)
         .map_err(|e| format!("Conversion failed: {e}"))
+}
+
+/// Pre-check parse_mode before recognition starts (fail early, not mid-job).
+#[cfg(feature = "recognition")]
+fn validate_parse_mode_precheck(pm: &str) -> Result<(), String> {
+    // Re-use the same logic as parse_document_mode but discard the result
+    match pm {
+        "specialized" | "stable" | "openocr" | "openocr-text" | "opendoc" | "hybrid" => Ok(()),
+        other => Err(format!(
+            "Unknown parse mode '{other}'. Valid: specialized, openocr, opendoc"
+        )),
+    }
+}
+
+#[cfg(not(feature = "recognition"))]
+fn validate_parse_mode_precheck(_pm: &str) -> Result<(), String> {
+    Err("Recognition is not included in this build.".to_string())
 }
 
 #[cfg(not(feature = "recognition"))]

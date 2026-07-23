@@ -11,8 +11,16 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 /// Supported output formats.
 const SUPPORTED_OUTPUT_FORMATS: &[&str] = &["markdown", "latex", "typst", "html", "omml", "json"];
 
-/// Supported recognition modes.
-const SUPPORTED_MODES: &[&str] = &["auto", "formula", "text", "table", "full-document"];
+/// Supported recognition modes — single source of truth.
+const SUPPORTED_MODES: &[&str] = &[
+    "auto",
+    "formula",
+    "text",
+    "table",
+    "handwriting",
+    "formula-layout",
+    "full-document",
+];
 
 /// Validate that a file path exists and has a supported extension.
 pub fn validate_input_path(path: &str) -> Result<(), String> {
@@ -56,4 +64,27 @@ pub fn validate_output_format(format: &str) -> Result<(), String> {
             "Unknown output format '{format}'. Supported: {SUPPORTED_OUTPUT_FORMATS:?}"
         ))
     }
+}
+
+/// Validate execution policy. Only "async" is supported in v1.
+pub fn validate_execution_policy(policy: Option<&str>) -> Result<(), String> {
+    match policy {
+        None | Some("async") => Ok(()),
+        Some(other) => Err(format!(
+            "Unsupported execution policy '{other}'. Only 'async' is supported."
+        )),
+    }
+}
+
+/// Get the canonical list of supported modes (used by capabilities).
+pub fn supported_modes() -> Vec<String> {
+    SUPPORTED_MODES.iter().map(|s| s.to_string()).collect()
+}
+
+/// Get the canonical list of supported output formats (used by capabilities).
+pub fn supported_output_formats() -> Vec<String> {
+    SUPPORTED_OUTPUT_FORMATS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
