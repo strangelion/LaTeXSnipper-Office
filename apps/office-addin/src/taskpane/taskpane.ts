@@ -29,10 +29,21 @@ function getClientId(): string {
 }
 
 async function resolveDocumentContext(): Promise<string> {
-  try {
-    const result = await exec({ type: "GetDocumentContext", payload: {} });
-    return result.ok ? String(result.data ?? "") : "";
-  } catch { return ""; }
+  const directUrl = Office.context.document.url;
+  if (directUrl && directUrl.trim().length > 0) return directUrl;
+  return await new Promise<string>((resolve) => {
+    try {
+      Office.context.document.getFilePropertiesAsync((result) => {
+        if (result.status === Office.AsyncResultStatus.Succeeded && result.value?.url) {
+          resolve(result.value.url);
+        } else {
+          resolve("unsaved:" + getClientId());
+        }
+      });
+    } catch {
+      resolve("unsaved:" + getClientId());
+    }
+  });
 }
 
 const bridgeBase = (() => {
@@ -324,6 +335,17 @@ async function pollActions(): Promise<void> {
     if (!response.ok) return;
     const result = await response.json();
     if (!result.action || !result.action_id) return;
+    if (result.expectedDocumentContext) {
+      const currentContext = await resolveDocumentContext();
+      if (result.expectedDocumentContext !== currentContext) {
+        await fetch(`${bridgeBase}/api/office/actions/complete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action_id: result.action_id, success: false, error: "CONTEXT_CHANGED" }),
+        });
+        return;
+      }
+    }
     await executeBridgeAction(result.action);
     await fetch(`${bridgeBase}/api/office/actions/complete`, {
       method: "POST",
@@ -333,15 +355,27 @@ async function pollActions(): Promise<void> {
   } catch { /* bridge temporarily offline */ }
 }
 
+function bridgeModeToDisplay(mode: string): "inline" | "block" | "numbered" {
+  switch (mode) {
+    case "display": return "block";
+    case "display-numbered": case "numbered": return "numbered";
+    default: return "inline";
+  }
+}
+
 async function executeBridgeAction(action: any): Promise<void> {
   if (action.type === "InsertFormula") {
     const latex = action.latex ?? "";
     setEditorContent(latex);
     const result = await exec({
       type: "InsertFormula",
-      payload: buildPayload(latex, false),
+      payload: { latex, display: bridgeModeToDisplay(action.mode ?? "inline") },
     });
     setStatus(result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
+      result.ok ? "success" : "error");
+  } else if (action.type === "InsertTable") {
+    const result = await exec({ type: "InsertTable", payload: action.table ?? {} });
+    setStatus(result.ok ? "Auto-inserted table" : `Table insert failed: ${result.error}`,
       result.ok ? "success" : "error");
   }
 }

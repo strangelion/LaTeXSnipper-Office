@@ -97,6 +97,15 @@ pub struct OfficeResponse {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedOfficeAction {
+    pub action_id: String,
+    pub target_client_id: String,
+    pub expected_document_context: Option<String>,
+    pub action: OfficeAction,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum OfficeAction {
@@ -111,6 +120,7 @@ pub enum OfficeAction {
 pub struct OfficeActionResponse {
     pub action: Option<OfficeAction>,
     pub action_id: Option<String>,
+    pub expected_document_context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,7 +160,7 @@ struct WpsTempAsset {
 pub struct BridgeRuntimeState {
     app_handle: tauri::AppHandle,
     pending_renders: Mutex<HashMap<String, oneshot::Sender<String>>>,
-    action_queue: Mutex<VecDeque<(String, String, OfficeAction)>>,
+    action_queue: Mutex<VecDeque<QueuedOfficeAction>>,
     action_counter: std::sync::atomic::AtomicU64,
     pub js_registry: Arc<crate::office_integration::office_js_registry::OfficeJsSessionRegistry>,
     /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
@@ -1290,6 +1300,7 @@ async fn handle_insert_table(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsertDirectRequest {
+    #[serde(default)]
     pub latex: String,
     #[serde(default)]
     pub display: bool,
@@ -1297,6 +1308,10 @@ pub struct InsertDirectRequest {
     pub target_client_id: Option<String>,
     #[serde(default, rename = "expectedDocumentContext")]
     pub expected_document_context: Option<String>,
+    #[serde(default, rename = "actionType")]
+    pub action_type: Option<String>,
+    #[serde(default)]
+    pub table: Option<serde_json::Value>,
 }
 
 async fn handle_insert_direct(
@@ -1304,17 +1319,23 @@ async fn handle_insert_direct(
     Json(req): Json<InsertDirectRequest>,
 ) -> impl IntoResponse {
     println!(
-        "[Bridge] Insert direct (pushed to action queue): {}",
-        req.latex
+        "[Bridge] Insert direct (pushed to action queue): {:?}",
+        req.action_type.as_deref().unwrap_or("InsertFormula")
     );
 
-    let action = OfficeAction::InsertFormula {
-        latex: req.latex,
-        mode: if req.display {
-            "display".into()
-        } else {
-            "inline".into()
-        },
+    let action = if req.action_type.as_deref() == Some("InsertTable") {
+        OfficeAction::InsertTable {
+            table: req.table.unwrap_or_default(),
+        }
+    } else {
+        OfficeAction::InsertFormula {
+            latex: req.latex.clone(),
+            mode: if req.display {
+                "display".into()
+            } else {
+                "inline".into()
+            },
+        }
     };
 
     let counter = state
@@ -1323,8 +1344,12 @@ async fn handle_insert_direct(
     let action_id = format!("act_{}", counter);
     {
         let mut queue = state.action_queue.lock().await;
-        let client_id = req.target_client_id.unwrap_or_default();
-        queue.push_back((action_id.clone(), client_id, action));
+        queue.push_back(QueuedOfficeAction {
+            action_id: action_id.clone(),
+            target_client_id: req.target_client_id.unwrap_or_default(),
+            expected_document_context: req.expected_document_context,
+            action,
+        });
     }
 
     Json(OfficeResponse {
@@ -1376,13 +1401,13 @@ async fn handle_actions_next(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let client_id = params.get("clientId").cloned();
-    let action = {
+    let entry = {
         let mut queue = state.action_queue.lock().await;
         if let Some(ref cid) = client_id {
             let mut found = None;
             let len = queue.len();
             for i in 0..len {
-                if queue[i].1 == *cid {
+                if queue[i].target_client_id == *cid {
                     found = Some(queue.remove(i).unwrap());
                     break;
                 }
@@ -1392,14 +1417,16 @@ async fn handle_actions_next(
             queue.pop_front()
         }
     };
-    match action {
-        Some((action_id, _client_id, action)) => Json(OfficeActionResponse {
-            action: Some(action),
-            action_id: Some(action_id),
+    match entry {
+        Some(entry) => Json(OfficeActionResponse {
+            action: Some(entry.action),
+            action_id: Some(entry.action_id),
+            expected_document_context: entry.expected_document_context,
         }),
         None => Json(OfficeActionResponse {
             action: None,
             action_id: None,
+            expected_document_context: None,
         }),
     }
 }
