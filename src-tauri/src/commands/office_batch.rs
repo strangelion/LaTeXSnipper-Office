@@ -32,7 +32,7 @@ pub async fn office_batch_scan_latex(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (session_id, scope);
-        return Err("Batch scan is only available on Windows.".to_string());
+        Err("Batch scan is only available on Windows.".to_string())
     }
 
     #[cfg(target_os = "windows")]
@@ -101,7 +101,7 @@ pub async fn office_batch_execute(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (session_id, plan);
-        return Err("Batch execution is only available on Windows.".to_string());
+        Err("Batch execution is only available on Windows.".to_string())
     }
 
     #[cfg(target_os = "windows")]
@@ -159,6 +159,7 @@ pub async fn office_batch_execute(
     }
 }
 
+#[allow(dead_code)]
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

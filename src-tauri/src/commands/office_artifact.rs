@@ -26,7 +26,7 @@ pub async fn office_insert_artifact(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = artifact;
-        return Err("Office insertion is only available on Windows.".to_string());
+        Err("Office insertion is only available on Windows.".to_string())
     }
 
     #[cfg(target_os = "windows")]
@@ -119,6 +119,7 @@ pub async fn office_insert_artifact(
     }
 }
 
+#[allow(dead_code)]
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

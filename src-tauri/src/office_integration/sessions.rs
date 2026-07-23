@@ -3,6 +3,7 @@
 //! Provides convenience functions for routing commands to the correct
 //! VSTO session based on host type and optional session preference.
 
+#[cfg(target_os = "windows")]
 use crate::office_integration::dto::OfficeHost;
 
 #[cfg(target_os = "windows")]

@@ -5,7 +5,9 @@
 //! - Session selection
 //! - Document context validation
 //! - Routing Named Pipe requests to the correct session
+#![allow(unused_imports)]
 
+#[cfg(target_os = "windows")]
 use std::sync::Arc;
 
 #[cfg(target_os = "windows")]
@@ -29,6 +31,13 @@ impl OfficeCoordinator {
     #[cfg(not(target_os = "windows"))]
     pub fn new() -> Self {
         Self {}
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl Default for OfficeCoordinator {
+    fn default() -> Self {
+        Self::new()
     }
 
     /// Resolve the best session for a given host.

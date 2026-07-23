@@ -14,6 +14,7 @@
 use serde::Serialize;
 use tauri::{command, State};
 
+#[cfg(feature = "recognition")]
 use crate::recognition::dto::RecognitionStartRequest;
 use crate::recognition::state::RecognitionState;
 
@@ -57,7 +58,7 @@ pub async fn ocr_recognize(
         #[cfg(not(target_os = "windows"))]
         {
             let _ = (state, image_data);
-            return Err("OCR is only supported on Windows (requires ONNX Runtime)".to_string());
+            Err("OCR is only supported on Windows (requires ONNX Runtime)".to_string())
         }
 
         #[cfg(target_os = "windows")]
@@ -149,6 +150,7 @@ pub async fn ocr_recognize(
     }
 }
 
+#[allow(dead_code)]
 fn simple_uuid() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()
