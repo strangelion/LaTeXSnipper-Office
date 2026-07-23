@@ -31,6 +31,7 @@ rand = "0.8"
 sha2 = "0.10"
 reqwest = { version = "0.12", features = ["json"] }
 tokio-util = { version = "0.7", features = ["rt"] }
+toml = "0.8"
 zip = "0.6"
 
 # LaTeXSnipper Core (via symlink)
@@ -41,6 +42,7 @@ latexsnipper-api-types = { path = "latexsnipper-core/crates/api-types", optional
 latexsnipper-image = { path = "latexsnipper-core/crates/image", optional = true, default-features = false }
 latexsnipper-model = { path = "latexsnipper-core/crates/model", optional = true, default-features = false }
 latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline", optional = true, default-features = false }
+latexsnipper-runtime = { path = "latexsnipper-core/crates/runtime", optional = true, default-features = false }
 
 # Windows-specific dependencies for SID and DPAPI
 [target.'cfg(windows)'.dependencies]
@@ -71,6 +73,7 @@ recognition = [
     "dep:latexsnipper-image",
     "dep:latexsnipper-model",
     "dep:latexsnipper-pipeline",
+    "dep:latexsnipper-runtime",
 ]
 
 [profile.release]
