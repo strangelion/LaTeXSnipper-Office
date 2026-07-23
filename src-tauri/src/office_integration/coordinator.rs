@@ -28,7 +28,7 @@ pub struct ResolvedRoute {
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,
-    js_registry: super::office_js_registry::OfficeJsSessionRegistry,
+    js_registry: Arc<super::office_js_registry::OfficeJsSessionRegistry>,
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -37,7 +37,7 @@ impl OfficeCoordinator {
     #[cfg(target_os = "windows")]
     pub fn new(
         session_manager: Arc<SessionManager>,
-        js_registry: super::office_js_registry::OfficeJsSessionRegistry,
+        js_registry: Arc<super::office_js_registry::OfficeJsSessionRegistry>,
     ) -> Self {
         Self {
             session_manager,
@@ -46,7 +46,7 @@ impl OfficeCoordinator {
     }
 
     #[cfg(not(target_os = "windows"))]
-    pub fn new(js_registry: super::office_js_registry::OfficeJsSessionRegistry) -> Self {
+    pub fn new(js_registry: Arc<super::office_js_registry::OfficeJsSessionRegistry>) -> Self {
         Self { js_registry }
     }
 

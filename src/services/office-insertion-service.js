@@ -54,6 +54,23 @@ async function insertFormula(payload, targetHost, options) {
     expectedDocumentId: options.documentContext ?? null,
   });
 
+  if (route.actualRoute === "officeJs") {
+    // Route via Bridge action queue for Office.js TaskPane
+    const { post } = await import("@tauri-apps/api/core");
+    // Use the bridge HTTP endpoint directly
+    const url = `http://127.0.0.1:19876/api/office/insert-formula`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        latex: payload.content,
+        display: options.display === "display",
+      }),
+    });
+    if (!resp.ok) throw new Error(`Office.js insert failed: ${resp.status}`);
+    return { success: true };
+  }
+
   return invoke("native_office_insert_formula", {
     sessionId: route.target.sessionId,
     expectedDocumentId: route.target.documentContext ?? null,

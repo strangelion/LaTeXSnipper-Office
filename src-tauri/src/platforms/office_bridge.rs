@@ -150,8 +150,9 @@ struct WpsTempAsset {
 pub struct BridgeRuntimeState {
     app_handle: tauri::AppHandle,
     pending_renders: Mutex<HashMap<String, oneshot::Sender<String>>>,
-    action_queue: Mutex<VecDeque<(String, OfficeAction)>>,
+    action_queue: Mutex<VecDeque<(String, String, OfficeAction)>>,
     action_counter: std::sync::atomic::AtomicU64,
+    pub js_registry: Arc<crate::office_integration::office_js_registry::OfficeJsSessionRegistry>,
     /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
     pub ecosystem_queue: super::ecosystem::EcosystemActionQueue,
     pub conversation_imports: Arc<super::conversation_import::ConversationImportStore>,
@@ -164,6 +165,7 @@ impl BridgeRuntimeState {
     pub fn new(
         app_handle: tauri::AppHandle,
         conversation_imports: Arc<super::conversation_import::ConversationImportStore>,
+        js_registry: Arc<crate::office_integration::office_js_registry::OfficeJsSessionRegistry>,
     ) -> Self {
         let mut token = [0_u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut token);
@@ -172,6 +174,7 @@ impl BridgeRuntimeState {
             pending_renders: Mutex::new(HashMap::new()),
             action_queue: Mutex::new(VecDeque::new()),
             action_counter: std::sync::atomic::AtomicU64::new(0),
+            js_registry,
             ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
             conversation_imports,
             diagnostics: RwLock::new(BridgeRuntimeDiagnostics {
@@ -1316,7 +1319,7 @@ async fn handle_insert_direct(
     let action_id = format!("act_{}", counter);
     {
         let mut queue = state.action_queue.lock().await;
-        queue.push_back((action_id.clone(), action));
+        queue.push_back((action_id.clone(), String::new(), action));
     }
 
     Json(OfficeResponse {
@@ -1325,22 +1328,67 @@ async fn handle_insert_direct(
     })
 }
 
-async fn handle_heartbeat() -> impl IntoResponse {
+async fn handle_heartbeat(
+    State(state): State<Arc<BridgeRuntimeState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
     super::integrations::record_taskpane_heartbeat();
-    println!("[Bridge] Taskpane heartbeat received");
+    let client_id = body
+        .get("clientId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let host = body.get("host").and_then(|v| v.as_str()).unwrap_or("word");
+    let doc_ctx = body
+        .get("documentContext")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let doc_title = body
+        .get("documentTitle")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    use crate::office_integration::office_js_registry::OfficeJsSession;
+    state
+        .js_registry
+        .heartbeat(OfficeJsSession {
+            client_id: client_id.to_string(),
+            host: host.to_string(),
+            document_context: doc_ctx.to_string(),
+            document_title: doc_title,
+            last_seen_utc: chrono::Utc::now(),
+        })
+        .await;
+
+    println!("[Bridge] Heartbeat from {host} client {client_id}");
     Json(OfficeResponse {
         success: true,
         message: "heartbeat acknowledged".into(),
     })
 }
 
-async fn handle_actions_next(State(state): State<Arc<BridgeRuntimeState>>) -> impl IntoResponse {
+async fn handle_actions_next(
+    State(state): State<Arc<BridgeRuntimeState>>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let client_id = params.get("clientId").cloned();
     let action = {
         let mut queue = state.action_queue.lock().await;
-        queue.pop_front()
+        if let Some(ref cid) = client_id {
+            let mut found = None;
+            let len = queue.len();
+            for i in 0..len {
+                if queue[i].1 == *cid {
+                    found = Some(queue.remove(i).unwrap());
+                    break;
+                }
+            }
+            found
+        } else {
+            queue.pop_front()
+        }
     };
     match action {
-        Some((action_id, action)) => Json(OfficeActionResponse {
+        Some((action_id, _client_id, action)) => Json(OfficeActionResponse {
             action: Some(action),
             action_id: Some(action_id),
         }),

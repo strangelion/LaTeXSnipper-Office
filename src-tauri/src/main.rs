@@ -76,9 +76,15 @@ fn main() {
                     .map_err(std::io::Error::other)?,
             );
             app.manage(conversation_import_store.clone());
+
+            // Shared Office.js session registry (Bridge + Coordinator)
+            let js_registry =
+                Arc::new(office_integration::office_js_registry::OfficeJsSessionRegistry::new());
+
             let bridge_runtime = Arc::new(platforms::office_bridge::BridgeRuntimeState::new(
                 app.handle().clone(),
                 conversation_import_store,
+                js_registry.clone(),
             ));
             app.manage(bridge_runtime.clone());
 
@@ -179,11 +185,9 @@ fn main() {
                 app.manage(session_manager.clone());
 
                 // Coordinator needs SessionManager already managed
-                let js_registry =
-                    office_integration::office_js_registry::OfficeJsSessionRegistry::new();
                 let coordinator = office_integration::OfficeCoordinator::new(
                     session_manager.clone(),
-                    js_registry,
+                    js_registry.clone(),
                 );
                 app.manage(coordinator);
 
