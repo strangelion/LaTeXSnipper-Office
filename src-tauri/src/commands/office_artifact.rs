@@ -3,6 +3,22 @@
 //! These commands insert recognition results (formulas, tables, documents)
 //! into the active Office host via the unified insertion pipeline.
 
+use crate::office_integration::dto::OfficeHost;
+#[cfg(target_os = "windows")]
+use crate::office_integration::{OfficeCoordinator, ResolvedRoute};
+
+/// Resolve the integration route for a given Office host.
+/// Auto → NativeOffice if VSTO session available, else error.
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn office_resolve_route(
+    coordinator: tauri::State<'_, OfficeCoordinator>,
+    host: String,
+) -> Result<ResolvedRoute, String> {
+    let host = OfficeHost::parse(&host).ok_or_else(|| format!("Unknown host: {host}"))?;
+    coordinator.resolve_route(host).await
+}
+
 #[cfg(target_os = "windows")]
 use crate::platforms::session::SessionManager;
 #[cfg(target_os = "windows")]

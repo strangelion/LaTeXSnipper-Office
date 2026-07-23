@@ -140,6 +140,18 @@ export async function openRuntimeDirectory() {
 }
 
 // ---------------------------------------------------------------------------
+// Route resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the integration route for a host.
+ * Auto → NativeOffice if VSTO session available.
+ */
+export async function resolveRoute(host) {
+  return invoke("office_resolve_route", { host });
+}
+
+// ---------------------------------------------------------------------------
 // Batch conversion
 // ---------------------------------------------------------------------------
 

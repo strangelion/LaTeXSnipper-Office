@@ -2,6 +2,7 @@
 
 import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
+import { initRecognitionWorkspace } from "./features/recognition/index.js";
 import { OfficeLiveEditBridge } from "./features/office-live-edit/office-live-edit-bridge.js";
 import {
   FORMULA_INSERT_MODES,
@@ -7029,6 +7030,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   );
   Logger.info("App ready");
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
+
+  // Initialize recognition workspace (lazy — no engine load until first use)
+  initRecognitionWorkspace().catch((error) =>
+    Logger.warn("Recognition workspace init failed", error),
+  );
 
   try {
     const { getVersion } = await import("@tauri-apps/api/app");

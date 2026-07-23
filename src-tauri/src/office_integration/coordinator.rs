@@ -14,8 +14,15 @@ use crate::platforms::session::SessionManager;
 
 use super::dto::{OfficeHost, OfficeTarget};
 
+/// Result of route resolution: which channel was selected and why.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedRoute {
+    pub target: OfficeTarget,
+    pub actual_route: super::dto::OfficeRouteMode,
+}
+
 /// The unified Office integration coordinator.
-#[allow(dead_code)]
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,
@@ -109,6 +116,28 @@ impl OfficeCoordinator {
     ) -> Result<OfficeTarget, String> {
         Err(format!(
             "Office integration for {host} is only available on Windows."
+        ))
+    }
+
+    /// Resolve the integration route: Auto → NativeOffice if session available.
+    ///
+    /// On Windows with an active VSTO session, returns NativeOffice.
+    /// The Office.js fallback is reserved for macOS/Web and will be
+    /// added when the Bridge heartbeat check is implemented.
+    #[cfg(target_os = "windows")]
+    pub async fn resolve_route(&self, host: OfficeHost) -> Result<ResolvedRoute, String> {
+        let target = self.resolve_target(host, None, None).await?;
+        Ok(ResolvedRoute {
+            target,
+            actual_route: super::dto::OfficeRouteMode::NativeOffice,
+        })
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub async fn resolve_route(&self, host: OfficeHost) -> Result<ResolvedRoute, String> {
+        Err(format!(
+            "Office integration for {host} requires Windows with Native Office, \
+             or macOS/Web with Office.js (not yet implemented)."
         ))
     }
 }

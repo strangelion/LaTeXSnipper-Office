@@ -98,6 +98,17 @@ fn main() {
                 .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
 
+            // Office integration coordinator
+            #[cfg(target_os = "windows")]
+            {
+                let coordinator = office_integration::OfficeCoordinator::new(
+                    app.state::<Arc<platforms::session::SessionManager>>()
+                        .inner()
+                        .clone(),
+                );
+                app.manage(coordinator);
+            }
+
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
             #[cfg(not(target_os = "windows"))]
@@ -250,6 +261,8 @@ fn main() {
             commands::office_batch::office_batch_convert_plan,
             #[cfg(target_os = "windows")]
             commands::office_batch::office_batch_execute,
+            #[cfg(target_os = "windows")]
+            commands::office_artifact::office_resolve_route,
             #[cfg(target_os = "windows")]
             commands::office_artifact::office_insert_artifact,
             commands::office::insert_formula,
