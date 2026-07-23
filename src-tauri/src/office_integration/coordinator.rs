@@ -24,23 +24,29 @@ pub struct ResolvedRoute {
 }
 
 /// The unified Office integration coordinator.
-#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,
+    js_registry: super::office_js_registry::OfficeJsSessionRegistry,
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 impl OfficeCoordinator {
     /// Create a new coordinator.
     #[cfg(target_os = "windows")]
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<SessionManager>,
+        js_registry: super::office_js_registry::OfficeJsSessionRegistry,
+    ) -> Self {
+        Self {
+            session_manager,
+            js_registry,
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(js_registry: super::office_js_registry::OfficeJsSessionRegistry) -> Self {
+        Self { js_registry }
     }
 
     /// Resolve the best session for a given host.
@@ -166,12 +172,25 @@ impl OfficeCoordinator {
             });
         }
 
-        // Fall back to Office.js (requires Bridge heartbeat)
+        // Fall back to Office.js via heartbeat registry
         let host_str = host.to_string().to_lowercase();
-        Err(format!(
-            "No Native Office {host_str} session is connected and Office.js fallback \
-             requires the Bridge heartbeat. Ensure a {host_str} TaskPane is active."
-        ))
+        self.js_registry
+            .resolve_fresh(&host_str, expected_document_id)
+            .await
+            .map(|js_session| ResolvedRoute {
+                target: OfficeTarget {
+                    host: host.clone(),
+                    session_id: js_session.client_id,
+                    document_context: js_session.document_context,
+                },
+                actual_route: super::dto::OfficeRouteMode::OfficeJs,
+            })
+            .map_err(|e| {
+                format!(
+                    "No Native Office {host_str} session is connected and Office.js \
+                     fallback failed: {e}"
+                )
+            })
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -179,13 +198,21 @@ impl OfficeCoordinator {
         &self,
         host: OfficeHost,
         _preferred_session_id: Option<&str>,
-        _expected_document_id: Option<&str>,
+        expected_document_id: Option<&str>,
     ) -> Result<ResolvedRoute, String> {
         let host_str = host.to_string().to_lowercase();
-        Err(format!(
-            "Office integration for {host_str} requires Windows with Native Office, \
-             or macOS/Web with Office.js Bridge heartbeat (not yet wired)."
-        ))
+        self.js_registry
+            .resolve_fresh(&host_str, expected_document_id)
+            .await
+            .map(|js_session| ResolvedRoute {
+                target: OfficeTarget {
+                    host,
+                    session_id: js_session.client_id,
+                    document_context: js_session.document_context,
+                },
+                actual_route: super::dto::OfficeRouteMode::OfficeJs,
+            })
+            .map_err(|e| format!("No Office.js {host_str} client is active: {e}"))
     }
 }
 

@@ -179,8 +179,12 @@ fn main() {
                 app.manage(session_manager.clone());
 
                 // Coordinator needs SessionManager already managed
-                let coordinator =
-                    office_integration::OfficeCoordinator::new(session_manager.clone());
+                let js_registry =
+                    office_integration::office_js_registry::OfficeJsSessionRegistry::new();
+                let coordinator = office_integration::OfficeCoordinator::new(
+                    session_manager.clone(),
+                    js_registry,
+                );
                 app.manage(coordinator);
 
                 tauri::async_runtime::spawn(async move {
