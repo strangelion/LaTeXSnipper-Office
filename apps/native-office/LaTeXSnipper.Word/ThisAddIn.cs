@@ -399,12 +399,8 @@ namespace LaTeXSnipper.Word
                 case DesktopBatchConvert batchCmd:
                 {
                     var executor = new WordBatchConversionExecutor(Application);
-                    var items = System.Text.Json.JsonSerializer
-                        .Deserialize<List<BatchConversionItem>>(
-                            batchCmd.Plan.GetRawText(),
-                            new System.Text.Json.JsonSerializerOptions
-                            { PropertyNameCaseInsensitive = true });
-                    var result = executor.Execute(batchCmd.PlanId, items ?? new List<BatchConversionItem>());
+                    var items = batchCmd.Plan?.Items ?? new List<BatchConversionItem>();
+                    var result = executor.Execute(batchCmd.PlanId, items);
                     _pipeClient.SendOnlyAsync(result);
                     break;
                 }

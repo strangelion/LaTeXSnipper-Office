@@ -272,6 +272,27 @@ namespace LaTeXSnipper.Excel
                 }
                 case DesktopPing:
                     break;
+                case DesktopScanLatex scanCmd:
+                {
+                    var scanner = new ExcelBatchLatexScanner(Application);
+                    var candidates = scanner.Scan(scanCmd.Scope);
+                    _pipeClient?.SendOnlyAsync(new VstoScanLatexResult
+                    {
+                        RequestId = scanCmd.RequestId,
+                        SessionId = scanCmd.SessionId,
+                        Scope = scanCmd.Scope,
+                        Candidates = candidates
+                    });
+                    break;
+                }
+                case DesktopBatchConvert batchCmd:
+                {
+                    var executor = new ExcelBatchConversionExecutor(Application);
+                    var items = batchCmd.Plan?.Items ?? new List<BatchConversionItem>();
+                    var result = executor.Execute(batchCmd.PlanId, items);
+                    _pipeClient?.SendOnlyAsync(result);
+                    break;
+                }
                 default:
                 {
                     var unknown = message as DesktopMessage;

@@ -442,7 +442,16 @@ public class DesktopScanLatex : DesktopDocumentCommand
 public class DesktopBatchConvert : DesktopDocumentCommand
 {
     [JsonPropertyName("planId")] public string PlanId { get; set; } = "";
-    [JsonPropertyName("plan")] public System.Text.Json.JsonElement Plan { get; set; }
+    [JsonPropertyName("plan")] public BatchConversionPlanDto Plan { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for deserializing the batch conversion plan from the Desktop.
+/// </summary>
+public sealed class BatchConversionPlanDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("items")] public List<BatchConversionItem> Items { get; set; } = new();
 }
 
 // ---------------------------------------------------------------------------
