@@ -30,11 +30,14 @@ env_logger = "0.11"
 rand = "0.8"
 sha2 = "0.10"
 reqwest = { version = "0.12", features = ["json"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+zip = "0.6"
 
 # LaTeXSnipper Core (via symlink)
 latexsnipper-conversion = { path = "latexsnipper-core/crates/conversion", default-features = false }
 latexsnipper-ast = { path = "latexsnipper-core/crates/ast", optional = true, default-features = false }
-latexsnipper-pipeline = { path = "latexsnipper-core/crates/pipeline", optional = true, default-features = false }
+latexsnipper-engine = { path = "latexsnipper-core/crates/engine", optional = true, default-features = false, features = ["native"] }
+latexsnipper-api-types = { path = "latexsnipper-core/crates/api-types", optional = true }
 
 # Windows-specific dependencies for SID and DPAPI
 [target.'cfg(windows)'.dependencies]
@@ -52,11 +55,16 @@ windows = { version = "0.58", features = [
 tauri-build = { version = "2", features = [] }
 
 [features]
-default = ["office-bridge"]
+default = ["desktop-full"]
+desktop-full = [
+    "office-bridge",
+    "recognition",
+]
 office-bridge = []
 recognition = [
+    "dep:latexsnipper-engine",
+    "dep:latexsnipper-api-types",
     "dep:latexsnipper-ast",
-    "dep:latexsnipper-pipeline",
 ]
 
 [profile.release]

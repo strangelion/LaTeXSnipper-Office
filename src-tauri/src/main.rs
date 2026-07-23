@@ -4,7 +4,9 @@
 mod commands;
 mod engine;
 mod math;
+mod office_integration;
 mod platforms;
+mod recognition;
 
 use std::sync::Arc;
 use tauri::{
@@ -88,6 +90,13 @@ fn main() {
             // Unified request waiter for pipe command results
             let request_waiter = platforms::office_commit::RequestWaiter::new();
             app.manage(request_waiter);
+
+            // Recognition subsystem state (lazy — no runtime init at startup)
+            let recognition_paths = recognition::paths::RecognitionPaths::resolve(
+                app.handle(),
+            )
+            .map_err(std::io::Error::other)?;
+            app.manage(recognition::state::RecognitionState::new(recognition_paths));
 
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
@@ -220,6 +229,24 @@ fn main() {
             commands::export::copy_to_clipboard,
             commands::ocr::screenshot_capture,
             commands::ocr::ocr_recognize,
+            commands::recognition_cmd::recognition_get_capabilities,
+            commands::recognition_cmd::recognition_start,
+            commands::recognition_cmd::recognition_get_job,
+            commands::recognition_cmd::recognition_list_jobs,
+            commands::recognition_cmd::recognition_cancel,
+            commands::recognition_cmd::recognition_get_output,
+            commands::recognition_export::recognition_export,
+            commands::models::model_list,
+            commands::models::model_inspect_package,
+            commands::models::model_import_package,
+            commands::models::model_remove,
+            commands::models::model_refresh,
+            commands::runtimes::runtime_list,
+            commands::runtimes::runtime_probe,
+            commands::runtimes::runtime_open_directory,
+            commands::office_batch::office_batch_scan_latex,
+            commands::office_batch::office_batch_convert_plan,
+            commands::office_batch::office_batch_execute,
             commands::office::insert_formula,
             commands::office::load_selection,
             commands::office::delete_selection,

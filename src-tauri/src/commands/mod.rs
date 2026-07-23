@@ -1,7 +1,12 @@
 pub mod export;
 pub mod formula;
 pub mod metadata;
+pub mod models;
 #[cfg(target_os = "windows")]
 pub mod native_office;
 pub mod ocr;
 pub mod office;
+pub mod office_batch;
+pub mod recognition_cmd;
+pub mod recognition_export;
+pub mod runtimes;

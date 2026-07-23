@@ -380,6 +380,31 @@ pub enum DesktopMessage {
         #[serde(rename = "targetMode")]
         targetMode: String,
     },
+
+    /// Request the VSTO host to scan the document for LaTeX candidates.
+    /// Scope: "selection", "currentSlide", "selectedSlides", "entireDocument"
+    #[serde(rename = "SCAN_LATEX")]
+    ScanLatex {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "expectedContextId", skip_serializing_if = "Option::is_none")]
+        expectedContextId: Option<String>,
+        #[serde(default = "default_scan_scope")]
+        scope: String,
+    },
+
+    /// Execute a batch of OMML replacements on the VSTO host.
+    #[serde(rename = "BATCH_CONVERT")]
+    BatchConvert {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "expectedContextId")]
+        expectedContextId: String,
+        #[serde(rename = "planId")]
+        planId: String,
+        /// JSON-serialized BatchConversionPlan
+        plan: serde_json::Value,
+    },
 }
 
 /// Capabilities of a VSTO host.
@@ -644,4 +669,9 @@ impl From<std::io::Error> for ProtocolError {
     fn from(e: std::io::Error) -> Self {
         Self::Io(e)
     }
+}
+
+/// Default scope for scan operations.
+fn default_scan_scope() -> String {
+    "entireDocument".to_string()
 }
