@@ -71,7 +71,7 @@ mod office_tests {
     /// Test: batch result computes correct counts.
     #[test]
     fn test_batch_result_counts() {
-        let mut plan = BatchConversionPlan {
+        let plan = BatchConversionPlan {
             id: "plan-1".to_string(),
             items: vec![
                 BatchConversionItem {

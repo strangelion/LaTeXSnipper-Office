@@ -228,6 +228,7 @@ fn main() {
             commands::export::export_formula,
             commands::export::copy_to_clipboard,
             commands::ocr::screenshot_capture,
+            #[allow(deprecated)]
             commands::ocr::ocr_recognize,
             commands::recognition_cmd::recognition_get_capabilities,
             commands::recognition_cmd::recognition_start,

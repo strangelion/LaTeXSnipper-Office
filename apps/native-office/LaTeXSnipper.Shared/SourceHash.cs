@@ -10,7 +10,7 @@ using System.Text;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
-internal static class SourceHash
+public static class SourceHash
 {
     /// <summary>Compute lowercase hex SHA-256 of a UTF-8 string.</summary>
     public static string Sha256Hex(string value)

@@ -22,6 +22,7 @@ use super::jobs::RecognitionJobManager;
 use super::paths::RecognitionPaths;
 
 /// Central recognition state, managed by Tauri.
+#[allow(dead_code)]
 pub struct RecognitionState {
     /// Resolved filesystem paths.
     pub paths: RecognitionPaths,

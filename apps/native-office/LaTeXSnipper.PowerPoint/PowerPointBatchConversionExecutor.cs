@@ -97,8 +97,7 @@ internal sealed class PowerPointBatchConversionExecutor
                 !string.Equals(ComputeSha256(currentLatex), item.SourceHash, StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // Activate the correct slide, then insert-first-then-delete
-            slide.Select();
+            // Insert against explicit slide target (no slide.Select dependency)
             var foundRange = textRange.Characters(loc.Start + 1, loc.Length);
             var mathAdapter = new PowerPointMathAdapter(_application);
             var result = mathAdapter.Insert(new MathInput
@@ -106,6 +105,9 @@ internal sealed class PowerPointBatchConversionExecutor
                 Format = "omml", Content = item.Omml!,
                 Display = "inline", FormulaId = $"batch-{item.SourceId}",
                 OriginalLatex = item.NormalizedLatex,
+            }, new PowerPointMathTarget
+            {
+                Slide = slide,
             });
 
             if (!result.Success) return false;
@@ -138,7 +140,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     !string.Equals(ComputeSha256(currentLatex), item.SourceHash, StringComparison.OrdinalIgnoreCase))
                     return false;
 
-                slide.Select();
+                // Using explicit slide target
                 var foundRange = textRange.Characters(loc.Start + 1, loc.Length);
                 var mathAdapter = new PowerPointMathAdapter(_application);
                 var result = mathAdapter.Insert(new MathInput
@@ -146,7 +148,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                });
+                }, new PowerPointMathTarget { Slide = slide });
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -182,7 +184,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     !string.Equals(ComputeSha256(currentLatex), item.SourceHash, StringComparison.OrdinalIgnoreCase))
                     return false;
 
-                slide.Select();
+                // Using explicit slide target
                 var foundRange = textRange.Characters(loc.Start + 1, loc.Length);
                 var mathAdapter = new PowerPointMathAdapter(_application);
                 var result = mathAdapter.Insert(new MathInput
@@ -190,7 +192,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                });
+                }, new PowerPointMathTarget { Slide = slide });
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -214,7 +216,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     int idx = tr.Text.IndexOf(item.SourceText, StringComparison.Ordinal);
                     if (idx < 0) continue;
 
-                    slide.Select();
+                    // Using explicit slide target
                     var found = tr.Characters(idx + 1, item.SourceText.Length);
                     var mathAdapter = new PowerPointMathAdapter(_application);
                     var result = mathAdapter.Insert(new MathInput
@@ -222,7 +224,7 @@ internal sealed class PowerPointBatchConversionExecutor
                         Format = "omml", Content = item.Omml!,
                         Display = "inline", FormulaId = $"batch-{item.SourceId}",
                         OriginalLatex = item.NormalizedLatex,
-                    });
+                    }, new PowerPointMathTarget { Slide = slide });
                     if (!result.Success) return false;
                     found.Delete();
                     return true;

@@ -7,6 +7,7 @@
 //! - `OfficeIntegrationService` is the single entry point for all insertion.
 //! - `OfficeCoordinator` handles host/session/document routing.
 //! - `BatchConversionService` handles batch LaTeX→OMML workflows.
+#![allow(dead_code)] // Scaffolding types not yet wired into main execution path
 
 pub mod batch_conversion;
 pub mod coordinator;

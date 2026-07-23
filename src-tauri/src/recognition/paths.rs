@@ -22,6 +22,7 @@ pub struct RecognitionPaths {
     /// Recognition logs
     pub logs: PathBuf,
     /// Settings file path
+    #[allow(dead_code)]
     pub settings: PathBuf,
 }
 

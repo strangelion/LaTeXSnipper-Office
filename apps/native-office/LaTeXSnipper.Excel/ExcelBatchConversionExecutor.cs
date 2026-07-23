@@ -33,7 +33,13 @@ internal sealed class ExcelBatchConversionExecutor
             return BuildResult(planId, total, 0, 0, total,
                 items.ConvertAll(i => Failure(i, "No active workbook")));
 
-        foreach (var item in items)
+        // Sort by container key then by start DESC for same-cell safety
+        var ordered = items
+            .OrderBy(i => GetContainerKey(i))
+            .ThenByDescending(i => GetLocatorStart(i))
+            .ToList();
+
+        foreach (var item in ordered)
         {
             if (item.Status != "converted" || string.IsNullOrEmpty(item.Omml))
             {
@@ -104,8 +110,7 @@ internal sealed class ExcelBatchConversionExecutor
                     return false;
             }
 
-            // Insert math object at this cell (not ActiveCell)
-            cell.Activate();
+            // Insert math using EXPLICIT target (no ActiveCell dependency)
             var mathAdapter = new ExcelMathAdapter(_application);
             var mathInput = new MathInput
             {
@@ -116,7 +121,11 @@ internal sealed class ExcelBatchConversionExecutor
                 OriginalLatex = item.NormalizedLatex,
             };
 
-            var result = mathAdapter.Insert(mathInput);
+            var result = mathAdapter.Insert(mathInput, new ExcelMathTarget
+            {
+                Worksheet = sheet,
+                AnchorCell = cell,
+            });
             if (!result.Success) return false;
 
             // Replace the LaTeX substring in the cell text with empty string
@@ -200,14 +209,25 @@ internal sealed class ExcelBatchConversionExecutor
                     Excel.XlSearchOrder.xlByRows, Excel.XlSearchDirection.xlNext, false);
                 if (find is Excel.Range cell)
                 {
-                    cell.Activate();
+                    string originalText = cell.Value?.ToString() ?? "";
+                    int idx = originalText.IndexOf(item.SourceText, StringComparison.Ordinal);
+
                     var mathAdapter = new ExcelMathAdapter(_application);
-                    return mathAdapter.Insert(new MathInput
+                    bool ok = mathAdapter.Insert(new MathInput
                     {
                         Format = "omml", Content = item.Omml!,
                         Display = "inline", FormulaId = $"batch-{item.SourceId}",
                         OriginalLatex = item.NormalizedLatex,
-                    }).Success;
+                    }, new ExcelMathTarget { Worksheet = sheet, AnchorCell = cell }).Success;
+
+                    if (ok && idx >= 0)
+                    {
+                        string before = originalText.Substring(0, idx);
+                        string after = originalText.Substring(idx + item.SourceText.Length);
+                        string newText = before + after;
+                        cell.Value = string.IsNullOrWhiteSpace(newText) ? null : newText;
+                    }
+                    return ok;
                 }
             }
             catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
@@ -220,6 +240,35 @@ internal sealed class ExcelBatchConversionExecutor
         if (loc.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String)
             return k.GetString();
         return null;
+    }
+
+    /// <summary>Group key for reverse-order sorting within same container.</summary>
+    private static string GetContainerKey(BatchConversionItem item)
+    {
+        if (item.Locator == null) return "";
+        try
+        {
+            var loc = item.Locator.Value;
+            string kind = GetLocatorKind(loc) ?? "";
+            string container = "";
+            if (loc.TryGetProperty("worksheet", out var ws)) container += ws.GetString();
+            if (loc.TryGetProperty("address", out var addr)) container += addr.GetString();
+            if (loc.TryGetProperty("shapeName", out var sn)) container += sn.GetString();
+            return kind + "/" + container;
+        }
+        catch { return ""; }
+    }
+
+    private static int GetLocatorStart(BatchConversionItem item)
+    {
+        if (item.Locator == null) return 0;
+        try
+        {
+            if (item.Locator.Value.TryGetProperty("start", out var s) && s.TryGetInt32(out int v))
+                return v;
+        }
+        catch { }
+        return 0;
     }
 
     private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);

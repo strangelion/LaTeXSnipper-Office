@@ -179,6 +179,7 @@ impl RecognitionJobManager {
     }
 
     /// Remove a completed/cancelled/failed job from the registry.
+    #[allow(dead_code)]
     pub async fn remove(&self, id: &str) -> bool {
         self.jobs.write().await.remove(id).is_some()
     }

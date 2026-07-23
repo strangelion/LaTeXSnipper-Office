@@ -1,4 +1,5 @@
 //! Recognition settings persisted to disk.
+#![allow(dead_code)] // Settings struct not yet consumed by UI
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -230,7 +230,7 @@ pub async fn model_import_package(
         .paths
         .models
         .join(".staging")
-        .join(&model_id.replace('/', "_"));
+        .join(model_id.replace('/', "_"));
     let dest_dir = state.paths.models.join(category).join(variant);
 
     // Step 3: Extract to staging first
