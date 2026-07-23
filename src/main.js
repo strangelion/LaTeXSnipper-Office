@@ -7047,7 +7047,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         ({ setLiquidGlassMode }) => {
           setLiquidGlassMode(value);
           // Update trigger display
-          const trigger = liquidGlassSelect.querySelector(".custom-select-trigger span");
+          const trigger = liquidGlassSelect.querySelector(
+            ".custom-select-trigger span",
+          );
           if (trigger) trigger.textContent = option.textContent;
         },
       );

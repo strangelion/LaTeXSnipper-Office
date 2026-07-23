@@ -90,9 +90,7 @@ async function insertTable(payload, targetHost, _options) {
     (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase(),
   );
   if (!targetSession) {
-    throw new Error(
-      `No ${targetHost} Native Office session is connected.`,
-    );
+    throw new Error(`No ${targetHost} Native Office session is connected.`);
   }
 
   return invoke("native_office_insert_table", {

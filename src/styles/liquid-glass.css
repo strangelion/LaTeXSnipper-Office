@@ -19,12 +19,12 @@
   --glass-radius-md: 18px;
   --glass-radius-lg: 24px;
   --glass-radius-xl: 30px;
-  --glass-shadow-soft: 0 8px 32px rgba(15, 23, 42, 0.08),
-    0 1px 2px rgba(15, 23, 42, 0.06);
-  --glass-shadow-medium: 0 16px 48px rgba(15, 23, 42, 0.12),
-    0 4px 12px rgba(15, 23, 42, 0.08);
-  --glass-shadow-floating: 0 24px 72px rgba(15, 23, 42, 0.16),
-    0 8px 28px rgba(15, 23, 42, 0.1);
+  --glass-shadow-soft:
+    0 8px 32px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06);
+  --glass-shadow-medium:
+    0 16px 48px rgba(15, 23, 42, 0.12), 0 4px 12px rgba(15, 23, 42, 0.08);
+  --glass-shadow-floating:
+    0 24px 72px rgba(15, 23, 42, 0.16), 0 8px 28px rgba(15, 23, 42, 0.1);
   --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.72);
   --glass-inner-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.04);
   --glass-specular: linear-gradient(
@@ -34,8 +34,9 @@
     transparent 54%
   );
   --glass-accent-glow: rgba(37, 99, 235, 0.13);
-  --glass-transition: background-color 180ms ease, border-color 180ms ease,
-    box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
+  --glass-transition:
+    background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease,
+    transform 180ms ease, opacity 180ms ease;
 }
 
 [data-theme="dark"] {
@@ -46,12 +47,12 @@
   --glass-alpha-strong: 0.76;
   --glass-border-alpha: 0.24;
   --glass-border-highlight-alpha: 0.34;
-  --glass-shadow-soft: 0 10px 36px rgba(0, 0, 0, 0.22),
-    0 2px 8px rgba(0, 0, 0, 0.14);
-  --glass-shadow-medium: 0 18px 56px rgba(0, 0, 0, 0.34),
-    0 6px 16px rgba(0, 0, 0, 0.2);
-  --glass-shadow-floating: 0 28px 80px rgba(0, 0, 0, 0.44),
-    0 10px 30px rgba(0, 0, 0, 0.24);
+  --glass-shadow-soft:
+    0 10px 36px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.14);
+  --glass-shadow-medium:
+    0 18px 56px rgba(0, 0, 0, 0.34), 0 6px 16px rgba(0, 0, 0, 0.2);
+  --glass-shadow-floating:
+    0 28px 80px rgba(0, 0, 0, 0.44), 0 10px 30px rgba(0, 0, 0, 0.24);
   --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.11);
   --glass-inner-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
   --glass-specular: linear-gradient(
@@ -80,7 +81,8 @@ html[data-liquid-glass="off"] {
 .glass-hud {
   position: relative;
   border: 1px solid rgba(var(--glass-rgb), var(--glass-border-alpha));
-  box-shadow: var(--glass-inner-highlight), var(--glass-inner-shadow),
+  box-shadow:
+    var(--glass-inner-highlight), var(--glass-inner-shadow),
     var(--glass-shadow-soft);
   transition: var(--glass-transition);
 }
@@ -158,7 +160,8 @@ html[data-liquid-glass="off"] {
   );
   border-color: rgba(147, 197, 253, 0.48);
   color: white;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28),
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
     0 6px 20px rgba(37, 99, 235, 0.22);
 }
 
