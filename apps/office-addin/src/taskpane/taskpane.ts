@@ -20,6 +20,21 @@ let busy = false;
 let capabilities: CapabilityResult | null = null;
 let selectedFormulaId: string | undefined;
 
+const CLIENT_ID_KEY = "latexsnipper-office-client-id";
+
+function getClientId(): string {
+  let id = sessionStorage.getItem(CLIENT_ID_KEY);
+  if (!id) { id = crypto.randomUUID(); sessionStorage.setItem(CLIENT_ID_KEY, id); }
+  return id;
+}
+
+async function resolveDocumentContext(): Promise<string> {
+  try {
+    const result = await exec({ type: "GetDocumentContext", payload: {} });
+    return result.ok ? String(result.data ?? "") : "";
+  } catch { return ""; }
+}
+
 const bridgeBase = (() => {
   const { hostname, port } = window.location;
   return (hostname === "127.0.0.1" || hostname === "localhost") &&
@@ -75,6 +90,7 @@ async function initializeHost(host: string): Promise<void> {
   applyCapabilities();
   await updateBridgeState(host);
   window.setInterval(() => void updateBridgeState(host), 10000);
+  window.setInterval(() => void pollActions(), 1000);
   setStatus(
     capabilities ? "Ready" : result.error || "Unsupported Office host",
     capabilities ? "success" : "error",
@@ -87,7 +103,12 @@ async function updateBridgeState(host: string): Promise<void> {
     const response = await fetch(`${bridgeBase}/api/office/heartbeat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ host }),
+      body: JSON.stringify({
+        clientId: getClientId(),
+        host,
+        documentContext: await resolveDocumentContext(),
+        documentTitle: document.title || null,
+      }),
     });
     connected = response.ok;
   } catch {
@@ -293,6 +314,36 @@ function buildPayload(
     layoutProfileId,
     equationLabel,
   };
+}
+
+async function pollActions(): Promise<void> {
+  try {
+    const response = await fetch(
+      `${bridgeBase}/api/office/actions/next?clientId=${encodeURIComponent(getClientId())}`,
+    );
+    if (!response.ok) return;
+    const result = await response.json();
+    if (!result.action || !result.action_id) return;
+    await executeBridgeAction(result.action);
+    await fetch(`${bridgeBase}/api/office/actions/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action_id: result.action_id }),
+    });
+  } catch { /* bridge temporarily offline */ }
+}
+
+async function executeBridgeAction(action: any): Promise<void> {
+  if (action.type === "InsertFormula") {
+    const latex = action.latex ?? "";
+    setEditorContent(latex);
+    const result = await exec({
+      type: "InsertFormula",
+      payload: buildPayload(latex, false),
+    });
+    setStatus(result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
+      result.ok ? "success" : "error");
+  }
 }
 
 function setBusy(value: boolean): void {

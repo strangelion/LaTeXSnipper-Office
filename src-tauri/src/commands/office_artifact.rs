@@ -132,7 +132,7 @@ pub async fn office_insert_artifact(
                 crate::platforms::pipe_server::send_insert_table(
                     &session_mgr,
                     session_id,
-                    None,
+                    Some(artifact.target.document_context.clone()),
                     table,
                 )
                 .await
