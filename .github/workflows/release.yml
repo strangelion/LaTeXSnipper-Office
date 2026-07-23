@@ -184,7 +184,7 @@ jobs:
     uses: ./.github/workflows/package-verify.yml
     with:
       source_ref: ${{ needs.prepare-release.outputs.tag }}
-      expected_version: ${{ needs.prepare-release.outputs.version }}
+      expected_version: ${{ needs.prepare-release.outputs.full_version }}
       full_version: ${{ needs.prepare-release.outputs.full_version }}
       prior_tag: ${{ needs.prepare-release.outputs.prior_tag }}
       run_windows: true
