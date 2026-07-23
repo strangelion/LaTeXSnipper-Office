@@ -128,6 +128,7 @@ pub struct OfficeActionResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfficeActionCompletion {
+    #[allow(dead_code)]
     pub action_id: String,
     #[serde(default = "default_true")]
     pub success: bool,
