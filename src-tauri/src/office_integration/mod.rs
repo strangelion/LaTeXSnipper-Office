@@ -14,4 +14,5 @@ pub mod document_context;
 pub mod dto;
 pub mod sessions;
 
+#[cfg(target_os = "windows")]
 pub use coordinator::{OfficeCoordinator, ResolvedRoute};

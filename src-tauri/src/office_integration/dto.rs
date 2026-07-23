@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Integration route: which channel to use for Office communication.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum OfficeRouteMode {
     /// Auto-resolve based on platform and session availability.
     Auto,
@@ -76,6 +77,7 @@ pub struct OfficeTarget {
 /// Types of content that can be inserted into Office.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum ArtifactType {
     Formula,
     Table,
@@ -85,6 +87,7 @@ pub enum ArtifactType {
 /// An artifact ready for Office insertion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct Artifact {
     /// What kind of artifact.
     pub artifact_type: ArtifactType,
@@ -102,6 +105,7 @@ pub struct Artifact {
 /// Options for artifact insertion.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ArtifactOptions {
     /// Display mode for formulas: "inline", "display", "numbered"
     pub display: Option<String>,
