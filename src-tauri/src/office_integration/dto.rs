@@ -16,6 +16,17 @@ pub enum OfficeHost {
     Visio,
 }
 
+impl std::fmt::Display for OfficeHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Word => write!(f, "Word"),
+            Self::Excel => write!(f, "Excel"),
+            Self::PowerPoint => write!(f, "PowerPoint"),
+            Self::Visio => write!(f, "Visio"),
+        }
+    }
+}
+
 impl OfficeHost {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {

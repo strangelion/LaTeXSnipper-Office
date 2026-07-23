@@ -97,7 +97,8 @@ internal sealed class ExcelBatchLatexScanner
             {
                 try
                 {
-                    if (shape.TextFrame2?.HasText != 0) continue;
+                    if (shape.TextFrame2 == null || shape.TextFrame2.HasText == 0)
+                        continue;
                     var text = shape.TextFrame2?.TextRange?.Text;
                     if (!string.IsNullOrEmpty(text))
                         ScanText(text, $"{sheetName}/TextBox '{shape.Name}'", candidates);
@@ -127,7 +128,10 @@ internal sealed class ExcelBatchLatexScanner
                         var cellValue = matrix[r, c]?.ToString();
                         if (!string.IsNullOrEmpty(cellValue))
                         {
-                            string cellAddr = $"{(char)('A' + c - 1)}{range.Row + r - 1}";
+                            // Use Range.Address for correct column lettering (AA, AB, etc)
+                            var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as Excel.Range;
+                            string cellAddr = cell?.Address[RowAbsolute: false, ColumnAbsolute: false]
+                                ?? $"R{range.Row + r - 1}C{range.Column + c - 1}";
                             ScanText(cellValue, $"{location}/{cellAddr}", candidates);
                         }
                     }

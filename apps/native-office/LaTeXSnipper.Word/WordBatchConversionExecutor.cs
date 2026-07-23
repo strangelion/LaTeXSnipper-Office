@@ -132,19 +132,22 @@ internal sealed class WordBatchConversionExecutor
                 WdOMathType.wdOMathDisplay
             );
 
-            // Set the OMML content
-            // Note: Direct OMML injection via Range.InsertXML is the preferred approach
+            // Set the OMML content via Range.InsertXML
             try
             {
                 range.Text = "";
                 range.InsertXML(omml);
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback: insert as field
-                range.Text = omml;
+                // DO NOT fall back to writing raw OMML XML as text.
+                // If OMML insertion fails, leave the original LaTeX untouched
+                // and report failure so the caller can handle it.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordBatchConversion] OMML insert failed: {ex.Message}");
+                return false;
             }
-            return true;
         }
 
         return false;

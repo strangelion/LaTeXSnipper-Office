@@ -78,8 +78,22 @@ internal sealed class PowerPointBatchLatexScanner
                 }
                 break;
 
-            case "selectedslides":
-            case "entirepresentation":
+            case "selectedSlides":
+                // Scan only slides that are currently selected in the slide sorter
+                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange selRange)
+                {
+                    for (int i = 1; i <= selRange.Count; i++)
+                        slides.Add(selRange[i]);
+                }
+                else
+                {
+                    // No slides selected — fall back to current slide
+                    if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide s)
+                        slides.Add(s);
+                }
+                break;
+
+            case "entirePresentation":
             default:
                 foreach (PowerPoint.Slide s in pres.Slides)
                     slides.Add(s);

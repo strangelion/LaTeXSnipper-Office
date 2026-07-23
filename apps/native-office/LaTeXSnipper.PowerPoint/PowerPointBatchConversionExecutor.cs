@@ -87,8 +87,6 @@ internal sealed class PowerPointBatchConversionExecutor
 
     private bool ReplaceTextWithMath(PowerPoint.Presentation pres, BatchConversionItem item)
     {
-        var mathAdapter = new PowerPointMathAdapter(_application);
-
         foreach (PowerPoint.Slide slide in pres.Slides)
         {
             foreach (PowerPoint.Shape shape in slide.Shapes)
@@ -105,12 +103,15 @@ internal sealed class PowerPointBatchConversionExecutor
                     int idx = text.IndexOf(item.SourceText, StringComparison.Ordinal);
                     if (idx < 0) continue;
 
-                    // Found the LaTeX source — replace with OMML equation
-                    // Delete the LaTeX text
-                    var foundRange = textRange.Characters(idx + 1, item.SourceText.Length);
-                    foundRange.Delete();
+                    // Activate the target slide so the adapter inserts on the correct slide
+                    slide.Select();
 
-                    // Insert Office Math via OLE
+                    var mathAdapter = new PowerPointMathAdapter(_application);
+
+                    // Prepare: remember position before deleting source
+                    var foundRange = textRange.Characters(idx + 1, item.SourceText.Length);
+
+                    // Insert first, delete after success — prevents data loss on failure
                     var mathInput = new MathInput
                     {
                         Format = "omml",
@@ -121,7 +122,12 @@ internal sealed class PowerPointBatchConversionExecutor
                     };
 
                     var result = mathAdapter.Insert(mathInput);
-                    return result.Success;
+                    if (!result.Success)
+                        return false;
+
+                    // Only delete source after successful insertion
+                    foundRange.Delete();
+                    return true;
                 }
                 catch { /* try next shape */ }
             }

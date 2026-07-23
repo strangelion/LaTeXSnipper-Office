@@ -381,6 +381,33 @@ namespace LaTeXSnipper.Word
                     });
                     break;
                 }
+                case DesktopScanLatex scanCmd:
+                {
+                    var scanner = new WordBatchLatexScanner(Application);
+                    var candidates = scanner.Scan(scanCmd.Scope);
+                    // Populate locators with Word story-based positions
+                    // (simplified: using Range.Start/End for body text)
+                    _pipeClient.SendOnlyAsync(new VstoScanLatexResult
+                    {
+                        RequestId = scanCmd.RequestId,
+                        SessionId = scanCmd.SessionId,
+                        Scope = scanCmd.Scope,
+                        Candidates = candidates
+                    });
+                    break;
+                }
+                case DesktopBatchConvert batchCmd:
+                {
+                    var executor = new WordBatchConversionExecutor(Application);
+                    var items = System.Text.Json.JsonSerializer
+                        .Deserialize<List<BatchConversionItem>>(
+                            batchCmd.Plan.GetRawText(),
+                            new System.Text.Json.JsonSerializerOptions
+                            { PropertyNameCaseInsensitive = true });
+                    var result = executor.Execute(batchCmd.PlanId, items ?? new List<BatchConversionItem>());
+                    _pipeClient.SendOnlyAsync(result);
+                    break;
+                }
                 default:
                 {
                     var unknown = message as DesktopMessage;

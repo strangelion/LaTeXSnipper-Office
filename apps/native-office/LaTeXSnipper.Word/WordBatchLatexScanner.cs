@@ -53,29 +53,12 @@ internal sealed class WordBatchLatexScanner
             }
             else
             {
-                // Full document scan
+                // Full document scan.
+                // NOTE: doc.Content covers body text AND table cell text.
+                // We do NOT re-scan tables separately to avoid duplicates.
                 ScanRange(doc.Content, "Body", candidates);
 
-                // Scan tables
-                int tableIndex = 1;
-                foreach (Table table in doc.Tables)
-                {
-                    for (int row = 1; row <= table.Rows.Count; row++)
-                    {
-                        for (int col = 1; col <= table.Columns.Count; col++)
-                        {
-                            try
-                            {
-                                var cell = table.Cell(row, col);
-                                ScanRange(cell.Range, $"Table {tableIndex} / Row {row} / Col {col}", candidates);
-                            }
-                            catch { /* skip inaccessible cells */ }
-                        }
-                    }
-                    tableIndex++;
-                }
-
-                // Scan text boxes (shapes)
+                // Scan text boxes (shapes) — NOT covered by doc.Content
                 foreach (Shape shape in doc.Shapes)
                 {
                     try

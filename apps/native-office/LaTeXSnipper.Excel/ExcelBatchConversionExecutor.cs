@@ -101,15 +101,13 @@ internal sealed class ExcelBatchConversionExecutor
 
                 if (find != null)
                 {
-                    // Replace the cell with a LaTeX annotation
-                    // The cell value is preserved, and an anchored math object is added
                     var cell = find as Excel.Range;
                     if (cell != null)
                     {
-                        // Keep original value as comment/note
-                        string originalValue = cell.Value?.ToString() ?? "";
+                        // Activate the found cell so the adapter targets the right location
+                        cell.Activate();
 
-                        // Add OMML as anchored object near the cell
+                        // Add OMML as anchored object at the cell location
                         var mathAdapter = new ExcelMathAdapter(_application);
                         var mathInput = new MathInput
                         {

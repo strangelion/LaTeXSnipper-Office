@@ -56,19 +56,28 @@ impl OfficeCoordinator {
 
         if matching.is_empty() {
             return Err(format!(
-                "No {host:?} session is connected. Open a {host:?} document first."
+                "No {host} session is connected. Open a {host} document first."
             ));
         }
 
-        // If a session_id is preferred, try to find it
+        // If a session_id is explicitly requested, it MUST match.
+        // NEVER silently fall back to another session (that's how
+        // formulas end up in the wrong document).
         let session = if let Some(sid) = preferred_session_id {
             matching
                 .iter()
                 .find(|s| s.session_id == sid)
-                .or_else(|| matching.first())
-                .ok_or_else(|| format!("Session {sid} not found"))?
+                .ok_or_else(|| {
+                    format!(
+                        "Requested session {sid} is not connected. \
+                         Available {host} sessions: {:?}",
+                        matching.iter().map(|s| &s.session_id).collect::<Vec<_>>()
+                    )
+                })?
         } else {
-            matching.first().unwrap()
+            matching.first().ok_or_else(|| {
+                format!("No {host} session is connected")
+            })?
         };
 
         // Validate document context if expected
