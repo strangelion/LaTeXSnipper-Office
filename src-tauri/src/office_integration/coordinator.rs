@@ -90,7 +90,7 @@ impl OfficeCoordinator {
         } else if let Some(ref doc_id) = expected_document_id {
             matching
                 .iter()
-                .find(|s| s.document_id.as_deref() == Some(doc_id.as_ref()))
+                .find(|s| s.document_id.as_deref() == Some(&**doc_id))
                 .ok_or_else(|| {
                     format!(
                         "No {host} session matches document {doc_id}. \
