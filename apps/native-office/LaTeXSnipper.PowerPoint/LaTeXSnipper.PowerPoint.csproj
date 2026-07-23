@@ -186,6 +186,9 @@
     <Compile Include="Host\PowerPointAdapter.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="PowerPointBatchLatexScanner.cs" />
+    <Compile Include="PowerPointBatchConversionExecutor.cs" />
+    <Compile Include="PowerPointMathAdapter.cs" />
     <Compile Include="Ribbon\PowerPointRibbonExtensibility.cs">
       <SubType>Code</SubType>
     </Compile>

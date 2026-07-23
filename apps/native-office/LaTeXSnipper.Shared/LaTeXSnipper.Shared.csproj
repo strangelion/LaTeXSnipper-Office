@@ -68,6 +68,10 @@
     <Compile Include="FormulaObjectLocator.cs" />
     <Compile Include="Metadata\ManifestDiagnostics.cs" />
     <Compile Include="RibbonLocalizer.cs" />
+    <Compile Include="BatchConversionDtos.cs" />
+    <Compile Include="BatchLocator.cs" />
+    <Compile Include="IMathInsertionAdapter.cs" />
+    <Compile Include="SourceHash.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

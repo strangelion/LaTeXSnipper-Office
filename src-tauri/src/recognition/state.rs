@@ -56,9 +56,6 @@ impl RecognitionService {
         path: &Path,
         request: &RecognitionStartRequest,
     ) -> Result<latexsnipper_ast::Document, String> {
-        use latexsnipper_engine::RecognizeMode;
-        use latexsnipper_image::decode::{decode, ImageSource};
-
         let mode = parse_recognize_mode(&request.mode)?;
 
         let is_pdf = path

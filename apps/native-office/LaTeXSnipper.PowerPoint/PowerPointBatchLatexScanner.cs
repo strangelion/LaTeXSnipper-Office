@@ -203,9 +203,5 @@ internal sealed class PowerPointBatchLatexScanner
         }
     }
 
-    private static string ComputeSha256(string input)
-    {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
+    private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);
 }

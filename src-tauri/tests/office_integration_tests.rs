@@ -9,7 +9,13 @@ mod office_tests {
     use latexsnipper_office::office_integration::batch_conversion;
     use latexsnipper_office::office_integration::dto::*;
 
-    fn make_candidate(id: &str, source: &str, normalized: &str, loc: &str, conf: f64) -> LatexCandidate {
+    fn make_candidate(
+        id: &str,
+        source: &str,
+        normalized: &str,
+        loc: &str,
+        conf: f64,
+    ) -> LatexCandidate {
         LatexCandidate {
             id: id.to_string(),
             source: source.to_string(),
@@ -39,7 +45,13 @@ mod office_tests {
     #[test]
     fn test_failed_item_preserves_original_latex() {
         let candidates = vec![
-            make_candidate("c-bad", "$invalid {unclosed$", "invalid {unclosed", "Body/1", 0.5),
+            make_candidate(
+                "c-bad",
+                "$invalid {unclosed$",
+                "invalid {unclosed",
+                "Body/1",
+                0.5,
+            ),
             make_candidate("c-good", "$x^2$", "x^2", "Body/2", 0.99),
         ];
 

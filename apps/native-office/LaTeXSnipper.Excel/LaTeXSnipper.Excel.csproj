@@ -189,6 +189,9 @@
     <Compile Include="Host\ExcelAdapter.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ExcelBatchLatexScanner.cs" />
+    <Compile Include="ExcelBatchConversionExecutor.cs" />
+    <Compile Include="ExcelMathAdapter.cs" />
     <Compile Include="Ribbon\ExcelRibbonExtensibility.cs">
       <SubType>Code</SubType>
     </Compile>

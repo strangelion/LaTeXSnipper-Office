@@ -208,6 +208,8 @@
     <Compile Include="Metadata\TableConverter.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="WordBatchLatexScanner.cs" />
+    <Compile Include="WordBatchConversionExecutor.cs" />
     <AppDesigner Include="Properties\" />
   </ItemGroup>
   <PropertyGroup>

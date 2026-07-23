@@ -199,11 +199,7 @@ internal sealed class WordBatchConversionExecutor
         return null;
     }
 
-    private static string ComputeSha256(string input)
-    {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(hash).ToLowerInvariant();
-    }
+    private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);
 
     private static BatchFailureDto Failure(BatchConversionItem item, string error) =>
         new() { SourceId = item.SourceId, SourceText = item.SourceText, Error = error };

@@ -58,7 +58,7 @@ pub async fn recognition_start(
     // Validate parse_mode early so we fail before creating a job
     if let Some(ref pm) = request.parse_mode {
         // parse_document_mode is called inside recognize(), but we validate early
-        let _ = validate_parse_mode_precheck(pm)?;
+        validate_parse_mode_precheck(pm)?;
     }
 
     #[cfg(not(feature = "recognition"))]
