@@ -19,6 +19,12 @@ public sealed class ExcelMathTarget
 
     /// <summary>Anchor cell range (e.g., "B7").</summary>
     public object AnchorCell { get; set; } = null!;
+
+    /// <summary>Left position in points (for shape-based targets).</summary>
+    public float Left { get; set; }
+
+    /// <summary>Top position in points (for shape-based targets).</summary>
+    public float Top { get; set; }
 }
 
 // =========================================================================

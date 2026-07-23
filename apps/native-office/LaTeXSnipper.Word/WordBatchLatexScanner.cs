@@ -55,8 +55,33 @@ internal sealed class WordBatchLatexScanner
 
                 foreach (Section section in doc.Sections)
                 {
-                    try { foreach (HeaderFooter h in section.Headers) ScanRange(h.Range, "Header", WdStoryType.wdEvenPagesHeaderStory, candidates); } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
-                    try { foreach (HeaderFooter f in section.Footers) ScanRange(f.Range, "Footer", WdStoryType.wdEvenPagesFooterStory, candidates); } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+                    int secIdx = section.Index;
+                    try
+                    {
+                        foreach (HeaderFooter h in section.Headers)
+                        {
+                            try
+                            {
+                                WdStoryType st = h.Range.StoryType;
+                                ScanRange(h.Range, $"Hdr-S{secIdx}", st, candidates);
+                            }
+                            catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+                        }
+                    }
+                    catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+                    try
+                    {
+                        foreach (HeaderFooter f in section.Footers)
+                        {
+                            try
+                            {
+                                WdStoryType st = f.Range.StoryType;
+                                ScanRange(f.Range, $"Ftr-S{secIdx}", st, candidates);
+                            }
+                            catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+                        }
+                    }
+                    catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                 }
             }
         }

@@ -168,7 +168,7 @@ internal sealed class ExcelBatchConversionExecutor
                         return false;
                 }
 
-                // Insert math at shape position
+                // Insert math at shape position with explicit target
                 var mathAdapter = new ExcelMathAdapter(_application);
                 var mathInput = new MathInput
                 {
@@ -178,7 +178,13 @@ internal sealed class ExcelBatchConversionExecutor
                     FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
                 };
-                var result = mathAdapter.Insert(mathInput);
+                var result = mathAdapter.Insert(mathInput, new ExcelMathTarget
+                {
+                    Worksheet = sheet,
+                    AnchorCell = sheet.Cells[1, 1], // fallback anchor
+                    Left = (float)(double)shape.Left,
+                    Top = (float)(double)shape.Top,
+                });
                 if (!result.Success) return false;
 
                 // Delete the LaTeX substring from shape text
