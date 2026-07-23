@@ -152,7 +152,7 @@ internal sealed class PowerPointBatchConversionExecutor
                 foundRange.Delete();
                 return true;
             }
-            catch { }
+            catch (System.Runtime.InteropServices.COMException) { }
         }
         return false;
     }
@@ -227,7 +227,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     found.Delete();
                     return true;
                 }
-                catch { }
+                catch (System.Runtime.InteropServices.COMException) { }
             }
         }
         return false;
@@ -237,7 +237,7 @@ internal sealed class PowerPointBatchConversionExecutor
     {
         foreach (PowerPoint.Slide slide in pres.Slides)
         {
-            try { if (slide.SlideID == slideId) return slide; } catch { }
+            try { if (slide.SlideID == slideId) return slide; } catch (System.Runtime.InteropServices.COMException) { }
         }
         return null;
     }
@@ -250,7 +250,7 @@ internal sealed class PowerPointBatchConversionExecutor
             if (item.Locator.Value.TryGetProperty("start", out var s) && s.TryGetInt32(out int v))
                 return v;
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException) { }
         return 0;
     }
 

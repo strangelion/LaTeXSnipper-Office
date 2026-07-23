@@ -117,9 +117,24 @@ internal sealed class ExcelBatchConversionExecutor
             };
 
             var result = mathAdapter.Insert(mathInput);
-            return result.Success;
+            if (!result.Success) return false;
+
+            // Replace the LaTeX substring in the cell text with empty string
+            if (loc.Start >= 0 && loc.Length > 0 && currentText.Length >= loc.Start + loc.Length)
+            {
+                string before = currentText.Substring(0, loc.Start);
+                string after = currentText.Substring(loc.Start + loc.Length);
+                string newText = before + after;
+                // Only write if the replacement actually changes something
+                if (newText != currentText)
+                {
+                    cell.Value = string.IsNullOrWhiteSpace(newText) ? null : newText;
+                }
+            }
+
+            return true;
         }
-        catch { return false; }
+        catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
     private bool ReplaceInShape(Excel.Workbook wb, ExcelShapeLocator loc, BatchConversionItem item)
@@ -155,11 +170,21 @@ internal sealed class ExcelBatchConversionExecutor
                     FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
                 };
-                return mathAdapter.Insert(mathInput).Success;
+                var result = mathAdapter.Insert(mathInput);
+                if (!result.Success) return false;
+
+                // Delete the LaTeX substring from shape text
+                if (loc.Start >= 0 && loc.Length > 0 && text.Length >= loc.Start + loc.Length)
+                {
+                    string before = text.Substring(0, loc.Start);
+                    string after = text.Substring(loc.Start + loc.Length);
+                    shape.TextFrame2.TextRange.Text = before + after;
+                }
+                return true;
             }
             return false;
         }
-        catch { return false; }
+        catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
     private bool TryReplaceByFind(Excel.Workbook wb, BatchConversionItem item)
@@ -185,7 +210,7 @@ internal sealed class ExcelBatchConversionExecutor
                     }).Success;
                 }
             }
-            catch { }
+            catch (System.Runtime.InteropServices.COMException) { }
         }
         return false;
     }

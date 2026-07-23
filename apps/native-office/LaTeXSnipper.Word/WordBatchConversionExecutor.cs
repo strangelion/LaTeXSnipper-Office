@@ -138,13 +138,13 @@ internal sealed class WordBatchConversionExecutor
             {
                 // Restore original text on failure
                 try { backupRange.Text = backupText; }
-                catch { /* best effort */ }
+                catch (System.Runtime.InteropServices.COMException) { /* inaccessible */ }
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordBatchConversion] OMML insert failed, restored original: {ex.Message}");
                 return false;
             }
         }
-        catch
+        catch (Exception)
         {
             return false;
         }
@@ -172,7 +172,7 @@ internal sealed class WordBatchConversionExecutor
         }
         catch (Exception ex)
         {
-            try { range.Text = backupText; } catch { }
+            try { range.Text = backupText; } catch (System.Runtime.InteropServices.COMException) { }
             System.Diagnostics.Debug.WriteLine(
                 $"[WordBatchConversion] Find-fallback failed: {ex.Message}");
             return false;
@@ -188,7 +188,7 @@ internal sealed class WordBatchConversionExecutor
             if (json.TryGetProperty("start", out var start) && start.TryGetInt32(out int s))
                 return s;
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException) { }
         return 0;
     }
 

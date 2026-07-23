@@ -67,7 +67,7 @@ internal sealed class ExcelBatchLatexScanner
             var usedRange = sheet.UsedRange;
             if (usedRange != null) ScanRange(usedRange, candidates);
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException) { }
 
         // Scan shapes with text
         try
@@ -88,10 +88,10 @@ internal sealed class ExcelBatchLatexScanner
                             Length = 0,
                         }, $"{sheetName}/Shape '{shape.Name}'", candidates);
                 }
-                catch { }
+                catch (System.Runtime.InteropServices.COMException) { }
             }
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException) { }
     }
 
     private void ScanRange(Excel.Range range, List<LatexCandidateDto> candidates)
@@ -153,7 +153,7 @@ internal sealed class ExcelBatchLatexScanner
                 }
             }
         }
-        catch { }
+        catch (System.Runtime.InteropServices.COMException) { }
     }
 
     private void ScanText(string text, Func<object> locatorFactory, string location,
