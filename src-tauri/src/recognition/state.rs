@@ -134,8 +134,8 @@ async fn run_recognition(
             .map_err(|e| format!("PDF recognition failed: {e}"))
     } else {
         use latexsnipper_image::decode::{decode, ImageSource};
-        let img = decode(ImageSource::File(path))
-            .map_err(|e| format!("Image decode failed: {e}"))?;
+        let img =
+            decode(ImageSource::File(path)).map_err(|e| format!("Image decode failed: {e}"))?;
 
         engine
             .recognize(img, mode)
@@ -196,10 +196,7 @@ impl RecognitionState {
         let engine = latexsnipper_engine::SnipperEngine::with_runtime_registry(config, registry)
             .map_err(|e| format!("Failed to create engine: {e}"))?;
 
-        Ok(RecognitionService {
-            engine,
-            models_dir,
-        })
+        Ok(RecognitionService { engine, models_dir })
     }
 }
 
@@ -226,7 +223,9 @@ fn parse_recognize_mode(s: &str) -> Result<latexsnipper_engine::RecognizeMode, S
 #[cfg(feature = "recognition")]
 fn parse_document_mode(s: &str) -> Option<latexsnipper_pipeline::DocumentParseMode> {
     match s {
-        "specialized" | "stable" => Some(latexsnipper_pipeline::DocumentParseMode::SpecializedStable),
+        "specialized" | "stable" => {
+            Some(latexsnipper_pipeline::DocumentParseMode::SpecializedStable)
+        }
         "openocr" | "openocr-text" => Some(latexsnipper_pipeline::DocumentParseMode::OpenOcrText),
         "opendoc" | "hybrid" => Some(latexsnipper_pipeline::DocumentParseMode::OpenDocHybrid),
         _ => None,

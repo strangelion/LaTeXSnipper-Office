@@ -94,20 +94,22 @@ pub async fn model_list(state: State<'_, RecognitionState>) -> Result<Vec<ModelI
             let manifest_path = variant_path.join("manifest.toml");
             let (name, version, format_str) = if manifest_path.exists() {
                 match std::fs::read_to_string(&manifest_path) {
-                    Ok(content) => {
-                        match latexsnipper_model::LoadedModelManifest::parse(&content) {
-                            Ok(loaded) => {
-                                let (n, v, f) = extract_manifest_info(&loaded);
-                                (n, v, f)
-                            }
-                            Err(_) => (variant.clone(), "0.0.0".to_string(), "unknown".to_string()),
+                    Ok(content) => match latexsnipper_model::LoadedModelManifest::parse(&content) {
+                        Ok(loaded) => {
+                            let (n, v, f) = extract_manifest_info(&loaded);
+                            (n, v, f)
                         }
-                    }
+                        Err(_) => (variant.clone(), "0.0.0".to_string(), "unknown".to_string()),
+                    },
                     Err(_) => (variant.clone(), "0.0.0".to_string(), "unknown".to_string()),
                 }
             } else {
                 // Legacy: some models may still have artifacts without manifest
-                (variant.clone(), "0.0.0".to_string(), detect_format(&variant_path))
+                (
+                    variant.clone(),
+                    "0.0.0".to_string(),
+                    detect_format(&variant_path),
+                )
             };
 
             let size_bytes = dir_size(&variant_path).unwrap_or(0);
@@ -149,25 +151,26 @@ pub async fn model_inspect_package(path: String) -> Result<ModelInspectResult, S
     let compatible: bool;
 
     // Parse with Core's version-aware manifest loader
-    let manifest_value: serde_json::Value = match latexsnipper_model::LoadedModelManifest::parse(&manifest_content) {
-        Ok(loaded) => {
-            compatible = true;
-            match loaded {
-                latexsnipper_model::LoadedModelManifest::V2(m) => {
-                    serde_json::to_value(&m).unwrap_or_default()
-                }
-                latexsnipper_model::LoadedModelManifest::V3(m) => {
-                    serde_json::to_value(&m).unwrap_or_default()
+    let manifest_value: serde_json::Value =
+        match latexsnipper_model::LoadedModelManifest::parse(&manifest_content) {
+            Ok(loaded) => {
+                compatible = true;
+                match loaded {
+                    latexsnipper_model::LoadedModelManifest::V2(m) => {
+                        serde_json::to_value(&m).unwrap_or_default()
+                    }
+                    latexsnipper_model::LoadedModelManifest::V3(m) => {
+                        serde_json::to_value(&m).unwrap_or_default()
+                    }
                 }
             }
-        }
-        Err(e) => {
-            compatible = false;
-            warnings.push(format!("Manifest parse failed: {e}"));
-            // Try to return the raw content so the user can debug
-            serde_json::json!({"error": format!("{e}"), "raw": manifest_content})
-        }
-    };
+            Err(e) => {
+                compatible = false;
+                warnings.push(format!("Manifest parse failed: {e}"));
+                // Try to return the raw content so the user can debug
+                serde_json::json!({"error": format!("{e}"), "raw": manifest_content})
+            }
+        };
 
     Ok(ModelInspectResult {
         manifest: manifest_value,
@@ -253,8 +256,8 @@ pub async fn model_import_package(
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Cannot create parent directory: {e}"))?;
             }
-            let mut outfile = std::fs::File::create(&out_path)
-                .map_err(|e| format!("Cannot create file: {e}"))?;
+            let mut outfile =
+                std::fs::File::create(&out_path).map_err(|e| format!("Cannot create file: {e}"))?;
             std::io::copy(&mut entry, &mut outfile)
                 .map_err(|e| format!("Cannot extract file: {e}"))?;
         }
@@ -370,7 +373,9 @@ fn validate_model_name(name: &str) -> Result<(), String> {
 }
 
 /// Extract display info from a parsed Core manifest.
-fn extract_manifest_info(loaded: &latexsnipper_model::LoadedModelManifest) -> (String, String, String) {
+fn extract_manifest_info(
+    loaded: &latexsnipper_model::LoadedModelManifest,
+) -> (String, String, String) {
     match loaded {
         latexsnipper_model::LoadedModelManifest::V2(m) => {
             let name = m

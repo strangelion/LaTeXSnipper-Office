@@ -75,9 +75,9 @@ impl OfficeCoordinator {
                     )
                 })?
         } else {
-            matching.first().ok_or_else(|| {
-                format!("No {host} session is connected")
-            })?
+            matching
+                .first()
+                .ok_or_else(|| format!("No {host} session is connected"))?
         };
 
         // Validate document context if expected

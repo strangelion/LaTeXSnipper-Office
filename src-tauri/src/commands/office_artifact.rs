@@ -66,7 +66,9 @@ pub async fn office_insert_artifact(
                     host: Some(artifact.target.host.to_string()),
                     document_context: Some(artifact.target.document_context.clone()),
                     object_context: None, // Filled by host after insertion
-                    protocol_version: Some(crate::platforms::pipe_protocol::PROTOCOL_VERSION as i32),
+                    protocol_version: Some(
+                        crate::platforms::pipe_protocol::PROTOCOL_VERSION as i32,
+                    ),
                 };
 
                 let mode = match display {
