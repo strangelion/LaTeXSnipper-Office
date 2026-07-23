@@ -8,6 +8,7 @@
 /// In the current architecture this is handled by `SessionManager.OfficeSession.document_id`.
 /// This module provides extension points for more granular context tracking
 /// (e.g., tracking the cursor position within a specific document part).
+#[allow(dead_code)]
 pub struct DocumentContext {
     /// The document's unique context identifier.
     pub context_id: String,

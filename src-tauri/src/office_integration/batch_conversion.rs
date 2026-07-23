@@ -74,6 +74,7 @@ pub fn build_conversion_plan(
 }
 
 /// Compute a summary result from a completed plan.
+#[allow(dead_code)]
 pub fn compute_batch_result(plan: &BatchConversionPlan) -> BatchConversionResult {
     let total = plan.items.len();
     let converted = plan

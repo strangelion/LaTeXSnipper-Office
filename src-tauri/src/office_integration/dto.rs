@@ -123,6 +123,7 @@ pub struct ArtifactOptions {
 /// Unified formula insertion request.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct InsertFormulaRequest {
     /// Format of the content: "latex", "omml", "mathml"
     pub format: String,
@@ -149,6 +150,7 @@ pub struct InsertFormulaRequest {
 /// Response from a formula insertion.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct InsertFormulaResponse {
     pub success: bool,
     pub formula_id: Option<String>,
@@ -162,6 +164,7 @@ pub struct InsertFormulaResponse {
 /// Request to start a batch LaTeX→OMML conversion.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct BatchConvertLatexRequest {
     /// Target Office host.
     pub host: OfficeHost,
@@ -182,6 +185,7 @@ pub struct BatchConvertLatexRequest {
 /// Scope of a batch conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum BatchConversionScope {
     /// Current selection.
     Selection,
