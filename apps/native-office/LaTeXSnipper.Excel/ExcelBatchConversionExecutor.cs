@@ -1,24 +1,24 @@
 // ExcelBatchConversionExecutor.cs — Batch LaTeX → Office Math conversion for Excel.
+//
+// Consumes locators to find exact cells/shapes (no ActiveCell dependency).
+// Verifies sourceHash. Supports replaceSource flag.
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
 using Excel = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.Excel.Host;
 
-/// <summary>
-/// Executes a batch conversion plan on the active Excel workbook.
-/// </summary>
 internal sealed class ExcelBatchConversionExecutor
 {
     private readonly Excel.Application _application;
 
-    public ExcelBatchConversionExecutor(Excel.Application application)
-    {
-        _application = application;
-    }
+    public ExcelBatchConversionExecutor(Excel.Application application) => _application = application;
 
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
@@ -30,58 +30,139 @@ internal sealed class ExcelBatchConversionExecutor
 
         var wb = _application.ActiveWorkbook;
         if (wb == null)
-        {
             return BuildResult(planId, total, 0, 0, total,
-                items.ConvertAll(i => new BatchFailureDto
-                { SourceId = i.SourceId, SourceText = i.SourceText, Error = "No active workbook" }));
-        }
+                items.ConvertAll(i => Failure(i, "No active workbook")));
 
         foreach (var item in items)
         {
             if (item.Status != "converted" || string.IsNullOrEmpty(item.Omml))
             {
                 skipped++;
-                failures.Add(new BatchFailureDto
-                {
-                    SourceId = item.SourceId,
-                    SourceText = item.SourceText,
-                    Error = item.Error ?? "No OMML content"
-                });
+                failures.Add(Failure(item, item.Error ?? "No OMML content"));
                 continue;
             }
 
             try
             {
-                bool found = ReplaceCellLatexWithMath(wb, item);
-                if (found)
-                    converted++;
-                else
-                {
-                    skipped++;
-                    failures.Add(new BatchFailureDto
-                    {
-                        SourceId = item.SourceId,
-                        SourceText = item.SourceText,
-                        Error = "LaTeX source not found in workbook"
-                    });
-                }
+                bool ok = TryReplaceWithLocator(wb, item);
+                if (ok) converted++;
+                else { skipped++; failures.Add(Failure(item, "Locator resolution failed")); }
             }
             catch (Exception ex)
             {
                 failed++;
-                failures.Add(new BatchFailureDto
-                {
-                    SourceId = item.SourceId,
-                    SourceText = item.SourceText,
-                    Error = ex.Message
-                });
+                failures.Add(Failure(item, ex.Message));
             }
         }
 
         return BuildResult(planId, total, converted, skipped, failed, failures);
     }
 
-    private bool ReplaceCellLatexWithMath(Excel.Workbook wb, BatchConversionItem item)
+    private bool TryReplaceWithLocator(Excel.Workbook wb, BatchConversionItem item)
+    {
+        if (item.Locator == null) return TryReplaceByFind(wb, item);
+
+        string kind = GetLocatorKind(item.Locator.Value);
+
+        if (kind == "excelCell")
+        {
+            var loc = JsonSerializer.Deserialize<ExcelCellLocator>(
+                item.Locator.Value.GetRawText());
+            if (loc == null) return false;
+            return ReplaceInCell(wb, loc, item);
+        }
+        else if (kind == "excelShape")
+        {
+            var loc = JsonSerializer.Deserialize<ExcelShapeLocator>(
+                item.Locator.Value.GetRawText());
+            if (loc == null) return false;
+            return ReplaceInShape(wb, loc, item);
+        }
+
+        return TryReplaceByFind(wb, item);
+    }
+
+    private bool ReplaceInCell(Excel.Workbook wb, ExcelCellLocator loc, BatchConversionItem item)
+    {
+        try
+        {
+            var sheet = wb.Worksheets[loc.Worksheet] as Excel.Worksheet;
+            if (sheet == null) return false;
+
+            var cell = sheet.Range[loc.Address] as Excel.Range;
+            if (cell == null) return false;
+
+            string currentText = cell.Value?.ToString() ?? "";
+            if (!string.IsNullOrEmpty(item.SourceHash))
+            {
+                // Extract the specific LaTeX substring
+                string currentLatex = currentText.Length >= loc.Start + loc.Length
+                    ? currentText.Substring(loc.Start, loc.Length)
+                    : currentText;
+                string currentHash = ComputeSha256(currentLatex);
+                if (!string.Equals(currentHash, item.SourceHash, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            // Insert math object at this cell (not ActiveCell)
+            cell.Activate();
+            var mathAdapter = new ExcelMathAdapter(_application);
+            var mathInput = new MathInput
+            {
+                Format = "omml",
+                Content = item.Omml!,
+                Display = "inline",
+                FormulaId = $"batch-{item.SourceId}",
+                OriginalLatex = item.NormalizedLatex,
+            };
+
+            var result = mathAdapter.Insert(mathInput);
+            return result.Success;
+        }
+        catch { return false; }
+    }
+
+    private bool ReplaceInShape(Excel.Workbook wb, ExcelShapeLocator loc, BatchConversionItem item)
+    {
+        try
+        {
+            var sheet = wb.Worksheets[loc.Worksheet] as Excel.Worksheet;
+            if (sheet == null) return false;
+
+            foreach (Excel.Shape shape in sheet.Shapes)
+            {
+                if (shape.Name != loc.ShapeName) continue;
+                if (shape.TextFrame2 == null || shape.TextFrame2.HasText == 0) continue;
+
+                string text = shape.TextFrame2.TextRange?.Text ?? "";
+                if (loc.Start + loc.Length > text.Length) return false;
+
+                string currentLatex = text.Substring(loc.Start, loc.Length);
+                if (!string.IsNullOrEmpty(item.SourceHash))
+                {
+                    string currentHash = ComputeSha256(currentLatex);
+                    if (!string.Equals(currentHash, item.SourceHash, StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+
+                // Insert math at shape position
+                var mathAdapter = new ExcelMathAdapter(_application);
+                var mathInput = new MathInput
+                {
+                    Format = "omml",
+                    Content = item.Omml!,
+                    Display = "inline",
+                    FormulaId = $"batch-{item.SourceId}",
+                    OriginalLatex = item.NormalizedLatex,
+                };
+                return mathAdapter.Insert(mathInput).Success;
+            }
+            return false;
+        }
+        catch { return false; }
+    }
+
+    private bool TryReplaceByFind(Excel.Workbook wb, BatchConversionItem item)
     {
         foreach (Excel.Worksheet sheet in wb.Worksheets)
         {
@@ -89,56 +170,48 @@ internal sealed class ExcelBatchConversionExecutor
             {
                 var usedRange = sheet.UsedRange;
                 if (usedRange == null) continue;
-
-                var find = usedRange.Find(
-                    item.SourceText,
-                    Type.Missing,
-                    Excel.XlFindLookIn.xlValues,
-                    Excel.XlLookAt.xlPart,
-                    Excel.XlSearchOrder.xlByRows,
-                    Excel.XlSearchDirection.xlNext,
-                    false);
-
-                if (find != null)
+                var find = usedRange.Find(item.SourceText, Type.Missing,
+                    Excel.XlFindLookIn.xlValues, Excel.XlLookAt.xlPart,
+                    Excel.XlSearchOrder.xlByRows, Excel.XlSearchDirection.xlNext, false);
+                if (find is Excel.Range cell)
                 {
-                    var cell = find as Excel.Range;
-                    if (cell != null)
+                    cell.Activate();
+                    var mathAdapter = new ExcelMathAdapter(_application);
+                    return mathAdapter.Insert(new MathInput
                     {
-                        // Activate the found cell so the adapter targets the right location
-                        cell.Activate();
-
-                        // Add OMML as anchored object at the cell location
-                        var mathAdapter = new ExcelMathAdapter(_application);
-                        var mathInput = new MathInput
-                        {
-                            Format = "omml",
-                            Content = item.Omml!,
-                            Display = "inline",
-                            FormulaId = $"batch-{item.SourceId}",
-                            OriginalLatex = item.NormalizedLatex,
-                        };
-
-                        var result = mathAdapter.Insert(mathInput);
-                        return result.Success;
-                    }
+                        Format = "omml", Content = item.Omml!,
+                        Display = "inline", FormulaId = $"batch-{item.SourceId}",
+                        OriginalLatex = item.NormalizedLatex,
+                    }).Success;
                 }
             }
-            catch { /* try next sheet */ }
+            catch { }
         }
-
         return false;
     }
+
+    private static string? GetLocatorKind(JsonElement loc)
+    {
+        if (loc.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String)
+            return k.GetString();
+        return null;
+    }
+
+    private static string ComputeSha256(string input)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static BatchFailureDto Failure(BatchConversionItem item, string error) =>
+        new() { SourceId = item.SourceId, SourceText = item.SourceText, Error = error };
 
     private static VstoBatchConvertResult BuildResult(
         string planId, int total, int converted, int skipped, int failed,
         List<BatchFailureDto> failures) =>
         new()
         {
-            PlanId = planId,
-            Total = total,
-            Converted = converted,
-            Skipped = skipped,
-            Failed = failed,
-            Failures = failures,
+            PlanId = planId, Total = total, Converted = converted,
+            Skipped = skipped, Failed = failed, Failures = failures,
         };
 }

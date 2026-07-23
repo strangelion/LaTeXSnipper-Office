@@ -1,47 +1,35 @@
 // WordBatchLatexScanner.cs — Batch LaTeX detection for Word documents.
 //
-// Scans: Document Body, Tables, Text Boxes, Headers, Footers
-// Detects LaTeX math expressions (e.g., $x^2$, $$...$$, \(...\), \[...\]).
-// Returns LatexCandidateDto[] for the Desktop to normalize and convert.
+// Generates stable typed locators for every candidate:
+//   Body text → WordRangeLocator (storyType + start/end)
+//   TextBox/Shape → WordTextFrameLocator (shapeName + start/end)
+//   Header/Footer → WordRangeLocator
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
 using Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word.Host;
 
-/// <summary>
-/// Scans a Word document for LaTeX math expressions.
-/// </summary>
 internal sealed class WordBatchLatexScanner
 {
     private readonly Application _application;
 
-    /// <summary>
-    /// Regex pattern for LaTeX math delimiters:
-    /// $...$, $$...$$, \(...\), \[...\]
-    /// </summary>
     private static readonly Regex LatexMathPattern = new(
         @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    public WordBatchLatexScanner(Application application)
-    {
-        _application = application;
-    }
+    public WordBatchLatexScanner(Application application) => _application = application;
 
-    /// <summary>
-    /// Scan the current document for LaTeX candidates.
-    /// </summary>
-    /// <param name="scope">Selection, EntireDocument</param>
-    /// <returns>Detected LaTeX candidates.</returns>
     public List<LatexCandidateDto> Scan(string scope = "entireDocument")
     {
         var candidates = new List<LatexCandidateDto>();
-
         try
         {
             var doc = _application.ActiveDocument;
@@ -49,48 +37,26 @@ internal sealed class WordBatchLatexScanner
 
             if (scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
             {
-                ScanRange(_application.Selection.Range, "Selection", candidates);
+                ScanRange(_application.Selection.Range, "Selection", WdStoryType.wdMainTextStory, candidates);
             }
             else
             {
-                // Full document scan.
-                // NOTE: doc.Content covers body text AND table cell text.
-                // We do NOT re-scan tables separately to avoid duplicates.
-                ScanRange(doc.Content, "Body", candidates);
+                ScanRange(doc.Content, "Body", WdStoryType.wdMainTextStory, candidates);
 
-                // Scan text boxes (shapes) — NOT covered by doc.Content
                 foreach (Shape shape in doc.Shapes)
                 {
                     try
                     {
                         if (shape.TextFrame.HasText != 0)
-                        {
-                            ScanRange(shape.TextFrame.TextRange, $"TextBox '{shape.Name}'", candidates);
-                        }
+                            ScanShapeTextRange(shape.TextFrame.TextRange, shape.Name, candidates);
                     }
-                    catch { /* skip inaccessible shapes */ }
+                    catch { }
                 }
 
-                // Scan headers and footers
                 foreach (Section section in doc.Sections)
                 {
-                    try
-                    {
-                        foreach (HeaderFooter header in section.Headers)
-                        {
-                            ScanRange(header.Range, "Header", candidates);
-                        }
-                    }
-                    catch { /* skip */ }
-
-                    try
-                    {
-                        foreach (HeaderFooter footer in section.Footers)
-                        {
-                            ScanRange(footer.Range, "Footer", candidates);
-                        }
-                    }
-                    catch { /* skip */ }
+                    try { foreach (HeaderFooter h in section.Headers) ScanRange(h.Range, "Header", WdStoryType.wdEvenPagesHeaderStory, candidates); } catch { }
+                    try { foreach (HeaderFooter f in section.Footers) ScanRange(f.Range, "Footer", WdStoryType.wdEvenPagesFooterStory, candidates); } catch { }
                 }
             }
         }
@@ -98,24 +64,23 @@ internal sealed class WordBatchLatexScanner
         {
             System.Diagnostics.Debug.WriteLine($"[WordBatchLatexScanner] Scan error: {ex.Message}");
         }
-
         return candidates;
     }
 
-    private void ScanRange(Range range, string location, List<LatexCandidateDto> candidates)
+    private void ScanRange(Range range, string location, WdStoryType storyType, List<LatexCandidateDto> candidates)
     {
         try
         {
             string text = range.Text ?? "";
             if (string.IsNullOrWhiteSpace(text)) return;
 
+            int rangeStart = range.Start;
             var matches = LatexMathPattern.Matches(text);
             int matchIndex = 0;
 
             foreach (Match match in matches)
             {
                 matchIndex++;
-                // Determine which group captured
                 string? latex = match.Groups[1].Success ? match.Groups[1].Value
                     : match.Groups[2].Success ? match.Groups[2].Value
                     : match.Groups[3].Success ? match.Groups[3].Value
@@ -124,16 +89,82 @@ internal sealed class WordBatchLatexScanner
 
                 if (string.IsNullOrWhiteSpace(latex)) continue;
 
+                string source = match.Value.Trim();
+                string sourceHash = ComputeSha256(source);
+
+                var locator = new WordRangeLocator
+                {
+                    StoryType = (int)storyType,
+                    StoryIndex = 0,
+                    Start = rangeStart + match.Index,
+                    End = rangeStart + match.Index + match.Length,
+                };
+
                 candidates.Add(new LatexCandidateDto
                 {
                     Id = $"latex-{location.GetHashCode():x8}-{matchIndex:x4}",
-                    Source = match.Value.Trim(),
+                    Source = source,
                     NormalizedLatex = latex.Trim(),
                     Location = $"{location}/{matchIndex}",
+                    Locator = JsonSerializer.SerializeToElement(locator),
+                    SourceHash = sourceHash,
                     Confidence = 0.95,
                 });
             }
         }
-        catch { /* skip unreadable ranges */ }
+        catch { }
+    }
+
+    private void ScanShapeTextRange(TextRange textRange, string shapeName, List<LatexCandidateDto> candidates)
+    {
+        try
+        {
+            string text = textRange.Text ?? "";
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            int rangeStart = textRange.Start;
+            var matches = LatexMathPattern.Matches(text);
+            int matchIndex = 0;
+
+            foreach (Match match in matches)
+            {
+                matchIndex++;
+                string? latex = match.Groups[1].Success ? match.Groups[1].Value
+                    : match.Groups[2].Success ? match.Groups[2].Value
+                    : match.Groups[3].Success ? match.Groups[3].Value
+                    : match.Groups[4].Success ? match.Groups[4].Value
+                    : null;
+
+                if (string.IsNullOrWhiteSpace(latex)) continue;
+
+                string source = match.Value.Trim();
+                string sourceHash = ComputeSha256(source);
+
+                var locator = new WordTextFrameLocator
+                {
+                    ShapeName = shapeName,
+                    Start = rangeStart + match.Index,
+                    End = rangeStart + match.Index + match.Length,
+                };
+
+                candidates.Add(new LatexCandidateDto
+                {
+                    Id = $"latex-tb-{shapeName.GetHashCode():x8}-{matchIndex:x4}",
+                    Source = source,
+                    NormalizedLatex = latex.Trim(),
+                    Location = $"TextBox '{shapeName}'/{matchIndex}",
+                    Locator = JsonSerializer.SerializeToElement(locator),
+                    SourceHash = sourceHash,
+                    Confidence = 0.95,
+                });
+            }
+        }
+        catch { }
+    }
+
+    private static string ComputeSha256(string input)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

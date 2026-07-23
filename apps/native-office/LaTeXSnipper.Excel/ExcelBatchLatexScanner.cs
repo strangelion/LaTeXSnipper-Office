@@ -1,22 +1,21 @@
 // ExcelBatchLatexScanner.cs — Batch LaTeX detection for Excel workbooks.
 //
-// Scans: Selected Range, Current Worksheet, Entire Workbook
-// Detects LaTeX math in: Cell Values, Text Boxes, Shapes with Text
-//
-// Example: cell A1 contains "$x^2$" → detected as LaTeX candidate.
+// Generates stable typed locators:
+//   Cell text → ExcelCellLocator (worksheet + address + start/length)
+//   Shape text → ExcelShapeLocator (worksheet + shapeName + start/length)
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
 using Excel = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.Excel.Host;
 
-/// <summary>
-/// Scans Excel workbooks for LaTeX math expressions.
-/// </summary>
 internal sealed class ExcelBatchLatexScanner
 {
     private readonly Excel.Application _application;
@@ -25,23 +24,11 @@ internal sealed class ExcelBatchLatexScanner
         @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    public ExcelBatchLatexScanner(Excel.Application application)
-    {
-        _application = application;
-    }
+    public ExcelBatchLatexScanner(Excel.Application application) => _application = application;
 
-    /// <summary>
-    /// Scan for LaTeX candidates in the given scope.
-    /// </summary>
-    /// <param name="scope">
-    /// "selection" — currently selected range,
-    /// "currentWorksheet" — active sheet,
-    /// "entireWorkbook" — all sheets.
-    /// </param>
     public List<LatexCandidateDto> Scan(string scope = "entireWorkbook")
     {
         var candidates = new List<LatexCandidateDto>();
-
         try
         {
             var wb = _application.ActiveWorkbook;
@@ -49,30 +36,24 @@ internal sealed class ExcelBatchLatexScanner
 
             if (scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
             {
-                var range = _application.Selection as Excel.Range;
-                if (range != null)
-                    ScanRange(range, "Selection", candidates);
+                if (_application.Selection is Excel.Range range)
+                    ScanRange(range, candidates);
             }
             else if (scope.Equals("currentWorksheet", StringComparison.OrdinalIgnoreCase))
             {
-                var sheet = _application.ActiveSheet as Excel.Worksheet;
-                if (sheet != null)
+                if (_application.ActiveSheet is Excel.Worksheet sheet)
                     ScanWorksheet(sheet, candidates);
             }
             else
             {
-                // Entire workbook
                 foreach (Excel.Worksheet sheet in wb.Worksheets)
-                {
                     ScanWorksheet(sheet, candidates);
-                }
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[ExcelBatchLatexScanner] Scan error: {ex.Message}");
         }
-
         return candidates;
     }
 
@@ -81,16 +62,14 @@ internal sealed class ExcelBatchLatexScanner
         string sheetName;
         try { sheetName = sheet.Name; } catch { sheetName = "Unknown"; }
 
-        // Scan cell values in the used range
         try
         {
             var usedRange = sheet.UsedRange;
-            if (usedRange != null)
-                ScanRange(usedRange, sheetName, candidates);
+            if (usedRange != null) ScanRange(usedRange, candidates);
         }
-        catch { /* empty sheet */ }
+        catch { }
 
-        // Scan text boxes and shapes with text
+        // Scan shapes with text
         try
         {
             foreach (Excel.Shape shape in sheet.Shapes)
@@ -99,24 +78,29 @@ internal sealed class ExcelBatchLatexScanner
                 {
                     if (shape.TextFrame2 == null || shape.TextFrame2.HasText == 0)
                         continue;
-                    var text = shape.TextFrame2?.TextRange?.Text;
+                    var text = shape.TextFrame2.TextRange?.Text;
                     if (!string.IsNullOrEmpty(text))
-                        ScanText(text, $"{sheetName}/TextBox '{shape.Name}'", candidates);
+                        ScanText(text, () => new ExcelShapeLocator
+                        {
+                            Worksheet = sheetName,
+                            ShapeName = shape.Name,
+                            Start = 0, // filled per-match
+                            Length = 0,
+                        }, $"{sheetName}/Shape '{shape.Name}'", candidates);
                 }
-                catch { /* skip inaccessible shapes */ }
+                catch { }
             }
         }
-        catch { /* no shapes */ }
+        catch { }
     }
 
-    private void ScanRange(Excel.Range range, string location, List<LatexCandidateDto> candidates)
+    private void ScanRange(Excel.Range range, List<LatexCandidateDto> candidates)
     {
         try
         {
             var value = range.Value;
             if (value == null) return;
 
-            // Handle multi-cell ranges
             if (value is object[,] matrix)
             {
                 int rows = matrix.GetLength(0);
@@ -126,14 +110,29 @@ internal sealed class ExcelBatchLatexScanner
                     for (int c = 1; c <= cols; c++)
                     {
                         var cellValue = matrix[r, c]?.ToString();
-                        if (!string.IsNullOrEmpty(cellValue))
+                        if (string.IsNullOrEmpty(cellValue)) continue;
+
+                        var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as Excel.Range;
+                        string addr = cell?.Address[RowAbsolute: true, ColumnAbsolute: true, Type.Missing, Type.Missing]
+                            ?? $"R{range.Row + r - 1}C{range.Column + c - 1}";
+                        string sheetName;
+                        try { sheetName = range.Worksheet.Name; } catch { sheetName = "Unknown"; }
+
+                        var cellLoc = new ExcelCellLocator
                         {
-                            // Use Range.Address for correct column lettering (AA, AB, etc)
-                            var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as Excel.Range;
-                            string cellAddr = cell?.Address[RowAbsolute: false, ColumnAbsolute: false]
-                                ?? $"R{range.Row + r - 1}C{range.Column + c - 1}";
-                            ScanText(cellValue, $"{location}/{cellAddr}", candidates);
-                        }
+                            Worksheet = sheetName,
+                            Address = addr,
+                            Start = 0, // filled per-match
+                            Length = 0,
+                        };
+
+                        ScanText(cellValue, () => new ExcelCellLocator
+                        {
+                            Worksheet = cellLoc.Worksheet,
+                            Address = cellLoc.Address,
+                            Start = 0,
+                            Length = 0,
+                        }, $"{sheetName}/{addr}", candidates);
                     }
                 }
             }
@@ -141,13 +140,24 @@ internal sealed class ExcelBatchLatexScanner
             {
                 string text = value.ToString() ?? "";
                 if (!string.IsNullOrEmpty(text))
-                    ScanText(text, location, candidates);
+                {
+                    string sheetName;
+                    try { sheetName = range.Worksheet.Name; } catch { sheetName = "Unknown"; }
+                    string addr = range.Address[RowAbsolute: true, ColumnAbsolute: true, Type.Missing, Type.Missing];
+                    ScanText(text, () => new ExcelCellLocator
+                    {
+                        Worksheet = sheetName,
+                        Address = addr,
+                        Start = 0, Length = 0,
+                    }, $"{sheetName}/{addr}", candidates);
+                }
             }
         }
-        catch { /* skip unreadable ranges */ }
+        catch { }
     }
 
-    private void ScanText(string text, string location, List<LatexCandidateDto> candidates)
+    private void ScanText(string text, Func<object> locatorFactory, string location,
+        List<LatexCandidateDto> candidates)
     {
         var matches = LatexMathPattern.Matches(text);
         int matchIndex = 0;
@@ -163,14 +173,38 @@ internal sealed class ExcelBatchLatexScanner
 
             if (string.IsNullOrWhiteSpace(latex)) continue;
 
+            string source = match.Value.Trim();
+            string sourceHash = ComputeSha256(source);
+
+            // Fill position details into the locator
+            var locator = locatorFactory();
+            if (locator is ExcelCellLocator cellLoc)
+            {
+                cellLoc.Start = match.Index;
+                cellLoc.Length = match.Length;
+            }
+            else if (locator is ExcelShapeLocator shapeLoc)
+            {
+                shapeLoc.Start = match.Index;
+                shapeLoc.Length = match.Length;
+            }
+
             candidates.Add(new LatexCandidateDto
             {
                 Id = $"latex-{location.GetHashCode():x8}-{matchIndex:x4}",
-                Source = match.Value.Trim(),
+                Source = source,
                 NormalizedLatex = latex.Trim(),
                 Location = $"{location}/{matchIndex}",
+                Locator = JsonSerializer.SerializeToElement(locator),
+                SourceHash = sourceHash,
                 Confidence = 0.95,
             });
         }
+    }
+
+    private static string ComputeSha256(string input)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

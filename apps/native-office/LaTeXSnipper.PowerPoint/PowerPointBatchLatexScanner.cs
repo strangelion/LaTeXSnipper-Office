@@ -1,20 +1,22 @@
 // PowerPointBatchLatexScanner.cs — Batch LaTeX detection for PowerPoint.
 //
-// Scans: TextBox, Placeholder, Shape Text, Table Cells
-// Scope: Selection, CurrentSlide, SelectedSlides, EntirePresentation
+// Generates stable typed locators:
+//   Shape text → PptTextRangeLocator (slideId + shapeId + start/length)
+//   Table cell → PptTableCellLocator (slideId + shapeId + row/col + start/length)
+//   Group child → PptGroupTextRangeLocator
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
 using PowerPoint = Microsoft.Office.Interop.PowerPoint;
 
 namespace LaTeXSnipper.PowerPoint.Host;
 
-/// <summary>
-/// Scans PowerPoint presentations for LaTeX math expressions.
-/// </summary>
 internal sealed class PowerPointBatchLatexScanner
 {
     private readonly PowerPoint.Application _application;
@@ -23,87 +25,63 @@ internal sealed class PowerPointBatchLatexScanner
         @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    public PowerPointBatchLatexScanner(PowerPoint.Application application)
-    {
-        _application = application;
-    }
+    public PowerPointBatchLatexScanner(PowerPoint.Application application) => _application = application;
 
-    /// <summary>
-    /// Scan for LaTeX candidates.
-    /// </summary>
-    /// <param name="scope">
-    /// "selection", "currentSlide", "selectedSlides", "entirePresentation"
-    /// </param>
     public List<LatexCandidateDto> Scan(string scope = "entirePresentation")
     {
         var candidates = new List<LatexCandidateDto>();
-
         try
         {
             var pres = _application.ActivePresentation;
             if (pres == null) return candidates;
 
-            var slides = ResolveSlides(pres, scope);
+            var slides = ResolveSlides(pres, scope.ToLowerInvariant());
             foreach (PowerPoint.Slide slide in slides)
             {
                 int slideNum;
                 try { slideNum = slide.SlideNumber; } catch { slideNum = 0; }
-                ScanSlide(slide, slideNum, candidates);
+                int slideId;
+                try { slideId = slide.SlideID; } catch { slideId = slideNum; }
+                ScanSlide(slide, slideId, slideNum, candidates);
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[PPTBatchLatexScanner] Scan error: {ex.Message}");
         }
-
         return candidates;
     }
 
     private List<PowerPoint.Slide> ResolveSlides(PowerPoint.Presentation pres, string scope)
     {
         var slides = new List<PowerPoint.Slide>();
-
-        switch (scope.ToLowerInvariant())
+        switch (scope)
         {
             case "currentslide":
-                if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide slide)
-                    slides.Add(slide);
-                break;
-
-            case "selection":
-                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange sr)
-                {
-                    for (int i = 1; i <= sr.Count; i++)
-                        slides.Add(sr[i]);
-                }
-                break;
-
-            case "selectedSlides":
-                // Scan only slides that are currently selected in the slide sorter
-                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange selRange)
-                {
-                    for (int i = 1; i <= selRange.Count; i++)
-                        slides.Add(selRange[i]);
-                }
-                else
-                {
-                    // No slides selected — fall back to current slide
-                    if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide s)
-                        slides.Add(s);
-                }
-                break;
-
-            case "entirePresentation":
-            default:
-                foreach (PowerPoint.Slide s in pres.Slides)
+                if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide s)
                     slides.Add(s);
                 break;
+            case "selection":
+                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange sr)
+                    for (int i = 1; i <= sr.Count; i++) slides.Add(sr[i]);
+                break;
+            case "selectedslides":
+                // Fix: case must be lowercase after ToLowerInvariant()
+                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange selRange)
+                    for (int i = 1; i <= selRange.Count; i++) slides.Add(selRange[i]);
+                else if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide fs)
+                    slides.Add(fs);
+                break;
+            case "entirepresentation":
+            default:
+                foreach (PowerPoint.Slide slide in pres.Slides) slides.Add(slide);
+                break;
         }
-
         return slides;
     }
 
-    private void ScanSlide(PowerPoint.Slide slide, int slideNum, List<LatexCandidateDto> candidates)
+    private void ScanSlide(PowerPoint.Slide slide, int slideId, int slideNum,
+        List<LatexCandidateDto> candidates)
     {
         string slideLabel = $"Slide {slideNum}";
 
@@ -111,21 +89,23 @@ internal sealed class PowerPointBatchLatexScanner
         {
             try
             {
-                // Check if shape has text
+                // Shape text
                 if (shape.HasTextFrame == Microsoft.Office.Core.MsoTriState.msoTrue)
                 {
                     var textRange = shape.TextFrame.TextRange;
-                    if (textRange != null)
+                    if (textRange != null && !string.IsNullOrWhiteSpace(textRange.Text))
                     {
-                        string text = textRange.Text ?? "";
-                        if (!string.IsNullOrWhiteSpace(text))
+                        ScanText(textRange.Text, matchIndex => new PptTextRangeLocator
                         {
-                            ScanText(text, $"{slideLabel}/Shape '{shape.Name}'", candidates);
-                        }
+                            SlideId = slideId,
+                            ShapeId = shape.Id,
+                            Start = 0, Length = 0,
+                        }, $"{slideLabel}/{shape.Name}", candidates,
+                        (loc, m) => { var l = (PptTextRangeLocator)loc; l.Start = m.Index; l.Length = m.Length; });
                     }
                 }
 
-                // Check table cells
+                // Table cells
                 if (shape.HasTable == Microsoft.Office.Core.MsoTriState.msoTrue)
                 {
                     var table = shape.Table;
@@ -138,27 +118,29 @@ internal sealed class PowerPointBatchLatexScanner
                                 var cellText = table.Cell(row, col).Shape.TextFrame.TextRange.Text;
                                 if (!string.IsNullOrWhiteSpace(cellText))
                                 {
-                                    ScanText(cellText,
-                                        $"{slideLabel}/Table '{shape.Name}'/Cell({row},{col})",
-                                        candidates);
+                                    ScanText(cellText, matchIndex => new PptTableCellLocator
+                                    {
+                                        SlideId = slideId, ShapeId = shape.Id,
+                                        Row = row, Column = col, Start = 0, Length = 0,
+                                    }, $"{slideLabel}/Table/{shape.Name}({row},{col})", candidates,
+                                    (loc, m) => { var l = (PptTableCellLocator)loc; l.Start = m.Index; l.Length = m.Length; });
                                 }
                             }
-                            catch { /* skip inaccessible cells */ }
+                            catch { }
                         }
                     }
                 }
 
-                // Check group shapes recursively
+                // Group shapes
                 if (shape.Type == Microsoft.Office.Core.MsoShapeType.msoGroup)
-                {
-                    ScanGroupShape(shape, slideLabel, candidates);
-                }
+                    ScanGroupShape(shape, slideId, slideLabel, candidates);
             }
-            catch { /* skip inaccessible shapes */ }
+            catch { }
         }
     }
 
-    private void ScanGroupShape(PowerPoint.Shape group, string location, List<LatexCandidateDto> candidates)
+    private void ScanGroupShape(PowerPoint.Shape group, int slideId, string location,
+        List<LatexCandidateDto> candidates)
     {
         try
         {
@@ -170,16 +152,24 @@ internal sealed class PowerPointBatchLatexScanner
                     {
                         var text = child.TextFrame.TextRange?.Text;
                         if (!string.IsNullOrWhiteSpace(text))
-                            ScanText(text, $"{location}/Group '{group.Name}'/Shape '{child.Name}'", candidates);
+                        {
+                            ScanText(text, matchIndex => new PptGroupTextRangeLocator
+                            {
+                                SlideId = slideId, GroupShapeId = group.Id,
+                                ChildShapeId = child.Id, Start = 0, Length = 0,
+                            }, $"{location}/Group/{group.Name}/{child.Name}", candidates,
+                            (loc, m) => { var l = (PptGroupTextRangeLocator)loc; l.Start = m.Index; l.Length = m.Length; });
+                        }
                     }
                 }
-                catch { /* skip */ }
+                catch { }
             }
         }
-        catch { /* skip */ }
+        catch { }
     }
 
-    private void ScanText(string text, string location, List<LatexCandidateDto> candidates)
+    private void ScanText(string text, Func<int, object> locatorFactory, string location,
+        List<LatexCandidateDto> candidates, Action<object, Match> fillPosition)
     {
         var matches = LatexMathPattern.Matches(text);
         int matchIndex = 0;
@@ -195,14 +185,27 @@ internal sealed class PowerPointBatchLatexScanner
 
             if (string.IsNullOrWhiteSpace(latex)) continue;
 
+            string source = match.Value.Trim();
+            string sourceHash = ComputeSha256(source);
+            var locator = locatorFactory(matchIndex);
+            fillPosition(locator, match);
+
             candidates.Add(new LatexCandidateDto
             {
                 Id = $"latex-{location.GetHashCode():x8}-{matchIndex:x4}",
-                Source = match.Value.Trim(),
+                Source = source,
                 NormalizedLatex = latex.Trim(),
                 Location = $"{location}/{matchIndex}",
+                Locator = JsonSerializer.SerializeToElement(locator),
+                SourceHash = sourceHash,
                 Confidence = 0.95,
             });
         }
+    }
+
+    private static string ComputeSha256(string input)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 }

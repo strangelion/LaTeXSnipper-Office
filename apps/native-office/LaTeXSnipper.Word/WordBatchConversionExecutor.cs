@@ -1,33 +1,27 @@
 // WordBatchConversionExecutor.cs — Batch LaTeX → OMML conversion for Word.
 //
-// Receives a BatchConversionPlan from the Desktop and executes it:
-//   1. Find each LaTeX source in the document
-//   2. Replace with OMML Office Math equation
-//   3. Track results
+// Consumes host-generated locators to find the exact source position.
+// Verifies sourceHash before replacing. Executes in reverse start order
+// (within each story) so earlier positions are not invalidated.
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
 using Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word.Host;
 
-/// <summary>
-/// Executes a batch conversion plan on the active Word document.
-/// </summary>
 internal sealed class WordBatchConversionExecutor
 {
     private readonly Application _application;
 
-    public WordBatchConversionExecutor(Application application)
-    {
-        _application = application;
-    }
+    public WordBatchConversionExecutor(Application application) => _application = application;
 
-    /// <summary>
-    /// Execute a batch conversion plan.
-    /// </summary>
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
         var total = items.Count;
@@ -38,133 +32,188 @@ internal sealed class WordBatchConversionExecutor
 
         var doc = _application.ActiveDocument;
         if (doc == null)
-        {
-            return new VstoBatchConvertResult
-            {
-                PlanId = planId,
-                Total = total,
-                Converted = 0,
-                Skipped = 0,
-                Failed = total,
-                Failures = items.ConvertAll(i => new BatchFailureDto
-                {
-                    SourceId = i.SourceId,
-                    SourceText = i.SourceText,
-                    Error = "No active document"
-                })
-            };
-        }
+            return BuildResult(planId, total, 0, 0, total,
+                items.ConvertAll(i => Failure(i, "No active document")));
 
-        foreach (var item in items)
+        // Sort: items within the same story by start DESC (reverse order)
+        // so earlier positions remain valid after later replacements.
+        var ordered = items
+            .OrderByDescending(i => GetLocatorStart(i))
+            .ToList();
+
+        foreach (var item in ordered)
         {
             if (item.Status != "converted" || string.IsNullOrEmpty(item.Omml))
             {
                 skipped++;
-                failures.Add(new BatchFailureDto
-                {
-                    SourceId = item.SourceId,
-                    SourceText = item.SourceText,
-                    Error = item.Error ?? "No OMML content"
-                });
+                failures.Add(Failure(item, item.Error ?? "No OMML content"));
                 continue;
             }
 
             try
             {
-                bool found = ReplaceLatexWithOmml(doc, item.SourceText, item.Omml);
-                if (found)
-                    converted++;
-                else
-                {
-                    skipped++;
-                    failures.Add(new BatchFailureDto
-                    {
-                        SourceId = item.SourceId,
-                        SourceText = item.SourceText,
-                        Error = "LaTeX source not found in document"
-                    });
-                }
+                bool ok = TryReplaceWithLocator(doc, item);
+                if (ok) converted++;
+                else { skipped++; failures.Add(Failure(item, "Locator resolution failed")); }
             }
             catch (Exception ex)
             {
                 failed++;
-                failures.Add(new BatchFailureDto
-                {
-                    SourceId = item.SourceId,
-                    SourceText = item.SourceText,
-                    Error = ex.Message
-                });
+                failures.Add(Failure(item, ex.Message));
             }
         }
 
-        return new VstoBatchConvertResult
-        {
-            PlanId = planId,
-            Total = total,
-            Converted = converted,
-            Skipped = skipped,
-            Failed = failed,
-            Failures = failures,
-        };
+        return BuildResult(planId, total, converted, skipped, failed, failures);
     }
 
-    /// <summary>
-    /// Find the LaTeX source text in the document and replace with OMML.
-    /// </summary>
-    private bool ReplaceLatexWithOmml(Document doc, string sourceText, string omml)
+    /// <summary>Resolve the locator, verify sourceHash, and replace with OMML.</summary>
+    private bool TryReplaceWithLocator(Document doc, BatchConversionItem item)
     {
-        var find = doc.Content.Find;
-        find.Text = sourceText;
-        find.Forward = true;
-        find.Wrap = WdFindWrap.wdFindStop;
+        Range? target = null;
+        string originalText = "";
 
-        if (!find.Execute())
-            return false;
-
-        var range = doc.Content;
-        range.Find.Execute(FindText: sourceText, Forward: true, Wrap: WdFindWrap.wdFindStop);
-
-        if (range.Find.Found)
+        if (item.Locator == null)
         {
-            // Build OMML Office Math
-            var ommlRange = doc.OMaths.Add(
-                range,
-                WdOMathType.wdOMathDisplay
-            );
+            // Fallback for legacy items without locator: use Find (less reliable)
+            return TryReplaceByFind(doc, item);
+        }
 
-            // Set the OMML content via Range.InsertXML
+        try
+        {
+            var locJson = item.Locator.Value.GetRawText();
+            string? kind = GetLocatorKind(item.Locator.Value);
+
+            if (kind == "wordRange")
+            {
+                var loc = JsonSerializer.Deserialize<WordRangeLocator>(locJson);
+                if (loc == null) return false;
+                target = doc.Range(loc.Start, loc.End);
+            }
+            else if (kind == "wordTextFrame")
+            {
+                var loc = JsonSerializer.Deserialize<WordTextFrameLocator>(locJson);
+                if (loc == null) return false;
+                // Find the shape by name
+                foreach (Shape shape in doc.Shapes)
+                {
+                    if (shape.Name == loc.ShapeName && shape.TextFrame.HasText != 0)
+                    {
+                        target = shape.TextFrame.TextRange;
+                        target.SetRange(loc.Start, loc.End);
+                        break;
+                    }
+                }
+                if (target == null) return false;
+            }
+            else
+            {
+                return TryReplaceByFind(doc, item);
+            }
+
+            originalText = target.Text;
+
+            // Verify sourceHash if available
+            if (!string.IsNullOrEmpty(item.SourceHash))
+            {
+                string currentHash = ComputeSha256(originalText);
+                if (!string.Equals(currentHash, item.SourceHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[WordBatchConversion] SOURCE_CHANGED for {item.SourceId}: hash mismatch");
+                    return false;
+                }
+            }
+
+            // Transactional replacement: backup original text
+            string backupText = originalText;
+            Range? backupRange = target.Duplicate;
+
             try
             {
-                range.Text = "";
-                range.InsertXML(omml);
+                target.Text = "";
+                target.InsertXML(item.Omml!);
                 return true;
             }
             catch (Exception ex)
             {
-                // DO NOT fall back to writing raw OMML XML as text.
-                // If OMML insertion fails, leave the original LaTeX untouched
-                // and report failure so the caller can handle it.
+                // Restore original text on failure
+                try { backupRange.Text = backupText; }
+                catch { /* best effort */ }
                 System.Diagnostics.Debug.WriteLine(
-                    $"[WordBatchConversion] OMML insert failed: {ex.Message}");
+                    $"[WordBatchConversion] OMML insert failed, restored original: {ex.Message}");
                 return false;
             }
         }
-
-        return false;
+        catch
+        {
+            return false;
+        }
     }
-}
 
-/// <summary>
-/// DTO for a single batch conversion item (mirrors Rust BatchConversionItem).
-/// </summary>
-public sealed class BatchConversionItem
-{
-    public string SourceId { get; set; } = "";
-    public string SourceText { get; set; } = "";
-    public string NormalizedLatex { get; set; } = "";
-    public string? Omml { get; set; }
-    public System.Text.Json.JsonElement? Locator { get; set; }
-    public string? SourceHash { get; set; }
-    public string Status { get; set; } = "pending";
-    public string? Error { get; set; }
+    /// <summary>Legacy fallback: find by source text (no locator available).</summary>
+    private bool TryReplaceByFind(Document doc, BatchConversionItem item)
+    {
+        var find = doc.Content.Find;
+        find.Text = item.SourceText;
+        find.Forward = true;
+        find.Wrap = WdFindWrap.wdFindStop;
+        if (!find.Execute()) return false;
+
+        var range = doc.Content.Duplicate;
+        range.Find.Execute(FindText: item.SourceText, Forward: true, Wrap: WdFindWrap.wdFindStop);
+        if (!range.Find.Found) return false;
+
+        string backupText = range.Text;
+        try
+        {
+            range.Text = "";
+            range.InsertXML(item.Omml!);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            try { range.Text = backupText; } catch { }
+            System.Diagnostics.Debug.WriteLine(
+                $"[WordBatchConversion] Find-fallback failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static int GetLocatorStart(BatchConversionItem item)
+    {
+        if (item.Locator == null) return 0;
+        try
+        {
+            var json = item.Locator.Value;
+            if (json.TryGetProperty("start", out var start) && start.TryGetInt32(out int s))
+                return s;
+        }
+        catch { }
+        return 0;
+    }
+
+    private static string? GetLocatorKind(System.Text.Json.JsonElement loc)
+    {
+        if (loc.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String)
+            return k.GetString();
+        return null;
+    }
+
+    private static string ComputeSha256(string input)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static BatchFailureDto Failure(BatchConversionItem item, string error) =>
+        new() { SourceId = item.SourceId, SourceText = item.SourceText, Error = error };
+
+    private static VstoBatchConvertResult BuildResult(
+        string planId, int total, int converted, int skipped, int failed,
+        List<BatchFailureDto> failures) =>
+        new()
+        {
+            PlanId = planId, Total = total, Converted = converted,
+            Skipped = skipped, Failed = failed, Failures = failures,
+        };
 }
