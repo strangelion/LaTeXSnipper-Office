@@ -113,7 +113,8 @@ async function insertTable(payload, targetHost, options = {}) {
         table: payload,
       }),
     });
-    if (!resp.ok) throw new Error(`Office.js table insert failed: ${resp.status}`);
+    if (!resp.ok)
+      throw new Error(`Office.js table insert failed: ${resp.status}`);
     return { success: true };
   }
 
