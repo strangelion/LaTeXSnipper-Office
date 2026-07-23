@@ -40,6 +40,7 @@ impl std::fmt::Display for OfficeHost {
     }
 }
 
+#[allow(dead_code)]
 impl OfficeHost {
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {

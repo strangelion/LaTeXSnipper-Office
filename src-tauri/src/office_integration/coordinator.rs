@@ -30,6 +30,7 @@ pub struct OfficeCoordinator {
     session_manager: Arc<SessionManager>,
 }
 
+#[allow(dead_code)]
 impl OfficeCoordinator {
     /// Create a new coordinator.
     #[cfg(target_os = "windows")]
