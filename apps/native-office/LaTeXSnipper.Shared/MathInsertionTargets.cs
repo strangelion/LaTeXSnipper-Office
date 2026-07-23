@@ -36,4 +36,10 @@ public sealed class PowerPointMathTarget
 
     /// <summary>Top position in points.</summary>
     public float Top { get; set; }
+
+    /// <summary>Width in points (0 = use default).</summary>
+    public float Width { get; set; }
+
+    /// <summary>Height in points (0 = use default).</summary>
+    public float Height { get; set; }
 }

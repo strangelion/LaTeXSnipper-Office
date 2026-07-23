@@ -108,6 +108,8 @@ internal sealed class PowerPointBatchConversionExecutor
             }, new PowerPointMathTarget
             {
                 Slide = slide,
+                Left = shape.Left,
+                Top = shape.Top,
             });
 
             if (!result.Success) return false;
@@ -148,7 +150,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                }, new PowerPointMathTarget { Slide = slide });
+                }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -192,7 +194,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                }, new PowerPointMathTarget { Slide = slide });
+                }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -224,7 +226,7 @@ internal sealed class PowerPointBatchConversionExecutor
                         Format = "omml", Content = item.Omml!,
                         Display = "inline", FormulaId = $"batch-{item.SourceId}",
                         OriginalLatex = item.NormalizedLatex,
-                    }, new PowerPointMathTarget { Slide = slide });
+                    }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
                     if (!result.Success) return false;
                     found.Delete();
                     return true;

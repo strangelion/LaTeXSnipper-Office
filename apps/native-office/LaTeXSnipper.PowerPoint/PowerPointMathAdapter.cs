@@ -89,7 +89,8 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
 
     /// <summary>
     /// Insert with explicit target (no ActiveSlide dependency).
-    /// Used by batch conversion to target a specific slide.
+    /// Positions the equation at target.Left/Top on the target slide.
+    /// Used by batch conversion to target a specific slide and position.
     /// </summary>
     public InsertMathResult Insert(MathInput input, PowerPointMathTarget target)
     {
@@ -99,12 +100,34 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
             if (slide == null)
                 return InsertMathResult.Failed("Invalid slide target", "INVALID_TARGET");
 
-            // Activate the target slide for the insert path, then restore
             var previousSlide = _application.ActiveWindow?.View?.Slide as PptInterop.Slide;
             try
             {
                 slide.Select();
-                return Insert(input);
+
+                // Count shapes before insert so we can find the new one
+                int shapeCountBefore = slide.Shapes.Count;
+
+                var result = Insert(input);
+                if (!result.Success)
+                    return result;
+
+                // Reposition the just-inserted shape to target coordinates
+                if (target.Left > 0 || target.Top > 0)
+                {
+                    for (int i = slide.Shapes.Count; i > shapeCountBefore; i--)
+                    {
+                        try
+                        {
+                            var shape = slide.Shapes[i];
+                            if (target.Left > 0) shape.Left = target.Left;
+                            if (target.Top > 0) shape.Top = target.Top;
+                        }
+                        catch { /* best-effort reposition */ }
+                    }
+                }
+
+                return result;
             }
             finally
             {
