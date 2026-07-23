@@ -23,6 +23,7 @@ pub struct OfficeJsSessionRegistry {
     sessions: RwLock<HashMap<String, OfficeJsSession>>,
 }
 
+#[allow(dead_code)]
 impl OfficeJsSessionRegistry {
     pub fn new() -> Self {
         Self {
