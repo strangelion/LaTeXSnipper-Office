@@ -55,6 +55,8 @@ jobs:
           fi
 
           version="${BASH_REMATCH[1]}"
+          # Full semver including prerelease suffix (e.g. 1.5.1-rc.4)
+          full_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
 
           if ! git show-ref --verify --quiet "refs/tags/$tag"; then
             echo "" >&2
@@ -159,9 +161,7 @@ jobs:
 
           rm -f "$releases_file"
 
-          # Full semver including prerelease suffix (e.g. 1.5.1-rc.4)
           # Used for MSI ProductVersion so MajorUpgrade can distinguish RC builds.
-          full_version="${BASH_REMATCH[1]}${BASH_REMATCH[2]}"
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
