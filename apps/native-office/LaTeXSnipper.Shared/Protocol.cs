@@ -72,6 +72,8 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoConvertResult), "CONVERT_RESULT")]
 [JsonDerivedType(typeof(VstoInsertTableResult), "INSERT_TABLE_RESULT")]
 [JsonDerivedType(typeof(VstoConversationImportResult), "CONVERSATION_IMPORT_RESULT")]
+[JsonDerivedType(typeof(VstoScanLatexResult), "SCAN_LATEX_RESULT")]
+[JsonDerivedType(typeof(VstoBatchConvertResult), "BATCH_CONVERT_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -249,6 +251,47 @@ public class VstoConversationImportResult : VstoMessage
     [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
+/// <summary>
+/// Result of a SCAN_LATEX operation — returns detected LaTeX candidates.
+/// </summary>
+public class VstoScanLatexResult : VstoMessage
+{
+    [JsonPropertyName("scope")] public string Scope { get; set; } = "";
+    [JsonPropertyName("candidates")] public List<LatexCandidateDto> Candidates { get; set; } = new();
+}
+
+/// <summary>
+/// A detected LaTeX candidate in a document.
+/// </summary>
+public class LatexCandidateDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("source")] public string Source { get; set; } = "";
+    [JsonPropertyName("normalizedLatex")] public string? NormalizedLatex { get; set; }
+    [JsonPropertyName("location")] public string Location { get; set; } = "";
+    [JsonPropertyName("confidence")] public double Confidence { get; set; }
+}
+
+/// <summary>
+/// Result of a BATCH_CONVERT operation.
+/// </summary>
+public class VstoBatchConvertResult : VstoMessage
+{
+    [JsonPropertyName("planId")] public string PlanId { get; set; } = "";
+    [JsonPropertyName("total")] public int Total { get; set; }
+    [JsonPropertyName("converted")] public int Converted { get; set; }
+    [JsonPropertyName("skipped")] public int Skipped { get; set; }
+    [JsonPropertyName("failed")] public int Failed { get; set; }
+    [JsonPropertyName("failures")] public List<BatchFailureDto>? Failures { get; set; }
+}
+
+public class BatchFailureDto
+{
+    [JsonPropertyName("sourceId")] public string SourceId { get; set; } = "";
+    [JsonPropertyName("sourceText")] public string SourceText { get; set; } = "";
+    [JsonPropertyName("error")] public string Error { get; set; } = "";
+}
+
 public class VstoHostError : VstoMessage
 {
     [JsonPropertyName("error")] public string Error { get; set; } = "";
@@ -276,6 +319,8 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopRenumberWord), "RENUMBER_WORD")]
 [JsonDerivedType(typeof(DesktopInsertWordReference), "INSERT_WORD_REFERENCE")]
 [JsonDerivedType(typeof(DesktopConvertFormula), "CONVERT_FORMULA")]
+[JsonDerivedType(typeof(DesktopScanLatex), "SCAN_LATEX")]
+[JsonDerivedType(typeof(DesktopBatchConvert), "BATCH_CONVERT")]
 public abstract class DesktopMessage
 {
     [JsonPropertyName("requestId")] public string RequestId { get; set; } = "";
@@ -380,6 +425,24 @@ public class DesktopConvertFormula : DesktopDocumentCommand
 {
     [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
     [JsonPropertyName("targetMode")] public string TargetMode { get; set; } = "";
+}
+
+/// <summary>
+/// Request the VSTO host to scan for LaTeX candidates.
+/// Scope: "selection", "currentSlide", "selectedSlides", "entireDocument"
+/// </summary>
+public class DesktopScanLatex : DesktopDocumentCommand
+{
+    [JsonPropertyName("scope")] public string Scope { get; set; } = "entireDocument";
+}
+
+/// <summary>
+/// Execute a batch conversion plan on the VSTO host.
+/// </summary>
+public class DesktopBatchConvert : DesktopDocumentCommand
+{
+    [JsonPropertyName("planId")] public string PlanId { get; set; } = "";
+    [JsonPropertyName("plan")] public System.Text.Json.JsonElement Plan { get; set; }
 }
 
 // ---------------------------------------------------------------------------
