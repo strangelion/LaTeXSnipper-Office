@@ -15,10 +15,10 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 public sealed class ExcelMathTarget
 {
     /// <summary>Target worksheet (not null after construction).</summary>
-    public object Worksheet { get; init; } = null!;
+    public object Worksheet { get; set; } = null!;
 
     /// <summary>Anchor cell range (e.g., "B7").</summary>
-    public object AnchorCell { get; init; } = null!;
+    public object AnchorCell { get; set; } = null!;
 }
 
 // =========================================================================
@@ -29,11 +29,11 @@ public sealed class ExcelMathTarget
 public sealed class PowerPointMathTarget
 {
     /// <summary>Target slide object.</summary>
-    public object Slide { get; init; } = null!;
+    public object Slide { get; set; } = null!;
 
     /// <summary>Left position in points.</summary>
-    public float Left { get; init; }
+    public float Left { get; set; }
 
     /// <summary>Top position in points.</summary>
-    public float Top { get; init; }
+    public float Top { get; set; }
 }

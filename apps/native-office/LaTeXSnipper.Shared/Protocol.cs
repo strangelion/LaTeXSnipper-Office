@@ -445,15 +445,6 @@ public class DesktopBatchConvert : DesktopDocumentCommand
     [JsonPropertyName("plan")] public BatchConversionPlanDto Plan { get; set; } = new();
 }
 
-/// <summary>
-/// DTO for deserializing the batch conversion plan from the Desktop.
-/// </summary>
-public sealed class BatchConversionPlanDto
-{
-    [JsonPropertyName("id")] public string Id { get; set; } = "";
-    [JsonPropertyName("items")] public List<BatchConversionItem> Items { get; set; } = new();
-}
-
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
