@@ -113,7 +113,7 @@ internal sealed class ExcelBatchLatexScanner
                         if (string.IsNullOrEmpty(cellValue)) continue;
 
                         var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as ExcelInterop.Range;
-                        string addr = cell?.Address[RowAbsolute: true, ColumnAbsolute: true, Type.Missing, Type.Missing]
+                        string addr = cell?.Address[RowAbsolute: true, ColumnAbsolute: true, ReferenceStyle: ExcelInterop.XlReferenceStyle.xlA1]
                             ?? $"R{range.Row + r - 1}C{range.Column + c - 1}";
                         string sheetName;
                         try { sheetName = range.Worksheet.Name; } catch { sheetName = "Unknown"; }
@@ -143,7 +143,7 @@ internal sealed class ExcelBatchLatexScanner
                 {
                     string sheetName;
                     try { sheetName = range.Worksheet.Name; } catch { sheetName = "Unknown"; }
-                    string addr = range.Address[RowAbsolute: true, ColumnAbsolute: true, Type.Missing, Type.Missing];
+                    string addr = range.Address[RowAbsolute: true, ColumnAbsolute: true, ReferenceStyle: ExcelInterop.XlReferenceStyle.xlA1];
                     ScanText(text, () => new ExcelCellLocator
                     {
                         Worksheet = sheetName,

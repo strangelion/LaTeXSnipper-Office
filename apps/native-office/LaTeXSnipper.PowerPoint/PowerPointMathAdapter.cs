@@ -100,7 +100,7 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
                 return InsertMathResult.Failed("Invalid slide target", "INVALID_TARGET");
 
             // Activate the target slide for the insert path, then restore
-            var previousSlide = _application.ActiveWindow?.View?.Slide;
+            var previousSlide = _application.ActiveWindow?.View?.Slide as PptInterop.Slide;
             try
             {
                 slide.Select();

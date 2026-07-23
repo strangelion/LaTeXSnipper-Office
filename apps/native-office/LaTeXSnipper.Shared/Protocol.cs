@@ -269,6 +269,12 @@ public class LatexCandidateDto
     [JsonPropertyName("source")] public string Source { get; set; } = "";
     [JsonPropertyName("normalizedLatex")] public string? NormalizedLatex { get; set; }
     [JsonPropertyName("location")] public string Location { get; set; } = "";
+    [JsonPropertyName("locator")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? Locator { get; set; }
+    [JsonPropertyName("sourceHash")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SourceHash { get; set; }
     [JsonPropertyName("confidence")] public double Confidence { get; set; }
 }
 
