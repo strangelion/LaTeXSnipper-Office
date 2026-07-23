@@ -119,8 +119,24 @@ pub enum OfficeAction {
 #[derive(Debug, Clone, Serialize)]
 pub struct OfficeActionResponse {
     pub action: Option<OfficeAction>,
+    #[serde(rename = "actionId")]
     pub action_id: Option<String>,
+    #[serde(rename = "expectedDocumentContext")]
     pub expected_document_context: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeActionCompletion {
+    pub action_id: String,
+    #[serde(default = "default_true")]
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +179,8 @@ pub struct BridgeRuntimeState {
     action_queue: Mutex<VecDeque<QueuedOfficeAction>>,
     action_counter: std::sync::atomic::AtomicU64,
     pub js_registry: Arc<crate::office_integration::office_js_registry::OfficeJsSessionRegistry>,
+    pending_office_actions:
+        Mutex<HashMap<String, tokio::sync::oneshot::Sender<OfficeActionCompletion>>>,
     /// Ecosystem action queue for cross-app plugin communication (VS Code, Obsidian, etc.)
     pub ecosystem_queue: super::ecosystem::EcosystemActionQueue,
     pub conversation_imports: Arc<super::conversation_import::ConversationImportStore>,
@@ -185,6 +203,7 @@ impl BridgeRuntimeState {
             action_queue: Mutex::new(VecDeque::new()),
             action_counter: std::sync::atomic::AtomicU64::new(0),
             js_registry,
+            pending_office_actions: Mutex::new(HashMap::new()),
             ecosystem_queue: super::ecosystem::EcosystemActionQueue::new(),
             conversation_imports,
             diagnostics: RwLock::new(BridgeRuntimeDiagnostics {
@@ -1342,6 +1361,14 @@ async fn handle_insert_direct(
         .action_counter
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let action_id = format!("act_{}", counter);
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<OfficeActionCompletion>();
+    state
+        .pending_office_actions
+        .lock()
+        .await
+        .insert(action_id.clone(), tx);
+
     {
         let mut queue = state.action_queue.lock().await;
         queue.push_back(QueuedOfficeAction {
@@ -1352,9 +1379,25 @@ async fn handle_insert_direct(
         });
     }
 
+    let completion = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
+        Ok(Ok(c)) => c,
+        Ok(Err(_)) => OfficeActionCompletion {
+            action_id: action_id.clone(),
+            success: false,
+            error: Some("TaskPane channel closed".into()),
+        },
+        Err(_) => OfficeActionCompletion {
+            action_id: action_id.clone(),
+            success: false,
+            error: Some("OFFICEJS_ACTION_TIMEOUT".into()),
+        },
+    };
+
     Json(OfficeResponse {
-        success: true,
-        message: "公式已加入等待队列。请在 Word 任务窗格中执行。".into(),
+        success: completion.success,
+        message: completion
+            .error
+            .unwrap_or_else(|| "action completed".into()),
     })
 }
 
@@ -1432,11 +1475,27 @@ async fn handle_actions_next(
 }
 
 async fn handle_actions_complete(
-    State(_state): State<Arc<BridgeRuntimeState>>,
+    State(state): State<Arc<BridgeRuntimeState>>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
     let action_id = payload["action_id"].as_str().unwrap_or("unknown");
-    println!("[Bridge] Action completed: {}", action_id);
+    let success = payload["success"].as_bool().unwrap_or(true);
+    let error = payload["error"].as_str().map(|s| s.to_string());
+
+    let completion = OfficeActionCompletion {
+        action_id: action_id.to_string(),
+        success,
+        error,
+    };
+
+    if let Some(tx) = state.pending_office_actions.lock().await.remove(action_id) {
+        let _ = tx.send(completion);
+    }
+
+    println!(
+        "[Bridge] Action completed: {} (success={})",
+        action_id, success
+    );
     Json(OfficeResponse {
         success: true,
         message: "action acknowledged".into(),

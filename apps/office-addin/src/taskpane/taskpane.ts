@@ -24,7 +24,10 @@ const CLIENT_ID_KEY = "latexsnipper-office-client-id";
 
 function getClientId(): string {
   let id = sessionStorage.getItem(CLIENT_ID_KEY);
-  if (!id) { id = crypto.randomUUID(); sessionStorage.setItem(CLIENT_ID_KEY, id); }
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(CLIENT_ID_KEY, id);
+  }
   return id;
 }
 
@@ -34,7 +37,10 @@ async function resolveDocumentContext(): Promise<string> {
   return await new Promise<string>((resolve) => {
     try {
       Office.context.document.getFilePropertiesAsync((result) => {
-        if (result.status === Office.AsyncResultStatus.Succeeded && result.value?.url) {
+        if (
+          result.status === Office.AsyncResultStatus.Succeeded &&
+          result.value?.url
+        ) {
           resolve(result.value.url);
         } else {
           resolve("unsaved:" + getClientId());
@@ -341,7 +347,11 @@ async function pollActions(): Promise<void> {
         await fetch(`${bridgeBase}/api/office/actions/complete`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action_id: result.action_id, success: false, error: "CONTEXT_CHANGED" }),
+          body: JSON.stringify({
+            action_id: result.action_id,
+            success: false,
+            error: "CONTEXT_CHANGED",
+          }),
         });
         return;
       }
@@ -352,14 +362,20 @@ async function pollActions(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action_id: result.action_id }),
     });
-  } catch { /* bridge temporarily offline */ }
+  } catch {
+    /* bridge temporarily offline */
+  }
 }
 
 function bridgeModeToDisplay(mode: string): "inline" | "block" | "numbered" {
   switch (mode) {
-    case "display": return "block";
-    case "display-numbered": case "numbered": return "numbered";
-    default: return "inline";
+    case "display":
+      return "block";
+    case "display-numbered":
+    case "numbered":
+      return "numbered";
+    default:
+      return "inline";
   }
 }
 
@@ -371,12 +387,21 @@ async function executeBridgeAction(action: any): Promise<void> {
       type: "InsertFormula",
       payload: { latex, display: bridgeModeToDisplay(action.mode ?? "inline") },
     });
-    setStatus(result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
-      result.ok ? "success" : "error");
+    setStatus(
+      result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
+      result.ok ? "success" : "error",
+    );
   } else if (action.type === "InsertTable") {
-    const result = await exec({ type: "InsertTable", payload: action.table ?? {} });
-    setStatus(result.ok ? "Auto-inserted table" : `Table insert failed: ${result.error}`,
-      result.ok ? "success" : "error");
+    const result = await exec({
+      type: "InsertTable",
+      payload: action.table ?? {},
+    });
+    setStatus(
+      result.ok
+        ? "Auto-inserted table"
+        : `Table insert failed: ${result.error}`,
+      result.ok ? "success" : "error",
+    );
   }
 }
 
