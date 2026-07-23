@@ -23,5 +23,6 @@
     "zh_TW"
   ],
   "formulaDetectorSchema": 1,
-  "conversationSchema": 1
+  "conversationSchema": 1,
+  "version": "1.6.0-rc.1"
 }

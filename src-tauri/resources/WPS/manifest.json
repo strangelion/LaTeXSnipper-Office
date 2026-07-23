@@ -1,21 +1,21 @@
 {
-    "manifest_version":  "1.0.0",
-    "name":  "LaTeXSnipper",
-    "version":  "1.5.1",
-    "description":  "LaTeX formula integration for WPS Writer, Spreadsheets, and Presentation",
-    "author":  "LaTeXSnipper",
-    "homepage":  "https://latexsnipper.com",
-    "icon":  "images/insert_inline.svg",
-    "host_application":  [
-                             "wps",
-                             "et",
-                             "wpp"
-                         ],
-    "entry_point":  "index.html",
-    "permissions":  [
-                        "activeDocument",
-                        "selection",
-                        "pluginStorage",
-                        "taskPane"
-                    ]
+  "manifest_version": "1.0.0",
+  "name": "LaTeXSnipper",
+  "version": "1.6.0-rc.1",
+  "description": "LaTeX formula integration for WPS Writer, Spreadsheets, and Presentation",
+  "author": "LaTeXSnipper",
+  "homepage": "https://latexsnipper.com",
+  "icon": "images/insert_inline.svg",
+  "host_application": [
+    "wps",
+    "et",
+    "wpp"
+  ],
+  "entry_point": "index.html",
+  "permissions": [
+    "activeDocument",
+    "selection",
+    "pluginStorage",
+    "taskPane"
+  ]
 }

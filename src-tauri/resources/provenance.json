@@ -1,121 +1,122 @@
-﻿{
-    "schemaVersion":  1,
-    "workflowRunId":  null,
-    "sourceCommitSha":  "127251407488c4c7d2ea92db8dddb30fa0c94730",
-    "packageVersion":  "1.5.1",
-    "officeJsVersion":  "hosted/1",
-    "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
-    "officeJsSha256":  null,
-    "officeJsTypingsVersion":  "1.0.598",
-    "officeJsBundleSha256":  "747729AE60E134F10CE6C0BC9B3B1DD5D700739C1CBB7229D7CF8836F0E5FF32",
-    "mathJaxVersion":  "3.2.2",
-    "buildPlatform":  "Microsoft Windows 10.0.26200 ",
-    "manifestVersion":  "1.5.1.0",
-    "sources":  {
-                    "officeJs":  {
-                                     "name":  "local-build",
-                                     "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\OfficeJS"
-                                 },
-                    "wps":  {
-                                "name":  "local-build-fallback",
-                                "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\wps\\dist\\latexsnipper-wps_1.5.1"
-                            },
-                    "nativeOffice":  {
-                                         "name":  "msi-installer",
-                                         "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\NativeOffice"
-                                     },
-                    "obsidian":  {
-                                     "name":  "local-build",
-                                     "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\obsidian-plugin"
-                                 }
-                },
-    "resourceHashes":  {
-                           "OfficeJS":  {
-                                            "manifest/excel.xml":  "53E34ECD9F0E00AB1AF40E3E0407F4A8E32AE67D7AEB3FD23DADE881F63365D6",
-                                            "manifest/powerpoint.xml":  "B16F51E6DA9AB52C93B178B8BDB55435FC2C8D6BEF0F6BDA4861C563432E4DB2",
-                                            "manifest/word.xml":  "807B26C64F714758C7274464AEAC85321871EC63C54DAA91691BFCF8707E3F8B",
-                                            "site/assets/icon.ico":  "4E5A1A479ECE4824459A7EEE7BBF3B3720DC247309CFDFF6CD3F2EBC751DF215",
-                                            "site/assets/icon-16.png":  "E09901BFEFBD4DDE91B0A937BCFC77AD986A4DD9A6B8660D0EBD8E46B54E202B",
-                                            "site/assets/icon-32.png":  "947D0EAFFC435BBBE57EA9A67EDE44B3A4D560A6A1A32419B9384699F0F39AE7",
-                                            "site/assets/icon-80.png":  "888CB1724E8ABDC9DB4C30F9CAFA9A2DA806E3E3743DF0FF73EB74278E7E0E3E",
-                                            "site/assets/taskpane-C8PkW8Wk.js":  "747729AE60E134F10CE6C0BC9B3B1DD5D700739C1CBB7229D7CF8836F0E5FF32",
-                                            "site/taskpane.html":  "9556979D2594FD740B2D755C1176C7035E27430639E5F959758A04126F73EFDA"
-                                        },
-                           "WPS":  {
-                                       "images/auto_number.svg":  "3A47BCD18AE2C3D2241DD5F0E354C54C5FABB350DD00818B8F1EDE9D401FD011",
-                                       "images/delete_selected.svg":  "78647F3A64EB9F43549AAE40F226999540C7F658F4B4734AD1C179420E7E7854",
-                                       "images/help.svg":  "D8358ECAB22E0F21E16C4F33CB90F786117CB8D2C33A7D0CD740B804AE8E0DC7",
-                                       "images/insert_display.svg":  "B9B5171DD657E1218724DE9AA1E2F471739C13FC00C5438D71A02F6F7D685695",
-                                       "images/insert_inline.svg":  "B8D0AF3AD260C3482D332DA1D1D534CCF0715F39FA70F5D6BA0E0E599BEA6FDD",
-                                       "images/insert_numbered.svg":  "0F2E230F0EE9666ADF35EAAE31DD43004041C87993222CF740DA8E33A70E94F3",
-                                       "images/load_selected.svg":  "BE1C0352E4BD2052534C36FC7EB866A0E5A5CFE363F0B980FEB1C3EF475C11EE",
-                                       "images/renumber.svg":  "9711CD56993390CC22CA937DF28EE310AC637A26DE44DABA913CCDEDEB0182D9",
-                                       "images/screenshot_ocr.svg":  "2C07BF7C0C6975CA48C04FC8EF95CE7664FC2E3B241C5C25A0CEF879F389E7BF",
-                                       "images/settings.svg":  "E662352477D9C4E76583A1A020D5352A98003E1BEAA6935F5D5FAB8215724431",
-                                       "images/task_pane.svg":  "1F8E99AC14A093BC5303D825D7370DF155B056078D3AEF775BFED001A50F9AFC",
-                                       "index.html":  "92AC742B4C94F2BDD433B197F2CCC236F0B362EC3CF6648528555213C42EE61A",
-                                       "js/adapters.js":  "33DBC7CA2CECD766A4221DB323EF18ABD395DE1DA36F238BCC5B7E2E9786C574",
-                                       "js/bridge-client.js":  "0367276D17E844277C7F0EF1B7C901294B44180A46EF9D1002C4458587D990C9",
-                                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6",
-                                       "js/host-detect.js":  "1ECCC790C0BE889C7EA151D506E17A224EF97947F5DC94EDE26EFD47D9D82C34",
-                                       "js/ribbon.js":  "839A67D2993F7DE1971F6465937183995F5019AB4368F45C818B349FB2623A14",
-                                       "js/util.js":  "41C954DB30165F709D723157405725E28666313B013BF2AFF4E9F5265932BECD",
-                                       "main.js":  "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
-                                       "manifest.json":  "32B97BA8BA88E0D0AF62C7E3D9ED74F856511626033A4123E27A594F57D9798C",
-                                       "manifest.xml":  "EADDA64E865819FC42421CB32B368205721909FF28388EB155980472C069A6A7",
-                                       "ribbon.xml":  "BD58BB1D98B460C0B081FBCC3C3B3BE10238581496C5AD2BAA6937E0FFCA2BBD",
-                                       "ui/taskpane.html":  "489D030E12DB8D43A3CE40DC978178DDBF47956D5D664F173B5BE9EF95F9C932",
-                                       "ui/taskpane.js":  "AA7A1B1F1DF7F19625C17BF5E374ACC66A8DA682C60C353F26F6DF1DD53059E0"
-                                   },
-                           "Obsidian":  {
-                                            "main.js":  "F06AC59DEEDF44D0A5D76F73A3B0D59F5A864E336BF0104C92AD12164DDB502B",
-                                            "manifest.json":  "409E2B540597C58561107142CA2491F64B587CBB6D323014594FA6171E4EC869",
-                                            "styles.css":  "EE70D26BE08FFFF10F002D063215F5CFB57B43815E1ADA2E681F0C169CE8A4A1"
-                                        },
-                           "Ecosystem":  {
-                                             "browser/chrome/_locales/en/messages.json":  "FC42446A50B68EF3AFF8BB6065093253FD2DA020DF16497C0663A0CE279BFBC6",
-                                             "browser/chrome/_locales/zh_CN/messages.json":  "B0A060E9016F06FBCD137C94000D40E68B78A321548CBE3920ACBFBEFC847432",
-                                             "browser/chrome/_locales/zh_TW/messages.json":  "6D68543A8E5FD63640B8710C26BC7486E62F46FA518E360EECEF8C0C390B2F32",
-                                             "browser/chrome/background.js":  "D530060201EB5ADFACFF4B6E22C60D731AC6705536D9C2AE3D106EA69DE11ECE",
-                                             "browser/chrome/chunks/i18n-DVwQDXQx.js":  "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
-                                             "browser/chrome/content.js":  "3044DA3E501131656BFF69AF3E43A3E31EC2AB368C4D1FB30AC17A61DA1F17D8",
-                                             "browser/chrome/manifest.json":  "22EF535A0B6E439C7F2494F54D658F296E36B28FC3B41685376197897C4C9DD8",
-                                             "browser/chrome/options.html":  "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
-                                             "browser/chrome/options.js":  "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
-                                             "browser/chrome/popup.html":  "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
-                                             "browser/chrome/popup.js":  "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
-                                             "browser/chrome/provenance.json":  "DB13D31B72B25004D589BD902E995197BF564DF5BD5C4BA207DE40615DB7D10F",
-                                             "browser/chrome/sidepanel.html":  "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
-                                             "browser/chrome/sidepanel.js":  "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
-                                             "browser/chrome/THIRD_PARTY_LICENSES.txt":  "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
-                                             "browser/firefox/_locales/en/messages.json":  "FC42446A50B68EF3AFF8BB6065093253FD2DA020DF16497C0663A0CE279BFBC6",
-                                             "browser/firefox/_locales/zh_CN/messages.json":  "B0A060E9016F06FBCD137C94000D40E68B78A321548CBE3920ACBFBEFC847432",
-                                             "browser/firefox/_locales/zh_TW/messages.json":  "6D68543A8E5FD63640B8710C26BC7486E62F46FA518E360EECEF8C0C390B2F32",
-                                             "browser/firefox/background.js":  "B782F0511BFD6A9DC98AA7F5DE877A897074369EEE484DFD5EC617848A5287DD",
-                                             "browser/firefox/chunks/i18n-DVwQDXQx.js":  "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
-                                             "browser/firefox/content.js":  "A9A841080673BFAC61F388D3BC865C85997CC990387B041EAC0B6C1DFCC3CC26",
-                                             "browser/firefox/manifest.json":  "0A89BA7528DD9FB87133E24BBB55273F1D89A29567962038969803A45125A360",
-                                             "browser/firefox/options.html":  "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
-                                             "browser/firefox/options.js":  "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
-                                             "browser/firefox/popup.html":  "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
-                                             "browser/firefox/popup.js":  "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
-                                             "browser/firefox/provenance.json":  "FF5A240F876EA0645FDDC5D9061491C6352B0A8880F15F5288BD20C42BFEC0B5",
-                                             "browser/firefox/sidepanel.html":  "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
-                                             "browser/firefox/sidepanel.js":  "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
-                                             "browser/firefox/THIRD_PARTY_LICENSES.txt":  "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
-                                             "obsidian/main.js":  "F06AC59DEEDF44D0A5D76F73A3B0D59F5A864E336BF0104C92AD12164DDB502B",
-                                             "obsidian/manifest.json":  "409E2B540597C58561107142CA2491F64B587CBB6D323014594FA6171E4EC869",
-                                             "obsidian/styles.css":  "EE70D26BE08FFFF10F002D063215F5CFB57B43815E1ADA2E681F0C169CE8A4A1",
-                                             "vscode/extension.js":  "C233296A122948395C74080F2568034E4FB02D926873AC3B29617F41119AFEBA",
-                                             "vscode/package.json":  "C5A480E025524333C23BA18A453EB3246149A990493BF7E2CE97B5DE72C9F843"
-                                         }
-                       },
-    "wpsHashes":  {
-                      "manifest.xml":  "EADDA64E865819FC42421CB32B368205721909FF28388EB155980472C069A6A7",
-                      "main.js":  "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
-                      "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
-                  },
-    "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "6D78EC4E79C8F5A6468593E6F419A506A13FC6F4EE48755C062359729AF9AECE"
-                           }
+{
+  "schemaVersion": 1,
+  "workflowRunId": null,
+  "sourceCommitSha": "127251407488c4c7d2ea92db8dddb30fa0c94730",
+  "packageVersion": "1.5.1",
+  "officeJsVersion": "hosted/1",
+  "officeJsSource": "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
+  "officeJsSha256": null,
+  "officeJsTypingsVersion": "1.0.598",
+  "officeJsBundleSha256": "747729AE60E134F10CE6C0BC9B3B1DD5D700739C1CBB7229D7CF8836F0E5FF32",
+  "mathJaxVersion": "3.2.2",
+  "buildPlatform": "Microsoft Windows 10.0.26200 ",
+  "manifestVersion": "1.5.1.0",
+  "sources": {
+    "officeJs": {
+      "name": "local-build",
+      "path": "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\OfficeJS"
+    },
+    "wps": {
+      "name": "local-build-fallback",
+      "path": "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\wps\\dist\\latexsnipper-wps_1.5.1"
+    },
+    "nativeOffice": {
+      "name": "msi-installer",
+      "path": "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\NativeOffice"
+    },
+    "obsidian": {
+      "name": "local-build",
+      "path": "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\obsidian-plugin"
+    }
+  },
+  "resourceHashes": {
+    "OfficeJS": {
+      "manifest/excel.xml": "53E34ECD9F0E00AB1AF40E3E0407F4A8E32AE67D7AEB3FD23DADE881F63365D6",
+      "manifest/powerpoint.xml": "B16F51E6DA9AB52C93B178B8BDB55435FC2C8D6BEF0F6BDA4861C563432E4DB2",
+      "manifest/word.xml": "807B26C64F714758C7274464AEAC85321871EC63C54DAA91691BFCF8707E3F8B",
+      "site/assets/icon.ico": "4E5A1A479ECE4824459A7EEE7BBF3B3720DC247309CFDFF6CD3F2EBC751DF215",
+      "site/assets/icon-16.png": "E09901BFEFBD4DDE91B0A937BCFC77AD986A4DD9A6B8660D0EBD8E46B54E202B",
+      "site/assets/icon-32.png": "947D0EAFFC435BBBE57EA9A67EDE44B3A4D560A6A1A32419B9384699F0F39AE7",
+      "site/assets/icon-80.png": "888CB1724E8ABDC9DB4C30F9CAFA9A2DA806E3E3743DF0FF73EB74278E7E0E3E",
+      "site/assets/taskpane-C8PkW8Wk.js": "747729AE60E134F10CE6C0BC9B3B1DD5D700739C1CBB7229D7CF8836F0E5FF32",
+      "site/taskpane.html": "9556979D2594FD740B2D755C1176C7035E27430639E5F959758A04126F73EFDA"
+    },
+    "WPS": {
+      "images/auto_number.svg": "3A47BCD18AE2C3D2241DD5F0E354C54C5FABB350DD00818B8F1EDE9D401FD011",
+      "images/delete_selected.svg": "78647F3A64EB9F43549AAE40F226999540C7F658F4B4734AD1C179420E7E7854",
+      "images/help.svg": "D8358ECAB22E0F21E16C4F33CB90F786117CB8D2C33A7D0CD740B804AE8E0DC7",
+      "images/insert_display.svg": "B9B5171DD657E1218724DE9AA1E2F471739C13FC00C5438D71A02F6F7D685695",
+      "images/insert_inline.svg": "B8D0AF3AD260C3482D332DA1D1D534CCF0715F39FA70F5D6BA0E0E599BEA6FDD",
+      "images/insert_numbered.svg": "0F2E230F0EE9666ADF35EAAE31DD43004041C87993222CF740DA8E33A70E94F3",
+      "images/load_selected.svg": "BE1C0352E4BD2052534C36FC7EB866A0E5A5CFE363F0B980FEB1C3EF475C11EE",
+      "images/renumber.svg": "9711CD56993390CC22CA937DF28EE310AC637A26DE44DABA913CCDEDEB0182D9",
+      "images/screenshot_ocr.svg": "2C07BF7C0C6975CA48C04FC8EF95CE7664FC2E3B241C5C25A0CEF879F389E7BF",
+      "images/settings.svg": "E662352477D9C4E76583A1A020D5352A98003E1BEAA6935F5D5FAB8215724431",
+      "images/task_pane.svg": "1F8E99AC14A093BC5303D825D7370DF155B056078D3AEF775BFED001A50F9AFC",
+      "index.html": "92AC742B4C94F2BDD433B197F2CCC236F0B362EC3CF6648528555213C42EE61A",
+      "js/adapters.js": "33DBC7CA2CECD766A4221DB323EF18ABD395DE1DA36F238BCC5B7E2E9786C574",
+      "js/bridge-client.js": "0367276D17E844277C7F0EF1B7C901294B44180A46EF9D1002C4458587D990C9",
+      "js/command-layer.js": "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6",
+      "js/host-detect.js": "1ECCC790C0BE889C7EA151D506E17A224EF97947F5DC94EDE26EFD47D9D82C34",
+      "js/ribbon.js": "839A67D2993F7DE1971F6465937183995F5019AB4368F45C818B349FB2623A14",
+      "js/util.js": "41C954DB30165F709D723157405725E28666313B013BF2AFF4E9F5265932BECD",
+      "main.js": "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
+      "manifest.json": "32B97BA8BA88E0D0AF62C7E3D9ED74F856511626033A4123E27A594F57D9798C",
+      "manifest.xml": "EADDA64E865819FC42421CB32B368205721909FF28388EB155980472C069A6A7",
+      "ribbon.xml": "BD58BB1D98B460C0B081FBCC3C3B3BE10238581496C5AD2BAA6937E0FFCA2BBD",
+      "ui/taskpane.html": "489D030E12DB8D43A3CE40DC978178DDBF47956D5D664F173B5BE9EF95F9C932",
+      "ui/taskpane.js": "AA7A1B1F1DF7F19625C17BF5E374ACC66A8DA682C60C353F26F6DF1DD53059E0"
+    },
+    "Obsidian": {
+      "main.js": "F06AC59DEEDF44D0A5D76F73A3B0D59F5A864E336BF0104C92AD12164DDB502B",
+      "manifest.json": "409E2B540597C58561107142CA2491F64B587CBB6D323014594FA6171E4EC869",
+      "styles.css": "EE70D26BE08FFFF10F002D063215F5CFB57B43815E1ADA2E681F0C169CE8A4A1"
+    },
+    "Ecosystem": {
+      "browser/chrome/_locales/en/messages.json": "FC42446A50B68EF3AFF8BB6065093253FD2DA020DF16497C0663A0CE279BFBC6",
+      "browser/chrome/_locales/zh_CN/messages.json": "B0A060E9016F06FBCD137C94000D40E68B78A321548CBE3920ACBFBEFC847432",
+      "browser/chrome/_locales/zh_TW/messages.json": "6D68543A8E5FD63640B8710C26BC7486E62F46FA518E360EECEF8C0C390B2F32",
+      "browser/chrome/background.js": "D530060201EB5ADFACFF4B6E22C60D731AC6705536D9C2AE3D106EA69DE11ECE",
+      "browser/chrome/chunks/i18n-DVwQDXQx.js": "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
+      "browser/chrome/content.js": "3044DA3E501131656BFF69AF3E43A3E31EC2AB368C4D1FB30AC17A61DA1F17D8",
+      "browser/chrome/manifest.json": "22EF535A0B6E439C7F2494F54D658F296E36B28FC3B41685376197897C4C9DD8",
+      "browser/chrome/options.html": "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
+      "browser/chrome/options.js": "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
+      "browser/chrome/popup.html": "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
+      "browser/chrome/popup.js": "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
+      "browser/chrome/provenance.json": "DB13D31B72B25004D589BD902E995197BF564DF5BD5C4BA207DE40615DB7D10F",
+      "browser/chrome/sidepanel.html": "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
+      "browser/chrome/sidepanel.js": "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
+      "browser/chrome/THIRD_PARTY_LICENSES.txt": "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
+      "browser/firefox/_locales/en/messages.json": "FC42446A50B68EF3AFF8BB6065093253FD2DA020DF16497C0663A0CE279BFBC6",
+      "browser/firefox/_locales/zh_CN/messages.json": "B0A060E9016F06FBCD137C94000D40E68B78A321548CBE3920ACBFBEFC847432",
+      "browser/firefox/_locales/zh_TW/messages.json": "6D68543A8E5FD63640B8710C26BC7486E62F46FA518E360EECEF8C0C390B2F32",
+      "browser/firefox/background.js": "B782F0511BFD6A9DC98AA7F5DE877A897074369EEE484DFD5EC617848A5287DD",
+      "browser/firefox/chunks/i18n-DVwQDXQx.js": "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
+      "browser/firefox/content.js": "A9A841080673BFAC61F388D3BC865C85997CC990387B041EAC0B6C1DFCC3CC26",
+      "browser/firefox/manifest.json": "0A89BA7528DD9FB87133E24BBB55273F1D89A29567962038969803A45125A360",
+      "browser/firefox/options.html": "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
+      "browser/firefox/options.js": "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
+      "browser/firefox/popup.html": "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
+      "browser/firefox/popup.js": "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
+      "browser/firefox/provenance.json": "FF5A240F876EA0645FDDC5D9061491C6352B0A8880F15F5288BD20C42BFEC0B5",
+      "browser/firefox/sidepanel.html": "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
+      "browser/firefox/sidepanel.js": "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
+      "browser/firefox/THIRD_PARTY_LICENSES.txt": "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
+      "obsidian/main.js": "F06AC59DEEDF44D0A5D76F73A3B0D59F5A864E336BF0104C92AD12164DDB502B",
+      "obsidian/manifest.json": "409E2B540597C58561107142CA2491F64B587CBB6D323014594FA6171E4EC869",
+      "obsidian/styles.css": "EE70D26BE08FFFF10F002D063215F5CFB57B43815E1ADA2E681F0C169CE8A4A1",
+      "vscode/extension.js": "C233296A122948395C74080F2568034E4FB02D926873AC3B29617F41119AFEBA",
+      "vscode/package.json": "C5A480E025524333C23BA18A453EB3246149A990493BF7E2CE97B5DE72C9F843"
+    }
+  },
+  "wpsHashes": {
+    "manifest.xml": "EADDA64E865819FC42421CB32B368205721909FF28388EB155980472C069A6A7",
+    "main.js": "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
+    "js/command-layer.js": "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
+  },
+  "nativeOfficeHashes": {
+    "LaTeXSnipper.NativeOffice.msi": "6D78EC4E79C8F5A6468593E6F419A506A13FC6F4EE48755C062359729AF9AECE"
+  },
+  "version": "1.6.0-rc.1"
 }
