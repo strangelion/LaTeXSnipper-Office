@@ -31,7 +31,7 @@ test("release publishes only package-verification outputs", () => {
 
   assert.match(
     releaseWorkflow,
-    /expected_version:\s*\$\{\{\s*needs\.prepare-release\.outputs\.version\s*\}\}/,
+    /expected_version:\s*\$\{\{\s*needs\.prepare-release\.outputs\.full_version\s*\}\}/,
   );
 
   assert.match(releaseWorkflow, /release_mode:\s*true/);
