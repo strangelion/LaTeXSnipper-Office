@@ -90,10 +90,10 @@ impl OfficeCoordinator {
                         matching.iter().map(|s| &s.session_id).collect::<Vec<_>>()
                     )
                 })?
-        } else if let Some(ref doc_id) = expected_document_id {
+        } else if let Some(doc_id) = expected_document_id {
             matching
                 .iter()
-                .find(|s| s.document_id.as_deref() == Some(&**doc_id))
+                .find(|s| s.document_id.as_deref() == Some(doc_id))
                 .ok_or_else(|| {
                     format!(
                         "No {host} session matches document {doc_id}. \

@@ -9,11 +9,34 @@ import * as store from "./store.js";
  * The backend emits `recognition://job-updated` with a RecognitionJobSnapshot payload.
  */
 export function registerJobUpdateListener() {
-  listen("recognition://job-updated", (event) => {
+  listen("recognition://job-updated", async (event) => {
     const snapshot = event.payload;
     console.log("[Recognition] Job update:", snapshot.id, snapshot.status);
     store.upsertJobSnapshot(snapshot);
+
+    if (snapshot.status === "Completed") {
+      try {
+        const output = await api.getOutput({
+          jobId: snapshot.id,
+          format: "latex",
+        });
+        if (output.success && output.content) {
+          renderRecognitionResult(output.content);
+        }
+      } catch (err) {
+        console.error("[Recognition] Failed to fetch output:", err);
+      }
+    }
   });
+}
+
+function renderRecognitionResult(latex) {
+  const resultEl = document.getElementById("ocrResult");
+  if (resultEl) resultEl.textContent = latex;
+  const insertBtn = document.getElementById("ocrInsertBtn");
+  if (insertBtn) insertBtn.disabled = false;
+  const copyBtn = document.getElementById("ocrCopyBtn");
+  if (copyBtn) copyBtn.disabled = false;
 }
 
 /**

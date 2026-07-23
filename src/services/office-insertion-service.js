@@ -48,7 +48,11 @@ async function insertFormula(payload, targetHost, options) {
   const { invoke } = await import("@tauri-apps/api/core");
 
   // Route through Coordinator — single entry point for all insertions
-  const route = await invoke("office_resolve_route", { host: targetHost });
+  const route = await invoke("office_resolve_route", {
+    host: targetHost,
+    preferredSessionId: options.sessionId ?? null,
+    expectedDocumentId: options.documentContext ?? null,
+  });
 
   return invoke("native_office_insert_formula", {
     sessionId: route.target.sessionId,
@@ -71,7 +75,11 @@ async function insertFormula(payload, targetHost, options) {
 async function insertTable(payload, targetHost, _options) {
   const { invoke } = await import("@tauri-apps/api/core");
 
-  const route = await invoke("office_resolve_route", { host: targetHost });
+  const route = await invoke("office_resolve_route", {
+    host: targetHost,
+    preferredSessionId: null,
+    expectedDocumentId: null,
+  });
 
   return invoke("native_office_insert_table", {
     sessionId: route.target.sessionId,
