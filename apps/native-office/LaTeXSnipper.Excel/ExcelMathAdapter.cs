@@ -114,17 +114,37 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
             if (cell == null)
                 return InsertMathResult.Failed("Invalid anchor cell", "INVALID_TARGET");
 
-            // Temporarily activate the cell for the insert (the existing
-            // InsertFormula path needs it). We restore after.
             var previousCell = _application.ActiveCell;
             try
             {
                 cell.Activate();
-                return Insert(input);
+
+                // Count shapes before insert to find the new one
+                int before = sheet.Shapes.Count;
+
+                var result = Insert(input);
+                if (!result.Success)
+                    return result;
+
+                // If Left/Top are specified, reposition the just-inserted shape
+                if (target.Left > 0 || target.Top > 0)
+                {
+                    for (int i = sheet.Shapes.Count; i > before; i--)
+                    {
+                        try
+                        {
+                            var shape = sheet.Shapes[i];
+                            if (target.Left > 0) shape.Left = target.Left;
+                            if (target.Top > 0) shape.Top = target.Top;
+                        }
+                        catch { /* best-effort reposition */ }
+                    }
+                }
+
+                return result;
             }
             finally
             {
-                // Restore previous selection if it's a different cell
                 if (previousCell != null)
                 {
                     try { previousCell.Activate(); } catch { System.Diagnostics.Debug.WriteLine("Skipped COM object"); }

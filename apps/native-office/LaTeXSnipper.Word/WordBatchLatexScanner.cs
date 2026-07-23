@@ -63,7 +63,7 @@ internal sealed class WordBatchLatexScanner
                             try
                             {
                                 WdStoryType st = h.Range.StoryType;
-                                ScanRange(h.Range, $"Hdr-S{secIdx}", st, candidates);
+                                ScanRange(h.Range, $"Hdr-S{secIdx}", st, candidates, secIdx);
                             }
                             catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                         }
@@ -76,7 +76,7 @@ internal sealed class WordBatchLatexScanner
                             try
                             {
                                 WdStoryType st = f.Range.StoryType;
-                                ScanRange(f.Range, $"Ftr-S{secIdx}", st, candidates);
+                                ScanRange(f.Range, $"Ftr-S{secIdx}", st, candidates, secIdx);
                             }
                             catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                         }
@@ -92,7 +92,7 @@ internal sealed class WordBatchLatexScanner
         return candidates;
     }
 
-    private void ScanRange(Range range, string location, WdStoryType storyType, List<LatexCandidateDto> candidates)
+    private void ScanRange(Range range, string location, WdStoryType storyType, List<LatexCandidateDto> candidates, int sectionIndex = 0)
     {
         try
         {
@@ -120,6 +120,7 @@ internal sealed class WordBatchLatexScanner
                 var locator = new WordRangeLocator
                 {
                     StoryType = (int)storyType,
+                    SectionIndex = sectionIndex,
                     StoryIndex = 0,
                     Start = rangeStart + match.Index,
                     End = rangeStart + match.Index + match.Length,

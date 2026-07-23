@@ -149,8 +149,8 @@ export async function openRuntimeDirectory() {
  * @param {string} scope
  * @returns {object[]}
  */
-export async function batchScanLatex(sessionId, scope) {
-  return invoke("office_batch_scan_latex", { sessionId, scope });
+export async function batchScanLatex(target, scope) {
+  return invoke("office_batch_scan_latex", { target, scope });
 }
 
 /**
@@ -158,8 +158,8 @@ export async function batchScanLatex(sessionId, scope) {
  * @param {object[]} candidates
  * @returns {object}
  */
-export async function batchConvertPlan(candidates) {
-  return invoke("office_batch_convert_plan", { candidates });
+export async function batchConvertPlan(target, candidates) {
+  return invoke("office_batch_convert_plan", { target, candidates });
 }
 
 /**
@@ -168,6 +168,6 @@ export async function batchConvertPlan(candidates) {
  * @param {object} plan
  * @returns {object}
  */
-export async function batchExecute(sessionId, plan) {
-  return invoke("office_batch_execute", { sessionId, plan });
+export async function batchExecute(plan) {
+  return invoke("office_batch_execute", { plan });
 }

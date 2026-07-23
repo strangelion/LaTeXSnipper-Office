@@ -104,21 +104,21 @@ async function insertDocument(payload, targetHost, options) {
 /**
  * Scan and batch-convert LaTeX in an Office document.
  */
-export async function batchConvertLatex(sessionId, scope = "entireDocument") {
+export async function batchConvertLatex(target, scope = "entireDocument") {
   const api = await import("../features/recognition/api.js");
 
   // Step 1: Scan
-  const candidates = await api.batchScanLatex(sessionId, scope);
+  const candidates = await api.batchScanLatex(target, scope);
 
   if (!candidates || candidates.length === 0) {
     return { total: 0, converted: 0, skipped: 0, failed: 0, failures: [] };
   }
 
-  // Step 2: Build conversion plan
-  const plan = await api.batchConvertPlan(candidates);
+  // Step 2: Build conversion plan (target stored in plan for execution)
+  const plan = await api.batchConvertPlan(target, candidates);
 
-  // Step 3: Execute
-  const result = await api.batchExecute(sessionId, plan);
+  // Step 3: Execute (plan carries its own target)
+  const result = await api.batchExecute(plan);
 
   return result;
 }

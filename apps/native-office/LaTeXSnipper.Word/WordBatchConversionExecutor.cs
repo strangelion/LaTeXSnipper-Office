@@ -87,11 +87,22 @@ internal sealed class WordBatchConversionExecutor
             {
                 var loc = JsonSerializer.Deserialize<WordRangeLocator>(locJson);
                 if (loc == null) return false;
-                // Use the story type from the locator to resolve the correct
-                // document part (body, header, footer, first-page, even-page, etc).
                 WdStoryType storyType = (WdStoryType)loc.StoryType;
                 target = doc.StoryRanges[storyType];
-                // Narrow to the specific range within the story
+                if (target == null) return false;
+
+                // For header/footer stories with SectionIndex > 0, navigate
+                // to the correct section's story range via NextStoryRange
+                if (loc.SectionIndex > 1)
+                {
+                    for (int i = 1; i < loc.SectionIndex; i++)
+                    {
+                        try { target = target.NextStoryRange; }
+                        catch { break; }
+                        if (target == null) break;
+                    }
+                }
+
                 if (target != null)
                     target.SetRange(loc.Start, loc.End);
             }

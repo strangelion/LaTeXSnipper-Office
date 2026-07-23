@@ -176,8 +176,13 @@ pub async fn office_batch_execute(
     )
     .await?;
 
-    // P0-2: HostResult.success means "the command executed".
-    // Item-level failures are in the data payload, not in success.
+    // Command-level failure (CONTEXT_CHANGED etc) vs item-level partial failure
+    if !result.success {
+        return Err(result
+            .error
+            .unwrap_or_else(|| "Batch command failed".to_string()));
+    }
+
     let batch_result: serde_json::Value = result.data.ok_or("Missing batch result data")?;
 
     Ok(BatchConversionResult {

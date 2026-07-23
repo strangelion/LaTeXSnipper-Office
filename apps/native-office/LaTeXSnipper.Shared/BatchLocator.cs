@@ -20,6 +20,8 @@ public sealed class WordRangeLocator
     [JsonPropertyName("kind")] public string Kind { get; set; } = "wordRange";
     /// <summary>WdStoryType value.</summary>
     [JsonPropertyName("storyType")] public int StoryType { get; set; }
+    /// <summary>Section index (1-based) for header/footer stories.</summary>
+    [JsonPropertyName("sectionIndex")] public int SectionIndex { get; set; }
     [JsonPropertyName("storyIndex")] public int StoryIndex { get; set; }
     [JsonPropertyName("start")] public int Start { get; set; }
     [JsonPropertyName("end")] public int End { get; set; }
