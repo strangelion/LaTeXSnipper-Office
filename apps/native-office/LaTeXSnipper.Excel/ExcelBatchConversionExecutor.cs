@@ -6,8 +6,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
-using System.Security.Cryptography;
-using System.Text;
+using System.Linq;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
 using Excel = Microsoft.Office.Interop.Excel;
@@ -246,29 +245,21 @@ internal sealed class ExcelBatchConversionExecutor
     private static string GetContainerKey(BatchConversionItem item)
     {
         if (item.Locator == null) return "";
-        try
-        {
-            var loc = item.Locator.Value;
-            string kind = GetLocatorKind(loc) ?? "";
-            string container = "";
-            if (loc.TryGetProperty("worksheet", out var ws)) container += ws.GetString();
-            if (loc.TryGetProperty("address", out var addr)) container += addr.GetString();
-            if (loc.TryGetProperty("shapeName", out var sn)) container += sn.GetString();
-            return kind + "/" + container;
-        }
-        catch { return ""; }
+        var loc = item.Locator.Value;
+        string kind = GetLocatorKind(loc) ?? "";
+        string container = "";
+        if (loc.TryGetProperty("worksheet", out var ws)) container += ws.GetString();
+        if (loc.TryGetProperty("address", out var addr)) container += addr.GetString();
+        if (loc.TryGetProperty("shapeName", out var sn)) container += sn.GetString();
+        return kind + "/" + container;
     }
 
     private static int GetLocatorStart(BatchConversionItem item)
     {
         if (item.Locator == null) return 0;
-        try
-        {
-            if (item.Locator.Value.TryGetProperty("start", out var s) && s.TryGetInt32(out int v))
-                return v;
-        }
-        catch { }
-        return 0;
+        return item.Locator.Value.TryGetProperty("start", out var s) && s.TryGetInt32(out int v)
+            ? v
+            : 0;
     }
 
     private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);

@@ -56,7 +56,7 @@ pub async fn ocr_recognize(
     {
         #[cfg(not(target_os = "windows"))]
         {
-            let _ = state;
+            let _ = (state, image_data);
             return Err("OCR is only supported on Windows (requires ONNX Runtime)".to_string());
         }
 

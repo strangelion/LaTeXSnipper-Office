@@ -4,9 +4,10 @@
 //!   SCAN_LATEX → await SCAN_LATEX_RESULT
 //!   BATCH_CONVERT → await BATCH_CONVERT_RESULT
 
-use std::sync::Arc;
-use std::time::Duration;
+#[cfg(target_os = "windows")]
+use std::{sync::Arc, time::Duration};
 
+#[cfg(target_os = "windows")]
 use tauri::State;
 
 use crate::office_integration::batch_conversion;
