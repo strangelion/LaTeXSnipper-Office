@@ -3,6 +3,7 @@
 //! These commands insert recognition results (formulas, tables, documents)
 //! into the active Office host via the unified insertion pipeline.
 
+#[cfg(target_os = "windows")]
 use crate::office_integration::dto::OfficeHost;
 #[cfg(target_os = "windows")]
 use crate::office_integration::{OfficeCoordinator, ResolvedRoute};

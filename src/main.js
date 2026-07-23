@@ -7019,6 +7019,22 @@ async function setupBrowserImportInbox(controller) {
 
 // Initialize App
 // ═══════════════════════════════════════════
+function syncLiquidGlassSelect(select, value) {
+  const option = select.querySelector(
+    `.custom-select-option[data-value="${value}"]`,
+  );
+  if (!option) return;
+  select
+    .querySelectorAll(".custom-select-option")
+    .forEach((item) => item.classList.toggle("selected", item === option));
+  const trigger = select.querySelector(".custom-select-trigger");
+  if (trigger) {
+    trigger.dataset.value = value;
+    const span = trigger.querySelector("span");
+    if (span) span.textContent = option.textContent;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
@@ -7033,11 +7049,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
 
   // Initialize liquid glass appearance (before UI renders)
-  initLiquidGlass();
+  const glassState = initLiquidGlass();
 
-  // Wire liquid glass mode select in settings
+  // Wire liquid glass mode select in settings + sync initial state
   const liquidGlassSelect = document.getElementById("liquidGlassModeSelect");
   if (liquidGlassSelect) {
+    syncLiquidGlassSelect(liquidGlassSelect, glassState.requested);
     liquidGlassSelect.addEventListener("click", (event) => {
       const option = event.target.closest(".custom-select-option");
       if (!option) return;
@@ -7046,11 +7063,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       import("./features/appearance/liquid-glass.js").then(
         ({ setLiquidGlassMode }) => {
           setLiquidGlassMode(value);
-          // Update trigger display
-          const trigger = liquidGlassSelect.querySelector(
-            ".custom-select-trigger span",
-          );
-          if (trigger) trigger.textContent = option.textContent;
+          syncLiquidGlassSelect(liquidGlassSelect, value);
         },
       );
     });

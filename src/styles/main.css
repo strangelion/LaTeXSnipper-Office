@@ -188,8 +188,8 @@ a:hover {
   right: 0;
   z-index: 1000;
   background: rgba(var(--glass-rgb), 0.78);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(180%);
   border: 1px solid rgba(var(--glass-rgb), 0.46);
   border-radius: 14px;
   box-shadow:
@@ -498,8 +498,8 @@ a:hover {
     rgba(var(--glass-rgb), 0.78),
     rgba(var(--glass-rgb), 0.54)
   );
-  backdrop-filter: blur(36px) saturate(175%);
-  -webkit-backdrop-filter: blur(36px) saturate(175%);
+  backdrop-filter: blur(var(--glass-blur-xl)) saturate(175%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-xl)) saturate(175%);
   border: 1px solid rgba(var(--glass-rgb), 0.42);
   border-radius: 24px;
   box-shadow:
@@ -2101,13 +2101,8 @@ a:hover {
    Liquid Glass Components
    ═══════════════════════════════════════════ */
 
-/* Ambient background gradient */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
+/* Ambient background gradient — on body so backdrop-filter can sample it */
+body {
   background:
     radial-gradient(
       circle at 12% 12%,
@@ -2123,10 +2118,10 @@ body::before {
       circle at 72% 88%,
       rgba(6, 182, 212, 0.055),
       transparent 28%
-    );
+    ),
+    var(--bg);
 }
-[data-theme="dark"] body::before {
-  opacity: 0.8;
+[data-theme="dark"] body {
   background:
     radial-gradient(
       circle at 12% 12%,
@@ -2137,11 +2132,15 @@ body::before {
       circle at 85% 18%,
       rgba(124, 58, 237, 0.08),
       transparent 32%
-    );
+    ),
+    var(--bg);
 }
 
 /* Glass action dock (floating bottom toolbar) */
 .office-action-dock {
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg))
+    saturate(var(--glass-saturation));
   position: sticky;
   bottom: 10px;
   z-index: 30;
@@ -2283,8 +2282,8 @@ body::before {
   margin: 0 -8px 12px;
   padding: 10px 12px;
   background: rgba(var(--glass-rgb), 0.64);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur-md)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-md)) saturate(160%);
   border: 1px solid rgba(var(--glass-rgb), 0.35);
   border-radius: 16px;
 }
