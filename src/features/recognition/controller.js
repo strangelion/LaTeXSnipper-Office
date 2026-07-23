@@ -37,6 +37,10 @@ function renderRecognitionResult(latex) {
   if (insertBtn) insertBtn.disabled = false;
   const copyBtn = document.getElementById("ocrCopyBtn");
   if (copyBtn) copyBtn.disabled = false;
+  // Dispatch so UIController.ocrLatex is updated (insert/copy use this)
+  window.dispatchEvent(
+    new CustomEvent("recognition:result-ready", { detail: { latex } }),
+  );
 }
 
 /**

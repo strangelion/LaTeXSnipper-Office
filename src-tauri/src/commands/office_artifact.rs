@@ -15,9 +15,17 @@ use crate::office_integration::{OfficeCoordinator, ResolvedRoute};
 pub async fn office_resolve_route(
     coordinator: tauri::State<'_, OfficeCoordinator>,
     host: String,
+    preferred_session_id: Option<String>,
+    expected_document_id: Option<String>,
 ) -> Result<ResolvedRoute, String> {
     let host = OfficeHost::parse(&host).ok_or_else(|| format!("Unknown host: {host}"))?;
-    coordinator.resolve_route(host).await
+    coordinator
+        .resolve_route(
+            host,
+            preferred_session_id.as_deref(),
+            expected_document_id.as_deref(),
+        )
+        .await
 }
 
 #[cfg(target_os = "windows")]
@@ -88,8 +96,8 @@ pub async fn office_insert_artifact(
                     protocol_version: Some(
                         crate::platforms::pipe_protocol::PROTOCOL_VERSION as i32,
                     ),
-                    requested_route: None,
-                    actual_route: None,
+                    requested_route: Some("auto".to_string()),
+                    actual_route: Some("nativeOffice".to_string()),
                 };
 
                 let mode = match display {

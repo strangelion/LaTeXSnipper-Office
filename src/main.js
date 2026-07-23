@@ -1758,6 +1758,15 @@ class UIController {
     this.updateOfficeInsertButton();
     this.updateMdCopyButton();
 
+    // Listen for recognition results from new workspace
+    window.addEventListener("recognition:result-ready", (event) => {
+      this.ocrLatex = event.detail.latex;
+      const resultEl = document.getElementById("ocrResult");
+      if (resultEl) resultEl.textContent = this.ocrLatex || "未识别到公式";
+      document.getElementById("ocrInsertBtn")?.removeAttribute("disabled");
+      document.getElementById("ocrCopyBtn")?.removeAttribute("disabled");
+    });
+
     this.initHistoryDb();
 
     Logger.info("UIController ready");

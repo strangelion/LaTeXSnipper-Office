@@ -147,8 +147,15 @@ impl OfficeCoordinator {
     /// The Office.js fallback is reserved for macOS/Web and will be
     /// added when the Bridge heartbeat check is implemented.
     #[cfg(target_os = "windows")]
-    pub async fn resolve_route(&self, host: OfficeHost) -> Result<ResolvedRoute, String> {
-        let target = self.resolve_target(host, None, None).await?;
+    pub async fn resolve_route(
+        &self,
+        host: OfficeHost,
+        preferred_session_id: Option<&str>,
+        expected_document_id: Option<&str>,
+    ) -> Result<ResolvedRoute, String> {
+        let target = self
+            .resolve_target(host, preferred_session_id, expected_document_id)
+            .await?;
         Ok(ResolvedRoute {
             target,
             actual_route: super::dto::OfficeRouteMode::NativeOffice,
@@ -156,7 +163,12 @@ impl OfficeCoordinator {
     }
 
     #[cfg(not(target_os = "windows"))]
-    pub async fn resolve_route(&self, host: OfficeHost) -> Result<ResolvedRoute, String> {
+    pub async fn resolve_route(
+        &self,
+        host: OfficeHost,
+        _preferred_session_id: Option<&str>,
+        _expected_document_id: Option<&str>,
+    ) -> Result<ResolvedRoute, String> {
         Err(format!(
             "Office integration for {host} requires Windows with Native Office, \
              or macOS/Web with Office.js (not yet implemented)."

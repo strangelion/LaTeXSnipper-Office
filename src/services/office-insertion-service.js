@@ -72,13 +72,13 @@ async function insertFormula(payload, targetHost, options) {
 /**
  * Insert a table into Office.
  */
-async function insertTable(payload, targetHost, _options) {
+async function insertTable(payload, targetHost, options = {}) {
   const { invoke } = await import("@tauri-apps/api/core");
 
   const route = await invoke("office_resolve_route", {
     host: targetHost,
-    preferredSessionId: null,
-    expectedDocumentId: null,
+    preferredSessionId: options.sessionId ?? null,
+    expectedDocumentId: options.documentContext ?? null,
   });
 
   return invoke("native_office_insert_table", {
