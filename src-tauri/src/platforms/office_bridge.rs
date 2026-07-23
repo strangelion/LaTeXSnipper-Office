@@ -1313,12 +1313,16 @@ async fn handle_insert_table(
     })
 }
 
+fn default_insert_mode() -> String {
+    "inline".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsertDirectRequest {
     #[serde(default)]
     pub latex: String,
-    #[serde(default)]
-    pub display: bool,
+    #[serde(default = "default_insert_mode")]
+    pub mode: String,
     #[serde(default, rename = "targetClientId")]
     pub target_client_id: Option<String>,
     #[serde(default, rename = "expectedDocumentContext")]
@@ -1345,11 +1349,7 @@ async fn handle_insert_direct(
     } else {
         OfficeAction::InsertFormula {
             latex: req.latex.clone(),
-            mode: if req.display {
-                "display".into()
-            } else {
-                "inline".into()
-            },
+            mode: req.mode,
         }
     };
 

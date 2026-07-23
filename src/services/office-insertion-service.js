@@ -64,7 +64,7 @@ async function insertFormula(payload, targetHost, options) {
         targetClientId: route.target.sessionId,
         expectedDocumentContext: route.target.documentContext,
         latex: payload.content,
-        display: options.display === "display",
+        mode: options.display || "inline",
       }),
     });
     const result = await resp.json().catch(() => null);
