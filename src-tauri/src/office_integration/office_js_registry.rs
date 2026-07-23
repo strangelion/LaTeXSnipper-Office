@@ -18,6 +18,7 @@ pub struct OfficeJsSession {
 }
 
 /// Registry of active Office.js TaskPane sessions.
+#[allow(dead_code)]
 pub struct OfficeJsSessionRegistry {
     sessions: RwLock<HashMap<String, OfficeJsSession>>,
 }
