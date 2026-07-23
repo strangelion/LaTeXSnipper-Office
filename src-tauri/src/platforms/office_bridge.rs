@@ -128,7 +128,6 @@ pub struct OfficeActionResponse {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfficeActionCompletion {
-    #[allow(dead_code)]
     pub action_id: String,
     #[serde(default = "default_true")]
     pub success: bool,
@@ -1382,16 +1381,27 @@ async fn handle_insert_direct(
 
     let completion = match tokio::time::timeout(std::time::Duration::from_secs(30), rx).await {
         Ok(Ok(c)) => c,
-        Ok(Err(_)) => OfficeActionCompletion {
-            action_id: action_id.clone(),
-            success: false,
-            error: Some("TaskPane channel closed".into()),
-        },
-        Err(_) => OfficeActionCompletion {
-            action_id: action_id.clone(),
-            success: false,
-            error: Some("OFFICEJS_ACTION_TIMEOUT".into()),
-        },
+        Ok(Err(_)) => {
+            state.pending_office_actions.lock().await.remove(&action_id);
+            OfficeActionCompletion {
+                action_id: action_id.clone(),
+                success: false,
+                error: Some("TaskPane channel closed".into()),
+            }
+        }
+        Err(_) => {
+            state.pending_office_actions.lock().await.remove(&action_id);
+            state
+                .action_queue
+                .lock()
+                .await
+                .retain(|e| e.action_id != action_id);
+            OfficeActionCompletion {
+                action_id: action_id.clone(),
+                success: false,
+                error: Some("OFFICEJS_ACTION_TIMEOUT".into()),
+            }
+        }
     };
 
     Json(OfficeResponse {
@@ -1477,26 +1487,13 @@ async fn handle_actions_next(
 
 async fn handle_actions_complete(
     State(state): State<Arc<BridgeRuntimeState>>,
-    Json(payload): Json<serde_json::Value>,
+    Json(completion): Json<OfficeActionCompletion>,
 ) -> impl IntoResponse {
-    let action_id = payload["action_id"].as_str().unwrap_or("unknown");
-    let success = payload["success"].as_bool().unwrap_or(true);
-    let error = payload["error"].as_str().map(|s| s.to_string());
-
-    let completion = OfficeActionCompletion {
-        action_id: action_id.to_string(),
-        success,
-        error,
-    };
-
-    if let Some(tx) = state.pending_office_actions.lock().await.remove(action_id) {
+    let action_id = completion.action_id.clone();
+    if let Some(tx) = state.pending_office_actions.lock().await.remove(&action_id) {
         let _ = tx.send(completion);
     }
-
-    println!(
-        "[Bridge] Action completed: {} (success={})",
-        action_id, success
-    );
+    println!("[Bridge] Action completed: {}", action_id);
     Json(OfficeResponse {
         success: true,
         message: "action acknowledged".into(),
