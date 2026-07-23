@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -23,7 +23,7 @@ use latexsnipper_ast::Document;
 // ---------------------------------------------------------------------------
 
 /// Lifecycle status of a recognition job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RecognitionJobStatus {
     /// Waiting to be picked up.
@@ -41,7 +41,7 @@ pub enum RecognitionJobStatus {
 }
 
 /// Fine-grained stage within a running job.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RecognitionStage {
     Preparing,
@@ -60,7 +60,7 @@ pub enum RecognitionStage {
 }
 
 /// A point-in-time snapshot of a job's progress.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecognitionJobSnapshot {
     /// Unique job identifier.

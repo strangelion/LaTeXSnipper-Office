@@ -1,0 +1,50 @@
+{
+  "name": "LaTeXSnipper PdfRenderer",
+  "version": "1.0.0",
+  "description": "Bundled PDF renderer for LaTeXSnipper Office recognition pipeline.",
+  "renderers": {
+    "windows": {
+      "primary": "mutool",
+      "fallback": "pdftoppm",
+      "paths": {
+        "mutool": "PdfRenderer/mutool.exe",
+        "pdftoppm": "PdfRenderer/pdftoppm.exe"
+      }
+    },
+    "linux": {
+      "primary": "pdftoppm",
+      "fallback": "mutool",
+      "paths": {
+        "mutool": "PdfRenderer/mutool",
+        "pdftoppm": "PdfRenderer/pdftoppm"
+      }
+    },
+    "macos": {
+      "primary": "pdftoppm",
+      "fallback": "mutool",
+      "paths": {
+        "mutool": "PdfRenderer/mutool",
+        "pdftoppm": "PdfRenderer/pdftoppm"
+      }
+    }
+  },
+  "rendering": {
+    "defaultDpi": 200,
+    "maxDpi": 400,
+    "outputFormat": "png",
+    "maxPageCount": 500,
+    "timeoutSeconds": 300
+  },
+  "bundled": {
+    "mutool": {
+      "version": "1.24.0",
+      "license": "AGPL-3.0",
+      "source": "https://mupdf.com/releases"
+    },
+    "pdftoppm": {
+      "version": "24.02.0",
+      "license": "GPL-2.0-or-later",
+      "source": "https://poppler.freedesktop.org/releases"
+    }
+  }
+}

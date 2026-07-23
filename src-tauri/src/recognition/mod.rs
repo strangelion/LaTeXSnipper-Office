@@ -13,3 +13,6 @@ pub mod paths;
 pub mod settings;
 pub mod state;
 pub mod validation;
+
+#[cfg(test)]
+mod tests;

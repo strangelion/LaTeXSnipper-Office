@@ -41,6 +41,8 @@
       "resources/WPS/**/*",
       "resources/Obsidian/**/*",
       "resources/Ecosystem/**/*",
+      "resources/NativeOffice/**/*",
+      "resources/PdfRenderer/**/*",
       "resources/provenance.json"
     ],
     "windows": {
