@@ -7035,6 +7035,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Initialize liquid glass appearance (before UI renders)
   initLiquidGlass();
 
+  // Wire liquid glass mode select in settings
+  const liquidGlassSelect = document.getElementById("liquidGlassModeSelect");
+  if (liquidGlassSelect) {
+    liquidGlassSelect.addEventListener("click", (event) => {
+      const option = event.target.closest(".custom-select-option");
+      if (!option) return;
+      const value = option.dataset.value;
+      if (!value) return;
+      import("./features/appearance/liquid-glass.js").then(
+        ({ setLiquidGlassMode }) => {
+          setLiquidGlassMode(value);
+          // Update trigger display
+          const trigger = liquidGlassSelect.querySelector(".custom-select-trigger span");
+          if (trigger) trigger.textContent = option.textContent;
+        },
+      );
+    });
+  }
+
   // Initialize recognition workspace (lazy — no engine load until first use)
   initRecognitionWorkspace().catch((error) =>
     Logger.warn("Recognition workspace init failed", error),
