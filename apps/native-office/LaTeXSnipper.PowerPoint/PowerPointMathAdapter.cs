@@ -86,4 +86,38 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
             return InsertMathResult.Failed(ex.Message, "INSERT_ERROR");
         }
     }
+
+    /// <summary>
+    /// Insert with explicit target (no ActiveSlide dependency).
+    /// Used by batch conversion to target a specific slide.
+    /// </summary>
+    public InsertMathResult Insert(MathInput input, PowerPointMathTarget target)
+    {
+        try
+        {
+            var slide = target.Slide as PowerPoint.Slide;
+            if (slide == null)
+                return InsertMathResult.Failed("Invalid slide target", "INVALID_TARGET");
+
+            // Activate the target slide for the insert path, then restore
+            var previousSlide = _application.ActiveWindow?.View?.Slide;
+            try
+            {
+                slide.Select();
+                return Insert(input);
+            }
+            finally
+            {
+                if (previousSlide != null && previousSlide != slide)
+                {
+                    try { previousSlide.Select(); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PPTMathAdapter] Targeted insert error: {ex.Message}");
+            return InsertMathResult.Failed(ex.Message, "INSERT_ERROR");
+        }
+    }
 }

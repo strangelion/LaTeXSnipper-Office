@@ -98,11 +98,48 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
     /// In production, this calls back to the Desktop via the pipe protocol.
     /// For now, returns a placeholder indicating the Desktop must provide OMML.
     /// </summary>
+    /// <summary>
+    /// Insert with explicit target (no ActiveCell dependency).
+    /// Used by batch conversion to target a specific cell.
+    /// </summary>
+    public InsertMathResult Insert(MathInput input, ExcelMathTarget target)
+    {
+        try
+        {
+            var sheet = target.Worksheet as Excel.Worksheet;
+            if (sheet == null)
+                return InsertMathResult.Failed("Invalid worksheet target", "INVALID_TARGET");
+
+            var cell = target.AnchorCell as Excel.Range;
+            if (cell == null)
+                return InsertMathResult.Failed("Invalid anchor cell", "INVALID_TARGET");
+
+            // Temporarily activate the cell for the insert (the existing
+            // InsertFormula path needs it). We restore after.
+            var previousCell = _application.ActiveCell;
+            try
+            {
+                cell.Activate();
+                return Insert(input);
+            }
+            finally
+            {
+                // Restore previous selection if it's a different cell
+                if (previousCell != null)
+                {
+                    try { previousCell.Activate(); } catch { }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ExcelMathAdapter] Targeted insert error: {ex.Message}");
+            return InsertMathResult.Failed(ex.Message, "INSERT_ERROR");
+        }
+    }
+
     private static string ConvertLatexToOmml(string latex)
     {
-        // The actual conversion happens on the Desktop side (latexsnipper-core).
-        // Excel's adapter receives pre-converted OMML from the Desktop.
-        // If we receive LaTeX here, it means the Desktop needs to do conversion first.
         throw new InvalidOperationException(
             "LaTeX→OMML conversion must be performed by the Desktop. " +
             "Send a conversion request before calling InsertMath.");
