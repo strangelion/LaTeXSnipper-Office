@@ -356,11 +356,15 @@ async function pollActions(): Promise<void> {
         return;
       }
     }
-    await executeBridgeAction(result.action);
+    const execution = await executeBridgeAction(result.action);
     await fetch(`${bridgeBase}/api/office/actions/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ actionId: result.actionId }),
+      body: JSON.stringify({
+        actionId: result.actionId,
+        success: execution.success,
+        error: execution.error ?? null,
+      }),
     });
   } catch {
     /* bridge temporarily offline */

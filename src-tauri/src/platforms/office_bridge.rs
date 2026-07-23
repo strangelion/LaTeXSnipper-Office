@@ -129,14 +129,10 @@ pub struct OfficeActionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct OfficeActionCompletion {
     pub action_id: String,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub success: bool,
     #[serde(default)]
     pub error: Option<String>,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

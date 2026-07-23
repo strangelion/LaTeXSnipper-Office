@@ -67,8 +67,13 @@ async function insertFormula(payload, targetHost, options) {
         display: options.display === "display",
       }),
     });
-    if (!resp.ok) throw new Error(`Office.js insert failed: ${resp.status}`);
-    return { success: true };
+    const result = await resp.json().catch(() => null);
+    if (!resp.ok || !result?.success) {
+      throw new Error(
+        result?.message || `Office.js insert failed: ${resp.status}`,
+      );
+    }
+    return result;
   }
 
   return invoke("native_office_insert_formula", {
