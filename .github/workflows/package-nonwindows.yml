@@ -127,7 +127,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Frontend Vite build failed" }
           "WPS_STAGING=$wpsStaging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           & scripts/stage-resources.ps1 `
-          if ($LASTEXITCODE -ne 0) { throw "Resource staging failed" }
             -WpsStaging $wpsStaging `
             -OfficeJsStaging src-tauri/resources/OfficeJS `
             -WpsSourceName 'current deterministic WPS build' `
