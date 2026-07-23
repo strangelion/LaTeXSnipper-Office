@@ -68,6 +68,14 @@ impl OfficeCoordinator {
             ));
         }
 
+        if matching.len() > 1 && preferred_session_id.is_none() && expected_document_id.is_none() {
+            return Err(format!(
+                "Multiple {host} sessions are connected ({:?}). \
+                 An explicit session or document context is required.",
+                matching.iter().map(|s| &s.session_id).collect::<Vec<_>>()
+            ));
+        }
+
         let session = if let Some(sid) = preferred_session_id {
             matching
                 .iter()
@@ -76,6 +84,17 @@ impl OfficeCoordinator {
                     format!(
                         "Requested session {sid} is not connected. \
                          Available {host} sessions: {:?}",
+                        matching.iter().map(|s| &s.session_id).collect::<Vec<_>>()
+                    )
+                })?
+        } else if let Some(ref doc_id) = expected_document_id {
+            matching
+                .iter()
+                .find(|s| s.document_id.as_deref() == Some(doc_id.as_ref()))
+                .ok_or_else(|| {
+                    format!(
+                        "No {host} session matches document {doc_id}. \
+                         Available sessions: {:?}",
                         matching.iter().map(|s| &s.session_id).collect::<Vec<_>>()
                     )
                 })?

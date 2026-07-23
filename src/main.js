@@ -2229,6 +2229,17 @@ class UIController {
     document.getElementById("screenshotBtn")?.addEventListener("click", () => {
       this.startScreenshot();
     });
+    document.getElementById("ocrFileBtn")?.addEventListener("click", () => {
+      this.selectImageFile();
+    });
+    document.getElementById("ocrPdfBtn")?.addEventListener("click", () => {
+      this.selectPdfFile();
+    });
+    document
+      .getElementById("recognitionSettingsBtn")
+      ?.addEventListener("click", () => {
+        this.openRecognitionSettings();
+      });
     document.getElementById("ocrInsertBtn")?.addEventListener("click", () => {
       this.insertOcrResult();
     });
@@ -6742,6 +6753,60 @@ class UIController {
       this.editor.copyToClipboard(this.ocrLatex);
       this.showStatus("已复制 LaTeX");
     }
+  }
+
+  async selectImageFile() {
+    Logger.info("selectImageFile");
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        filters: [
+          { name: "Images", extensions: ["png", "jpg", "jpeg", "bmp", "webp"] },
+        ],
+      });
+      if (!selected) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke("recognition_start", {
+        request: { path: selected, mode: "auto" },
+      });
+      Logger.info("Recognition job started:", result.jobId);
+      this.showStatus(`识别任务已提交: ${result.jobId}`);
+    } catch (error) {
+      Logger.error("Image file selection failed:", error);
+      this.showStatus("图片识别启动失败");
+    }
+  }
+
+  async selectPdfFile() {
+    Logger.info("selectPdfFile");
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (!selected) return;
+      const { invoke } = await import("@tauri-apps/api/core");
+      const result = await invoke("recognition_start", {
+        request: { path: selected, mode: "full-document" },
+      });
+      Logger.info("PDF recognition job started:", result.jobId);
+      this.showStatus(`PDF 识别任务已提交: ${result.jobId}`);
+    } catch (error) {
+      Logger.error("PDF file selection failed:", error);
+      this.showStatus("PDF 识别启动失败");
+    }
+  }
+
+  openRecognitionSettings() {
+    Logger.info("openRecognitionSettings");
+    const settingsBtn = document.getElementById("settingsBtn");
+    if (settingsBtn) settingsBtn.click();
+    setTimeout(() => {
+      const aiItem = document.querySelector(
+        '.settings-item[data-page="settingsAi"]',
+      );
+      if (aiItem) aiItem.click();
+    }, 100);
   }
 
   applySettings() {

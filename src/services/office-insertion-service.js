@@ -47,25 +47,11 @@ export async function insertArtifact({
 async function insertFormula(payload, targetHost, options) {
   const { invoke } = await import("@tauri-apps/api/core");
 
-  // First, get available sessions to find the right one
-  const sessions = await invoke("native_office_sessions");
-  const targetSession = sessions.find(
-    (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase(),
-  );
+  // Route through Coordinator — single entry point for all insertions
+  const route = await invoke("office_resolve_route", { host: targetHost });
 
-  if (!targetSession) {
-    // No Native Office session — Auto cannot silently fall back to
-    // the insert_formula stub (which returns success but does nothing).
-    const host = targetHost?.toLowerCase() || "word";
-    throw new Error(
-      `No ${host} session is connected. Open a ${host} document first, ` +
-        `or connect via Office.js if you are on macOS/Web.`,
-    );
-  }
-
-  // Use native office insert
   return invoke("native_office_insert_formula", {
-    sessionId: targetSession.session_id,
+    sessionId: route.target.sessionId,
     formulaId: `formula-${Date.now().toString(16)}`,
     latex: payload.content,
     omml: payload.format === "omml" ? payload.content : "",
@@ -85,16 +71,10 @@ async function insertFormula(payload, targetHost, options) {
 async function insertTable(payload, targetHost, _options) {
   const { invoke } = await import("@tauri-apps/api/core");
 
-  const sessions = await invoke("native_office_sessions");
-  const targetSession = sessions.find(
-    (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase(),
-  );
-  if (!targetSession) {
-    throw new Error(`No ${targetHost} Native Office session is connected.`);
-  }
+  const route = await invoke("office_resolve_route", { host: targetHost });
 
   return invoke("native_office_insert_table", {
-    sessionId: targetSession.session_id,
+    sessionId: route.target.sessionId,
     tableJson: JSON.stringify(payload),
   });
 }
