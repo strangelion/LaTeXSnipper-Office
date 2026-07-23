@@ -82,18 +82,29 @@ async function insertFormula(payload, targetHost, options) {
 /**
  * Insert a table into Office.
  */
-async function insertTable(payload, targetHost, options) {
+async function insertTable(payload, targetHost, _options) {
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("insert_table", { tableJson: JSON.stringify(payload) });
+
+  const sessions = await invoke("native_office_sessions");
+  const targetSession = sessions.find(
+    (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase(),
+  );
+  if (!targetSession) {
+    throw new Error(
+      `No ${targetHost} Native Office session is connected.`,
+    );
+  }
+
+  return invoke("native_office_insert_table", {
+    sessionId: targetSession.session_id,
+    tableJson: JSON.stringify(payload),
+  });
 }
 
 /**
  * Insert a full document into Office.
  */
-async function insertDocument(payload, targetHost, options) {
-  // Document insertion is a multi-step process:
-  // 1. Convert Document AST to Office payload
-  // 2. Submit via import_conversation or batch insert
+async function insertDocument(_payload, _targetHost, _options) {
   throw new Error("Document insertion not yet implemented");
 }
 

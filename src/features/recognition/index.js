@@ -31,7 +31,7 @@ export async function initRecognitionWorkspace() {
 
   // Wire up UI elements if the recognition tab exists
   if (view.hasRecognitionTab()) {
-    view.bindRecognitionTab(controller);
+    view.bindRecognitionTab();
   }
 
   // Check backend capabilities
