@@ -172,7 +172,7 @@ internal sealed class WordBatchConversionExecutor
         }
         catch (Exception ex)
         {
-            try { range.Text = backupText; } catch (System.Runtime.InteropServices.COMException) { }
+            try { range.Text = backupText; } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
             System.Diagnostics.Debug.WriteLine(
                 $"[WordBatchConversion] Find-fallback failed: {ex.Message}");
             return false;
@@ -188,7 +188,7 @@ internal sealed class WordBatchConversionExecutor
             if (json.TryGetProperty("start", out var start) && start.TryGetInt32(out int s))
                 return s;
         }
-        catch (System.Runtime.InteropServices.COMException) { }
+        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
         return 0;
     }
 

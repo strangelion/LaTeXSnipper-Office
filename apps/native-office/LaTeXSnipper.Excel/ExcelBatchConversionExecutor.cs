@@ -210,7 +210,7 @@ internal sealed class ExcelBatchConversionExecutor
                     }).Success;
                 }
             }
-            catch (System.Runtime.InteropServices.COMException) { }
+            catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
         }
         return false;
     }

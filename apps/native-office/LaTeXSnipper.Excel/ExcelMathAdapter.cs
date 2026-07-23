@@ -127,7 +127,7 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
                 // Restore previous selection if it's a different cell
                 if (previousCell != null)
                 {
-                    try { previousCell.Activate(); } catch { }
+                    try { previousCell.Activate(); } catch { System.Diagnostics.Debug.WriteLine("Skipped COM object"); }
                 }
             }
         }

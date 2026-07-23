@@ -50,13 +50,13 @@ internal sealed class WordBatchLatexScanner
                         if (shape.TextFrame.HasText != 0)
                             ScanShapeTextRange(shape.TextFrame.TextRange, shape.Name, candidates);
                     }
-                    catch (System.Runtime.InteropServices.COMException) { }
+                    catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                 }
 
                 foreach (Section section in doc.Sections)
                 {
-                    try { foreach (HeaderFooter h in section.Headers) ScanRange(h.Range, "Header", WdStoryType.wdEvenPagesHeaderStory, candidates); } catch (System.Runtime.InteropServices.COMException) { }
-                    try { foreach (HeaderFooter f in section.Footers) ScanRange(f.Range, "Footer", WdStoryType.wdEvenPagesFooterStory, candidates); } catch (System.Runtime.InteropServices.COMException) { }
+                    try { foreach (HeaderFooter h in section.Headers) ScanRange(h.Range, "Header", WdStoryType.wdEvenPagesHeaderStory, candidates); } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+                    try { foreach (HeaderFooter f in section.Footers) ScanRange(f.Range, "Footer", WdStoryType.wdEvenPagesFooterStory, candidates); } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                 }
             }
         }
@@ -112,7 +112,7 @@ internal sealed class WordBatchLatexScanner
                 });
             }
         }
-        catch (System.Runtime.InteropServices.COMException) { }
+        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
     private void ScanShapeTextRange(TextRange textRange, string shapeName, List<LatexCandidateDto> candidates)
@@ -159,7 +159,7 @@ internal sealed class WordBatchLatexScanner
                 });
             }
         }
-        catch (System.Runtime.InteropServices.COMException) { }
+        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
     private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);

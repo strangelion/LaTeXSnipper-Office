@@ -126,7 +126,7 @@ internal sealed class PowerPointBatchLatexScanner
                                     (loc, m) => { var l = (PptTableCellLocator)loc; l.Start = m.Index; l.Length = m.Length; });
                                 }
                             }
-                            catch (System.Runtime.InteropServices.COMException) { }
+                            catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                         }
                     }
                 }
@@ -135,7 +135,7 @@ internal sealed class PowerPointBatchLatexScanner
                 if (shape.Type == Microsoft.Office.Core.MsoShapeType.msoGroup)
                     ScanGroupShape(shape, slideId, slideLabel, candidates);
             }
-            catch (System.Runtime.InteropServices.COMException) { }
+            catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
         }
     }
 
@@ -162,10 +162,10 @@ internal sealed class PowerPointBatchLatexScanner
                         }
                     }
                 }
-                catch (System.Runtime.InteropServices.COMException) { }
+                catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
             }
         }
-        catch (System.Runtime.InteropServices.COMException) { }
+        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
     private void ScanText(string text, Func<int, object> locatorFactory, string location,

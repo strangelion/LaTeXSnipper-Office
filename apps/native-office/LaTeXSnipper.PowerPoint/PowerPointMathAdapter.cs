@@ -110,7 +110,7 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
             {
                 if (previousSlide != null && previousSlide != slide)
                 {
-                    try { previousSlide.Select(); } catch { }
+                    try { previousSlide.Select(); } catch { System.Diagnostics.Debug.WriteLine("Skipped COM object"); }
                 }
             }
         }
