@@ -2,6 +2,7 @@
 
 import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
+import { initLiquidGlass } from "./features/appearance/liquid-glass.js";
 import { initRecognitionWorkspace } from "./features/recognition/index.js";
 import { OfficeLiveEditBridge } from "./features/office-live-edit/office-live-edit-bridge.js";
 import {
@@ -7030,6 +7031,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   );
   Logger.info("App ready");
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
+
+  // Initialize liquid glass appearance (before UI renders)
+  initLiquidGlass();
 
   // Initialize recognition workspace (lazy — no engine load until first use)
   initRecognitionWorkspace().catch((error) =>

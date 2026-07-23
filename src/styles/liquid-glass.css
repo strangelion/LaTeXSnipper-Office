@@ -1,0 +1,195 @@
+/* ============================================================
+   LaTeXSnipper Liquid Glass Design System
+   ============================================================ */
+
+:root {
+  --glass-rgb: 255, 255, 255;
+  --glass-strong-rgb: 248, 250, 252;
+  --glass-alpha-subtle: 0.42;
+  --glass-alpha-regular: 0.58;
+  --glass-alpha-strong: 0.72;
+  --glass-border-alpha: 0.42;
+  --glass-border-highlight-alpha: 0.78;
+  --glass-blur-sm: 12px;
+  --glass-blur-md: 20px;
+  --glass-blur-lg: 28px;
+  --glass-blur-xl: 36px;
+  --glass-saturation: 165%;
+  --glass-radius-sm: 12px;
+  --glass-radius-md: 18px;
+  --glass-radius-lg: 24px;
+  --glass-radius-xl: 30px;
+  --glass-shadow-soft: 0 8px 32px rgba(15, 23, 42, 0.08),
+    0 1px 2px rgba(15, 23, 42, 0.06);
+  --glass-shadow-medium: 0 16px 48px rgba(15, 23, 42, 0.12),
+    0 4px 12px rgba(15, 23, 42, 0.08);
+  --glass-shadow-floating: 0 24px 72px rgba(15, 23, 42, 0.16),
+    0 8px 28px rgba(15, 23, 42, 0.1);
+  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --glass-inner-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.04);
+  --glass-specular: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.12) 30%,
+    transparent 54%
+  );
+  --glass-accent-glow: rgba(37, 99, 235, 0.13);
+  --glass-transition: background-color 180ms ease, border-color 180ms ease,
+    box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
+}
+
+[data-theme="dark"] {
+  --glass-rgb: 23, 30, 45;
+  --glass-strong-rgb: 30, 41, 59;
+  --glass-alpha-subtle: 0.44;
+  --glass-alpha-regular: 0.62;
+  --glass-alpha-strong: 0.76;
+  --glass-border-alpha: 0.24;
+  --glass-border-highlight-alpha: 0.34;
+  --glass-shadow-soft: 0 10px 36px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.14);
+  --glass-shadow-medium: 0 18px 56px rgba(0, 0, 0, 0.34),
+    0 6px 16px rgba(0, 0, 0, 0.2);
+  --glass-shadow-floating: 0 28px 80px rgba(0, 0, 0, 0.44),
+    0 10px 30px rgba(0, 0, 0, 0.24);
+  --glass-inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.11);
+  --glass-inner-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.18);
+  --glass-specular: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.035) 34%,
+    transparent 58%
+  );
+  --glass-accent-glow: rgba(59, 130, 246, 0.18);
+}
+
+html[data-liquid-glass="off"] {
+  --glass-blur-sm: 0px;
+  --glass-blur-md: 0px;
+  --glass-blur-lg: 0px;
+  --glass-blur-xl: 0px;
+  --glass-alpha-subtle: 0.96;
+  --glass-alpha-regular: 0.98;
+  --glass-alpha-strong: 1;
+}
+
+.glass-surface,
+.glass-bar,
+.glass-panel,
+.glass-popover,
+.glass-hud {
+  position: relative;
+  border: 1px solid rgba(var(--glass-rgb), var(--glass-border-alpha));
+  box-shadow: var(--glass-inner-highlight), var(--glass-inner-shadow),
+    var(--glass-shadow-soft);
+  transition: var(--glass-transition);
+}
+
+.glass-surface::before,
+.glass-panel::before,
+.glass-popover::before,
+.glass-hud::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--glass-specular);
+  opacity: 0.72;
+}
+
+.glass-bar {
+  background: rgba(var(--glass-rgb), var(--glass-alpha-regular));
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg))
+    saturate(var(--glass-saturation));
+}
+
+.glass-panel {
+  background: linear-gradient(
+    145deg,
+    rgba(var(--glass-rgb), var(--glass-alpha-strong)),
+    rgba(var(--glass-rgb), var(--glass-alpha-regular))
+  );
+  backdrop-filter: blur(var(--glass-blur-xl)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur-xl))
+    saturate(var(--glass-saturation));
+  box-shadow: var(--glass-inner-highlight), var(--glass-shadow-floating);
+}
+
+.glass-popover {
+  background: rgba(var(--glass-rgb), var(--glass-alpha-strong));
+  backdrop-filter: blur(var(--glass-blur-lg)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-lg)) saturate(180%);
+  box-shadow: var(--glass-inner-highlight), var(--glass-shadow-medium);
+}
+
+.glass-hud {
+  background: rgba(var(--glass-rgb), var(--glass-alpha-regular));
+  backdrop-filter: blur(var(--glass-blur-xl)) saturate(190%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-xl)) saturate(190%);
+  box-shadow: var(--glass-inner-highlight), var(--glass-shadow-floating);
+}
+
+.glass-control {
+  position: relative;
+  background: rgba(var(--glass-rgb), 0.3);
+  border: 1px solid rgba(var(--glass-rgb), 0.4);
+  backdrop-filter: blur(var(--glass-blur-sm));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sm));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  transition: var(--glass-transition);
+}
+
+.glass-control:hover {
+  background: rgba(var(--glass-rgb), 0.48);
+  transform: translateY(-1px);
+}
+
+.glass-control:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.glass-accent {
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.88),
+    rgba(59, 130, 246, 0.72)
+  );
+  border-color: rgba(147, 197, 253, 0.48);
+  color: white;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 6px 20px rgba(37, 99, 235, 0.22);
+}
+
+.glass-noise::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
+  mix-blend-mode: soft-light;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .glass-bar,
+  .glass-panel,
+  .glass-popover,
+  .glass-hud,
+  .glass-control {
+    background: rgba(var(--glass-strong-rgb), 0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
