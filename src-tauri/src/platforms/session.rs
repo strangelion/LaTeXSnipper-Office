@@ -790,6 +790,24 @@ impl SessionManager {
                 let rid = requestId.clone();
                 let sid = sessionId.clone();
                 log::error!("[Session] HOST_ERROR code={:?} error={}", errorCode, error);
+
+                // Resolve pending RequestWaiter so Desktop doesn't wait for timeout
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let host_result = super::office_commit::HostResult {
+                    success: false,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: None,
+                    revision: None,
+                    actual_storage_mode: None,
+                    error_code: errorCode.clone(),
+                    error: Some(error.clone()),
+                    data: None,
+                };
+                waiter.resolve(host_result).await;
+
                 let _ = self.app_handle.emit(
                     "native-office-error",
                     serde_json::json!({

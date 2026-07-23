@@ -12,7 +12,7 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 public static class NativeOfficeProtocol
 {
     public const int Version = 3;
-    public const int MaximumMessageBytes = 64 * 1024 * 1024;
+    public const int MaximumMessageBytes = 16 * 1024 * 1024;
     public const string PipePrefix = "LaTeXSnipper.NativeOffice.v3";
     public const string CustomXmlNamespace = "urn:latexsnipper:office:objects:v3";
 
