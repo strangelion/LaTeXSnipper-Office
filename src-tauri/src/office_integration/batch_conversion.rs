@@ -26,6 +26,12 @@ pub fn build_conversion_plan(
             .normalized_latex
             .unwrap_or_else(|| candidate.source.clone());
 
+        // Compute source hash for integrity verification
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(candidate.source.as_bytes());
+        let source_hash = format!("{:x}", hasher.finalize());
+
         // Try OMML conversion
         let omml_result = latexsnipper_conversion::DocumentConverter::convert_latex_string(
             &latex,
@@ -39,6 +45,8 @@ pub fn build_conversion_plan(
                     source_text: candidate.source,
                     normalized_latex: latex,
                     omml: Some(omml),
+                    locator: candidate.locator,
+                    source_hash: Some(source_hash),
                     status: BatchItemStatus::Converted,
                     error: None,
                 });
@@ -49,6 +57,8 @@ pub fn build_conversion_plan(
                     source_text: candidate.source,
                     normalized_latex: latex,
                     omml: None,
+                    locator: candidate.locator,
+                    source_hash: Some(source_hash),
                     status: BatchItemStatus::Failed,
                     error: Some(format!("OMML conversion failed: {error}")),
                 });

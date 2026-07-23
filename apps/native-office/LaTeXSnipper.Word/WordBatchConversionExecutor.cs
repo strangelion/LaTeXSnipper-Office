@@ -160,6 +160,8 @@ public sealed class BatchConversionItem
     public string SourceText { get; set; } = "";
     public string NormalizedLatex { get; set; } = "";
     public string? Omml { get; set; }
+    public System.Text.Json.JsonElement? Locator { get; set; }
+    public string? SourceHash { get; set; }
     public string Status { get; set; } = "pending";
     public string? Error { get; set; }
 }

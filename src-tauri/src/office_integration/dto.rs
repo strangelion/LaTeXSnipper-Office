@@ -189,6 +189,17 @@ pub struct BatchConversionItem {
     /// Converted OMML (set after conversion).
     pub omml: Option<String>,
 
+    /// Host-generated locator: Desktop stores, returns, never interprets.
+    /// Word: {"storyType":1,"start":381,"end":386}
+    /// Excel: {"worksheet":"Sheet1","address":"$AB$17","start":5,"length":7}
+    /// PowerPoint: {"slideId":281,"shapeId":4,"start":13,"length":7}
+    #[serde(default)]
+    pub locator: Option<serde_json::Value>,
+
+    /// SHA-256 hash of source_text for integrity verification.
+    #[serde(default)]
+    pub source_hash: Option<String>,
+
     /// Item status.
     pub status: BatchItemStatus,
 
@@ -263,8 +274,16 @@ pub struct LatexCandidate {
     /// Normalized LaTeX.
     pub normalized_latex: Option<String>,
 
-    /// Location description (e.g., "Body/Paragraph 5", "Table 2 / Cell A1").
+    /// Human-readable location description (for UI display only).
     pub location: String,
+
+    /// Host-specific locator (Desktop does not interpret).
+    #[serde(default)]
+    pub locator: Option<serde_json::Value>,
+
+    /// SHA-256 of source text for integrity verification.
+    #[serde(default)]
+    pub source_hash: Option<String>,
 
     /// Detection confidence (0.0 – 1.0).
     pub confidence: f64,
