@@ -87,6 +87,8 @@ jobs:
         run: npm run stage:resources
       - name: Verify all staged resource freshness
         run: npm run check:resource-drift
+      - name: Build desktop frontend
+        run: npm run build:vite
 
   rust:
     runs-on: ubuntu-24.04

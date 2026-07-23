@@ -108,7 +108,9 @@ jobs:
         run: |
           $version = $env:VERSION
           npm run build:office-addin
+          if ($LASTEXITCODE -ne 0) { throw "Office.js build failed" }
           npm run build:wps
+          if ($LASTEXITCODE -ne 0) { throw "WPS build failed" }
           $wpsStaging = "apps/wps/dist/latexsnipper-wps_$version"
           Write-Host "WPS staging path: $wpsStaging"
           Write-Host "WPS staging exists: $(Test-Path -LiteralPath $wpsStaging)"
@@ -118,10 +120,14 @@ jobs:
             throw "WPS build output missing: $wpsStaging"
           }
           npm run build:ecosystem
+          if ($LASTEXITCODE -ne 0) { throw "Ecosystem build failed" }
           npm run stage:ecosystem
+          if ($LASTEXITCODE -ne 0) { throw "Ecosystem staging failed" }
           npm run build:vite
+          if ($LASTEXITCODE -ne 0) { throw "Frontend Vite build failed" }
           "WPS_STAGING=$wpsStaging" | Out-File $env:GITHUB_ENV -Append -Encoding UTF8
           & scripts/stage-resources.ps1 `
+          if ($LASTEXITCODE -ne 0) { throw "Resource staging failed" }
             -WpsStaging $wpsStaging `
             -OfficeJsStaging src-tauri/resources/OfficeJS `
             -WpsSourceName 'current deterministic WPS build' `

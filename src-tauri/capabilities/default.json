@@ -9,6 +9,7 @@
     "core:window:allow-set-focus",
     "shell:allow-open",
     "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister"
+    "global-shortcut:allow-unregister",
+    "dialog:default"
   ]
 }

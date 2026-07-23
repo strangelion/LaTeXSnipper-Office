@@ -64,6 +64,7 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let transaction_store = Arc::new(
                 platforms::office_transactions::OfficeEditTransactionStore::new()
