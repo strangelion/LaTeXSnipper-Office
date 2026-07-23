@@ -1,7 +1,7 @@
 //! OCR commands.
 //!
 //! The `ocr_recognize` command is preserved as a backward-compatibility shim
-//! that routes legacy base64 requests through the new RecognitionService.
+//! that routes legacy base64 requests through the managed RecognitionService.
 //! New code should use `recognition_start` instead.
 //!
 //! # Migration
@@ -12,10 +12,10 @@
 //! ```
 
 use serde::Serialize;
-use tauri::command;
+use tauri::{command, State};
 
-#[cfg(feature = "recognition")]
-use latexsnipper_engine::sdk::Snipper;
+use crate::recognition::dto::RecognitionStartRequest;
+use crate::recognition::state::RecognitionState;
 
 #[derive(Debug, Serialize)]
 pub struct OcrResult {
@@ -26,22 +26,25 @@ pub struct OcrResult {
 
 #[command]
 pub async fn screenshot_capture() -> Result<String, String> {
-    // TODO: Implement actual screenshot capture
     Err("Screenshot capture not yet implemented".to_string())
 }
 
 /// Legacy OCR command — kept for backward compatibility.
 ///
 /// Internal flow:
-///   Base64 → jobs/<uuid>/source.png → RecognitionService → old OcrResult DTO
+///   Base64 → job temp → RecognitionState.service() → Formula Recognition → OcrResult DTO
 ///
-/// New callers should use `recognition_start` instead.
+/// This goes through the SAME RecognitionService as `recognition_start`,
+/// NOT through a separate raw Snipper::from_file() path.
 #[command]
 #[deprecated(note = "Use recognition_start instead")]
-pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
+pub async fn ocr_recognize(
+    state: State<'_, RecognitionState>,
+    image_data: String,
+) -> Result<OcrResult, String> {
     #[cfg(not(feature = "recognition"))]
     {
-        let _ = image_data;
+        let _ = (state, image_data);
         Err(
             "OCR recognition is not included in the default Office Bridge build. \
              Rebuild with the recognition feature to enable local OCR."
@@ -53,12 +56,13 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
     {
         #[cfg(not(target_os = "windows"))]
         {
+            let _ = state;
             return Err("OCR is only supported on Windows (requires ONNX Runtime)".to_string());
         }
 
         #[cfg(target_os = "windows")]
         {
-            log::info!("Starting OCR recognition (legacy path)");
+            log::info!("Starting OCR recognition (legacy path, routed through RecognitionService)");
 
             // Decode base64 image data
             use base64::Engine;
@@ -66,7 +70,7 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
                 .decode(&image_data)
                 .map_err(|e| format!("Failed to decode base64: {}", e))?;
 
-            // Save to a unique job-scoped path (no more hard-coded latexsnipper_temp.png)
+            // Save to a unique job-scoped path
             let job_id = simple_uuid();
             let temp_dir = std::env::temp_dir()
                 .join("latexsnipper")
@@ -78,21 +82,31 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
             std::fs::write(&source_path, &image_bytes)
                 .map_err(|e| format!("Failed to write temp file: {}", e))?;
 
-            // Process with Engine SDK (no more direct pipeline::sdk::Snipper)
-            let snipper = Snipper::from_file(&source_path)
-                .map_err(|e| format!("Failed to process image: {}", e))?;
+            // Build a formula-only recognition request
+            let request = RecognitionStartRequest {
+                path: source_path.to_string_lossy().to_string(),
+                mode: "formula".to_string(),
+                parse_mode: None,
+                execution_policy: None,
+                model_overrides: None,
+            };
 
-            // Get results
-            let latex = snipper
-                .to_latex()
-                .map_err(|e| format!("Failed to convert to LaTeX: {}", e))?;
+            // Route through managed RecognitionService (NOT raw Snipper::from_file)
+            let service = state.service().await?;
+            let document = service.recognize(&source_path, &request).await?;
 
-            let markdown = snipper
-                .to_markdown()
-                .map_err(|e| format!("Failed to convert to Markdown: {}", e))?;
+            // Convert Document AST to OcrResult using the conversion crate
+            use latexsnipper_conversion::{DocumentConverter, OutputFormat};
+            let latex = DocumentConverter::new(OutputFormat::Latex)
+                .convert(&document)
+                .map_err(|e| format!("LaTeX conversion failed: {e}"))?;
 
-            // Calculate average confidence
-            let blocks = snipper.document().all_blocks();
+            let markdown = DocumentConverter::new(OutputFormat::MarkdownBlock)
+                .convert(&document)
+                .map_err(|e| format!("Markdown conversion failed: {e}"))?;
+
+            // Calculate average confidence across formula blocks
+            let blocks = document.all_blocks();
             let confidence = if blocks.is_empty() {
                 0.0
             } else {
@@ -135,7 +149,6 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
     }
 }
 
-/// Generate a simple UUID-like string from timestamp.
 fn simple_uuid() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let t = SystemTime::now()

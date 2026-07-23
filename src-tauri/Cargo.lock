@@ -3023,6 +3023,8 @@ dependencies = [
  "latexsnipper-ast",
  "latexsnipper-conversion",
  "latexsnipper-engine",
+ "latexsnipper-image",
+ "latexsnipper-pipeline",
  "log",
  "quick-xml 0.37.5",
  "rand 0.8.6",

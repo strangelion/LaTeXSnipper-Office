@@ -97,10 +97,9 @@ pub async fn recognition_start(
         // Spawn the job
         let app_clone = app.clone();
         let path = PathBuf::from(&request.path);
-        let mode = request.mode.clone();
 
         tauri::async_runtime::spawn(async move {
-            run_recognition_job(app_clone, service, job, path, mode).await;
+            run_recognition_job(app_clone, service, job, path, request).await;
         });
 
         Ok(RecognitionStartResponse { job_id })
@@ -199,17 +198,17 @@ pub async fn recognition_get_output(
 #[cfg(feature = "recognition")]
 async fn run_recognition_job(
     app: tauri::AppHandle,
-    _service: std::sync::Arc<crate::recognition::state::RecognitionService>,
+    service: std::sync::Arc<crate::recognition::state::RecognitionService>,
     job: std::sync::Arc<RecognitionJobEntry>,
     path: PathBuf,
-    _mode: String,
+    request: RecognitionStartRequest,
 ) {
     // Transition to Running
     {
         let mut snap = job.snapshot.write().await;
         snap.status = RecognitionJobStatus::Running;
         snap.stage = RecognitionStage::LoadingModels;
-        snap.message = Some("Loading models...".to_string());
+        snap.message = Some(format!("Loading models (mode={})...", request.mode));
     }
     emit_job_update(&app, &*job.snapshot.read().await);
 
@@ -219,9 +218,9 @@ async fn run_recognition_job(
         return;
     }
 
-    // Run recognition using the SDK
+    let mode_label = request.mode.clone();
     log::info!(
-        "[Recognition] Starting job {} path={}",
+        "[Recognition] Starting job {} mode={mode_label} path={}",
         job.snapshot.read().await.id,
         path.display()
     );
@@ -229,17 +228,11 @@ async fn run_recognition_job(
     let result = {
         let mut snap = job.snapshot.write().await;
         snap.stage = RecognitionStage::RecognizingFormula;
-        snap.message = Some("Recognizing...".to_string());
+        snap.message = Some(format!("Recognizing ({mode_label})..."));
         drop(snap);
 
-        // Use the engine SDK
-        match latexsnipper_engine::sdk::Snipper::from_file(&path) {
-            Ok(snipper) => {
-                let document = snipper.document().clone();
-                Ok(document)
-            }
-            Err(e) => Err(format!("Recognition failed: {e}")),
-        }
+        // Route through managed RecognitionService (NOT raw Snipper::from_file)
+        service.recognize(&path, &request).await
     };
 
     // Check cancellation
