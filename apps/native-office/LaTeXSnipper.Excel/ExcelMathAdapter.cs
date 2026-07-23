@@ -133,7 +133,7 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
                     {
                         try
                         {
-                            var shape = sheet.Shapes[i];
+                            var shape = sheet.Shapes.Item(i);
                             if (target.Left > 0) shape.Left = target.Left;
                             if (target.Top > 0) shape.Top = target.Top;
                         }
