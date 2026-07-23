@@ -488,6 +488,12 @@ pub struct FormulaPayload {
     /// Protocol version at creation time
     #[serde(rename = "protocolVersion", skip_serializing_if = "Option::is_none")]
     pub protocol_version: Option<i32>,
+    /// Requested integration route: "auto", "nativeOffice", "officeJs"
+    #[serde(rename = "requestedRoute", skip_serializing_if = "Option::is_none")]
+    pub requested_route: Option<String>,
+    /// Actual integration route used by the resolver
+    #[serde(rename = "actualRoute", skip_serializing_if = "Option::is_none")]
+    pub actual_route: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

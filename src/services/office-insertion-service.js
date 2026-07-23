@@ -54,13 +54,13 @@ async function insertFormula(payload, targetHost, options) {
   );
 
   if (!targetSession) {
-    // Fall back to the unified insert command
-    return invoke("insert_formula", {
-      request: {
-        formulaType: "latex",
-        latex: payload.format === "latex" ? payload.content : "",
-      },
-    });
+    // No Native Office session — Auto cannot silently fall back to
+    // the insert_formula stub (which returns success but does nothing).
+    const host = targetHost?.toLowerCase() || "word";
+    throw new Error(
+      `No ${host} session is connected. Open a ${host} document first, ` +
+        `or connect via Office.js if you are on macOS/Web.`,
+    );
   }
 
   // Use native office insert

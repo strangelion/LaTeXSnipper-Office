@@ -74,6 +74,8 @@ pub async fn native_office_insert_formula(
         document_context: None,
         object_context: None,
         protocol_version: None,
+        requested_route: None,
+        actual_route: None,
     };
 
     let insert_mode = match mode.as_str() {
@@ -163,6 +165,8 @@ pub async fn native_office_replace_formula(
         document_context: None,
         object_context: None,
         protocol_version: None,
+        requested_route: None,
+        actual_route: None,
     };
 
     // Step 1: Generate request ID
@@ -916,6 +920,8 @@ pub async fn native_office_generate_and_insert(
         document_context: None,
         object_context: None,
         protocol_version: None,
+        requested_route: None,
+        actual_route: None,
     };
 
     let im = integration_mode

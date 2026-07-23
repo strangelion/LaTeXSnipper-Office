@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 // Office host types
 // ---------------------------------------------------------------------------
 
+/// Integration route: which channel to use for Office communication.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OfficeRouteMode {
+    /// Auto-resolve based on platform and session availability.
+    Auto,
+    /// Native Office VSTO via Named Pipe (Windows only).
+    NativeOffice,
+    /// Office.js web add-in via Bridge API.
+    OfficeJs,
+}
+
 /// Supported Office hosts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

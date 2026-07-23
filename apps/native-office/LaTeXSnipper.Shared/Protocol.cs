@@ -493,6 +493,16 @@ public class FormulaPayload
     [JsonPropertyName("protocolVersion")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ProtocolVersion { get; set; }
+
+    /// <summary>Requested integration route: "auto", "nativeOffice", "officeJs".</summary>
+    [JsonPropertyName("requestedRoute")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RequestedRoute { get; set; }
+
+    /// <summary>Actual integration route resolved by the OfficeIntegrationService.</summary>
+    [JsonPropertyName("actualRoute")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ActualRoute { get; set; }
 }
 
 public class PresentationData

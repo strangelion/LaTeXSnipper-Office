@@ -71,6 +71,8 @@ pub async fn office_insert_artifact(
                     protocol_version: Some(
                         crate::platforms::pipe_protocol::PROTOCOL_VERSION as i32,
                     ),
+                    requested_route: None,
+                    actual_route: None,
                 };
 
                 let mode = match display {
