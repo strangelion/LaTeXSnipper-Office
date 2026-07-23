@@ -14,7 +14,7 @@
 use serde::Serialize;
 use tauri::{command, State};
 
-#[cfg(feature = "recognition")]
+#[cfg(all(feature = "recognition", target_os = "windows"))]
 use crate::recognition::dto::RecognitionStartRequest;
 use crate::recognition::state::RecognitionState;
 
