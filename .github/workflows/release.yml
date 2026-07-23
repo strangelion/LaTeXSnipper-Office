@@ -88,18 +88,18 @@ jobs:
               awk -F'"' '/^version[[:space:]]*=/ { print $2; exit }'
           )"
 
-          if [[ "$package_version" != "$version" ]]; then
-            echo "package.json version mismatch: tag=$version file=$package_version" >&2
+          if [[ "$package_version" != "$full_version" ]]; then
+            echo "package.json version mismatch: tag=$full_version file=$package_version" >&2
             exit 1
           fi
 
-          if [[ "$tauri_version" != "$version" ]]; then
-            echo "tauri.conf.json version mismatch: tag=$version file=$tauri_version" >&2
+          if [[ "$tauri_version" != "$full_version" ]]; then
+            echo "tauri.conf.json version mismatch: tag=$full_version file=$tauri_version" >&2
             exit 1
           fi
 
-          if [[ "$cargo_version" != "$version" ]]; then
-            echo "Cargo.toml version mismatch: tag=$version file=$cargo_version" >&2
+          if [[ "$cargo_version" != "$full_version" ]]; then
+            echo "Cargo.toml version mismatch: tag=$full_version file=$cargo_version" >&2
             exit 1
           fi
 
