@@ -195,7 +195,7 @@ internal sealed class WordBatchLatexScanner
     {
         try
         {
-            if (item.Exists == 0) return false;
+            if (!item.Exists) return false;
             if (sectionIndex > 1 && item.LinkToPrevious) return false;
             var range = item.Range;
             string key = $"{(int)range.StoryType}:{range.Start}:{range.End}";

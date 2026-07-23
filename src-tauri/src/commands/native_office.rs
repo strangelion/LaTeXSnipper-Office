@@ -329,14 +329,20 @@ pub async fn native_office_read_formula_by_id(
 pub async fn native_office_insert_table(
     session_mgr: State<'_, Arc<SessionManager>>,
     session_id: String,
+    expected_document_id: Option<String>,
     table_json: String,
 ) -> Result<String, String> {
     let table: TablePayload =
         serde_json::from_str(&table_json).map_err(|e| format!("Invalid table JSON: {}", e))?;
 
-    crate::platforms::pipe_server::send_insert_table(&session_mgr, &session_id, None, table)
-        .await
-        .map_err(|e| e.to_string())?;
+    crate::platforms::pipe_server::send_insert_table(
+        &session_mgr,
+        &session_id,
+        expected_document_id,
+        table,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok("Table insertion sent".to_string())
 }

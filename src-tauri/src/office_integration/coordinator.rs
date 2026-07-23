@@ -24,6 +24,7 @@ pub struct ResolvedRoute {
 }
 
 /// The unified Office integration coordinator.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,

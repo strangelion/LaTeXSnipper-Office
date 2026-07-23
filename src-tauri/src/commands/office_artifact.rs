@@ -3,14 +3,11 @@
 //! These commands insert recognition results (formulas, tables, documents)
 //! into the active Office host via the unified insertion pipeline.
 
-#[cfg(target_os = "windows")]
 use crate::office_integration::dto::OfficeHost;
-#[cfg(target_os = "windows")]
 use crate::office_integration::{OfficeCoordinator, ResolvedRoute};
 
 /// Resolve the integration route for a given Office host.
 /// Auto → NativeOffice if VSTO session available, else error.
-#[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn office_resolve_route(
     coordinator: tauri::State<'_, OfficeCoordinator>,
@@ -112,10 +109,11 @@ pub async fn office_insert_artifact(
                     .parse::<crate::platforms::pipe_protocol::FormulaIntegrationMode>()
                     .ok();
 
+                let ctx = Some(artifact.target.document_context.clone());
                 crate::platforms::pipe_server::send_insert_formula(
                     &session_mgr,
                     session_id,
-                    None,
+                    ctx,
                     payload,
                     mode,
                     im,

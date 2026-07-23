@@ -261,7 +261,6 @@ fn main() {
             commands::office_batch::office_batch_convert_plan,
             #[cfg(target_os = "windows")]
             commands::office_batch::office_batch_execute,
-            #[cfg(target_os = "windows")]
             commands::office_artifact::office_resolve_route,
             #[cfg(target_os = "windows")]
             commands::office_artifact::office_insert_artifact,
