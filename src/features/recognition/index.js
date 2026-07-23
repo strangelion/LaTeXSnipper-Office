@@ -41,7 +41,13 @@ export async function initRecognitionWorkspace() {
     store.setCapabilities(caps);
   } catch (err) {
     console.warn("[Recognition] Recognition not available:", err);
-    store.setCapabilities({ available: false, modes: [], outputFormats: [], maxResolution: null, activeJobs: 0 });
+    store.setCapabilities({
+      available: false,
+      modes: [],
+      outputFormats: [],
+      maxResolution: null,
+      activeJobs: 0,
+    });
   }
 
   console.log("[Recognition] Workspace initialized.");

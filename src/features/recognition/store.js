@@ -32,7 +32,11 @@ const listeners = [];
 function notify() {
   const state = getState();
   for (const fn of listeners) {
-    try { fn(state); } catch (e) { /* ignore */ }
+    try {
+      fn(state);
+    } catch (e) {
+      /* ignore */
+    }
   }
 }
 

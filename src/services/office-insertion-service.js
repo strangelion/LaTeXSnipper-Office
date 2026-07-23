@@ -19,7 +19,12 @@
  * }} params
  * @returns {Promise<object>}
  */
-export async function insertArtifact({ type, payload, targetHost, options = {} }) {
+export async function insertArtifact({
+  type,
+  payload,
+  targetHost,
+  options = {},
+}) {
   switch (type) {
     case "formula":
       return insertFormula(payload, targetHost, options);
@@ -45,7 +50,7 @@ async function insertFormula(payload, targetHost, options) {
   // First, get available sessions to find the right one
   const sessions = await invoke("native_office_sessions");
   const targetSession = sessions.find(
-    (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase()
+    (s) => s.host_type?.toLowerCase() === targetHost?.toLowerCase(),
   );
 
   if (!targetSession) {
