@@ -21,10 +21,10 @@ public sealed class ExcelMathTarget
     public object AnchorCell { get; set; } = null!;
 
     /// <summary>Left position in points (for shape-based targets).</summary>
-    public float Left { get; set; }
+    public float? Left { get; set; }
 
     /// <summary>Top position in points (for shape-based targets).</summary>
-    public float Top { get; set; }
+    public float? Top { get; set; }
 }
 
 // =========================================================================
@@ -38,10 +38,10 @@ public sealed class PowerPointMathTarget
     public object Slide { get; set; } = null!;
 
     /// <summary>Left position in points.</summary>
-    public float Left { get; set; }
+    public float? Left { get; set; }
 
     /// <summary>Top position in points.</summary>
-    public float Top { get; set; }
+    public float? Top { get; set; }
 
     /// <summary>Width in points (0 = use default).</summary>
     public float Width { get; set; }

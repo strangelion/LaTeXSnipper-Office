@@ -27,6 +27,7 @@ pub async fn native_office_sessions(
 pub async fn native_office_insert_formula(
     session_mgr: State<'_, Arc<SessionManager>>,
     session_id: String,
+    expected_document_id: Option<String>,
     formula_id: String,
     latex: String,
     omml: String,
@@ -37,7 +38,33 @@ pub async fn native_office_insert_formula(
     width_pt: Option<f32>,
     height_pt: Option<f32>,
     integration_mode: Option<String>,
+    requested_route: Option<String>,
+    actual_route: Option<String>,
 ) -> Result<String, String> {
+    // Validate session still exists and document hasn't changed
+    let session = session_mgr
+        .list_sessions()
+        .await
+        .into_iter()
+        .find(|s| s.session_id == session_id)
+        .ok_or_else(|| "Office session is no longer connected".to_string())?;
+
+    if let Some(ref expected) = expected_document_id {
+        if session.document_id.as_deref() != Some(expected.as_str()) {
+            return Err("CONTEXT_CHANGED: Office document changed before insertion".to_string());
+        }
+    }
+
+    let host = match session.host_type {
+        crate::platforms::session::HostType::Word => "word",
+        crate::platforms::session::HostType::Excel => "excel",
+        crate::platforms::session::HostType::PowerPoint => "powerpoint",
+        crate::platforms::session::HostType::Visio => "visio",
+    }
+    .to_string();
+
+    let document_context = session.document_id.clone();
+
     let payload = FormulaPayload {
         schema_version: Some(3),
         formula_id,
@@ -70,12 +97,12 @@ pub async fn native_office_insert_formula(
         }),
         revision: 0,
         created_utc_ticks: 0,
-        host: None,
-        document_context: None,
+        host: Some(host),
+        document_context,
         object_context: None,
-        protocol_version: None,
-        requested_route: Some("auto".to_string()),
-        actual_route: Some("nativeOffice".to_string()),
+        protocol_version: Some(PROTOCOL_VERSION as i32),
+        requested_route: requested_route.or(Some("auto".to_string())),
+        actual_route: actual_route.or(Some("nativeOffice".to_string())),
     };
 
     let insert_mode = match mode.as_str() {

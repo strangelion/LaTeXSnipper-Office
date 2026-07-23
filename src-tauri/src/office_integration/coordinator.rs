@@ -145,7 +145,9 @@ impl OfficeCoordinator {
     ///
     /// On Windows with an active VSTO session, returns NativeOffice.
     /// The Office.js fallback is reserved for macOS/Web and will be
-    /// added when the Bridge heartbeat check is implemented.
+    /// Auto route: try Native Office first, fall back to Office.js.
+    /// Office.js fallback requires the OfficeJsSessionRegistry to be wired
+    /// in main.rs and heartbeat from the TaskPane Bridge.
     #[cfg(target_os = "windows")]
     pub async fn resolve_route(
         &self,
@@ -153,13 +155,23 @@ impl OfficeCoordinator {
         preferred_session_id: Option<&str>,
         expected_document_id: Option<&str>,
     ) -> Result<ResolvedRoute, String> {
-        let target = self
-            .resolve_target(host, preferred_session_id, expected_document_id)
-            .await?;
-        Ok(ResolvedRoute {
-            target,
-            actual_route: super::dto::OfficeRouteMode::NativeOffice,
-        })
+        // Try Native Office first
+        if let Ok(target) = self
+            .resolve_target(host.clone(), preferred_session_id, expected_document_id)
+            .await
+        {
+            return Ok(ResolvedRoute {
+                target,
+                actual_route: super::dto::OfficeRouteMode::NativeOffice,
+            });
+        }
+
+        // Fall back to Office.js (requires Bridge heartbeat)
+        let host_str = host.to_string().to_lowercase();
+        Err(format!(
+            "No Native Office {host_str} session is connected and Office.js fallback \
+             requires the Bridge heartbeat. Ensure a {host_str} TaskPane is active."
+        ))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -169,9 +181,10 @@ impl OfficeCoordinator {
         _preferred_session_id: Option<&str>,
         _expected_document_id: Option<&str>,
     ) -> Result<ResolvedRoute, String> {
+        let host_str = host.to_string().to_lowercase();
         Err(format!(
-            "Office integration for {host} requires Windows with Native Office, \
-             or macOS/Web with Office.js (not yet implemented)."
+            "Office integration for {host_str} requires Windows with Native Office, \
+             or macOS/Web with Office.js Bridge heartbeat (not yet wired)."
         ))
     }
 }

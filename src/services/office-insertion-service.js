@@ -56,16 +56,19 @@ async function insertFormula(payload, targetHost, options) {
 
   return invoke("native_office_insert_formula", {
     sessionId: route.target.sessionId,
+    expectedDocumentId: route.target.documentContext ?? null,
     formulaId: `formula-${Date.now().toString(16)}`,
     latex: payload.content,
     omml: payload.format === "omml" ? payload.content : "",
     display: options.display || "inline",
     mode: options.display || "inline",
-    svg: null,
-    png: null,
-    widthPt: null,
-    heightPt: null,
+    svg: options.svg ?? null,
+    png: options.png ?? null,
+    widthPt: options.widthPt ?? null,
+    heightPt: options.heightPt ?? null,
     integrationMode: options.storageMode || "auto",
+    requestedRoute: options.routeMode || "auto",
+    actualRoute: route.actualRoute,
   });
 }
 

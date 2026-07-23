@@ -53,6 +53,7 @@ internal sealed class WordBatchLatexScanner
                     catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
                 }
 
+                var scannedHeaderFooters = new HashSet<string>(StringComparer.Ordinal);
                 foreach (Section section in doc.Sections)
                 {
                     int secIdx = section.Index;
@@ -62,6 +63,7 @@ internal sealed class WordBatchLatexScanner
                         {
                             try
                             {
+                                if (!ShouldScanHeaderFooter(h, secIdx, scannedHeaderFooters)) continue;
                                 WdStoryType st = h.Range.StoryType;
                                 ScanRange(h.Range, $"Hdr-S{secIdx}", st, candidates, secIdx);
                             }
@@ -75,6 +77,7 @@ internal sealed class WordBatchLatexScanner
                         {
                             try
                             {
+                                if (!ShouldScanHeaderFooter(f, secIdx, scannedHeaderFooters)) continue;
                                 WdStoryType st = f.Range.StoryType;
                                 ScanRange(f.Range, $"Ftr-S{secIdx}", st, candidates, secIdx);
                             }
@@ -186,6 +189,19 @@ internal sealed class WordBatchLatexScanner
             }
         }
         catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+    }
+
+    private static bool ShouldScanHeaderFooter(HeaderFooter item, int sectionIndex, HashSet<string> seen)
+    {
+        try
+        {
+            if (item.Exists == 0) return false;
+            if (sectionIndex > 1 && item.LinkToPrevious) return false;
+            var range = item.Range;
+            string key = $"{(int)range.StoryType}:{range.Start}:{range.End}";
+            return seen.Add(key);
+        }
+        catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
     private static string ComputeSha256(string input) => SourceHash.Sha256Hex(input);

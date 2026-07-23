@@ -127,15 +127,15 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
                     return result;
 
                 // If Left/Top are specified, reposition the just-inserted shape
-                if (target.Left > 0 || target.Top > 0)
+                if (target.Left.HasValue || target.Top.HasValue)
                 {
                     for (int i = sheet.Shapes.Count; i > before; i--)
                     {
                         try
                         {
                             var shape = sheet.Shapes.Item(i);
-                            if (target.Left > 0) shape.Left = target.Left;
-                            if (target.Top > 0) shape.Top = target.Top;
+                            if (target.Left.HasValue) shape.Left = target.Left.Value;
+                            if (target.Top.HasValue) shape.Top = target.Top.Value;
                         }
                         catch { /* best-effort reposition */ }
                     }

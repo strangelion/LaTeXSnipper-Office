@@ -150,7 +150,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
+                }, BuildTextRangeTarget(slide, foundRange));
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -194,7 +194,7 @@ internal sealed class PowerPointBatchConversionExecutor
                     Format = "omml", Content = item.Omml!,
                     Display = "inline", FormulaId = $"batch-{item.SourceId}",
                     OriginalLatex = item.NormalizedLatex,
-                }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
+                }, BuildTextRangeTarget(slide, foundRange));
 
                 if (!result.Success) return false;
                 foundRange.Delete();
@@ -226,7 +226,7 @@ internal sealed class PowerPointBatchConversionExecutor
                         Format = "omml", Content = item.Omml!,
                         Display = "inline", FormulaId = $"batch-{item.SourceId}",
                         OriginalLatex = item.NormalizedLatex,
-                    }, new PowerPointMathTarget { Slide = slide, Left = shape.Left, Top = shape.Top });
+                    }, BuildTextRangeTarget(slide, foundRange));
                     if (!result.Success) return false;
                     found.Delete();
                     return true;
@@ -269,6 +269,18 @@ internal sealed class PowerPointBatchConversionExecutor
 
     private static BatchFailureDto Failure(BatchConversionItem item, string error) =>
         new() { SourceId = item.SourceId, SourceText = item.SourceText, Error = error };
+
+    private static PowerPointMathTarget BuildTextRangeTarget(PptInterop.Slide slide, PptInterop.TextRange range)
+    {
+        return new PowerPointMathTarget
+        {
+            Slide = slide,
+            Left = range.BoundLeft,
+            Top = range.BoundTop,
+            Width = Math.Max(1f, range.BoundWidth),
+            Height = Math.Max(1f, range.BoundHeight),
+        };
+    }
 
     private static VstoBatchConvertResult BuildResult(
         string planId, int total, int converted, int skipped, int failed,

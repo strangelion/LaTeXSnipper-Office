@@ -2287,3 +2287,80 @@ body {
   border: 1px solid rgba(var(--glass-rgb), 0.35);
   border-radius: 16px;
 }
+
+/* Recognition job panel */
+.recognition-job-panel {
+  margin-top: 12px;
+}
+.recognition-job-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.recognition-job-count {
+  min-width: 24px;
+  padding: 2px 7px;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.recognition-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.recognition-job-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+.recognition-job-item.selected {
+  border-color: var(--accent);
+}
+.recognition-job-main {
+  flex: 1;
+  min-width: 0;
+}
+.recognition-job-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+.recognition-job-progress {
+  height: 4px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+}
+.recognition-job-progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+.recognition-job-message {
+  margin-top: 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recognition-job-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.recognition-job-cancel {
+  padding: 4px 10px;
+  font-size: 0.7rem;
+}

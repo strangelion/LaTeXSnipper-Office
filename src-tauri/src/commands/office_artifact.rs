@@ -138,11 +138,59 @@ pub async fn office_insert_artifact(
             }
 
             ArtifactType::Document => {
-                // Document insertion uses the conversation import pipeline.
-                // For now, return an error that this is not yet implemented.
-                Err("Full document insertion is not yet implemented. \
-                     Use per-block insertion instead."
-                    .to_string())
+                use crate::platforms::conversation_import::WordImportPlan;
+                use crate::platforms::pipe_protocol::DesktopMessage;
+
+                if artifact.target.host != OfficeHost::Word {
+                    return Err(
+                        "Structured document insertion currently supports Word only.".to_string(),
+                    );
+                }
+
+                let plan: WordImportPlan = serde_json::from_value(artifact.payload.clone())
+                    .map_err(|e| format!("Invalid Word document import plan: {e}"))?;
+
+                if !plan.can_commit {
+                    return Err("Word document import plan contains conversion errors.".to_string());
+                }
+                if plan.operations.is_empty() {
+                    return Err("Word document import plan contains no operations.".to_string());
+                }
+
+                let session = session_mgr
+                    .list_sessions()
+                    .await
+                    .into_iter()
+                    .find(|s| s.session_id == artifact.target.session_id)
+                    .ok_or_else(|| "Target Office session is no longer connected.".to_string())?;
+
+                if session.host_type != crate::platforms::session::HostType::Word {
+                    return Err(
+                        "Structured document insertion requires a Word session.".to_string()
+                    );
+                }
+                if session.document_id.as_deref() != Some(artifact.target.document_context.as_str())
+                {
+                    return Err(
+                        "DESTINATION_CHANGED: Word document context changed before insertion."
+                            .to_string(),
+                    );
+                }
+
+                let request_id = format!("doc-{}", uuid_simple());
+                let message = DesktopMessage::ImportConversation {
+                    requestId: request_id,
+                    sessionId: artifact.target.session_id.clone(),
+                    expectedContextId: artifact.target.document_context.clone(),
+                    plan,
+                };
+
+                session_mgr
+                    .send_to_session(&artifact.target.session_id, message)
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                Ok("Structured document insertion requested".to_string())
             }
         }
     }
