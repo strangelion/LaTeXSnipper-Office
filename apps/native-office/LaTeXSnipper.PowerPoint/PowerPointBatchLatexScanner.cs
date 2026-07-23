@@ -13,19 +13,19 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
-using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+using PptInterop = Microsoft.Office.Interop.PowerPoint;
 
 namespace LaTeXSnipper.PowerPoint.Host;
 
 internal sealed class PowerPointBatchLatexScanner
 {
-    private readonly PowerPoint.Application _application;
+    private readonly PptInterop.Application _application;
 
     private static readonly Regex LatexMathPattern = new(
         @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    public PowerPointBatchLatexScanner(PowerPoint.Application application) => _application = application;
+    public PowerPointBatchLatexScanner(PptInterop.Application application) => _application = application;
 
     public List<LatexCandidateDto> Scan(string scope = "entirePresentation")
     {
@@ -36,7 +36,7 @@ internal sealed class PowerPointBatchLatexScanner
             if (pres == null) return candidates;
 
             var slides = ResolveSlides(pres, scope.ToLowerInvariant());
-            foreach (PowerPoint.Slide slide in slides)
+            foreach (PptInterop.Slide slide in slides)
             {
                 int slideNum;
                 try { slideNum = slide.SlideNumber; } catch { slideNum = 0; }
@@ -52,40 +52,40 @@ internal sealed class PowerPointBatchLatexScanner
         return candidates;
     }
 
-    private List<PowerPoint.Slide> ResolveSlides(PowerPoint.Presentation pres, string scope)
+    private List<PptInterop.Slide> ResolveSlides(PptInterop.Presentation pres, string scope)
     {
-        var slides = new List<PowerPoint.Slide>();
+        var slides = new List<PptInterop.Slide>();
         switch (scope)
         {
             case "currentslide":
-                if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide s)
+                if (_application.ActiveWindow?.View?.Slide is PptInterop.Slide s)
                     slides.Add(s);
                 break;
             case "selection":
-                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange sr)
+                if (_application.ActiveWindow?.Selection?.SlideRange is PptInterop.SlideRange sr)
                     for (int i = 1; i <= sr.Count; i++) slides.Add(sr[i]);
                 break;
             case "selectedslides":
                 // Fix: case must be lowercase after ToLowerInvariant()
-                if (_application.ActiveWindow?.Selection?.SlideRange is PowerPoint.SlideRange selRange)
+                if (_application.ActiveWindow?.Selection?.SlideRange is PptInterop.SlideRange selRange)
                     for (int i = 1; i <= selRange.Count; i++) slides.Add(selRange[i]);
-                else if (_application.ActiveWindow?.View?.Slide is PowerPoint.Slide fs)
+                else if (_application.ActiveWindow?.View?.Slide is PptInterop.Slide fs)
                     slides.Add(fs);
                 break;
             case "entirepresentation":
             default:
-                foreach (PowerPoint.Slide slide in pres.Slides) slides.Add(slide);
+                foreach (PptInterop.Slide slide in pres.Slides) slides.Add(slide);
                 break;
         }
         return slides;
     }
 
-    private void ScanSlide(PowerPoint.Slide slide, int slideId, int slideNum,
+    private void ScanSlide(PptInterop.Slide slide, int slideId, int slideNum,
         List<LatexCandidateDto> candidates)
     {
         string slideLabel = $"Slide {slideNum}";
 
-        foreach (PowerPoint.Shape shape in slide.Shapes)
+        foreach (PptInterop.Shape shape in slide.Shapes)
         {
             try
             {
@@ -139,12 +139,12 @@ internal sealed class PowerPointBatchLatexScanner
         }
     }
 
-    private void ScanGroupShape(PowerPoint.Shape group, int slideId, string location,
+    private void ScanGroupShape(PptInterop.Shape group, int slideId, string location,
         List<LatexCandidateDto> candidates)
     {
         try
         {
-            foreach (PowerPoint.Shape child in group.GroupItems)
+            foreach (PptInterop.Shape child in group.GroupItems)
             {
                 try
                 {

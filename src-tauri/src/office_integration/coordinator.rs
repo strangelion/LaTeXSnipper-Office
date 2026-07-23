@@ -5,7 +5,6 @@
 //! - Session selection
 //! - Document context validation
 //! - Routing Named Pipe requests to the correct session
-#![allow(unused_imports)]
 
 #[cfg(target_os = "windows")]
 use std::sync::Arc;
@@ -16,6 +15,7 @@ use crate::platforms::session::SessionManager;
 use super::dto::{OfficeHost, OfficeTarget};
 
 /// The unified Office integration coordinator.
+#[allow(dead_code)]
 pub struct OfficeCoordinator {
     #[cfg(target_os = "windows")]
     session_manager: Arc<SessionManager>,
@@ -32,13 +32,6 @@ impl OfficeCoordinator {
     pub fn new() -> Self {
         Self {}
     }
-}
-
-#[cfg(not(target_os = "windows"))]
-impl Default for OfficeCoordinator {
-    fn default() -> Self {
-        Self::new()
-    }
 
     /// Resolve the best session for a given host.
     #[cfg(target_os = "windows")]
@@ -50,7 +43,6 @@ impl Default for OfficeCoordinator {
     ) -> Result<OfficeTarget, String> {
         let sessions = self.session_manager.list_sessions().await;
 
-        // Filter by host type
         let host_type = match host {
             OfficeHost::Word => crate::platforms::session::HostType::Word,
             OfficeHost::Excel => crate::platforms::session::HostType::Excel,
@@ -69,9 +61,6 @@ impl Default for OfficeCoordinator {
             ));
         }
 
-        // If a session_id is explicitly requested, it MUST match.
-        // NEVER silently fall back to another session (that's how
-        // formulas end up in the wrong document).
         let session = if let Some(sid) = preferred_session_id {
             matching
                 .iter()
@@ -89,7 +78,6 @@ impl Default for OfficeCoordinator {
                 .ok_or_else(|| format!("No {host} session is connected"))?
         };
 
-        // Validate document context if expected
         let document_context = session.document_id.clone().ok_or_else(|| {
             format!(
                 "Document context is not available for session {}",
@@ -120,7 +108,14 @@ impl Default for OfficeCoordinator {
         _expected_document_id: Option<&str>,
     ) -> Result<OfficeTarget, String> {
         Err(format!(
-            "Office integration for {host:?} is only available on Windows."
+            "Office integration for {host} is only available on Windows."
         ))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+impl Default for OfficeCoordinator {
+    fn default() -> Self {
+        Self::new()
     }
 }

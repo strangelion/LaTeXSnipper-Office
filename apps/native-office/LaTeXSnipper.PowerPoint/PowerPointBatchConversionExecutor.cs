@@ -12,15 +12,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
-using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+using PptInterop = Microsoft.Office.Interop.PowerPoint;
 
 namespace LaTeXSnipper.PowerPoint.Host;
 
 internal sealed class PowerPointBatchConversionExecutor
 {
-    private readonly PowerPoint.Application _application;
+    private readonly PptInterop.Application _application;
 
-    public PowerPointBatchConversionExecutor(PowerPoint.Application application) => _application = application;
+    public PowerPointBatchConversionExecutor(PptInterop.Application application) => _application = application;
 
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
@@ -61,7 +61,7 @@ internal sealed class PowerPointBatchConversionExecutor
         return BuildResult(planId, total, converted, skipped, failed, failures);
     }
 
-    private bool TryReplaceWithLocator(PowerPoint.Presentation pres, BatchConversionItem item)
+    private bool TryReplaceWithLocator(PptInterop.Presentation pres, BatchConversionItem item)
     {
         if (item.Locator == null) return TryReplaceByFind(pres, item);
 
@@ -77,14 +77,14 @@ internal sealed class PowerPointBatchConversionExecutor
         };
     }
 
-    private bool ReplaceInShapeText(PowerPoint.Presentation pres, PptTextRangeLocator? loc,
+    private bool ReplaceInShapeText(PptInterop.Presentation pres, PptTextRangeLocator? loc,
         BatchConversionItem item)
     {
         if (loc == null) return false;
         var slide = FindSlide(pres, loc.SlideId);
         if (slide == null) return false;
 
-        foreach (PowerPoint.Shape shape in slide.Shapes)
+        foreach (PptInterop.Shape shape in slide.Shapes)
         {
             if (shape.Id != loc.ShapeId) continue;
             if (shape.HasTextFrame != Microsoft.Office.Core.MsoTriState.msoTrue) return false;
@@ -117,14 +117,14 @@ internal sealed class PowerPointBatchConversionExecutor
         return false;
     }
 
-    private bool ReplaceInTableCell(PowerPoint.Presentation pres, PptTableCellLocator? loc,
+    private bool ReplaceInTableCell(PptInterop.Presentation pres, PptTableCellLocator? loc,
         BatchConversionItem item)
     {
         if (loc == null) return false;
         var slide = FindSlide(pres, loc.SlideId);
         if (slide == null) return false;
 
-        foreach (PowerPoint.Shape shape in slide.Shapes)
+        foreach (PptInterop.Shape shape in slide.Shapes)
         {
             if (shape.Id != loc.ShapeId || shape.HasTable != Microsoft.Office.Core.MsoTriState.msoTrue)
                 continue;
@@ -159,19 +159,19 @@ internal sealed class PowerPointBatchConversionExecutor
         return false;
     }
 
-    private bool ReplaceInGroupShape(PowerPoint.Presentation pres, PptGroupTextRangeLocator? loc,
+    private bool ReplaceInGroupShape(PptInterop.Presentation pres, PptGroupTextRangeLocator? loc,
         BatchConversionItem item)
     {
         if (loc == null) return false;
         var slide = FindSlide(pres, loc.SlideId);
         if (slide == null) return false;
 
-        foreach (PowerPoint.Shape shape in slide.Shapes)
+        foreach (PptInterop.Shape shape in slide.Shapes)
         {
             if (shape.Id != loc.GroupShapeId || shape.Type != Microsoft.Office.Core.MsoShapeType.msoGroup)
                 continue;
 
-            foreach (PowerPoint.Shape child in shape.GroupItems)
+            foreach (PptInterop.Shape child in shape.GroupItems)
             {
                 if (child.Id != loc.ChildShapeId) continue;
                 if (child.HasTextFrame != Microsoft.Office.Core.MsoTriState.msoTrue) return false;
@@ -202,11 +202,11 @@ internal sealed class PowerPointBatchConversionExecutor
         return false;
     }
 
-    private bool TryReplaceByFind(PowerPoint.Presentation pres, BatchConversionItem item)
+    private bool TryReplaceByFind(PptInterop.Presentation pres, BatchConversionItem item)
     {
-        foreach (PowerPoint.Slide slide in pres.Slides)
+        foreach (PptInterop.Slide slide in pres.Slides)
         {
-            foreach (PowerPoint.Shape shape in slide.Shapes)
+            foreach (PptInterop.Shape shape in slide.Shapes)
             {
                 try
                 {
@@ -235,9 +235,9 @@ internal sealed class PowerPointBatchConversionExecutor
         return false;
     }
 
-    private static PowerPoint.Slide? FindSlide(PowerPoint.Presentation pres, int slideId)
+    private static PptInterop.Slide? FindSlide(PptInterop.Presentation pres, int slideId)
     {
-        foreach (PowerPoint.Slide slide in pres.Slides)
+        foreach (PptInterop.Slide slide in pres.Slides)
         {
             try { if (slide.SlideID == slideId) return slide; } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
         }

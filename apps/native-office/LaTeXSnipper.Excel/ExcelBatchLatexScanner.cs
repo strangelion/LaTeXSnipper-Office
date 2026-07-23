@@ -12,19 +12,19 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
-using Excel = Microsoft.Office.Interop.Excel;
+using ExcelInterop = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.Excel.Host;
 
 internal sealed class ExcelBatchLatexScanner
 {
-    private readonly Excel.Application _application;
+    private readonly ExcelInterop.Application _application;
 
     private static readonly Regex LatexMathPattern = new(
         @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
         RegexOptions.Singleline | RegexOptions.Compiled);
 
-    public ExcelBatchLatexScanner(Excel.Application application) => _application = application;
+    public ExcelBatchLatexScanner(ExcelInterop.Application application) => _application = application;
 
     public List<LatexCandidateDto> Scan(string scope = "entireWorkbook")
     {
@@ -36,17 +36,17 @@ internal sealed class ExcelBatchLatexScanner
 
             if (scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
             {
-                if (_application.Selection is Excel.Range range)
+                if (_application.Selection is ExcelInterop.Range range)
                     ScanRange(range, candidates);
             }
             else if (scope.Equals("currentWorksheet", StringComparison.OrdinalIgnoreCase))
             {
-                if (_application.ActiveSheet is Excel.Worksheet sheet)
+                if (_application.ActiveSheet is ExcelInterop.Worksheet sheet)
                     ScanWorksheet(sheet, candidates);
             }
             else
             {
-                foreach (Excel.Worksheet sheet in wb.Worksheets)
+                foreach (ExcelInterop.Worksheet sheet in wb.Worksheets)
                     ScanWorksheet(sheet, candidates);
             }
         }
@@ -57,7 +57,7 @@ internal sealed class ExcelBatchLatexScanner
         return candidates;
     }
 
-    private void ScanWorksheet(Excel.Worksheet sheet, List<LatexCandidateDto> candidates)
+    private void ScanWorksheet(ExcelInterop.Worksheet sheet, List<LatexCandidateDto> candidates)
     {
         string sheetName;
         try { sheetName = sheet.Name; } catch { sheetName = "Unknown"; }
@@ -72,7 +72,7 @@ internal sealed class ExcelBatchLatexScanner
         // Scan shapes with text
         try
         {
-            foreach (Excel.Shape shape in sheet.Shapes)
+            foreach (ExcelInterop.Shape shape in sheet.Shapes)
             {
                 try
                 {
@@ -94,7 +94,7 @@ internal sealed class ExcelBatchLatexScanner
         catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
-    private void ScanRange(Excel.Range range, List<LatexCandidateDto> candidates)
+    private void ScanRange(ExcelInterop.Range range, List<LatexCandidateDto> candidates)
     {
         try
         {
@@ -112,7 +112,7 @@ internal sealed class ExcelBatchLatexScanner
                         var cellValue = matrix[r, c]?.ToString();
                         if (string.IsNullOrEmpty(cellValue)) continue;
 
-                        var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as Excel.Range;
+                        var cell = range.Worksheet.Cells[range.Row + r - 1, range.Column + c - 1] as ExcelInterop.Range;
                         string addr = cell?.Address[RowAbsolute: true, ColumnAbsolute: true, Type.Missing, Type.Missing]
                             ?? $"R{range.Row + r - 1}C{range.Column + c - 1}";
                         string sheetName;

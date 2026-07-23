@@ -6,7 +6,7 @@
 #nullable enable
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
-using PowerPoint = Microsoft.Office.Interop.PowerPoint;
+using PptInterop = Microsoft.Office.Interop.PowerPoint;
 
 namespace LaTeXSnipper.PowerPoint.Host;
 
@@ -16,9 +16,9 @@ namespace LaTeXSnipper.PowerPoint.Host;
 /// </summary>
 internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
 {
-    private readonly PowerPoint.Application _application;
+    private readonly PptInterop.Application _application;
 
-    public PowerPointMathAdapter(PowerPoint.Application application)
+    public PowerPointMathAdapter(PptInterop.Application application)
     {
         _application = application;
     }
@@ -32,7 +32,7 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
             if (pres == null)
                 return InsertMathResult.Failed("No active presentation", "NO_ACTIVE_PRESENTATION");
 
-            var slide = _application.ActiveWindow?.View?.Slide as PowerPoint.Slide;
+            var slide = _application.ActiveWindow?.View?.Slide as PptInterop.Slide;
             if (slide == null)
                 return InsertMathResult.Failed("No active slide", "NO_ACTIVE_SLIDE");
 
@@ -95,7 +95,7 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
     {
         try
         {
-            var slide = target.Slide as PowerPoint.Slide;
+            var slide = target.Slide as PptInterop.Slide;
             if (slide == null)
                 return InsertMathResult.Failed("Invalid slide target", "INVALID_TARGET");
 

@@ -115,7 +115,7 @@ internal sealed class WordBatchLatexScanner
         catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
-    private void ScanShapeTextRange(TextRange textRange, string shapeName, List<LatexCandidateDto> candidates)
+    private void ScanShapeTextRange(Range textRange, string shapeName, List<LatexCandidateDto> candidates)
     {
         try
         {

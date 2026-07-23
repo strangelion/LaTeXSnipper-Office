@@ -9,7 +9,7 @@
 #nullable enable
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
-using Excel = Microsoft.Office.Interop.Excel;
+using ExcelInterop = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.Excel.Host;
 
@@ -19,9 +19,9 @@ namespace LaTeXSnipper.Excel.Host;
 /// </summary>
 internal sealed class ExcelMathAdapter : IMathInsertionAdapter
 {
-    private readonly Excel.Application _application;
+    private readonly ExcelInterop.Application _application;
 
-    public ExcelMathAdapter(Excel.Application application)
+    public ExcelMathAdapter(ExcelInterop.Application application)
     {
         _application = application;
     }
@@ -31,7 +31,7 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
     {
         try
         {
-            var sheet = _application.ActiveSheet as Excel.Worksheet;
+            var sheet = _application.ActiveSheet as ExcelInterop.Worksheet;
             if (sheet == null)
                 return InsertMathResult.Failed("No active worksheet", "NO_ACTIVE_SHEET");
 
@@ -106,11 +106,11 @@ internal sealed class ExcelMathAdapter : IMathInsertionAdapter
     {
         try
         {
-            var sheet = target.Worksheet as Excel.Worksheet;
+            var sheet = target.Worksheet as ExcelInterop.Worksheet;
             if (sheet == null)
                 return InsertMathResult.Failed("Invalid worksheet target", "INVALID_TARGET");
 
-            var cell = target.AnchorCell as Excel.Range;
+            var cell = target.AnchorCell as ExcelInterop.Range;
             if (cell == null)
                 return InsertMathResult.Failed("Invalid anchor cell", "INVALID_TARGET");
 

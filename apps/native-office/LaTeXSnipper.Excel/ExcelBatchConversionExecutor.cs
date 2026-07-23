@@ -9,15 +9,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
-using Excel = Microsoft.Office.Interop.Excel;
+using ExcelInterop = Microsoft.Office.Interop.Excel;
 
 namespace LaTeXSnipper.Excel.Host;
 
 internal sealed class ExcelBatchConversionExecutor
 {
-    private readonly Excel.Application _application;
+    private readonly ExcelInterop.Application _application;
 
-    public ExcelBatchConversionExecutor(Excel.Application application) => _application = application;
+    public ExcelBatchConversionExecutor(ExcelInterop.Application application) => _application = application;
 
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
@@ -63,7 +63,7 @@ internal sealed class ExcelBatchConversionExecutor
         return BuildResult(planId, total, converted, skipped, failed, failures);
     }
 
-    private bool TryReplaceWithLocator(Excel.Workbook wb, BatchConversionItem item)
+    private bool TryReplaceWithLocator(ExcelInterop.Workbook wb, BatchConversionItem item)
     {
         if (item.Locator == null) return TryReplaceByFind(wb, item);
 
@@ -87,14 +87,14 @@ internal sealed class ExcelBatchConversionExecutor
         return TryReplaceByFind(wb, item);
     }
 
-    private bool ReplaceInCell(Excel.Workbook wb, ExcelCellLocator loc, BatchConversionItem item)
+    private bool ReplaceInCell(ExcelInterop.Workbook wb, ExcelCellLocator loc, BatchConversionItem item)
     {
         try
         {
-            var sheet = wb.Worksheets[loc.Worksheet] as Excel.Worksheet;
+            var sheet = wb.Worksheets[loc.Worksheet] as ExcelInterop.Worksheet;
             if (sheet == null) return false;
 
-            var cell = sheet.Range[loc.Address] as Excel.Range;
+            var cell = sheet.Range[loc.Address] as ExcelInterop.Range;
             if (cell == null) return false;
 
             string currentText = cell.Value?.ToString() ?? "";
@@ -145,14 +145,14 @@ internal sealed class ExcelBatchConversionExecutor
         catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
-    private bool ReplaceInShape(Excel.Workbook wb, ExcelShapeLocator loc, BatchConversionItem item)
+    private bool ReplaceInShape(ExcelInterop.Workbook wb, ExcelShapeLocator loc, BatchConversionItem item)
     {
         try
         {
-            var sheet = wb.Worksheets[loc.Worksheet] as Excel.Worksheet;
+            var sheet = wb.Worksheets[loc.Worksheet] as ExcelInterop.Worksheet;
             if (sheet == null) return false;
 
-            foreach (Excel.Shape shape in sheet.Shapes)
+            foreach (ExcelInterop.Shape shape in sheet.Shapes)
             {
                 if (shape.Name != loc.ShapeName) continue;
                 if (shape.TextFrame2 == null || shape.TextFrame2.HasText == 0) continue;
@@ -195,18 +195,18 @@ internal sealed class ExcelBatchConversionExecutor
         catch (System.Runtime.InteropServices.COMException) { return false; }
     }
 
-    private bool TryReplaceByFind(Excel.Workbook wb, BatchConversionItem item)
+    private bool TryReplaceByFind(ExcelInterop.Workbook wb, BatchConversionItem item)
     {
-        foreach (Excel.Worksheet sheet in wb.Worksheets)
+        foreach (ExcelInterop.Worksheet sheet in wb.Worksheets)
         {
             try
             {
                 var usedRange = sheet.UsedRange;
                 if (usedRange == null) continue;
                 var find = usedRange.Find(item.SourceText, Type.Missing,
-                    Excel.XlFindLookIn.xlValues, Excel.XlLookAt.xlPart,
-                    Excel.XlSearchOrder.xlByRows, Excel.XlSearchDirection.xlNext, false);
-                if (find is Excel.Range cell)
+                    ExcelInterop.XlFindLookIn.xlValues, ExcelInterop.XlLookAt.xlPart,
+                    ExcelInterop.XlSearchOrder.xlByRows, ExcelInterop.XlSearchDirection.xlNext, false);
+                if (find is ExcelInterop.Range cell)
                 {
                     string originalText = cell.Value?.ToString() ?? "";
                     int idx = originalText.IndexOf(item.SourceText, StringComparison.Ordinal);
