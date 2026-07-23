@@ -222,6 +222,28 @@ pub enum VstoMessage {
         #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
         errorCode: Option<String>,
     },
+
+    #[serde(rename = "SCAN_LATEX_RESULT")]
+    ScanLatexResult {
+        requestId: String,
+        sessionId: String,
+        scope: String,
+        candidates: Vec<LatexCandidateWire>,
+    },
+
+    #[serde(rename = "BATCH_CONVERT_RESULT")]
+    BatchConvertResult {
+        requestId: String,
+        sessionId: String,
+        #[serde(rename = "planId")]
+        plan_id: String,
+        total: usize,
+        converted: usize,
+        skipped: usize,
+        failed: usize,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        failures: Vec<BatchFailureWire>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -688,4 +710,35 @@ impl From<std::io::Error> for ProtocolError {
 /// Default scope for scan operations.
 fn default_scan_scope() -> String {
     "entireDocument".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Batch protocol wire types (shared between Desktop and VSTO)
+// ---------------------------------------------------------------------------
+
+/// Wire-format LaTeX candidate, received from VSTO scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatexCandidateWire {
+    pub id: String,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_latex: Option<String>,
+    pub location: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
+    pub confidence: f64,
+}
+
+/// Wire-format batch failure, reported by VSTO after execution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchFailureWire {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    #[serde(rename = "sourceText")]
+    pub source_text: String,
+    pub error: String,
 }

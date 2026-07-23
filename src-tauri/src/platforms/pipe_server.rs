@@ -22,7 +22,7 @@ use super::pipe_security::PipeSecurityDescriptor;
 use super::session::SessionManager;
 
 /// Maximum frame size (1 MB) to prevent abuse.
-const MAX_FRAME_SIZE: usize = 1024 * 1024;
+const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
 /// Channel buffer size for outgoing messages.
 const CHANNEL_BUFFER: usize = 64;

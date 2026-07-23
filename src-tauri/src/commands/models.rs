@@ -99,17 +99,28 @@ pub async fn model_list(state: State<'_, RecognitionState>) -> Result<Vec<ModelI
                                 let task_str = format!("{:?}", m.task).to_lowercase();
                                 (m.id.clone(), task_str, m.version.clone(), m.adapter.clone())
                             }
-                            Err(_) => {
-                                (format!("{category}/{variant}"), "unknown".to_string(), "0.0.0".to_string(), "unknown".to_string())
-                            }
+                            Err(_) => (
+                                format!("{category}/{variant}"),
+                                "unknown".to_string(),
+                                "0.0.0".to_string(),
+                                "unknown".to_string(),
+                            ),
                         }
                     }
-                    Err(_) => {
-                        (format!("{category}/{variant}"), "unknown".to_string(), "0.0.0".to_string(), "unknown".to_string())
-                    }
+                    Err(_) => (
+                        format!("{category}/{variant}"),
+                        "unknown".to_string(),
+                        "0.0.0".to_string(),
+                        "unknown".to_string(),
+                    ),
                 }
             } else {
-                (format!("{category}/{variant}"), "unknown".to_string(), "0.0.0".to_string(), "unknown".to_string())
+                (
+                    format!("{category}/{variant}"),
+                    "unknown".to_string(),
+                    "0.0.0".to_string(),
+                    "unknown".to_string(),
+                )
             };
 
             let size_bytes = dir_size(&variant_path).unwrap_or(0);
@@ -171,17 +182,15 @@ pub async fn model_inspect_package(path: String) -> Result<ModelInspectResult, S
                 warnings,
             })
         }
-        Err(e) => {
-            Ok(ModelInspectResult {
-                id: None,
-                task: None,
-                version: None,
-                adapter: None,
-                runtime_variants: vec![],
-                compatible: false,
-                warnings: vec![format!("TOML parse failed: {e}")],
-            })
-        }
+        Err(e) => Ok(ModelInspectResult {
+            id: None,
+            task: None,
+            version: None,
+            adapter: None,
+            runtime_variants: vec![],
+            compatible: false,
+            warnings: vec![format!("TOML parse failed: {e}")],
+        }),
     }
 }
 
@@ -217,7 +226,11 @@ pub async fn model_import_package(
     validate_model_name(category)?;
     validate_model_name(variant)?;
 
-    let staging_dir = state.paths.models.join(".staging").join(&model_id.replace('/', "_"));
+    let staging_dir = state
+        .paths
+        .models
+        .join(".staging")
+        .join(&model_id.replace('/', "_"));
     let dest_dir = state.paths.models.join(category).join(variant);
 
     // Step 3: Extract to staging first
@@ -251,8 +264,8 @@ pub async fn model_import_package(
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Cannot create parent directory: {e}"))?;
             }
-            let mut outfile = std::fs::File::create(&out_path)
-                .map_err(|e| format!("Cannot create file: {e}"))?;
+            let mut outfile =
+                std::fs::File::create(&out_path).map_err(|e| format!("Cannot create file: {e}"))?;
             std::io::copy(&mut entry, &mut outfile)
                 .map_err(|e| format!("Cannot extract file: {e}"))?;
         }
@@ -264,11 +277,13 @@ pub async fn model_import_package(
         std::fs::remove_dir_all(&staging_dir).ok();
         return Err("Package does not contain manifest.toml".to_string());
     }
-    let manifest_content =
-        std::fs::read_to_string(&staging_manifest).map_err(|e| format!("Cannot read manifest: {e}"))?;
+    let manifest_content = std::fs::read_to_string(&staging_manifest)
+        .map_err(|e| format!("Cannot read manifest: {e}"))?;
     let manifest: latexsnipper_runtime::ModelManifest =
         toml::from_str(&manifest_content).map_err(|e| format!("Invalid manifest.toml: {e}"))?;
-    manifest.validate().map_err(|e| format!("Manifest validation failed: {e}"))?;
+    manifest
+        .validate()
+        .map_err(|e| format!("Manifest validation failed: {e}"))?;
 
     // Step 5: Move from staging to final location
     if dest_dir.exists() {

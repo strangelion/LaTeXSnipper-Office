@@ -999,6 +999,112 @@ impl SessionManager {
                     connection_id: None,
                 }
             }
+
+            VstoMessage::ScanLatexResult {
+                requestId,
+                sessionId,
+                candidates,
+                ..
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!(
+                    "[Session] SCAN_LATEX_RESULT (session={}, {} candidates)",
+                    sid,
+                    candidates.len()
+                );
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let host_result = super::office_commit::HostResult {
+                    success: true,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: None,
+                    revision: None,
+                    actual_storage_mode: None,
+                    error_code: None,
+                    error: None,
+                    data: Some(serde_json::to_value(&candidates).unwrap_or_default()),
+                };
+                waiter.resolve(host_result).await;
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
+            VstoMessage::BatchConvertResult {
+                requestId,
+                sessionId,
+                plan_id,
+                total,
+                converted,
+                skipped,
+                failed,
+                failures,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!(
+                    "[Session] BATCH_CONVERT_RESULT (session={}, {}/{}/{}/{})",
+                    sid,
+                    total,
+                    converted,
+                    skipped,
+                    failed
+                );
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                let data = serde_json::json!({
+                    "planId": plan_id,
+                    "total": total,
+                    "converted": converted,
+                    "skipped": skipped,
+                    "failed": failed,
+                    "failures": failures,
+                });
+                let success = failed == 0;
+                let host_result = super::office_commit::HostResult {
+                    success,
+                    request_id: rid.clone(),
+                    session_id: sid.clone(),
+                    formula_id: None,
+                    revision: None,
+                    actual_storage_mode: None,
+                    error_code: if success {
+                        None
+                    } else {
+                        Some("BATCH_FAILED".to_string())
+                    },
+                    error: if success {
+                        None
+                    } else {
+                        Some(format!("{failed} items failed"))
+                    },
+                    data: Some(data),
+                };
+                waiter.resolve(host_result).await;
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
         }
     }
 
