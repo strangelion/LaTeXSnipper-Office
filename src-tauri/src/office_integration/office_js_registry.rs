@@ -49,13 +49,19 @@ impl OfficeJsSessionRegistry {
         let matching: Vec<_> = sessions
             .values()
             .filter(|s| s.last_seen_utc >= cutoff && s.host.eq_ignore_ascii_case(host))
-            .filter(|s| document_context.map(|e| s.document_context == e).unwrap_or(true))
+            .filter(|s| {
+                document_context
+                    .map(|e| s.document_context == e)
+                    .unwrap_or(true)
+            })
             .cloned()
             .collect();
         match matching.as_slice() {
             [] => Err(format!("No active Office.js {host} client")),
             [session] => Ok(session.clone()),
-            _ => Err(format!("Multiple active Office.js {host} clients require document context")),
+            _ => Err(format!(
+                "Multiple active Office.js {host} clients require document context"
+            )),
         }
     }
 }

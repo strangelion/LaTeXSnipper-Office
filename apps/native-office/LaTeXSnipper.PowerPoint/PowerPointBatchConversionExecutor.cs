@@ -226,7 +226,7 @@ internal sealed class PowerPointBatchConversionExecutor
                         Format = "omml", Content = item.Omml!,
                         Display = "inline", FormulaId = $"batch-{item.SourceId}",
                         OriginalLatex = item.NormalizedLatex,
-                    }, BuildTextRangeTarget(slide, foundRange));
+                    }, BuildTextRangeTarget(slide, found));
                     if (!result.Success) return false;
                     found.Delete();
                     return true;

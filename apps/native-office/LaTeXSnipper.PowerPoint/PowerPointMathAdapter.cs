@@ -113,15 +113,17 @@ internal sealed class PowerPointMathAdapter : IMathInsertionAdapter
                     return result;
 
                 // Reposition the just-inserted shape to target coordinates
-                if (target.Left > 0 || target.Top > 0)
+                if (target.Left.HasValue || target.Top.HasValue || target.Width > 0 || target.Height > 0)
                 {
                     for (int i = slide.Shapes.Count; i > shapeCountBefore; i--)
                     {
                         try
                         {
-                            var shape = slide.Shapes[i];
-                            if (target.Left > 0) shape.Left = target.Left;
-                            if (target.Top > 0) shape.Top = target.Top;
+                            var shape = slide.Shapes.Item(i);
+                            if (target.Left.HasValue) shape.Left = target.Left.Value;
+                            if (target.Top.HasValue) shape.Top = target.Top.Value;
+                            if (target.Width > 0) shape.Width = target.Width;
+                            if (target.Height > 0) shape.Height = target.Height;
                         }
                         catch { /* best-effort reposition */ }
                     }
