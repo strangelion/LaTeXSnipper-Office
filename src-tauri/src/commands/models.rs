@@ -82,9 +82,7 @@ pub struct ModelOperationResult {
 
 /// List all installed models.
 #[tauri::command]
-pub async fn model_list(
-    state: State<'_, RecognitionState>,
-) -> Result<Vec<ModelInfo>, String> {
+pub async fn model_list(state: State<'_, RecognitionState>) -> Result<Vec<ModelInfo>, String> {
     let models_dir = &state.paths.models;
     if !models_dir.exists() {
         return Ok(Vec::new());
@@ -109,17 +107,15 @@ pub async fn model_list(
             let manifest_path = path.join("manifest.json");
             let (name, task, version, format_str) = if manifest_path.exists() {
                 match std::fs::read_to_string(&manifest_path) {
-                    Ok(content) => {
-                        match serde_json::from_str::<ModelPackageManifest>(&content) {
-                            Ok(m) => (m.name, m.task, m.version, m.format),
-                            Err(_) => (
-                                model_id.clone(),
-                                "unknown".to_string(),
-                                "0.0.0".to_string(),
-                                "unknown".to_string(),
-                            ),
-                        }
-                    }
+                    Ok(content) => match serde_json::from_str::<ModelPackageManifest>(&content) {
+                        Ok(m) => (m.name, m.task, m.version, m.format),
+                        Err(_) => (
+                            model_id.clone(),
+                            "unknown".to_string(),
+                            "0.0.0".to_string(),
+                            "unknown".to_string(),
+                        ),
+                    },
                     Err(_) => (
                         model_id.clone(),
                         "unknown".to_string(),
@@ -128,7 +124,12 @@ pub async fn model_list(
                     ),
                 }
             } else {
-                (model_id.clone(), "unknown".to_string(), "0.0.0".to_string(), "unknown".to_string())
+                (
+                    model_id.clone(),
+                    "unknown".to_string(),
+                    "0.0.0".to_string(),
+                    "unknown".to_string(),
+                )
             };
 
             // Calculate size
@@ -151,9 +152,7 @@ pub async fn model_list(
 
 /// Inspect a .lsmodel package file without installing it.
 #[tauri::command]
-pub async fn model_inspect_package(
-    path: String,
-) -> Result<ModelInspectResult, String> {
+pub async fn model_inspect_package(path: String) -> Result<ModelInspectResult, String> {
     let p = std::path::Path::new(&path);
 
     if !p.is_file() {
@@ -161,8 +160,7 @@ pub async fn model_inspect_package(
     }
 
     // For now, treat .lsmodel as a zip archive with a manifest.json
-    let file = std::fs::File::open(p)
-        .map_err(|e| format!("Cannot open package: {e}"))?;
+    let file = std::fs::File::open(p).map_err(|e| format!("Cannot open package: {e}"))?;
 
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| format!("Cannot read package (invalid zip?): {e}"))?;
@@ -174,8 +172,7 @@ pub async fn model_inspect_package(
             let mut buf = String::new();
             std::io::Read::read_to_string(&mut f, &mut buf)
                 .map_err(|e| format!("Cannot read manifest: {e}"))?;
-            serde_json::from_str(&buf)
-                .map_err(|e| format!("Cannot parse manifest: {e}"))
+            serde_json::from_str(&buf).map_err(|e| format!("Cannot parse manifest: {e}"))
         })?;
 
     // Basic compatibility check
@@ -226,14 +223,14 @@ pub async fn model_import_package(
         .map_err(|e| format!("Cannot create model directory: {e}"))?;
 
     // Extract the package
-    let file = std::fs::File::open(p)
-        .map_err(|e| format!("Cannot open package: {e}"))?;
+    let file = std::fs::File::open(p).map_err(|e| format!("Cannot open package: {e}"))?;
 
-    let mut archive = zip::ZipArchive::new(file)
-        .map_err(|e| format!("Cannot read package: {e}"))?;
+    let mut archive =
+        zip::ZipArchive::new(file).map_err(|e| format!("Cannot read package: {e}"))?;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .map_err(|e| format!("Cannot read entry {i}: {e}"))?;
 
         let out_path = match entry.enclosed_name() {
@@ -249,8 +246,8 @@ pub async fn model_import_package(
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Cannot create parent directory: {e}"))?;
             }
-            let mut outfile = std::fs::File::create(&out_path)
-                .map_err(|e| format!("Cannot create file: {e}"))?;
+            let mut outfile =
+                std::fs::File::create(&out_path).map_err(|e| format!("Cannot create file: {e}"))?;
             std::io::copy(&mut entry, &mut outfile)
                 .map_err(|e| format!("Cannot extract file: {e}"))?;
         }
@@ -291,8 +288,7 @@ pub async fn model_remove(
         return Err(format!("Model not found: {model_id}"));
     }
 
-    std::fs::remove_dir_all(&model_dir)
-        .map_err(|e| format!("Cannot remove model: {e}"))?;
+    std::fs::remove_dir_all(&model_dir).map_err(|e| format!("Cannot remove model: {e}"))?;
 
     log::info!("[Models] Removed {model_id}");
 

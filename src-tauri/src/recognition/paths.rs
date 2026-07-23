@@ -61,12 +61,8 @@ impl RecognitionPaths {
             &self.jobs,
             &self.logs,
         ] {
-            std::fs::create_dir_all(directory).map_err(|error| {
-                format!(
-                    "Cannot create '{}': {error}",
-                    directory.display()
-                )
-            })?;
+            std::fs::create_dir_all(directory)
+                .map_err(|error| format!("Cannot create '{}': {error}", directory.display()))?;
         }
 
         Ok(())

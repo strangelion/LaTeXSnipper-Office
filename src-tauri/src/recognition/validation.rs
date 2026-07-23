@@ -5,13 +5,11 @@ use std::path::Path;
 /// Supported input extensions.
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "bmp", "tiff", "tif", "webp", // Raster images
-    "pdf", // PDF documents
+    "pdf",  // PDF documents
 ];
 
 /// Supported output formats.
-const SUPPORTED_OUTPUT_FORMATS: &[&str] = &[
-    "markdown", "latex", "typst", "html", "omml", "json",
-];
+const SUPPORTED_OUTPUT_FORMATS: &[&str] = &["markdown", "latex", "typst", "html", "omml", "json"];
 
 /// Supported recognition modes.
 const SUPPORTED_MODES: &[&str] = &["auto", "formula", "text", "table", "full-document"];
@@ -21,10 +19,7 @@ pub fn validate_input_path(path: &str) -> Result<(), String> {
     let p = Path::new(path);
 
     if !p.is_file() {
-        return Err(format!(
-            "Input file does not exist: {}",
-            p.display()
-        ));
+        return Err(format!("Input file does not exist: {}", p.display()));
     }
 
     let ext = p

@@ -194,6 +194,12 @@ impl RecognitionJobManager {
     }
 }
 
+impl Default for RecognitionJobManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -72,15 +72,12 @@ impl OfficeCoordinator {
         };
 
         // Validate document context if expected
-        let document_context = session
-            .document_id
-            .clone()
-            .ok_or_else(|| {
-                format!(
-                    "Document context is not available for session {}",
-                    session.session_id
-                )
-            })?;
+        let document_context = session.document_id.clone().ok_or_else(|| {
+            format!(
+                "Document context is not available for session {}",
+                session.session_id
+            )
+        })?;
 
         if let Some(expected) = expected_document_id {
             if document_context != expected {

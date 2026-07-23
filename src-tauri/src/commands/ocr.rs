@@ -68,7 +68,10 @@ pub async fn ocr_recognize(image_data: String) -> Result<OcrResult, String> {
 
             // Save to a unique job-scoped path (no more hard-coded latexsnipper_temp.png)
             let job_id = simple_uuid();
-            let temp_dir = std::env::temp_dir().join("latexsnipper").join("jobs").join(&job_id);
+            let temp_dir = std::env::temp_dir()
+                .join("latexsnipper")
+                .join("jobs")
+                .join(&job_id);
             std::fs::create_dir_all(&temp_dir)
                 .map_err(|e| format!("Failed to create job temp dir: {}", e))?;
             let source_path = temp_dir.join("source.png");

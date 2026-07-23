@@ -105,10 +105,7 @@ pub fn collect_recent_log(max_lines: usize) -> String {
         .unwrap_or_else(std::env::temp_dir)
         .join("LaTeXSnipper");
 
-    let log_path = data_dir
-        .join("Logs")
-        .join("desktop")
-        .join(LOG_FILE_NAME);
+    let log_path = data_dir.join("Logs").join("desktop").join(LOG_FILE_NAME);
 
     std::fs::read_to_string(&log_path)
         .unwrap_or_default()

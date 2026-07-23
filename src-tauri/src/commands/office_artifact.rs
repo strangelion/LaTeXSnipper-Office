@@ -4,11 +4,11 @@
 //! into the active Office host via the unified insertion pipeline.
 
 #[cfg(target_os = "windows")]
+use crate::platforms::session::SessionManager;
+#[cfg(target_os = "windows")]
 use std::sync::Arc;
 #[cfg(target_os = "windows")]
 use tauri::State;
-#[cfg(target_os = "windows")]
-use crate::platforms::session::SessionManager;
 
 use crate::office_integration::dto::*;
 
@@ -46,16 +46,8 @@ pub async fn office_insert_artifact(
                     .get("omml")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let display = artifact
-                    .options
-                    .display
-                    .as_deref()
-                    .unwrap_or("inline");
-                let storage_mode = artifact
-                    .options
-                    .storage_mode
-                    .as_deref()
-                    .unwrap_or("auto");
+                let display = artifact.options.display.as_deref().unwrap_or("inline");
+                let storage_mode = artifact.options.storage_mode.as_deref().unwrap_or("auto");
 
                 let formula_id = format!("rec-{}", uuid_simple());
 
@@ -107,13 +99,9 @@ pub async fn office_insert_artifact(
                     serde_json::from_value(artifact.payload.clone())
                         .map_err(|e| format!("Invalid table payload: {e}"))?;
 
-                crate::platforms::pipe_server::send_insert_table(
-                    &session_mgr,
-                    session_id,
-                    table,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
+                crate::platforms::pipe_server::send_insert_table(&session_mgr, session_id, table)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
                 Ok("Table inserted".to_string())
             }

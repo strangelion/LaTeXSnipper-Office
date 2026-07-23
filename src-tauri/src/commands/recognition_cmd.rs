@@ -66,11 +66,9 @@ pub async fn recognition_start(
     #[cfg(not(feature = "recognition"))]
     {
         let _ = (app, state, request);
-        return Err(
-            "Recognition is not included in this build. \
+        return Err("Recognition is not included in this build. \
              Rebuild with the recognition feature."
-                .to_string(),
-        );
+            .to_string());
     }
 
     #[cfg(feature = "recognition")]
@@ -172,10 +170,7 @@ pub async fn recognition_get_output(
                 return Ok(GetOutputResponse {
                     success: false,
                     content: None,
-                    error: Some(format!(
-                        "Job is not completed (status: {:?})",
-                        snap.status
-                    )),
+                    error: Some(format!("Job is not completed (status: {:?})", snap.status)),
                 });
             }
         }

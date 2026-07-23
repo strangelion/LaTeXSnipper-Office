@@ -1918,9 +1918,7 @@ async fn cleanup_expired_wps_assets(state: &BridgeRuntimeState) {
     }
 }
 
-async fn handle_wps_log(
-    Json(body): Json<serde_json::Value>,
-) -> impl IntoResponse {
+async fn handle_wps_log(Json(body): Json<serde_json::Value>) -> impl IntoResponse {
     let level = body
         .get("level")
         .and_then(|v| v.as_str())
@@ -1933,18 +1931,9 @@ async fn handle_wps_log(
         .get("host")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    let formula_id = body
-        .get("formulaId")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let error_code = body
-        .get("errorCode")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let message = body
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let formula_id = body.get("formulaId").and_then(|v| v.as_str()).unwrap_or("");
+    let error_code = body.get("errorCode").and_then(|v| v.as_str()).unwrap_or("");
+    let message = body.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
     log::warn!(
         "[WPS-{}] host={} op={} fid={} code={} msg={}",

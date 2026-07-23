@@ -57,9 +57,7 @@ pub struct RuntimeProbeResult {
 
 /// List all available runtimes with their current status.
 #[tauri::command]
-pub async fn runtime_list(
-    state: State<'_, RecognitionState>,
-) -> Result<Vec<RuntimeInfo>, String> {
+pub async fn runtime_list(state: State<'_, RecognitionState>) -> Result<Vec<RuntimeInfo>, String> {
     let runtimes_dir = &state.paths.runtimes;
     probe_runtimes(runtimes_dir)
 }
@@ -111,9 +109,7 @@ pub async fn runtime_probe(
 
 /// Open the runtime directory in the system file manager.
 #[tauri::command]
-pub async fn runtime_open_directory(
-    state: State<'_, RecognitionState>,
-) -> Result<String, String> {
+pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Result<String, String> {
     let dir = state.paths.runtimes.to_string_lossy().to_string();
 
     #[cfg(target_os = "windows")]
@@ -201,7 +197,11 @@ fn probe_onnx_runtime(runtimes_dir: &std::path::Path) -> RuntimeInfo {
         } else {
             None
         },
-        health: if available { "ok".to_string() } else { "missing".to_string() },
+        health: if available {
+            "ok".to_string()
+        } else {
+            "missing".to_string()
+        },
         detail: if available {
             Some("ONNX Runtime is installed.".to_string())
         } else {
@@ -225,7 +225,11 @@ fn probe_directml(runtimes_dir: &std::path::Path) -> RuntimeInfo {
         } else {
             None
         },
-        health: if available { "ok".to_string() } else { "missing".to_string() },
+        health: if available {
+            "ok".to_string()
+        } else {
+            "missing".to_string()
+        },
         detail: if available {
             Some("DirectML execution provider detected.".to_string())
         } else {
@@ -245,7 +249,11 @@ fn probe_cuda() -> RuntimeInfo {
         available,
         version: None,
         path: cuda_path,
-        health: if available { "ok".to_string() } else { "missing".to_string() },
+        health: if available {
+            "ok".to_string()
+        } else {
+            "missing".to_string()
+        },
         detail: if available {
             Some("CUDA installation detected via CUDA_PATH.".to_string())
         } else {
@@ -268,7 +276,11 @@ fn probe_tensorrt(runtimes_dir: &std::path::Path) -> RuntimeInfo {
         } else {
             None
         },
-        health: if available { "ok".to_string() } else { "missing".to_string() },
+        health: if available {
+            "ok".to_string()
+        } else {
+            "missing".to_string()
+        },
         detail: if available {
             Some("TensorRT runtime detected.".to_string())
         } else {
@@ -304,7 +316,11 @@ fn probe_paddle(runtimes_dir: &std::path::Path) -> RuntimeInfo {
         } else {
             None
         },
-        health: if available { "ok".to_string() } else { "missing".to_string() },
+        health: if available {
+            "ok".to_string()
+        } else {
+            "missing".to_string()
+        },
         detail: if available {
             Some("Paddle Inference runtime detected.".to_string())
         } else {

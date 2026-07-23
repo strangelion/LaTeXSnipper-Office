@@ -105,11 +105,9 @@ impl RecognitionState {
 
     /// Create the underlying engine.
     fn create_service(&self) -> Result<RecognitionService, String> {
-        use latexsnipper_engine::{EngineConfig, default_runtime_registry};
+        use latexsnipper_engine::{default_runtime_registry, EngineConfig};
 
-        let config = EngineConfig::with_models_dir(
-            self.paths.models.clone(),
-        );
+        let config = EngineConfig::with_models_dir(self.paths.models.clone());
 
         let registry = default_runtime_registry(&self.paths.models)
             .map_err(|e| format!("Failed to create runtime registry: {e}"))?;

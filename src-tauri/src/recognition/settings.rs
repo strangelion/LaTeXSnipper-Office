@@ -56,11 +56,10 @@ impl RecognitionSettings {
             return Ok(defaults);
         }
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Cannot read settings: {e}"))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Cannot read settings: {e}"))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Cannot parse settings: {e}"))
+        serde_json::from_str(&content).map_err(|e| format!("Cannot parse settings: {e}"))
     }
 
     /// Save settings to path.
@@ -73,7 +72,6 @@ impl RecognitionSettings {
                 .map_err(|e| format!("Cannot create settings directory: {e}"))?;
         }
 
-        std::fs::write(path, &content)
-            .map_err(|e| format!("Cannot write settings: {e}"))
+        std::fs::write(path, &content).map_err(|e| format!("Cannot write settings: {e}"))
     }
 }

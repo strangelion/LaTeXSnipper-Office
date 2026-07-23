@@ -22,11 +22,7 @@ pub async fn recognition_export(
         format: format.clone(),
     };
 
-    let output = super::recognition_cmd::recognition_get_output(
-        state,
-        request,
-    )
-    .await?;
+    let output = super::recognition_cmd::recognition_get_output(state, request).await?;
 
     if !output.success {
         return Err(output.error.unwrap_or_else(|| "Unknown error".to_string()));
@@ -34,8 +30,7 @@ pub async fn recognition_export(
 
     let content = output.content.unwrap_or_default();
 
-    std::fs::write(&output_path, &content)
-        .map_err(|e| format!("Cannot write output file: {e}"))?;
+    std::fs::write(&output_path, &content).map_err(|e| format!("Cannot write output file: {e}"))?;
 
     Ok(format!("Exported to {output_path}"))
 }

@@ -57,7 +57,9 @@ fn main() {
         .position(|a| a == "--ole-edit")
         .and_then(|i| args.get(i + 1).cloned());
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).try_init().ok();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .try_init()
+        .ok();
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -92,10 +94,8 @@ fn main() {
             app.manage(request_waiter);
 
             // Recognition subsystem state (lazy — no runtime init at startup)
-            let recognition_paths = recognition::paths::RecognitionPaths::resolve(
-                app.handle(),
-            )
-            .map_err(std::io::Error::other)?;
+            let recognition_paths = recognition::paths::RecognitionPaths::resolve(app.handle())
+                .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
 
             #[cfg(target_os = "windows")]

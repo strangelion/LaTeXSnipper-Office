@@ -7,14 +7,8 @@
 //! - output_is_generated_on_demand
 
 #[cfg(test)]
-mod tests {
-    use crate::recognition::{
-        jobs::*,
-        paths::RecognitionPaths,
-        state::RecognitionState,
-        dto::*,
-        validation,
-    };
+mod rec_tests {
+    use crate::recognition::{dto::*, jobs::*, validation};
 
     #[test]
     fn test_service_is_lazy() {

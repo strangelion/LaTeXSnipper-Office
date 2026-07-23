@@ -27,11 +27,10 @@ pub fn build_conversion_plan(
             .unwrap_or_else(|| candidate.source.clone());
 
         // Try OMML conversion
-        let omml_result =
-            latexsnipper_conversion::DocumentConverter::convert_latex_string(
-                &latex,
-                latexsnipper_conversion::OutputFormat::OMML,
-            );
+        let omml_result = latexsnipper_conversion::DocumentConverter::convert_latex_string(
+            &latex,
+            latexsnipper_conversion::OutputFormat::OMML,
+        );
 
         match omml_result {
             Ok(omml) => {
@@ -57,10 +56,7 @@ pub fn build_conversion_plan(
         }
     }
 
-    Ok(BatchConversionPlan {
-        id: plan_id,
-        items,
-    })
+    Ok(BatchConversionPlan { id: plan_id, items })
 }
 
 /// Compute a summary result from a completed plan.

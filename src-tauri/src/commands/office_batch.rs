@@ -5,8 +5,8 @@
 //! - `office_batch_convert_plan` — Build a conversion plan from candidates.
 //! - `office_batch_execute` — Send the plan to the Native Office host for execution.
 
-use tauri::State;
 use std::sync::Arc;
+use tauri::State;
 
 use crate::office_integration::batch_conversion;
 use crate::office_integration::dto::*;
@@ -37,7 +37,10 @@ pub async fn office_batch_convert_plan(
 /// Execute a batch conversion plan on the Native Office host.
 #[tauri::command]
 pub async fn office_batch_execute(
-    #[cfg(target_os = "windows")] _session_mgr: State<'_, Arc<crate::platforms::session::SessionManager>>,
+    #[cfg(target_os = "windows")] _session_mgr: State<
+        '_,
+        Arc<crate::platforms::session::SessionManager>,
+    >,
     _session_id: String,
     _plan: BatchConversionPlan,
 ) -> Result<BatchConversionResult, String> {
@@ -59,7 +62,10 @@ pub async fn office_batch_execute(
 
         log::info!(
             "[BatchConversion] Plan {}: {}/{} converted, {} failed",
-            _plan.id, result.converted, result.total, result.failed
+            _plan.id,
+            result.converted,
+            result.total,
+            result.failed
         );
 
         Ok(result)
