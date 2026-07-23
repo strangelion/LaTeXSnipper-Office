@@ -56,8 +56,7 @@ async function insertFormula(payload, targetHost, options) {
 
   if (route.actualRoute === "officeJs") {
     // Route via Bridge action queue for Office.js TaskPane
-    const url =
-      "https://127.0.0.1:19876/api/office/insert-direct";
+    const url = "https://127.0.0.1:19876/api/office/insert-direct";
     const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -68,9 +67,7 @@ async function insertFormula(payload, targetHost, options) {
         display: options.display === "display",
       }),
     });
-    if (!resp.ok) throw new Error(
-      `Office.js insert failed: ${resp.status}`,
-    );
+    if (!resp.ok) throw new Error(`Office.js insert failed: ${resp.status}`);
     return { success: true };
   }
 
