@@ -31,7 +31,6 @@ impl OfficeJsSessionRegistry {
         }
     }
 
-    /// Register a heartbeat from an Office.js TaskPane.
     pub async fn heartbeat(&self, mut session: OfficeJsSession) {
         session.last_seen_utc = chrono::Utc::now();
         self.sessions
@@ -40,7 +39,6 @@ impl OfficeJsSessionRegistry {
             .insert(session.client_id.clone(), session);
     }
 
-    /// Find a fresh (≤15s) session for the given host.
     pub async fn resolve_fresh(
         &self,
         host: &str,
@@ -48,24 +46,22 @@ impl OfficeJsSessionRegistry {
     ) -> Result<OfficeJsSession, String> {
         let cutoff = chrono::Utc::now() - chrono::Duration::seconds(15);
         let sessions = self.sessions.read().await;
-
         let matching: Vec<_> = sessions
             .values()
             .filter(|s| s.last_seen_utc >= cutoff && s.host.eq_ignore_ascii_case(host))
-            .filter(|s| {
-                document_context
-                    .map(|expected| s.document_context == expected)
-                    .unwrap_or(true)
-            })
+            .filter(|s| document_context.map(|e| s.document_context == e).unwrap_or(true))
             .cloned()
             .collect();
-
         match matching.as_slice() {
             [] => Err(format!("No active Office.js {host} client")),
             [session] => Ok(session.clone()),
-            _ => Err(format!(
-                "Multiple active Office.js {host} clients require document context"
-            )),
+            _ => Err(format!("Multiple active Office.js {host} clients require document context")),
         }
+    }
+}
+
+impl Default for OfficeJsSessionRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
