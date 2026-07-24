@@ -296,13 +296,240 @@ jobs:
       - name: Build Tauri MSI and NSIS
         shell: pwsh
         run: |
-          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle'
-          foreach ($name in @('msi', 'nsis')) {
+          $ErrorActionPreference = "Stop"
+
+          # ------------------------------------------------------------
+          # 1. Clean old Tauri Windows bundles
+          # ------------------------------------------------------------
+          $bundleRoot = Join-Path `
+            $env:GITHUB_WORKSPACE `
+            "src-tauri\target\release\bundle"
+
+          foreach ($name in @("msi", "nsis")) {
             $path = Join-Path $bundleRoot $name
-            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+
+            if (Test-Path -LiteralPath $path) {
+              Remove-Item `
+                -LiteralPath $path `
+                -Recurse `
+                -Force
+            }
           }
-          npx tauri build --config src-tauri/tauri.ci.windows.conf.json --bundles msi,nsis
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # ------------------------------------------------------------
+          # 2. Resolve real application version
+          #
+          # FULL_VERSION:
+          #   1.6.0-rc.1
+          #
+          # VERSION:
+          #   fallback only
+          # ------------------------------------------------------------
+          $appVersion = $env:FULL_VERSION
+
+          if ([string]::IsNullOrWhiteSpace($appVersion)) {
+            $appVersion = $env:VERSION
+          }
+
+          if ([string]::IsNullOrWhiteSpace($appVersion)) {
+            throw "Unable to resolve application version"
+          }
+
+          Write-Host "Application version: $appVersion"
+
+          # ------------------------------------------------------------
+          # 3. Generate MSI-safe WiX version
+          #
+          # Stable:
+          #   1.6.0
+          #   -> 1.6.0
+          #
+          # RC:
+          #   1.6.0-rc.1
+          #   -> 1.5.60001
+          #
+          #   1.6.0-rc.2
+          #   -> 1.5.60002
+          #
+          # This guarantees:
+          #
+          #   1.5.x
+          #       <
+          #   1.6.0-rc.x surrogate
+          #       <
+          #   final 1.6.0
+          # ------------------------------------------------------------
+
+          $wixVersion = $null
+
+          if (
+            $appVersion -match `
+              '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-rc\.(?<rc>\d+)$'
+          ) {
+            $major = [int]$Matches["major"]
+            $minor = [int]$Matches["minor"]
+            $patch = [int]$Matches["patch"]
+            $rc = [int]$Matches["rc"]
+
+            if ($patch -ne 0) {
+              throw (
+                "Current RC MSI mapping expects patch=0. " +
+                "Unsupported version: $appVersion"
+              )
+            }
+
+            if ($minor -le 0) {
+              throw (
+                "Cannot derive prerelease MSI version for " +
+                "$appVersion because minor must be greater than zero"
+              )
+            }
+
+            if ($rc -lt 1 -or $rc -gt 5535) {
+              throw (
+                "RC number is outside supported MSI mapping range: $rc"
+              )
+            }
+
+            $wixMinor = $minor - 1
+            $wixPatch = 60000 + $rc
+
+            $wixVersion = (
+              "$major.$wixMinor.$wixPatch"
+            )
+          }
+          elseif (
+            $appVersion -match `
+              '^\d+\.\d+\.\d+$'
+          ) {
+            # Stable release can use its normal numeric version.
+            $wixVersion = $appVersion
+          }
+          else {
+            throw (
+              "Unsupported version format for Windows packaging: " +
+              $appVersion
+            )
+          }
+
+          Write-Host "Tauri WiX version: $wixVersion"
+
+          # Save diagnostics.
+          "ApplicationVersion=$appVersion" |
+            Out-File `
+              package-diagnostics\tauri-version-map.txt `
+              -Encoding UTF8
+
+          "WixVersion=$wixVersion" |
+            Out-File `
+              package-diagnostics\tauri-version-map.txt `
+              -Append `
+              -Encoding UTF8
+
+          # ------------------------------------------------------------
+          # 4. Copy the existing Windows CI config
+          #    and inject bundle.windows.wix.version
+          # ------------------------------------------------------------
+
+          $sourceConfig = (
+            "src-tauri\tauri.ci.windows.conf.json"
+          )
+
+          $generatedConfig = Join-Path `
+            $env:RUNNER_TEMP `
+            "tauri.ci.windows.generated.conf.json"
+
+          $config = Get-Content `
+            -LiteralPath $sourceConfig `
+            -Raw |
+            ConvertFrom-Json
+
+          if ($null -eq $config.bundle) {
+            $config |
+              Add-Member `
+                -MemberType NoteProperty `
+                -Name "bundle" `
+                -Value ([pscustomobject]@{})
+          }
+
+          if ($null -eq $config.bundle.windows) {
+            $config.bundle |
+              Add-Member `
+                -MemberType NoteProperty `
+                -Name "windows" `
+                -Value ([pscustomobject]@{})
+          }
+
+          if ($null -eq $config.bundle.windows.wix) {
+            $config.bundle.windows |
+              Add-Member `
+                -MemberType NoteProperty `
+                -Name "wix" `
+                -Value ([pscustomobject]@{})
+          }
+
+          if (
+            $config.bundle.windows.wix
+              .PSObject.Properties.Name `
+              -contains "version"
+          ) {
+            $config.bundle.windows.wix.version = $wixVersion
+          }
+          else {
+            $config.bundle.windows.wix |
+              Add-Member `
+                -MemberType NoteProperty `
+                -Name "version" `
+                -Value $wixVersion
+          }
+
+          $config |
+            ConvertTo-Json -Depth 100 |
+            Set-Content `
+              -LiteralPath $generatedConfig `
+              -Encoding UTF8
+
+          Write-Host ""
+          Write-Host "Generated Tauri Windows config:"
+          Get-Content $generatedConfig
+
+          # ------------------------------------------------------------
+          # 5. Build MSI first
+          # ------------------------------------------------------------
+
+          Write-Host ""
+          Write-Host "=== Building Tauri MSI ==="
+
+          npx tauri build `
+            --config $generatedConfig `
+            --bundles msi
+
+          if ($LASTEXITCODE -ne 0) {
+            throw (
+              "Tauri MSI build failed with exit code " +
+              $LASTEXITCODE
+            )
+          }
+
+          # ------------------------------------------------------------
+          # 6. Build NSIS separately
+          #
+          # Separate commands make failures much easier to diagnose.
+          # ------------------------------------------------------------
+
+          Write-Host ""
+          Write-Host "=== Building Tauri NSIS ==="
+
+          npx tauri build `
+            --config $generatedConfig `
+            --bundles nsis
+
+          if ($LASTEXITCODE -ne 0) {
+            throw (
+              "Tauri NSIS build failed with exit code " +
+              $LASTEXITCODE
+            )
+          }
       - name: Unpack all Windows packages
         shell: pwsh
         run: |
