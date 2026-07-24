@@ -1,5 +1,5 @@
 {
-  "extensionVersion": "1.5.1",
+  "extensionVersion": "1.6.0-rc.2",
   "target": "chrome",
   "commit": "local",
   "providers": [
@@ -23,6 +23,5 @@
     "zh_TW"
   ],
   "formulaDetectorSchema": 1,
-  "conversationSchema": 1,
-  "version": "1.6.0-rc.1"
+  "conversationSchema": 1
 }
