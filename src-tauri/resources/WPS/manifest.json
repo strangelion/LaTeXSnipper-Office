@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
   "name": "LaTeXSnipper",
-  "version": "1.6.0-rc.1",
+  "version": "1.6.0-rc.2",
   "description": "LaTeX formula integration for WPS Writer, Spreadsheets, and Presentation",
   "author": "LaTeXSnipper",
   "homepage": "https://latexsnipper.com",

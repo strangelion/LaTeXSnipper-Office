@@ -1,6 +1,6 @@
 {
   "name": "latexsnipper-office",
-  "version": "1.6.0-rc.1",
+  "version": "1.6.0-rc.2",
   "private": true,
   "description": "Independent LaTeX formula editor for Office, Obsidian, WPS, VS Code",
   "scripts": {
