@@ -2364,3 +2364,32 @@ body {
   padding: 4px 10px;
   font-size: 0.7rem;
 }
+
+/* ═══════════════════════════════════════════
+   Office action dock button contrast fix
+   ═══════════════════════════════════════════ */
+.office-action-dock .btn.office-insert-btn {
+  background: #d83b01;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  border-color: transparent;
+}
+
+.office-action-dock .btn.office-insert-btn:hover:not(:disabled) {
+  background: #b83200;
+}
+
+.office-action-dock .btn:disabled {
+  background: rgba(var(--glass-rgb), 0.2);
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  opacity: 0.62;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.office-action-dock .custom-select-trigger {
+  min-height: 32px;
+  white-space: nowrap;
+}

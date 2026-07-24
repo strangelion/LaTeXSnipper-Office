@@ -131,7 +131,13 @@ namespace LaTeXSnipper.Word
                     break;
 
                 case "ocr":
-                    addIn.Send(new VstoFocusOcr { RequestId = rid, SessionId = sid });
+                    addIn.Send(new VstoFocusOcr
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "screenshot",
+                        AutoInsert = true
+                    });
                     break;
 
                 case "settings":

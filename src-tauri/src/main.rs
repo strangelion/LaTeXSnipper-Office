@@ -7,6 +7,7 @@ mod math;
 mod office_integration;
 mod platforms;
 mod recognition;
+mod screenshot;
 
 use std::sync::Arc;
 use tauri::{
@@ -104,6 +105,7 @@ fn main() {
             let recognition_paths = recognition::paths::RecognitionPaths::resolve(app.handle())
                 .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
+            app.manage(screenshot::state::ScreenshotState::default());
 
             #[cfg(target_os = "windows")]
             let is_ole_edit = ole_pipe_name.is_some();
@@ -249,6 +251,10 @@ fn main() {
             commands::export::export_formula,
             commands::export::copy_to_clipboard,
             commands::ocr::screenshot_capture,
+            screenshot::commands::screenshot_begin,
+            screenshot::commands::screenshot_overlay_init,
+            screenshot::commands::screenshot_commit,
+            screenshot::commands::screenshot_cancel,
             #[allow(deprecated)]
             commands::ocr::ocr_recognize,
             commands::recognition_cmd::recognition_get_capabilities,

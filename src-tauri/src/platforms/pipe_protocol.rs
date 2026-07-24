@@ -98,6 +98,12 @@ pub enum VstoMessage {
     FocusOcr {
         requestId: String,
         sessionId: String,
+
+        #[serde(default)]
+        action: String,
+
+        #[serde(default)]
+        autoInsert: bool,
     },
 
     #[serde(rename = "FOCUS_SETTINGS")]

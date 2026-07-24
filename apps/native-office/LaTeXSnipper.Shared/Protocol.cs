@@ -140,7 +140,14 @@ public class VstoOpenEditor : VstoMessage
     [JsonPropertyName("revision")] public int? Revision { get; set; }
     [JsonPropertyName("sourceHost")] public string? SourceHost { get; set; }
 }
-public class VstoFocusOcr : VstoMessage { }
+public class VstoFocusOcr : VstoMessage
+{
+    [JsonPropertyName("action")]
+    public string Action { get; set; } = "focus";
+
+    [JsonPropertyName("autoInsert")]
+    public bool AutoInsert { get; set; }
+}
 public class VstoFocusSettings : VstoMessage { }
 public class VstoRequestFormat : VstoMessage
 {

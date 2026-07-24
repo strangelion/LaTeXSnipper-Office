@@ -446,7 +446,7 @@ namespace LaTeXSnipper.Word.Host
                                 "OLE_EXTENT_UNAVAILABLE",
                                 "Candidate OLE extent was unavailable.");
 
-                        OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent);
+                        OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(newPayload, naturalExtent, OleHostKind.Word);
                         if (!OleFormulaInterop.TrySetDisplayExtent(automationObject, targetExtent))
                             return RollbackCandidate(
                                 doc,
@@ -1038,7 +1038,7 @@ namespace LaTeXSnipper.Word.Host
                         return new InsertResult { Success = false, ErrorCode = "OLE_EXTENT_UNAVAILABLE", Error = "The OLE object did not expose a valid natural extent." };
                     }
 
-                    targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent);
+                    targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent, OleHostKind.Word);
 
                     // Constrain to container width to prevent clipping at page/table edges
                     try

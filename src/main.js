@@ -1759,12 +1759,25 @@ class UIController {
     this.updateMdCopyButton();
 
     // Listen for recognition results from new workspace
-    window.addEventListener("recognition:result-ready", (event) => {
-      this.ocrLatex = event.detail.latex;
+    window.addEventListener("recognition:result-ready", async (event) => {
+      const latex = event.detail.latex;
+      this.ocrLatex = latex;
       const resultEl = document.getElementById("ocrResult");
       if (resultEl) resultEl.textContent = this.ocrLatex || "未识别到公式";
       document.getElementById("ocrInsertBtn")?.removeAttribute("disabled");
       document.getElementById("ocrCopyBtn")?.removeAttribute("disabled");
+
+      const target = this._pendingOcrTarget;
+
+      if (target?.autoInsert && target.sessionId) {
+        try {
+          await this.insertRecognizedFormula(latex, target);
+          this.showToast(`识别结果已插入 ${target.hostType}`);
+          this._pendingOcrTarget = null;
+        } catch (error) {
+          this.showToast(`识别成功，但插入失败：${error.message || error}`);
+        }
+      }
     });
 
     this.initHistoryDb();
@@ -2061,26 +2074,13 @@ class UIController {
 
     document.querySelectorAll(".settings-item").forEach((item) => {
       item.addEventListener("click", () => {
-        const pageId = item.dataset.page;
-        document.getElementById("settingsList").style.display = "none";
-        document.getElementById(pageId)?.classList.add("active");
-        Logger.debug(`Settings: open ${pageId}`);
+        this.openSettingsPage(item.dataset.page);
       });
     });
 
-    document.querySelectorAll(".settings-back").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const subpage = btn.closest(".settings-subpage");
-        subpage.style.animation = "none";
-        subpage.offsetHeight;
-        subpage.style.animation = "fadeSlideLeft 0.25s ease";
-        subpage.classList.remove("active");
-        const list = document.getElementById("settingsList");
-        list.style.animation = "none";
-        list.offsetHeight;
-        list.style.animation = "fadeSlideIn 0.25s ease";
-        list.style.display = "block";
-        Logger.debug("Settings: back to list");
+    document.querySelectorAll(".settings-back").forEach((button) => {
+      button.addEventListener("click", () => {
+        this.openSettingsPage();
       });
     });
 
@@ -3338,12 +3338,42 @@ class UIController {
       });
 
       // Focus on OCR tab (from VSTO Ribbon)
-      listen("native-office-focus-ocr", async () => {
-        Logger.info("Native Office: focus OCR requested");
+      listen("native-office-focus-ocr", async ({ payload }) => {
         this.switchSection("ocr");
-        this.showToast(
-          "OCR 识别需要启用本地识别功能（recognition feature），当前构建未包含",
-        );
+
+        if (payload.action === "screenshot") {
+          await this.startScreenshot({
+            sessionId: payload.sessionId,
+            hostType: payload.hostType,
+            documentContext: payload.documentContext,
+            autoInsert: payload.autoInsert,
+          });
+        }
+      });
+
+      // Screenshot captured — route to RecognitionService
+      listen("screenshot://captured", async ({ payload }) => {
+        this.switchSection("ocr");
+
+        this._pendingOcrTarget = {
+          sessionId: payload.targetSessionId,
+          hostType: payload.targetHost,
+          documentContext: payload.documentContext,
+          autoInsert: payload.autoInsert,
+        };
+
+        try {
+          const { controller } =
+            await import("./features/recognition/index.js");
+
+          const response = await controller.startJob(payload.path, "formula", {
+            executionPolicy: "async",
+          });
+
+          this.showToast(`截图识别任务已提交：${response.jobId}`);
+        } catch (error) {
+          this.showToast(`截图识别启动失败：${error.message || error}`);
+        }
       });
 
       // Focus on Settings tab (from VSTO Ribbon)
@@ -4754,11 +4784,43 @@ class UIController {
 
     if (section === "settings") {
       this.renderPlatformList();
+      this.openSettingsPage();
     }
 
     if (section === "ocr") {
       this.checkBridgeStatus();
     }
+  }
+
+  openSettingsPage(pageId = null) {
+    const settingsList = document.getElementById("settingsList");
+    const subpages = document.querySelectorAll(
+      "#settingsSection .settings-subpage",
+    );
+
+    // Any moment only one subpage is active
+    subpages.forEach((page) => {
+      page.classList.remove("active");
+      page.style.animation = "";
+    });
+
+    if (!pageId) {
+      if (settingsList) {
+        settingsList.style.display = "block";
+        settingsList.style.animation = "fadeSlideIn 0.25s ease";
+      }
+      return;
+    }
+
+    const target = document.getElementById(pageId);
+    if (!target) {
+      Logger.warn(`Unknown settings page: ${pageId}`);
+      this.openSettingsPage();
+      return;
+    }
+
+    if (settingsList) settingsList.style.display = "none";
+    target.classList.add("active");
   }
 
   updateTabVisibility() {
@@ -6711,40 +6773,23 @@ class UIController {
     }
   }
 
-  async startScreenshot() {
-    Logger.info("startScreenshot");
-    this.showStatus("正在连接桌面端...");
-
-    const connected = await this.connectBridge();
-    if (!connected) {
-      this.showStatus("无法连接 LaTeXSnipper，请确保桌面端正在运行");
-      return;
-    }
+  async startScreenshot(target = null) {
+    Logger.info("Starting region screenshot");
 
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const imageData = await invoke("screenshot_capture");
-      const result = await invoke("ocr_recognize", { imageData });
-      if (result) {
-        this.ocrLatex = result.latex || "";
-        const ocrResult = document.getElementById("ocrResult");
-        const ocrInsertBtn = document.getElementById("ocrInsertBtn");
-        const ocrCopyBtn = document.getElementById("ocrCopyBtn");
 
-        if (ocrResult) ocrResult.textContent = this.ocrLatex || "未识别到公式";
-        if (ocrInsertBtn) ocrInsertBtn.disabled = !this.ocrLatex;
-        if (ocrCopyBtn) ocrCopyBtn.disabled = !this.ocrLatex;
-
-        this.showStatus(this.ocrLatex ? "识别完成" : "未识别到公式");
-        Logger.info(`OCR result: ${this.ocrLatex}`);
-      } else {
-        const errMsg = "识别失败";
-        this.showStatus(errMsg);
-        Logger.error("OCR failed:", errMsg);
-      }
-    } catch (e) {
-      Logger.error("Screenshot OCR failed:", e);
-      this.showStatus("截图识别失败，请确保桌面端正在运行");
+      await invoke("screenshot_begin", {
+        request: {
+          targetSessionId: target?.sessionId ?? null,
+          targetHost: target?.hostType ?? null,
+          documentContext: target?.documentContext ?? null,
+          autoInsert: Boolean(target?.autoInsert),
+        },
+      });
+    } catch (error) {
+      Logger.error("Screenshot start failed:", error);
+      this.showToast(`截图启动失败：${error.message || error}`);
     }
   }
 
@@ -6762,6 +6807,51 @@ class UIController {
       this.editor.copyToClipboard(this.ocrLatex);
       this.showStatus("已复制 LaTeX");
     }
+  }
+
+  async insertRecognizedFormula(latex, target) {
+    const { insertArtifact } =
+      await import("./services/office-insertion-service.js");
+
+    const display = false;
+
+    const svgResult = await this.formulaSvgRenderer.renderFormulaSvg(latex, {
+      display,
+    });
+
+    let png = null;
+
+    try {
+      const pngResult = await this.formulaSvgRenderer.renderSvgPng(
+        svgResult.svg,
+        svgResult.widthPt,
+        svgResult.heightPt,
+        { targetDpi: 300 },
+      );
+
+      png = pngResult.pngDataUrl.split(",")[1];
+    } catch (error) {
+      Logger.warn("OCR result PNG generation failed:", error);
+    }
+
+    return insertArtifact({
+      type: "formula",
+      payload: {
+        format: "latex",
+        content: latex,
+      },
+      targetHost: String(target.hostType).toLowerCase(),
+      options: {
+        sessionId: target.sessionId,
+        documentContext: target.documentContext,
+        display: "inline",
+        storageMode: "auto",
+        svg: svgResult.svg,
+        png,
+        widthPt: svgResult.widthPt,
+        heightPt: svgResult.heightPt,
+      },
+    });
   }
 
   async selectImageFile() {
@@ -6807,15 +6897,8 @@ class UIController {
   }
 
   openRecognitionSettings() {
-    Logger.info("openRecognitionSettings");
-    const settingsBtn = document.getElementById("settingsBtn");
-    if (settingsBtn) settingsBtn.click();
-    setTimeout(() => {
-      const aiItem = document.querySelector(
-        '.settings-item[data-page="settingsAi"]',
-      );
-      if (aiItem) aiItem.click();
-    }, 100);
+    this.switchSection("settings");
+    this.openSettingsPage("settingsRecognition");
   }
 
   applySettings() {

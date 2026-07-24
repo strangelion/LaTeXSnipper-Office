@@ -582,6 +582,21 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
     if (size->cx <= 0 || size->cy <= 0)
         return E_INVALIDARG;
 
+    wchar_t extentLog[256]{};
+
+    swprintf_s(
+        extentLog,
+        L"SetExtent received=%ldx%ld current=%ldx%ld natural=%ldx%ld",
+        size->cx,
+        size->cy,
+        containerExtent_.cx,
+        containerExtent_.cy,
+        presentation_.himetricSize.cx,
+        presentation_.himetricSize.cy
+    );
+
+    WriteNativeOleLog(extentLog);
+
     if (!IsInsertionComplete())
     {
         WriteNativeOleLog(L"FormulaOleObject SetExtent: provisional extent ignored.");
@@ -930,9 +945,16 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
         return S_FALSE; // Not an error; Office will not render anything
     }
 
-    RECT rect{bounds->left, bounds->top, bounds->right, bounds->bottom};
+    RECT drawRect{
+        bounds->left,
+        bounds->top,
+        bounds->right,
+        bounds->bottom
+    };
 
-    // Safety clip: prevent EMF content from overflowing into adjacent objects
+    RECT clipRect = drawRect;
+    InflateRect(&clipRect, 2, 2);
+
     const int savedDc = SaveDC(drawContext);
     if (savedDc == 0)
     {
@@ -940,14 +962,45 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
         return E_FAIL;
     }
 
-    const int clipResult = IntersectClipRect(drawContext, rect.left, rect.top, rect.right, rect.bottom);
+    const int clipResult = IntersectClipRect(
+        drawContext,
+        clipRect.left,
+        clipRect.top,
+        clipRect.right,
+        clipRect.bottom
+    );
+
     BOOL played = FALSE;
+
     if (clipResult != ERROR)
     {
-        played = PlayEnhMetaFile(drawContext, metafile, &rect);
+        played = PlayEnhMetaFile(
+            drawContext,
+            metafile,
+            &drawRect
+        );
     }
+
     RestoreDC(drawContext, savedDc);
     DeleteEnhMetaFile(metafile);
+
+    wchar_t drawLog[256]{};
+
+    swprintf_s(
+        drawLog,
+        L"Draw bounds=%ld,%ld-%ld,%ld effective=%ldx%ld natural=%ldx%ld",
+        bounds->left,
+        bounds->top,
+        bounds->right,
+        bounds->bottom,
+        GetEffectiveExtent().cx,
+        GetEffectiveExtent().cy,
+        presentation_.himetricSize.cx,
+        presentation_.himetricSize.cy
+    );
+
+    WriteNativeOleLog(drawLog);
+
     return played ? S_OK : S_FALSE;
 }
 

@@ -973,21 +973,42 @@ impl SessionManager {
             VstoMessage::FocusOcr {
                 requestId,
                 sessionId,
+                action,
+                autoInsert,
             } => {
-                let rid = requestId.clone();
-                let sid = sessionId.clone();
-                log::info!("[Session] FOCUS_OCR (session={})", sid);
-                let _ = self.app_handle.emit(
-                    "native-office-focus-ocr",
-                    serde_json::json!({ "sessionId": sid }),
-                );
+                let target = self
+                    .sessions
+                    .read()
+                    .await
+                    .get(&sessionId)
+                    .map(|session| {
+                        serde_json::json!({
+                            "sessionId": session.session_id,
+                            "hostType": session.host_type,
+                            "documentContext": session.document_id,
+                            "action": if action.is_empty() { "focus" } else { &action },
+                            "autoInsert": autoInsert,
+                        })
+                    });
+
+                if let Some(window) = self.app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+
+                if let Some(payload) = target {
+                    let _ = self
+                        .app_handle
+                        .emit("native-office-focus-ocr", payload);
+                }
+
                 HandleMessageResult {
                     response: ResponseEnvelope {
-                        requestId: rid.clone(),
-                        sessionId: sid.clone(),
+                        requestId: requestId.clone(),
+                        sessionId: sessionId.clone(),
                         response: DesktopMessage::Ping {
-                            requestId: rid,
-                            sessionId: sid,
+                            requestId,
+                            sessionId,
                         },
                     },
                     connection_id: None,

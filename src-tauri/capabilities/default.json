@@ -2,10 +2,14 @@
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
   "identifier": "default",
   "description": "Default capabilities for LaTeXSnipper Office",
-  "windows": ["main"],
+  "windows": [
+    "main",
+    "capture-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-show",
+    "core:window:allow-hide",
     "core:window:allow-set-focus",
     "shell:allow-open",
     "global-shortcut:allow-register",
