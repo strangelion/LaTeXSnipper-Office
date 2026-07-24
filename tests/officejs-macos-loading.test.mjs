@@ -126,7 +126,7 @@ test("Office.js installation fails closed before manifest installation when TLS 
 test("Office.js diagnostics expose five states and the settings repair action", () => {
   const integrations = read("src-tauri", "src", "platforms", "integrations.rs");
   const bridge = read("src-tauri", "src", "platforms", "office_bridge.rs");
-  const main = read("src-tauri", "src", "main.rs");
+  const main = read("src-tauri", "src", "lib.rs");
   const frontend = read("src", "main.js");
 
   for (const state of [
