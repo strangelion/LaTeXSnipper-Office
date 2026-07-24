@@ -6,6 +6,16 @@ description = "Independent LaTeX formula editor"
 authors = ["LaTeXSnipper"]
 license = "AGPL-3.0-only"
 
+[lib]
+name = "latexsnipper_office"
+path = "src/lib.rs"
+
+[[bin]]
+name = "latexsnipper-office"
+path = "src/main.rs"
+test = false
+bench = false
+
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
@@ -29,7 +39,7 @@ base64 = "0.22"
 log = "0.4"
 env_logger = "0.11"
 rand = "0.8"
-xcap = "=0.9.7"
+xcap = { version = "=0.9.7", optional = true }
 image = { version = "0.25", default-features = false, features = [
   "png",
   "jpeg",
@@ -70,8 +80,12 @@ default = ["desktop-full"]
 desktop-full = [
     "office-bridge",
     "recognition",
+    "screen-capture",
 ]
 office-bridge = []
+screen-capture = [
+    "dep:xcap",
+]
 recognition = [
     "dep:latexsnipper-engine",
     "dep:latexsnipper-api-types",
@@ -86,3 +100,10 @@ recognition = [
 strip = true
 lto = true
 codegen-units = 1
+
+[profile.test]
+opt-level = 0
+debug = 0
+strip = "debuginfo"
+incremental = false
+codegen-units = 16

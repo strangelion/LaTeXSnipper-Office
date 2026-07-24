@@ -100,12 +100,28 @@ jobs:
         with:
           submodules: recursive
       - name: Install Linux Tauri build dependencies
-        run: >-
-          sudo apt-get update && sudo apt-get install -y
-          libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libxdo-dev
-          pkg-config libclang-dev libxcb1-dev libxrandr-dev libdbus-1-dev
-          libpipewire-0.3-dev libwayland-dev libegl-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            clang \
+            lld \
+            libclang-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libxdo-dev \
+            libxcb1-dev \
+            libxrandr-dev \
+            libdbus-1-dev \
+            libpipewire-0.3-dev \
+            libwayland-dev \
+            libegl-dev \
+            libgbm-dev \
+            libdrm-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -122,9 +138,25 @@ jobs:
         run: |
           npm run build:ecosystem
           npm run stage:ecosystem
-      - run: cargo fmt --check
-      - run: cargo clippy -- -D warnings
-      - run: cargo test
+      - name: Cargo fmt
+        run: cargo fmt --check
+      - name: Cargo clippy
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+        run: cargo clippy --locked --features desktop-full -- -D warnings
+      - name: Cargo check full desktop
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+          CARGO_BUILD_JOBS: "2"
+        run: cargo check --locked --features desktop-full
+      - name: Cargo library tests
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER: clang
+          RUSTFLAGS: "-C link-arg=-fuse-ld=lld"
+          CARGO_BUILD_JOBS: "2"
+        run: cargo test --locked --lib
 
   native-office:
     uses: ./.github/workflows/native-office-ci.yml

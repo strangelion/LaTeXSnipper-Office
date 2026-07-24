@@ -101,3 +101,20 @@ fn cancellation_removes_all_monitor_windows() {
     assert!(removed.is_some());
     assert!(sessions.is_empty());
 }
+
+#[test]
+#[ignore = "requires an interactive desktop session"]
+fn capture_real_monitor() {
+    // Real monitor capture requires an interactive desktop session.
+    // Run manually: LATEXSNIPPER_INTERACTIVE_CAPTURE_TEST=1 cargo test -- --ignored
+    if std::env::var_os("LATEXSNIPPER_INTERACTIVE_CAPTURE_TEST").is_none() {
+        return;
+    }
+    let monitors = xcap::Monitor::all().expect("Failed to enumerate monitors");
+    assert!(!monitors.is_empty(), "Expected at least one monitor");
+    let image = monitors[0]
+        .capture_image()
+        .expect("Failed to capture monitor");
+    assert!(image.width() > 0);
+    assert!(image.height() > 0);
+}
