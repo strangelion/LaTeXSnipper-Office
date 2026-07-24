@@ -144,7 +144,14 @@ jobs:
 
   ci-gate:
     if: always()
-    needs: [detect-package-impact, source-frontend-protocol, rust, native-office, package-smoke]
+    needs:
+      [
+        detect-package-impact,
+        source-frontend-protocol,
+        rust,
+        native-office,
+        package-smoke,
+      ]
     runs-on: ubuntu-24.04
     steps:
       - name: Enforce required CI results

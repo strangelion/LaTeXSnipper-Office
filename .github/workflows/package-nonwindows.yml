@@ -14,10 +14,10 @@ on:
         required: true
       source_ref:
         type: string
-        default: ''
+        default: ""
       expected_version:
         type: string
-        default: ''
+        default: ""
 
 permissions:
   contents: read
