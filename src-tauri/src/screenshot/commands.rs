@@ -1,37 +1,16 @@
-use std::{
-    collections::HashMap,
-    time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 
 use base64::Engine;
-use image::{
-    codecs::jpeg::JpegEncoder,
-    imageops::crop_imm,
-    DynamicImage,
-};
-use tauri::{
-    AppHandle,
-    Emitter,
-    Manager,
-    State,
-    WebviewUrl,
-    WebviewWindowBuilder,
-};
+use image::{codecs::jpeg::JpegEncoder, imageops::crop_imm, DynamicImage};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
 use super::{
     dto::{
-        ScreenshotBeginRequest,
-        ScreenshotBeginResult,
-        ScreenshotCaptured,
-        ScreenshotCommitRequest,
+        ScreenshotBeginRequest, ScreenshotBeginResult, ScreenshotCaptured, ScreenshotCommitRequest,
         ScreenshotOverlayInit,
     },
-    state::{
-        ScreenshotFrame,
-        ScreenshotSession,
-        ScreenshotState,
-    },
+    state::{ScreenshotFrame, ScreenshotSession, ScreenshotState},
 };
 
 fn new_session_id() -> String {
@@ -106,15 +85,7 @@ pub async fn screenshot_begin(
                 .capture_image()
                 .map_err(|e| format!("Cannot capture monitor {monitor_id}: {e}"))?;
 
-            frames.push((
-                monitor_id,
-                x,
-                y,
-                width,
-                height,
-                scale_factor,
-                image,
-            ));
+            frames.push((monitor_id, x, y, width, height, scale_factor, image));
         }
 
         Ok::<_, String>(frames)
@@ -141,21 +112,17 @@ pub async fn screenshot_begin(
         let logical_width = physical_width as f64 / scale_factor;
         let logical_height = physical_height as f64 / scale_factor;
 
-        WebviewWindowBuilder::new(
-            &app,
-            &label,
-            WebviewUrl::App("capture.html".into()),
-        )
-        .title("LaTeXSnipper Capture")
-        .position(logical_x, logical_y)
-        .inner_size(logical_width, logical_height)
-        .decorations(false)
-        .resizable(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .focused(true)
-        .build()
-        .map_err(|e| format!("Cannot create capture window: {e}"))?;
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("capture.html".into()))
+            .title("LaTeXSnipper Capture")
+            .position(logical_x, logical_y)
+            .inner_size(logical_width, logical_height)
+            .decorations(false)
+            .resizable(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(true)
+            .build()
+            .map_err(|e| format!("Cannot create capture window: {e}"))?;
 
         frames.insert(
             monitor_id.clone(),

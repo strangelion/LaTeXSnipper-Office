@@ -976,20 +976,15 @@ impl SessionManager {
                 action,
                 autoInsert,
             } => {
-                let target = self
-                    .sessions
-                    .read()
-                    .await
-                    .get(&sessionId)
-                    .map(|session| {
-                        serde_json::json!({
-                            "sessionId": session.session_id,
-                            "hostType": session.host_type,
-                            "documentContext": session.document_id,
-                            "action": if action.is_empty() { "focus" } else { &action },
-                            "autoInsert": autoInsert,
-                        })
-                    });
+                let target = self.sessions.read().await.get(&sessionId).map(|session| {
+                    serde_json::json!({
+                        "sessionId": session.session_id,
+                        "hostType": session.host_type,
+                        "documentContext": session.document_id,
+                        "action": if action.is_empty() { "focus" } else { &action },
+                        "autoInsert": autoInsert,
+                    })
+                });
 
                 if let Some(window) = self.app_handle.get_webview_window("main") {
                     let _ = window.show();
@@ -997,9 +992,7 @@ impl SessionManager {
                 }
 
                 if let Some(payload) = target {
-                    let _ = self
-                        .app_handle
-                        .emit("native-office-focus-ocr", payload);
+                    let _ = self.app_handle.emit("native-office-focus-ocr", payload);
                 }
 
                 HandleMessageResult {
