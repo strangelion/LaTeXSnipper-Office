@@ -43,6 +43,106 @@ pub async fn recognition_get_capabilities(
     }
 }
 
+/// Audit whether the compiled recognition feature has enough runtime/model
+/// coverage to execute useful modes. This never initializes the engine.
+#[tauri::command]
+pub async fn recognition_get_readiness(
+    state: State<'_, RecognitionState>,
+) -> Result<RecognitionReadiness, String> {
+    let compiled = cfg!(feature = "recognition");
+    let runtime_health = crate::commands::runtimes::probe_runtimes(&state.paths.runtimes)
+        .map_err(|error| format!("READINESS_RUNTIME_PROBE_FAILED: {error}"))?;
+    let recommended_runtime = crate::commands::runtimes::recommend_runtime(&runtime_health);
+    let model_coverage = scan_model_coverage(&state.paths.models);
+    let runtime_available = runtime_health.iter().any(|runtime| runtime.available);
+
+    let mut missing_required_models = Vec::new();
+    if !model_coverage.formula_rec {
+        missing_required_models.push("formula-rec".to_string());
+    }
+
+    let mut warnings = Vec::new();
+    if !compiled {
+        warnings.push(ReadinessDiagnostic {
+            code: "RECOGNITION_FEATURE_NOT_COMPILED".to_string(),
+            message: "The recognition Cargo feature is not included.".to_string(),
+        });
+    }
+    if !runtime_available {
+        warnings.push(ReadinessDiagnostic {
+            code: "RECOGNITION_RUNTIME_MISSING".to_string(),
+            message: "No healthy recognition runtime is available.".to_string(),
+        });
+    }
+    if !model_coverage.formula_rec {
+        warnings.push(ReadinessDiagnostic {
+            code: "FORMULA_RECOGNITION_MODEL_MISSING".to_string(),
+            message: "Formula recognition requires a formula-rec model.".to_string(),
+        });
+    }
+
+    let runnable = compiled && runtime_available && model_coverage.formula_rec;
+    let next_action = if !compiled {
+        Some("安装包含识别组件的 desktop-full 构建".to_string())
+    } else if !runtime_available {
+        Some("安装或修复一个受支持的识别运行时".to_string())
+    } else if !model_coverage.formula_rec {
+        Some("导入 formula-rec .lsmodel 模型包".to_string())
+    } else {
+        None
+    };
+
+    Ok(RecognitionReadiness {
+        compiled,
+        runnable,
+        service_initialized: state.is_service_initialized().await,
+        recommended_runtime,
+        runtime_health,
+        model_coverage,
+        missing_required_models,
+        warnings,
+        next_action,
+    })
+}
+
+fn scan_model_coverage(models_dir: &std::path::Path) -> ModelCoverage {
+    let mut coverage = ModelCoverage::default();
+    let Ok(categories) = std::fs::read_dir(models_dir) else {
+        return coverage;
+    };
+
+    for category in categories.flatten().filter(|entry| entry.path().is_dir()) {
+        let Ok(variants) = std::fs::read_dir(category.path()) else {
+            continue;
+        };
+        for variant in variants.flatten().filter(|entry| entry.path().is_dir()) {
+            let manifest_path = variant.path().join("manifest.toml");
+            let Ok(content) = std::fs::read_to_string(manifest_path) else {
+                continue;
+            };
+            let Ok(manifest) = toml::from_str::<latexsnipper_runtime::ModelManifest>(&content)
+            else {
+                continue;
+            };
+            let task = format!("{:?}", manifest.task)
+                .to_ascii_lowercase()
+                .replace(['_', '-'], "");
+            match task.as_str() {
+                "formuladetection" | "formuladet" => coverage.formula_det = true,
+                "formularecognition" | "formularec" => coverage.formula_rec = true,
+                "textdetection" | "textdet" => coverage.text_det = true,
+                "textrecognition" | "textrec" => coverage.text_rec = true,
+                "layout" | "documentlayout" => coverage.layout = true,
+                "tabledetection" | "tabledet" => coverage.table_det = true,
+                "tablestructure" | "tablestruct" => coverage.table_struct = true,
+                "handwriting" | "handwritingrecognition" => coverage.handwriting = true,
+                _ => {}
+            }
+        }
+    }
+    coverage
+}
+
 /// Start a new recognition job.
 #[tauri::command]
 pub async fn recognition_start(

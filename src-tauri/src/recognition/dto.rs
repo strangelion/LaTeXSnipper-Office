@@ -94,3 +94,37 @@ pub struct RecognitionCapabilities {
     /// Number of currently active jobs.
     pub active_jobs: usize,
 }
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCoverage {
+    pub formula_det: bool,
+    pub formula_rec: bool,
+    pub text_det: bool,
+    pub text_rec: bool,
+    pub layout: bool,
+    pub table_det: bool,
+    pub table_struct: bool,
+    pub handwriting: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadinessDiagnostic {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognitionReadiness {
+    pub compiled: bool,
+    pub runnable: bool,
+    pub service_initialized: bool,
+    pub recommended_runtime: Option<String>,
+    pub runtime_health: Vec<crate::commands::runtimes::RuntimeInfo>,
+    pub model_coverage: ModelCoverage,
+    pub missing_required_models: Vec<String>,
+    pub warnings: Vec<ReadinessDiagnostic>,
+    pub next_action: Option<String>,
+}

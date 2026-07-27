@@ -1,4 +1,7 @@
-use super::commands::parse_window_label;
+use super::{
+    commands::{parse_window_label, validate_selection},
+    state::ScreenshotState,
+};
 
 #[test]
 fn parses_capture_window_label() {
@@ -16,39 +19,33 @@ fn rejects_invalid_window_label() {
 
 #[test]
 fn rejects_zero_sized_selection() {
-    // The check is request.width < 8 || request.height < 8
-    // This is verified in the screenshot_commit command.
-    // Here we test the intent via logical equivalent.
-    fn is_too_small(w: u32, h: u32) -> bool {
-        w < 8 || h < 8
-    }
-    assert!(is_too_small(0, 0));
-    assert!(is_too_small(7, 100));
-    assert!(is_too_small(100, 7));
-    assert!(!is_too_small(8, 8));
-    assert!(!is_too_small(200, 100));
+    assert!(validate_selection(0, 0, 0, 0, 1920, 1080).is_err());
+    assert!(validate_selection(0, 0, 7, 100, 1920, 1080).is_err());
+    assert!(validate_selection(0, 0, 100, 7, 1920, 1080).is_err());
+    assert!(validate_selection(0, 0, 8, 8, 1920, 1080).is_ok());
 }
 
 #[test]
 fn rejects_selection_outside_monitor() {
-    // The bounds check is max_x > width || max_y > height
-    fn is_outside(x: u32, y: u32, w: u32, h: u32, monitor_w: u32, monitor_h: u32) -> bool {
-        let max_x = x.checked_add(w);
-        let max_y = y.checked_add(h);
-        max_x.is_none()
-            || max_y.is_none()
-            || max_x.unwrap() > monitor_w
-            || max_y.unwrap() > monitor_h
-    }
-    // Within bounds
-    assert!(!is_outside(0, 0, 100, 100, 1920, 1080));
-    assert!(!is_outside(1820, 980, 100, 100, 1920, 1080));
-    // Outside right edge
-    assert!(is_outside(1821, 0, 100, 100, 1920, 1080));
-    // Outside bottom edge
-    assert!(is_outside(0, 981, 100, 100, 1920, 1080));
-    // Overflow
-    assert!(is_outside(u32::MAX, 0, 100, 100, 1920, 1080));
+    assert!(validate_selection(0, 0, 100, 100, 1920, 1080).is_ok());
+    assert!(validate_selection(1820, 980, 100, 100, 1920, 1080).is_ok());
+    assert!(validate_selection(1821, 0, 100, 100, 1920, 1080).is_err());
+    assert!(validate_selection(0, 981, 100, 100, 1920, 1080).is_err());
+    assert!(validate_selection(u32::MAX, 0, 100, 100, 1920, 1080).is_err());
+}
+
+#[test]
+fn rejects_duplicate_begin_until_session_is_released() {
+    let state = ScreenshotState::default();
+    state
+        .reserve("first")
+        .expect("first reservation should work");
+    let duplicate = state.reserve("second").expect_err("duplicate must fail");
+    assert!(duplicate.starts_with("SCREENSHOT_ALREADY_ACTIVE"));
+    state.release("first").expect("release should work");
+    state
+        .reserve("second")
+        .expect("reservation should work after rollback");
 }
 
 #[test]

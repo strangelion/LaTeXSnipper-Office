@@ -154,6 +154,7 @@ pub struct OfficeWebDiagnostics {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct OleStatus {
     pub available: bool,
     pub bitness_mismatch: bool,
@@ -177,6 +178,17 @@ pub struct OleStatus {
     pub matching_view_healthy: bool,
     pub activation_result: bool,
     pub error_code: Option<String>,
+    pub prog_id: Option<String>,
+    pub registry_view: Option<String>,
+    pub inproc_server32: Option<String>,
+    pub registered_file_version: Option<String>,
+    pub registered_sha256: Option<String>,
+    pub expected_path: Option<String>,
+    pub expected_file_version: Option<String>,
+    pub expected_sha256: Option<String>,
+    pub matches_current_installation: Option<bool>,
+    pub loaded_module_path: Option<String>,
+    pub loaded_module_version: Option<String>,
 }
 
 impl PlatformIntegrationResult {
@@ -5241,6 +5253,57 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     } else {
         Some("OLE_NOT_REGISTERED".to_string())
     };
+    let selected_view = if current_office_bitness.as_deref() == Some("x86") {
+        RegistryView::X86
+    } else {
+        RegistryView::X64
+    };
+    let selected_path = match selected_view {
+        RegistryView::X64 => x64_registry_path_val.clone(),
+        RegistryView::X86 => x86_registry_path_val.clone(),
+    };
+    let registered_file_version =
+        query_registry_value_view(&clsid_key, Some("Version"), selected_view);
+    let registered_sha256 = selected_path
+        .as_ref()
+        .and_then(|path| sha256_file(Path::new(path)).ok());
+    let ledger = IntegrationLedger::load();
+    let ledger_ole = ledger.native_office.ole.as_ref();
+    let expected_file_version = ledger_ole
+        .map(|entry| entry.version.clone())
+        .filter(|value| !value.is_empty());
+    let expected_sha256 = ledger_ole
+        .map(|entry| match selected_view {
+            RegistryView::X64 => entry.dll_sha256_x64.clone(),
+            RegistryView::X86 => entry.dll_sha256_x86.clone(),
+        })
+        .filter(|value| !value.is_empty());
+    let expected_path = ledger_ole.and_then(|entry| {
+        let mut paths = entry.dll_path.split(" | ");
+        match selected_view {
+            RegistryView::X64 => paths.next(),
+            RegistryView::X86 => paths.nth(1),
+        }
+        .map(str::to_string)
+    });
+    let paths_match =
+        selected_path
+            .as_ref()
+            .zip(expected_path.as_ref())
+            .map(|(registered, expected)| {
+                registered
+                    .replace('/', "\\")
+                    .eq_ignore_ascii_case(&expected.replace('/', "\\"))
+            });
+    let hashes_match = registered_sha256
+        .as_ref()
+        .zip(expected_sha256.as_ref())
+        .map(|(registered, expected)| registered.eq_ignore_ascii_case(expected));
+    let matches_current_installation = match (paths_match, hashes_match) {
+        (Some(path), Some(hash)) => Some(path && hash),
+        (Some(path), None) => Some(path),
+        _ => None,
+    };
 
     crate::commands::native_office::OleStatus {
         available: final_available,
@@ -5259,6 +5322,20 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         matching_view_healthy,
         activation_result,
         error_code,
+        prog_id: Some(ole_constants::PROG_ID.to_string()),
+        registry_view: Some(selected_view.label().to_string()),
+        inproc_server32: selected_path,
+        registered_file_version,
+        registered_sha256,
+        expected_path,
+        expected_file_version,
+        expected_sha256,
+        matches_current_installation,
+        // A desktop process cannot safely infer modules already loaded inside
+        // WINWORD/EXCEL/POWERPNT. These stay explicit until host diagnostics
+        // report them instead of guessing.
+        loaded_module_path: None,
+        loaded_module_version: None,
     }
 }
 

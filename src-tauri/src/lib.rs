@@ -310,11 +310,13 @@ pub fn run() {
             commands::ocr::screenshot_capture,
             screenshot::commands::screenshot_begin,
             screenshot::commands::screenshot_overlay_init,
+            screenshot::commands::screenshot_overlay_ready,
             screenshot::commands::screenshot_commit,
             screenshot::commands::screenshot_cancel,
             #[allow(deprecated)]
             commands::ocr::ocr_recognize,
             commands::recognition_cmd::recognition_get_capabilities,
+            commands::recognition_cmd::recognition_get_readiness,
             commands::recognition_cmd::recognition_start,
             commands::recognition_cmd::recognition_get_job,
             commands::recognition_cmd::recognition_list_jobs,

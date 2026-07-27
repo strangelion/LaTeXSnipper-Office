@@ -28,6 +28,20 @@ pub struct ScreenshotOverlayInit {
     pub preview_data_url: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenshotFailure {
+    pub operation_id: String,
+    pub stage: String,
+    pub host: String,
+    pub session_id: String,
+    pub document_context: Option<String>,
+    pub elapsed_ms: u128,
+    pub success: bool,
+    pub error_code: String,
+    pub error_message: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotCommitRequest {

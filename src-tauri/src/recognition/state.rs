@@ -152,6 +152,17 @@ impl RecognitionState {
             service: RwLock::new(None),
         }
     }
+
+    pub async fn is_service_initialized(&self) -> bool {
+        #[cfg(feature = "recognition")]
+        {
+            self.service.read().await.is_some()
+        }
+        #[cfg(not(feature = "recognition"))]
+        {
+            false
+        }
+    }
 }
 
 #[cfg(feature = "recognition")]

@@ -71,7 +71,16 @@ pub async fn runtime_probe(
     let runtimes = probe_runtimes(runtimes_dir)?;
 
     // Recommend based on what's available
-    let recommended = if cfg!(target_os = "windows") {
+    let recommended = recommend_runtime(&runtimes);
+
+    Ok(RuntimeProbeResult {
+        runtimes,
+        recommended,
+    })
+}
+
+pub(crate) fn recommend_runtime(runtimes: &[RuntimeInfo]) -> Option<String> {
+    if cfg!(target_os = "windows") {
         // On Windows, prefer DirectML if available, else ONNX Runtime
         runtimes
             .iter()
@@ -99,12 +108,7 @@ pub async fn runtime_probe(
             .iter()
             .find(|r| r.kind == "onnx" && r.available)
             .map(|r| r.kind.clone())
-    };
-
-    Ok(RuntimeProbeResult {
-        runtimes,
-        recommended,
-    })
+    }
 }
 
 /// Open the runtime directory in the system file manager.
@@ -117,7 +121,7 @@ pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Resul
         std::process::Command::new("explorer")
             .arg(&dir)
             .spawn()
-            .map_err(|e| format!("Cannot open directory: {e}"))?;
+            .map_err(|e| format!("RUNTIME_OPEN_DIRECTORY_FAILED: explorer: {e}"))?;
     }
 
     #[cfg(target_os = "macos")]
@@ -125,7 +129,7 @@ pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Resul
         std::process::Command::new("open")
             .arg(&dir)
             .spawn()
-            .map_err(|e| format!("Cannot open directory: {e}"))?;
+            .map_err(|e| format!("RUNTIME_OPEN_DIRECTORY_FAILED: open: {e}"))?;
     }
 
     #[cfg(target_os = "linux")]
@@ -133,7 +137,7 @@ pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Resul
         std::process::Command::new("xdg-open")
             .arg(&dir)
             .spawn()
-            .map_err(|e| format!("Cannot open directory: {e}"))?;
+            .map_err(|e| format!("RUNTIME_OPEN_DIRECTORY_FAILED: xdg-open: {e}"))?;
     }
 
     Ok(format!("Opened runtime directory: {dir}"))
@@ -144,7 +148,7 @@ pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Resul
 // ---------------------------------------------------------------------------
 
 /// Probe the runtime directory and system for available runtimes.
-fn probe_runtimes(runtimes_dir: &std::path::Path) -> Result<Vec<RuntimeInfo>, String> {
+pub(crate) fn probe_runtimes(runtimes_dir: &std::path::Path) -> Result<Vec<RuntimeInfo>, String> {
     let mut runtimes = Vec::new();
 
     // ONNX Runtime

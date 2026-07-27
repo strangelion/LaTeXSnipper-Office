@@ -3296,6 +3296,7 @@ dependencies = [
  "latexsnipper-ast",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3407,7 +3408,10 @@ dependencies = [
  "log",
  "ndarray 0.16.1",
  "regex",
+ "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
  "tokenizers",
 ]
 
