@@ -47,6 +47,17 @@ public static class OfficeOperationLog
         WriteToFile(host, $"[INFO] {msg}");
     }
 
+    public static void Diagnostic(string operation, string host, string? formulaId, string json)
+    {
+        var safeJson = json ?? "";
+        var bounded = safeJson.Length > 8192 ? safeJson.Substring(0, 8192) : safeJson;
+        var msg =
+            $"[NativeOffice] operation={Sanitize(operation)} host={Sanitize(host)} " +
+            $"formulaId={Sanitize(formulaId ?? "<unknown>")} diagnostics={Sanitize(bounded)}";
+        Debug.WriteLine(msg);
+        WriteToFile(host, $"[INFO] {msg}");
+    }
+
     private static void WriteToFile(string host, string line)
     {
         try

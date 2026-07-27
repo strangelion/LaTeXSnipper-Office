@@ -25,6 +25,7 @@ interface ILatexSnipperFormula : IDispatch {
 
     // Explicit host/server extent synchronization. The natural EMF extent is immutable.
     [id(9)] HRESULT SetDisplayExtentHimetric([in] LONG cx, [in] LONG cy);
+    [id(10)] HRESULT GetDiagnosticsJson([out, retval] BSTR* diagnosticsJson);
 };
 
 [

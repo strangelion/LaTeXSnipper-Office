@@ -47,7 +47,7 @@
 #include "LaTeXSnipperFormula_h.h"
 
 #define TYPE_FORMAT_STRING_SIZE   71
-#define PROC_FORMAT_STRING_SIZE   337
+#define PROC_FORMAT_STRING_SIZE   375
 #define EXPR_FORMAT_STRING_SIZE   1
 #define TRANSMIT_AS_TABLE_SIZE    0
 #define WIRE_MARSHAL_TABLE_SIZE   1
@@ -438,6 +438,37 @@ static const LaTeXSnipperFormula_MIDL_PROC_FORMAT_STRING LaTeXSnipperFormula__MI
 /* 334 */	0x8,		/* FC_LONG */
 			0x0,		/* 0 */
 
+	/* Procedure GetDiagnosticsJson */
+
+/* 336 */	0x33,		/* FC_AUTO_HANDLE */
+			0x6c,		/* Old Flags:  object, Oi2 */
+/* 338 */	NdrFcLong( 0x0 ),	/* 0 */
+/* 342 */	NdrFcShort( 0x10 ),	/* 16 */
+/* 344 */	NdrFcShort( 0x18 ),	/* X64 Stack size/offset = 24 */
+/* 346 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 348 */	NdrFcShort( 0x8 ),	/* 8 */
+/* 350 */	0x45,		/* Oi2 Flags:  srv must size, has return, has ext, */
+			0x2,		/* 2 */
+/* 352 */	0xa,		/* 10 */
+			0x43,		/* Ext Flags:  new corr desc, clt corr check, has range on conformance */
+/* 354 */	NdrFcShort( 0x1 ),	/* 1 */
+/* 356 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 358 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 360 */	NdrFcShort( 0x0 ),	/* 0 */
+
+	/* Parameter diagnosticsJson */
+
+/* 362 */	NdrFcShort( 0x2113 ),	/* Flags:  must size, must free, out, simple ref, srv alloc size=8 */
+/* 364 */	NdrFcShort( 0x8 ),	/* X64 Stack size/offset = 8 */
+/* 366 */	NdrFcShort( 0x38 ),	/* Type Offset=56 */
+
+	/* Return value */
+
+/* 368 */	NdrFcShort( 0x70 ),	/* Flags:  out, return, base type, */
+/* 370 */	NdrFcShort( 0x10 ),	/* X64 Stack size/offset = 16 */
+/* 372 */	0x8,		/* FC_LONG */
+			0x0,		/* 0 */
+
 			0x0
         }
     };
@@ -544,7 +575,8 @@ static const unsigned short ILatexSnipperFormula_FormatStringOffsetTable[] =
     184,
     222,
     260,
-    292
+    292,
+    336
     };
 
 
@@ -589,8 +621,33 @@ namespace {
 
 typedef
 NDR64_FORMAT_CHAR
-__midl_frag40_t;
-extern const __midl_frag40_t __midl_frag40;
+__midl_frag45_t;
+extern const __midl_frag45_t __midl_frag45;
+
+typedef
+struct _NDR64_POINTER_FORMAT
+__midl_frag44_t;
+extern const __midl_frag44_t __midl_frag44;
+
+typedef
+struct _NDR64_USER_MARSHAL_FORMAT
+__midl_frag43_t;
+extern const __midl_frag43_t __midl_frag43;
+
+typedef
+struct _NDR64_POINTER_FORMAT
+__midl_frag42_t;
+extern const __midl_frag42_t __midl_frag42;
+
+typedef
+struct
+{
+    struct _NDR64_PROC_FORMAT frag1;
+    struct _NDR64_PARAM_FORMAT frag2;
+    struct _NDR64_PARAM_FORMAT frag3;
+}
+__midl_frag41_t;
+extern const __midl_frag41_t __midl_frag41;
 
 typedef
 struct
@@ -611,31 +668,6 @@ struct
 }
 __midl_frag35_t;
 extern const __midl_frag35_t __midl_frag35;
-
-typedef
-struct _NDR64_POINTER_FORMAT
-__midl_frag33_t;
-extern const __midl_frag33_t __midl_frag33;
-
-typedef
-struct _NDR64_USER_MARSHAL_FORMAT
-__midl_frag32_t;
-extern const __midl_frag32_t __midl_frag32;
-
-typedef
-struct _NDR64_POINTER_FORMAT
-__midl_frag31_t;
-extern const __midl_frag31_t __midl_frag31;
-
-typedef
-struct
-{
-    struct _NDR64_PROC_FORMAT frag1;
-    struct _NDR64_PARAM_FORMAT frag2;
-    struct _NDR64_PARAM_FORMAT frag3;
-}
-__midl_frag30_t;
-extern const __midl_frag30_t __midl_frag30;
 
 typedef
 NDR64_FORMAT_CHAR
@@ -708,8 +740,103 @@ NDR64_FORMAT_UINT32
 __midl_frag1_t;
 extern const __midl_frag1_t __midl_frag1;
 
-static const __midl_frag40_t __midl_frag40 =
+static const __midl_frag45_t __midl_frag45 =
 0x5    /* FC64_INT32 */;
+
+static const __midl_frag44_t __midl_frag44 =
+{
+/* *FLAGGED_WORD_BLOB */
+    0x22,    /* FC64_OP */
+    (NDR64_UINT8) 0 /* 0x0 */,
+    (NDR64_UINT16) 0 /* 0x0 */,
+    &__midl_frag5
+};
+
+static const __midl_frag43_t __midl_frag43 =
+{
+/* wireBSTR */
+    0xa2,    /* FC64_USER_MARSHAL */
+    (NDR64_UINT8) 128 /* 0x80 */,
+    (NDR64_UINT16) 0 /* 0x0 */,
+    (NDR64_UINT16) 7 /* 0x7 */,
+    (NDR64_UINT16) 8 /* 0x8 */,
+    (NDR64_UINT32) 8 /* 0x8 */,
+    (NDR64_UINT32) 0 /* 0x0 */,
+    &__midl_frag44
+};
+
+static const __midl_frag42_t __midl_frag42 =
+{
+/* *wireBSTR */
+    0x20,    /* FC64_RP */
+    (NDR64_UINT8) 4 /* 0x4 */,
+    (NDR64_UINT16) 0 /* 0x0 */,
+    &__midl_frag43
+};
+
+static const __midl_frag41_t __midl_frag41 =
+{
+/* GetDiagnosticsJson */
+    {
+    /* GetDiagnosticsJson */      /* procedure GetDiagnosticsJson */
+        (NDR64_UINT32) 4849987 /* 0x4a0143 */,    /* auto handle */ /* IsIntrepreted, [object], ServerMustSize, HasReturn, ClientCorrelation */
+        (NDR64_UINT32) 24 /* 0x18 */ ,  /* Stack size */
+        (NDR64_UINT32) 0 /* 0x0 */,
+        (NDR64_UINT32) 8 /* 0x8 */,
+        (NDR64_UINT16) 0 /* 0x0 */,
+        (NDR64_UINT16) 0 /* 0x0 */,
+        (NDR64_UINT16) 2 /* 0x2 */,
+        (NDR64_UINT16) 0 /* 0x0 */
+    },
+    {
+    /* diagnosticsJson */      /* parameter diagnosticsJson */
+        &__midl_frag43,
+        {
+        /* diagnosticsJson */
+            1,
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            (NDR64_UINT16) 0 /* 0x0 */,
+            1
+        },    /* MustSize, MustFree, [out], SimpleRef, UseCache */
+        (NDR64_UINT16) 0 /* 0x0 */,
+        8 /* 0x8 */,   /* Stack offset */
+    },
+    {
+    /* HRESULT */      /* parameter HRESULT */
+        &__midl_frag45,
+        {
+        /* HRESULT */
+            0,
+            0,
+            0,
+            0,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            (NDR64_UINT16) 0 /* 0x0 */,
+            0
+        },    /* [out], IsReturn, Basetype, ByValue */
+        (NDR64_UINT16) 0 /* 0x0 */,
+        16 /* 0x10 */,   /* Stack offset */
+    }
+};
 
 static const __midl_frag37_t __midl_frag37 =
 {
@@ -727,7 +854,7 @@ static const __midl_frag37_t __midl_frag37 =
     },
     {
     /* cx */      /* parameter cx */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* cx */
             0,
@@ -751,7 +878,7 @@ static const __midl_frag37_t __midl_frag37 =
     },
     {
     /* cy */      /* parameter cy */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* cy */
             0,
@@ -775,7 +902,7 @@ static const __midl_frag37_t __midl_frag37 =
     },
     {
     /* HRESULT */      /* parameter HRESULT */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* HRESULT */
             0,
@@ -815,7 +942,7 @@ static const __midl_frag35_t __midl_frag35 =
     },
     {
     /* HRESULT */      /* parameter HRESULT */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* HRESULT */
             0,
@@ -836,101 +963,6 @@ static const __midl_frag35_t __midl_frag35 =
         },    /* [out], IsReturn, Basetype, ByValue */
         (NDR64_UINT16) 0 /* 0x0 */,
         8 /* 0x8 */,   /* Stack offset */
-    }
-};
-
-static const __midl_frag33_t __midl_frag33 =
-{
-/* *FLAGGED_WORD_BLOB */
-    0x22,    /* FC64_OP */
-    (NDR64_UINT8) 0 /* 0x0 */,
-    (NDR64_UINT16) 0 /* 0x0 */,
-    &__midl_frag5
-};
-
-static const __midl_frag32_t __midl_frag32 =
-{
-/* wireBSTR */
-    0xa2,    /* FC64_USER_MARSHAL */
-    (NDR64_UINT8) 128 /* 0x80 */,
-    (NDR64_UINT16) 0 /* 0x0 */,
-    (NDR64_UINT16) 7 /* 0x7 */,
-    (NDR64_UINT16) 8 /* 0x8 */,
-    (NDR64_UINT32) 8 /* 0x8 */,
-    (NDR64_UINT32) 0 /* 0x0 */,
-    &__midl_frag33
-};
-
-static const __midl_frag31_t __midl_frag31 =
-{
-/* *wireBSTR */
-    0x20,    /* FC64_RP */
-    (NDR64_UINT8) 4 /* 0x4 */,
-    (NDR64_UINT16) 0 /* 0x0 */,
-    &__midl_frag32
-};
-
-static const __midl_frag30_t __midl_frag30 =
-{
-/* GetExtentJson */
-    {
-    /* GetExtentJson */      /* procedure GetExtentJson */
-        (NDR64_UINT32) 4849987 /* 0x4a0143 */,    /* auto handle */ /* IsIntrepreted, [object], ServerMustSize, HasReturn, ClientCorrelation */
-        (NDR64_UINT32) 24 /* 0x18 */ ,  /* Stack size */
-        (NDR64_UINT32) 0 /* 0x0 */,
-        (NDR64_UINT32) 8 /* 0x8 */,
-        (NDR64_UINT16) 0 /* 0x0 */,
-        (NDR64_UINT16) 0 /* 0x0 */,
-        (NDR64_UINT16) 2 /* 0x2 */,
-        (NDR64_UINT16) 0 /* 0x0 */
-    },
-    {
-    /* extentJson */      /* parameter extentJson */
-        &__midl_frag32,
-        {
-        /* extentJson */
-            1,
-            1,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            (NDR64_UINT16) 0 /* 0x0 */,
-            1
-        },    /* MustSize, MustFree, [out], SimpleRef, UseCache */
-        (NDR64_UINT16) 0 /* 0x0 */,
-        8 /* 0x8 */,   /* Stack offset */
-    },
-    {
-    /* HRESULT */      /* parameter HRESULT */
-        &__midl_frag40,
-        {
-        /* HRESULT */
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            (NDR64_UINT16) 0 /* 0x0 */,
-            0
-        },    /* [out], IsReturn, Basetype, ByValue */
-        (NDR64_UINT16) 0 /* 0x0 */,
-        16 /* 0x10 */,   /* Stack offset */
     }
 };
 
@@ -986,7 +1018,7 @@ static const __midl_frag26_t __midl_frag26 =
     },
     {
     /* HRESULT */      /* parameter HRESULT */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* HRESULT */
             0,
@@ -1072,7 +1104,7 @@ static const __midl_frag15_t __midl_frag15 =
     },
     {
     /* HRESULT */      /* parameter HRESULT */
-        &__midl_frag40,
+        &__midl_frag45,
         {
         /* HRESULT */
             0,
@@ -1209,14 +1241,15 @@ static const FormatInfoRef ILatexSnipperFormula_Ndr64ProcTable[] =
     (FormatInfoRef)(LONG_PTR) -1,
     (FormatInfoRef)(LONG_PTR) -1,
     &__midl_frag15,
-    &__midl_frag30,
+    &__midl_frag41,
     &__midl_frag15,
-    &__midl_frag30,
+    &__midl_frag41,
     &__midl_frag35,
     &__midl_frag26,
-    &__midl_frag30,
+    &__midl_frag41,
     &__midl_frag35,
-    &__midl_frag37
+    &__midl_frag37,
+    &__midl_frag41
     };
 
 
@@ -1267,7 +1300,7 @@ static const MIDL_SERVER_INFO ILatexSnipperFormula_ServerInfo =
     2,
     (MIDL_SYNTAX_INFO*)ILatexSnipperFormula_SyntaxInfo
     };
-CINTERFACE_PROXY_VTABLE(16) _ILatexSnipperFormulaProxyVtbl =
+CINTERFACE_PROXY_VTABLE(17) _ILatexSnipperFormulaProxyVtbl =
 {
     &ILatexSnipperFormula_ProxyInfo,
     &IID_ILatexSnipperFormula,
@@ -1286,7 +1319,8 @@ CINTERFACE_PROXY_VTABLE(16) _ILatexSnipperFormulaProxyVtbl =
     (void *) (INT_PTR) -1 /* ILatexSnipperFormula::IsInitialized */ ,
     (void *) (INT_PTR) -1 /* ILatexSnipperFormula::GetExtentJson */ ,
     (void *) (INT_PTR) -1 /* ILatexSnipperFormula::CompleteInsertion */ ,
-    (void *) (INT_PTR) -1 /* ILatexSnipperFormula::SetDisplayExtentHimetric */
+    (void *) (INT_PTR) -1 /* ILatexSnipperFormula::SetDisplayExtentHimetric */ ,
+    (void *) (INT_PTR) -1 /* ILatexSnipperFormula::GetDiagnosticsJson */
 };
 
 
@@ -1304,6 +1338,7 @@ EXTERN_C DECLSPEC_SELECTANY const PRPC_STUB_FUNCTION ILatexSnipperFormula_table[
     NdrStubCall3,
     NdrStubCall3,
     NdrStubCall3,
+    NdrStubCall3,
     NdrStubCall3
 };
 
@@ -1311,7 +1346,7 @@ CInterfaceStubVtbl _ILatexSnipperFormulaStubVtbl =
 {
     &IID_ILatexSnipperFormula,
     &ILatexSnipperFormula_ServerInfo,
-    16,
+    17,
     &ILatexSnipperFormula_table[-3],
     CStdStubBuffer_DELEGATING_METHODS
 };

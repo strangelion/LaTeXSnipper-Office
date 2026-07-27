@@ -121,6 +121,9 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
             /* [in] */ LONG cx,
             /* [in] */ LONG cy) = 0;
 
+        virtual /* [id] */ HRESULT STDMETHODCALLTYPE GetDiagnosticsJson(
+            /* [retval][out] */ BSTR *diagnosticsJson) = 0;
+
     };
 
 
@@ -230,6 +233,11 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
             /* [in] */ LONG cx,
             /* [in] */ LONG cy);
 
+        DECLSPEC_XFGVIRT(ILatexSnipperFormula, GetDiagnosticsJson)
+        /* [id] */ HRESULT ( STDMETHODCALLTYPE *GetDiagnosticsJson )(
+            ILatexSnipperFormula * This,
+            /* [retval][out] */ BSTR *diagnosticsJson);
+
         END_INTERFACE
     } ILatexSnipperFormulaVtbl;
 
@@ -292,6 +300,9 @@ EXTERN_C const IID IID_ILatexSnipperFormula;
 
 #define ILatexSnipperFormula_SetDisplayExtentHimetric(This,cx,cy)	\
     ( (This)->lpVtbl -> SetDisplayExtentHimetric(This,cx,cy) )
+
+#define ILatexSnipperFormula_GetDiagnosticsJson(This,diagnosticsJson)	\
+    ( (This)->lpVtbl -> GetDiagnosticsJson(This,diagnosticsJson) )
 
 #endif /* COBJMACROS */
 

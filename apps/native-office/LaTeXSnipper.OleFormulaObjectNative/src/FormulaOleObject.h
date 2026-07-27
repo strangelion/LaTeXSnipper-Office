@@ -107,6 +107,7 @@ public:
     STDMETHOD(GetExtentJson)(BSTR* extentJson) override;
     STDMETHOD(CompleteInsertion)() override;
     STDMETHOD(SetDisplayExtentHimetric)(LONG cx, LONG cy) override;
+    STDMETHOD(GetDiagnosticsJson)(BSTR* diagnosticsJson) override;
 
     // IDispatch
     STDMETHOD(GetTypeInfoCount)(UINT* pctinfo) override;
@@ -146,6 +147,9 @@ private:
     // Office container resizing is stored separately so it cannot corrupt
     // CF_METAFILEPICT dimensions or the cached presentation.
     SIZEL containerExtent_{};
+    SIZEL lastSetExtent_{};
+    RECTL lastDrawBounds_{};
+    bool hasLastDrawBounds_ = false;
     bool hasContainerExtent_ = false;
     // Office 在创建阶段可能写入临时默认尺寸。
     // 在宿主明确调用 CompleteInsertion 前，不能信任这些 SetExtent。

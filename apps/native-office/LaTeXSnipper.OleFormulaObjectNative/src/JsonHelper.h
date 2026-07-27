@@ -136,6 +136,27 @@ inline std::wstring JsonReadNestedString(const std::wstring& payloadJson, const 
 #endif
 }
 
+inline double JsonReadNestedNumber(const std::wstring& payloadJson, const std::wstring& parentKey, const std::wstring& childKey)
+{
+#if HAS_NLOHMANN_JSON
+    try
+    {
+        nlohmann::json doc = nlohmann::json::parse(WideToUtf8(payloadJson));
+        std::string parent = WideToUtf8(parentKey);
+        std::string child = WideToUtf8(childKey);
+        if (doc.contains(parent) && doc[parent].is_object() && doc[parent].contains(child) && doc[parent][child].is_number())
+        {
+            return doc[parent][child].get<double>();
+        }
+    }
+    catch (...) { JsonLogParseFailure(L"JsonReadNestedNumber"); }
+    return 0.0;
+#else
+    (void)parentKey;
+    return ExtractJsonNumber(payloadJson, childKey);
+#endif
+}
+
 // --- Validate JSON is well-formed ---
 inline bool JsonIsValid(const std::wstring& payloadJson)
 {

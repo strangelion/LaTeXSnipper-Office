@@ -631,6 +631,26 @@ void TestCompletedExtentIsRetained(DllGetClassObjectFn getClassObject)
             L"explicit display extent mutated the natural EMF extent");
         SysFreeString(extentJson);
     }
+
+    BSTR diagnosticsJson = nullptr;
+    Expect(SUCCEEDED(object.formula->GetDiagnosticsJson(&diagnosticsJson)) &&
+           diagnosticsJson != nullptr,
+        L"GetDiagnosticsJson failed after explicit synchronization");
+    if (diagnosticsJson != nullptr)
+    {
+        const std::wstring json(diagnosticsJson, SysStringLen(diagnosticsJson));
+        Expect(json.find(L"\"previewRoute\":\"SVG_VECTOR_EMF\"") != std::wstring::npos,
+            L"diagnostics did not report the vector route");
+        Expect(json.find(L"\"emfFrameHimetric\"") != std::wstring::npos &&
+               json.find(L"\"emfBoundsDevice\"") != std::wstring::npos,
+            L"diagnostics omitted EMF geometry");
+        Expect(json.find(L"\"lastSetExtentHimetric\":{\"cx\":5000,\"cy\":2000}") != std::wstring::npos,
+            L"diagnostics omitted the synchronized extent");
+        Expect(json.find(L"\"handlerPath\"") != std::wstring::npos &&
+               json.find(L"\"handlerVersion\"") != std::wstring::npos,
+            L"diagnostics omitted handler identity");
+        SysFreeString(diagnosticsJson);
+    }
 }
 
 int wmain(int argc, wchar_t** argv)

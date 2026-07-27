@@ -7,6 +7,7 @@
 #include "PendingPayloadTransport.h"
 #include "StorageUtil.h"
 #include "Win32Check.h"
+#include "../res/OleVersion.h"
 
 #include <atlconv.h>
 #include <comdef.h>
@@ -53,6 +54,38 @@ LONG DecrementIfPositive(volatile LONG* value)
     LONG remaining = 0;
     TryDecrementIfPositive(value, &remaining);
     return remaining;
+}
+
+std::wstring EscapeDiagnosticsJson(const std::wstring& value)
+{
+    std::wstring escaped;
+    escaped.reserve(value.size());
+    for (const wchar_t ch : value)
+    {
+        switch (ch)
+        {
+        case L'\\': escaped += L"\\\\"; break;
+        case L'"': escaped += L"\\\""; break;
+        case L'\r': escaped += L"\\r"; break;
+        case L'\n': escaped += L"\\n"; break;
+        case L'\t': escaped += L"\\t"; break;
+        default:
+            if (ch >= 0x20) escaped += ch;
+            break;
+        }
+    }
+    return escaped;
+}
+
+const wchar_t* PreviewRouteName(PreviewKind kind)
+{
+    switch (kind)
+    {
+    case PreviewKind::GeneratedVectorEmf: return L"SVG_VECTOR_EMF";
+    case PreviewKind::EmbeddedVectorEmf: return L"EMBEDDED_VECTOR_EMF";
+    case PreviewKind::RasterEmfFallback: return L"PNG_RASTER_EMF";
+    default: return L"NONE";
+    }
 }
 
 // P1-C: Helper to convert 0.01mm to pixels at given DPI
@@ -608,6 +641,7 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
         containerExtent_.cy != size->cy;
 
     containerExtent_ = *size;
+    lastSetExtent_ = *size;
     hasContainerExtent_ = true;
 
     if (changed)
@@ -951,6 +985,8 @@ STDMETHODIMP FormulaOleObject::Draw(DWORD drawAspect, LONG, void*, DVTARGETDEVIC
         bounds->right,
         bounds->bottom
     };
+    lastDrawBounds_ = *bounds;
+    hasLastDrawBounds_ = true;
 
     RECT clipRect = drawRect;
     InflateRect(&clipRect, 2, 2);
@@ -1587,6 +1623,7 @@ STDMETHODIMP FormulaOleObject::GetIDsOfNames(REFIID, LPOLESTR* rgszNames, UINT c
         { L"GetExtentJson",      7 },
         { L"CompleteInsertion",  8 },
         { L"SetDisplayExtentHimetric", 9 },
+        { L"GetDiagnosticsJson", 10 },
     };
 
     for (const auto& entry : kDispatchTable)
@@ -1699,6 +1736,21 @@ STDMETHODIMP FormulaOleObject::Invoke(DISPID dispIdMember, REFIID, LCID, WORD wF
             if (cxArg.vt != VT_I4 || cyArg.vt != VT_I4)
                 return DISP_E_TYPEMISMATCH;
             return SetDisplayExtentHimetric(cxArg.lVal, cyArg.lVal);
+        }
+        return DISP_E_MEMBERNOTFOUND;
+
+    case 10: // GetDiagnosticsJson
+        if (pVarResult != nullptr && (wFlags & DISPATCH_METHOD))
+        {
+            BSTR result = nullptr;
+            HRESULT hr = GetDiagnosticsJson(&result);
+            if (SUCCEEDED(hr))
+            {
+                VariantClear(pVarResult);
+                pVarResult->vt = VT_BSTR;
+                pVarResult->bstrVal = result;
+            }
+            return hr;
         }
         return DISP_E_MEMBERNOTFOUND;
 
@@ -1955,6 +2007,7 @@ STDMETHODIMP FormulaOleObject::SetDisplayExtentHimetric(LONG cx, LONG cy)
     const bool changed = !hasContainerExtent_ || containerExtent_.cx != cx || containerExtent_.cy != cy;
     containerExtent_.cx = cx;
     containerExtent_.cy = cy;
+    lastSetExtent_ = containerExtent_;
     hasContainerExtent_ = true;
     insertionComplete_.store(true, std::memory_order_release);
     dirty_ = true;
@@ -1964,6 +2017,84 @@ STDMETHODIMP FormulaOleObject::SetDisplayExtentHimetric(LONG cx, LONG cy)
         RequestLayoutAndNotify();
     }
     return S_OK;
+}
+
+STDMETHODIMP FormulaOleObject::GetDiagnosticsJson(BSTR* diagnosticsJson)
+{
+    if (diagnosticsJson == nullptr)
+        return E_POINTER;
+    *diagnosticsJson = nullptr;
+
+    ENHMETAHEADER header{};
+    bool hasHeader = false;
+    HENHMETAFILE emf = CopyEnhMetaFileFromBytes(presentation_.enhancedMetafile);
+    if (emf != nullptr)
+    {
+        hasHeader = GetEnhMetaFileHeader(emf, sizeof(header), &header) >= sizeof(header);
+        DeleteEnhMetaFile(emf);
+    }
+
+    wchar_t modulePath[MAX_PATH]{};
+    HMODULE module = nullptr;
+    if (GetModuleHandleExW(
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        reinterpret_cast<LPCWSTR>(const_cast<LONG*>(&g_objectCount)),
+        &module))
+    {
+        GetModuleFileNameW(module, modulePath, MAX_PATH);
+    }
+
+    const std::wstring svg = JsonReadNestedString(canonicalPayloadJson_, L"render", L"svg");
+    const std::wstring viewBox = ExtractJsonString(svg, L"viewBox");
+    const double widthPt = JsonReadNestedNumber(canonicalPayloadJson_, L"render", L"widthPt");
+    const double heightPt = JsonReadNestedNumber(canonicalPayloadJson_, L"render", L"heightPt");
+    const SIZEL display = GetEffectiveExtent();
+
+    std::wostringstream json;
+    json << L"{"
+        << L"\"formulaId\":\"" << EscapeDiagnosticsJson(formulaId_) << L"\","
+        << L"\"previewRoute\":\"" << PreviewRouteName(presentation_.previewKind) << L"\","
+        << L"\"renderWidthPt\":" << widthPt << L","
+        << L"\"renderHeightPt\":" << heightPt << L","
+        << L"\"svgViewBox\":\"" << EscapeDiagnosticsJson(viewBox) << L"\","
+        << L"\"emfFrameHimetric\":{"
+        << L"\"left\":" << (hasHeader ? header.rclFrame.left : 0) << L","
+        << L"\"top\":" << (hasHeader ? header.rclFrame.top : 0) << L","
+        << L"\"right\":" << (hasHeader ? header.rclFrame.right : 0) << L","
+        << L"\"bottom\":" << (hasHeader ? header.rclFrame.bottom : 0) << L"},"
+        << L"\"emfBoundsDevice\":{"
+        << L"\"left\":" << (hasHeader ? header.rclBounds.left : 0) << L","
+        << L"\"top\":" << (hasHeader ? header.rclBounds.top : 0) << L","
+        << L"\"right\":" << (hasHeader ? header.rclBounds.right : 0) << L","
+        << L"\"bottom\":" << (hasHeader ? header.rclBounds.bottom : 0) << L"},"
+        << L"\"emfBytes\":" << (hasHeader ? header.nBytes : 0) << L","
+        << L"\"emfRecords\":" << (hasHeader ? header.nRecords : 0) << L","
+        << L"\"naturalExtentHimetric\":{\"cx\":" << presentation_.himetricSize.cx
+        << L",\"cy\":" << presentation_.himetricSize.cy << L"},"
+        << L"\"displayExtentHimetric\":{\"cx\":" << display.cx
+        << L",\"cy\":" << display.cy << L"},"
+        << L"\"lastSetExtentHimetric\":{\"cx\":" << lastSetExtent_.cx
+        << L",\"cy\":" << lastSetExtent_.cy << L"},"
+        << L"\"lastDrawBoundsDevice\":";
+    if (hasLastDrawBounds_)
+    {
+        json << L"{\"left\":" << lastDrawBounds_.left << L","
+            << L"\"top\":" << lastDrawBounds_.top << L","
+            << L"\"right\":" << lastDrawBounds_.right << L","
+            << L"\"bottom\":" << lastDrawBounds_.bottom << L"}";
+    }
+    else
+    {
+        json << L"null";
+    }
+    json << L",\"handlerPath\":\"" << EscapeDiagnosticsJson(modulePath) << L"\","
+        << L"\"handlerVersion\":\""
+        << OLE_VERSION_MAJOR << L"." << OLE_VERSION_MINOR << L"."
+        << OLE_VERSION_PATCH << L"." << OLE_VERSION_BUILD << L"\""
+        << L"}";
+
+    *diagnosticsJson = SysAllocString(json.str().c_str());
+    return *diagnosticsJson != nullptr ? S_OK : E_OUTOFMEMORY;
 }
 
 // ===================================================================

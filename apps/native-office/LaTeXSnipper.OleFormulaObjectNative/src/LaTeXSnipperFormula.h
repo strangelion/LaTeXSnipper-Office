@@ -30,6 +30,7 @@ public:
     virtual HRESULT STDMETHODCALLTYPE GetExtentJson(BSTR* extentJson) = 0;
     virtual HRESULT STDMETHODCALLTYPE CompleteInsertion() = 0;
     virtual HRESULT STDMETHODCALLTYPE SetDisplayExtentHimetric(LONG cx, LONG cy) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetDiagnosticsJson(BSTR* diagnosticsJson) = 0;
 };
 
 #endif

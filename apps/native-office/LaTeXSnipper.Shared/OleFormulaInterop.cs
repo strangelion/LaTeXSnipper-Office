@@ -301,10 +301,46 @@ public static class OleFormulaInterop
         }
     }
 
+    public static bool TryGetDiagnosticsJson(dynamic oleAutomationObject, out string diagnosticsJson)
+    {
+        diagnosticsJson = "";
+        try
+        {
+            string? value = oleAutomationObject.GetDiagnosticsJson();
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            using JsonDocument document = JsonDocument.Parse(value);
+            diagnosticsJson = document.RootElement.GetRawText();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OleFormulaInterop] GetDiagnosticsJson failed: {ex.Message}");
+            return false;
+        }
+    }
+
     public static bool DisplayExtentMatches(OleExtentPoints expected, OleExtentPoints actual, float tolerancePt = 0.75f)
     {
         return Math.Abs(expected.DisplayWidthPt - actual.DisplayWidthPt) <= tolerancePt &&
                Math.Abs(expected.DisplayHeightPt - actual.DisplayHeightPt) <= tolerancePt;
+    }
+
+    public static bool HostGeometryMatches(
+        OleExtentPoints expected,
+        float hostWidthPt,
+        float hostHeightPt,
+        float tolerancePt = 0.75f,
+        float aspectTolerance = 0.02f)
+    {
+        if (hostWidthPt <= 0 || hostHeightPt <= 0 ||
+            expected.DisplayWidthPt <= 0 || expected.DisplayHeightPt <= 0)
+            return false;
+        var expectedAspect = expected.DisplayWidthPt / expected.DisplayHeightPt;
+        var actualAspect = hostWidthPt / hostHeightPt;
+        return Math.Abs(expected.DisplayWidthPt - hostWidthPt) <= tolerancePt &&
+               Math.Abs(expected.DisplayHeightPt - hostHeightPt) <= tolerancePt &&
+               Math.Abs(actualAspect - expectedAspect) / expectedAspect <= aspectTolerance;
     }
 
     public static OleExtentPoints GetInitialDisplayExtent(FormulaPayload payload, OleExtentPoints naturalExtent, OleHostKind host = OleHostKind.Word)

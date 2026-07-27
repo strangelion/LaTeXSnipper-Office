@@ -1133,13 +1133,18 @@ namespace LaTeXSnipper.Word.Host
                     !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints synchronizedWordExtent) ||
                     !OleFormulaInterop.DisplayExtentMatches(targetExtent, synchronizedWordExtent))
                 {
-                    targetExtent = new OleExtentPoints(
-                        targetExtent.NaturalWidthPt,
-                        targetExtent.NaturalHeightPt,
-                        targetExtent.NaturalWidthPt,
-                        targetExtent.NaturalHeightPt);
-                    OleFormulaInterop.TrySetDisplayExtent(activation.AutomationObject, targetExtent);
-                    System.Diagnostics.Debug.WriteLine("[WordAdapter] OLE extent synchronization failed; using natural size.");
+                    try
+                    {
+                        if (cc != null) cc.Delete(true);
+                        else oleShape.Delete();
+                    }
+                    catch (Exception rollbackError) { OfficeOperationLog.Failure("rollback-ole-geometry", "word", payload.FormulaId, rollbackError); }
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "OLE_GEOMETRY_CONTRACT_FAILED",
+                        Error = "OLE display extent did not match the requested Word size."
+                    };
                 }
 
                 // Now set final dimensions — SetExtent accepts them after CompleteInsertion
@@ -1147,6 +1152,45 @@ namespace LaTeXSnipper.Word.Host
                 oleShape.Width = targetExtent.DisplayWidthPt;
                 oleShape.Height = targetExtent.DisplayHeightPt;
                 oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
+
+                float wordWidth = oleShape.Width;
+                float wordHeight = oleShape.Height;
+                bool oleExtentReadBack =
+                    OleFormulaInterop.TryGetExtentPoints(
+                        activation.AutomationObject,
+                        out OleExtentPoints finalOleExtent);
+                bool geometryMatches =
+                    oleExtentReadBack &&
+                    OleFormulaInterop.DisplayExtentMatches(targetExtent, finalOleExtent) &&
+                    OleFormulaInterop.HostGeometryMatches(
+                        targetExtent,
+                        wordWidth,
+                        wordHeight);
+                if (OleFormulaInterop.TryGetDiagnosticsJson(
+                    activation.AutomationObject,
+                    out string geometryDiagnostics))
+                {
+                    OfficeOperationLog.Diagnostic(
+                        "ole-insert-geometry",
+                        "word",
+                        payload.FormulaId,
+                        geometryDiagnostics);
+                }
+                if (!geometryMatches)
+                {
+                    try
+                    {
+                        if (cc != null) cc.Delete(true);
+                        else oleShape.Delete();
+                    }
+                    catch (Exception rollbackError) { OfficeOperationLog.Failure("rollback-word-geometry", "word", payload.FormulaId, rollbackError); }
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "OLE_GEOMETRY_CONTRACT_FAILED",
+                        Error = $"Word/OLE geometry mismatch. Word={wordWidth:F2}x{wordHeight:F2}pt."
+                    };
+                }
 
                 // MUST be after final dimensions are set so requiredHeight reflects the enlarged object.
                 FixWordParagraphForOle(oleShape);
