@@ -137,6 +137,7 @@ pub struct ScreenshotJobLeaseGuard {
 }
 
 impl ScreenshotJobLeaseGuard {
+    #[cfg(any(test, target_os = "windows"))]
     pub fn register(job_id: &str, source_path: &Path, owner: JobOwner) -> Result<Self, String> {
         if let Err(error) = register_job(job_id, source_path, owner) {
             let _ = release_job_path(source_path);
