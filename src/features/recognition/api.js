@@ -9,6 +9,10 @@ export async function getCapabilities() {
   return invoke("recognition_get_capabilities");
 }
 
+export async function getReadiness() {
+  return invoke("recognition_get_readiness");
+}
+
 /**
  * Start a new recognition job.
  * @param {{ path: string, mode: string, parseMode?: string, executionPolicy?: string, modelOverrides?: object }} request

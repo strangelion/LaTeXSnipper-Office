@@ -143,16 +143,40 @@ document.addEventListener("keydown", async (event) => {
 canvas.addEventListener("dblclick", confirmSelection);
 
 async function initialize() {
-  init = await invoke("screenshot_overlay_init", {
-    windowLabel: currentWindow.label,
-  });
+  init = await initializeOverlayWithRetry();
 
   canvas.width = init.physicalWidth;
   canvas.height = init.physicalHeight;
 
   screenshot = new Image();
-  screenshot.onload = draw;
-  screenshot.src = init.previewDataUrl;
+  await new Promise((resolve, reject) => {
+    screenshot.onload = resolve;
+    screenshot.onerror = () =>
+      reject(new Error("SCREENSHOT_PREVIEW_DECODE_FAILED"));
+    screenshot.src = init.previewDataUrl;
+  });
+  draw();
+  await invoke("screenshot_overlay_ready", {
+    windowLabel: currentWindow.label,
+  });
+}
+
+async function initializeOverlayWithRetry() {
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await invoke("screenshot_overlay_init", {
+        windowLabel: currentWindow.label,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!String(error).includes("SESSION_NOT_READY") || attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50 + attempt * 10));
+    }
+  }
+  throw lastError;
 }
 
 initialize().catch(async (error) => {

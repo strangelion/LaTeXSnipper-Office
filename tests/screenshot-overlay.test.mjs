@@ -6,6 +6,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // normalizeRect
@@ -187,5 +188,18 @@ testDpi150();
 testDpi200();
 testDpiNotReusedAsPhysical();
 testSelectionValidation();
+
+const captureSource = readFileSync(
+  new URL("../src/capture.js", import.meta.url),
+  "utf8",
+);
+assert.match(captureSource, /screenshot_overlay_ready/);
+assert.match(captureSource, /for \(let attempt = 0; attempt < 5;/);
+assert.match(captureSource, /SESSION_NOT_READY/);
+assert.ok(
+  captureSource.indexOf("await new Promise") <
+    captureSource.indexOf('"screenshot_overlay_ready"'),
+  "overlay must wait for preview decode before sending ready",
+);
 
 console.log("All screenshot overlay tests passed OK");

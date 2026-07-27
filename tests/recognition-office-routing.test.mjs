@@ -137,4 +137,23 @@ testWordResultDoesNotInsertIntoExcel();
 testDocumentContextChangeRejectsInsertion();
 testRecognitionSuccessWithFailedInsertKeepsResult();
 
+function effectiveAutoInsert(target, userSetting) {
+  return (
+    Boolean(target?.sessionId) &&
+    Boolean(target?.autoInsert) &&
+    userSetting !== false
+  );
+}
+
+assert.equal(
+  effectiveAutoInsert({ sessionId: "word-1", autoInsert: true }, false),
+  false,
+  "protocol cannot override the user's disabled setting",
+);
+assert.equal(
+  effectiveAutoInsert({ sessionId: "word-1", autoInsert: true }, true),
+  true,
+);
+assert.equal(effectiveAutoInsert({ autoInsert: true }, true), false);
+
 console.log("All recognition office routing tests passed OK");

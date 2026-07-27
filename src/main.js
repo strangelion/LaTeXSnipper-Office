@@ -4,6 +4,11 @@ import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
 import { initLiquidGlass } from "./features/appearance/liquid-glass.js";
 import { initRecognitionWorkspace } from "./features/recognition/index.js";
+import {
+  initRecognitionSettings,
+  refreshRecognitionSettings,
+  scheduleRecognitionSettingsRefresh,
+} from "./features/recognition/settings.js";
 import { OfficeLiveEditBridge } from "./features/office-live-edit/office-live-edit-bridge.js";
 import {
   FORMULA_INSERT_MODES,
@@ -800,6 +805,7 @@ class SettingsManager {
       aiEndpoint: "https://api.openai.com/v1",
       aiApiKey: "",
       aiModel: "gpt-4o",
+      "recognition.screenshotAutoInsert": true,
     };
     this.settings = this.load();
     Logger.info("Settings loaded");
@@ -3376,6 +3382,22 @@ class UIController {
         }
       });
 
+      listen("screenshot://failed", ({ payload }) => {
+        Logger.error("Screenshot transaction failed", {
+          operationId: payload.operationId,
+          stage: payload.stage,
+          host: payload.host,
+          sessionId: payload.sessionId,
+          elapsedMs: payload.elapsedMs,
+          success: false,
+          errorCode: payload.errorCode,
+          errorMessage: payload.errorMessage,
+        });
+        this.showToast(
+          `截图失败 [${payload.errorCode}]：${payload.errorMessage}`,
+        );
+      });
+
       // Focus on Settings tab (from VSTO Ribbon)
       listen("native-office-focus-settings", async () => {
         Logger.info("Native Office: focus settings requested");
@@ -4821,6 +4843,9 @@ class UIController {
 
     if (settingsList) settingsList.style.display = "none";
     target.classList.add("active");
+    if (pageId === "settingsRecognition") {
+      scheduleRecognitionSettingsRefresh();
+    }
   }
 
   updateTabVisibility() {
@@ -5708,14 +5733,30 @@ class UIController {
       );
       const health = status?.health || "Unknown";
       const detail = status?.detail || "";
+      const healthy = [
+        "Registered",
+        "Activatable",
+        "RegisteredButActivationUnverified",
+      ].includes(health);
+      const installationMatches = status?.matchesCurrentInstallation !== false;
       this._oleStatus = {
-        available: status?.available === true && health === "Registered",
+        available: status?.available === true && healthy && installationMatches,
         health,
         errorCode: status?.errorCode || null,
         detail,
       };
-      if (health === "Registered") {
-        statusEl.textContent = "OLE 公式对象: 已注册";
+      const path = status?.inprocServer32
+        ? `\n${status.registryView || "?"} 位 InprocServer32：${status.inprocServer32}`
+        : "";
+      const version = status?.registeredFileVersion
+        ? `\n版本：${status.registeredFileVersion}`
+        : "";
+      if (healthy && installationMatches) {
+        statusEl.textContent =
+          `OLE 公式对象: 已注册且匹配${path}${version}` +
+          (status?.loadedModulePath
+            ? `\nOffice 已加载：${status.loadedModulePath}`
+            : "\n升级 DLL 后请彻底退出所有 Word/Excel/PowerPoint 进程再验证新对象。");
         statusEl.className = "settings-hint success";
         if (actionRow) actionRow.style.display = "";
         if (uninstallBtn) uninstallBtn.style.display = "";
@@ -5727,7 +5768,18 @@ class UIController {
         if (actionRow) actionRow.style.display = "";
         if (installBtn) installBtn.style.display = "";
         if (uninstallBtn) uninstallBtn.style.display = "none";
-      } else if (health === "RegisteredButBroken") {
+      } else if (status?.matchesCurrentInstallation === false) {
+        statusEl.textContent =
+          `OLE 注册指向旧文件或文件哈希不匹配。${path}` +
+          "\n请重新安装，并彻底退出所有 Office 进程。";
+        statusEl.className = "settings-hint error";
+        if (actionRow) actionRow.style.display = "";
+        if (installBtn) installBtn.style.display = "";
+        if (uninstallBtn) uninstallBtn.style.display = "none";
+      } else if (
+        health === "RegisteredButBroken" ||
+        health === "BitnessMismatch"
+      ) {
         statusEl.textContent = "OLE 注册已损坏，可尝试重新安装。" + detail;
         statusEl.className = "settings-hint error";
         if (actionRow) actionRow.style.display = "";
@@ -6784,7 +6836,11 @@ class UIController {
           targetSessionId: target?.sessionId ?? null,
           targetHost: target?.hostType ?? null,
           documentContext: target?.documentContext ?? null,
-          autoInsert: Boolean(target?.autoInsert),
+          autoInsert:
+            Boolean(target?.sessionId) &&
+            Boolean(target?.autoInsert) &&
+            this.settingsManager.get("recognition.screenshotAutoInsert") !==
+              false,
         },
       });
     } catch (error) {
@@ -7195,6 +7251,14 @@ function syncLiquidGlassSelect(select, value) {
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
+  initRecognitionSettings({
+    showToast: controller.showToast.bind(controller),
+    settingsManager: controller.settingsManager,
+    logger: Logger,
+  });
+  refreshRecognitionSettings().catch((error) =>
+    Logger.warn("Recognition settings initial refresh failed", error),
+  );
   // Detect actual Office VSTO state on startup and auto-enable if pre-installed
   controller
     .initOfficeDetection()
