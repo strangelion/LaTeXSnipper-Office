@@ -6,6 +6,7 @@
 #include "OleFormulaIds.h"
 #include "PendingPayloadTransport.h"
 #include "StorageUtil.h"
+#include "SvgToEmf.h"
 #include "Win32Check.h"
 #include "../res/OleVersion.h"
 
@@ -2049,6 +2050,9 @@ STDMETHODIMP FormulaOleObject::GetDiagnosticsJson(BSTR* diagnosticsJson)
     const double widthPt = JsonReadNestedNumber(canonicalPayloadJson_, L"render", L"widthPt");
     const double heightPt = JsonReadNestedNumber(canonicalPayloadJson_, L"render", L"heightPt");
     const SIZEL display = GetEffectiveExtent();
+    EmfInkIntegrity inkIntegrity{};
+    const bool hasInkIntegrity =
+        AnalyzeEmfInkIntegrity(presentation_.enhancedMetafile, &inkIntegrity);
 
     std::wostringstream json;
     json << L"{"
@@ -2069,6 +2073,17 @@ STDMETHODIMP FormulaOleObject::GetDiagnosticsJson(BSTR* diagnosticsJson)
         << L"\"bottom\":" << (hasHeader ? header.rclBounds.bottom : 0) << L"},"
         << L"\"emfBytes\":" << (hasHeader ? header.nBytes : 0) << L","
         << L"\"emfRecords\":" << (hasHeader ? header.nRecords : 0) << L","
+        << L"\"inkIntegrity\":{"
+        << L"\"valid\":" << (hasInkIntegrity ? L"true" : L"false") << L","
+        << L"\"drawingRecordCount\":" << inkIntegrity.drawingRecordCount << L","
+        << L"\"coverageRatio\":" << inkIntegrity.coverageRatio << L","
+        << L"\"aspectRatioError\":" << inkIntegrity.aspectRatioError << L","
+        << L"\"rasterOracleBounds\":{"
+        << L"\"left\":" << inkIntegrity.rasterOracleInkBounds.left << L","
+        << L"\"top\":" << inkIntegrity.rasterOracleInkBounds.top << L","
+        << L"\"right\":" << inkIntegrity.rasterOracleInkBounds.right << L","
+        << L"\"bottom\":" << inkIntegrity.rasterOracleInkBounds.bottom << L"},"
+        << L"\"reason\":\"" << EscapeDiagnosticsJson(inkIntegrity.reason) << L"\"},"
         << L"\"naturalExtentHimetric\":{\"cx\":" << presentation_.himetricSize.cx
         << L",\"cy\":" << presentation_.himetricSize.cy << L"},"
         << L"\"displayExtentHimetric\":{\"cx\":" << display.cx

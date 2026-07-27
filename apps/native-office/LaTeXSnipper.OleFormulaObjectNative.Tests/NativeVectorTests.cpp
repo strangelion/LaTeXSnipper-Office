@@ -52,6 +52,13 @@ void TestVectorFixture(const std::wstring& name, const std::wstring& body, doubl
     std::wstring reason;
     Expect(!ContainsRasterEmfRecords(result.emfBytes, &reason), name + L": raster record found: " + reason);
     Expect(HasVectorDrawingEmfRecords(result.emfBytes, &reason), name + L": vector drawing record missing: " + reason);
+    EmfInkIntegrity ink{};
+    Expect(AnalyzeEmfInkIntegrity(result.emfBytes, &ink),
+        name + L": ink integrity failed: " + ink.reason);
+    Expect(ink.drawingRecordCount > 0,
+        name + L": ink contract did not count drawing records");
+    Expect(ink.coverageRatio >= 0.0001,
+        name + L": ink coverage ratio is below the contract");
     HENHMETAFILE emf = SetEnhMetaFileBits(static_cast<UINT>(result.emfBytes.size()), result.emfBytes.data());
     ENHMETAHEADER header{};
     Expect(emf != nullptr && GetEnhMetaFileHeader(emf, sizeof(header), &header) != 0, name + L": cannot read EMF header");
@@ -278,9 +285,29 @@ void TestMathJaxGoldenFixtures(const std::filesystem::path& directory)
             svg.data(), wideLength);
         SvgToEmfResult result = ConvertMathJaxSvgToVectorEmf(svg, 180.0, 60.0, L"black");
         Expect(result.success, L"real MathJax fixture failed: " + entry.path().filename().wstring() + L": " + result.error);
+        Expect(!result.svgViewBox.empty(), L"golden fixture did not report its SVG viewBox");
+        Expect(
+            result.svgPathCount + result.svgUseCount > 0,
+            L"golden fixture did not report any SVG ink elements");
+        Expect(
+            result.svgGeometricBounds.valid,
+            L"golden fixture did not report SVG geometric bounds");
+        Expect(
+            result.svgRasterOracle.valid,
+            L"golden fixture did not report an SVG raster oracle");
+        Expect(result.inkIntegrity.valid, L"golden fixture failed EMF ink integrity");
+        Expect(
+            result.inkIntegrity.drawingRecordCount > 0,
+            L"golden fixture did not report EMF drawing records");
+        Expect(
+            result.inkIntegrity.coverageRatio >= 0.0001,
+            L"golden fixture EMF coverage was below the contract");
+        Expect(
+            result.inkIntegrity.aspectRatioError <= 0.02,
+            L"golden fixture EMF ink aspect ratio exceeded the contract");
         ++count;
     }
-    Expect(count >= 4, L"real MathJax golden fixture set is incomplete");
+        Expect(count >= 10, L"real MathJax golden fixture set is incomplete");
 }
 
 std::map<DWORD, std::wstring> g_pendingPayloadPaths;
@@ -680,7 +707,9 @@ int wmain(int argc, wchar_t** argv)
         SvgToEmfResult normalResult = ConvertMathJaxSvgToVectorEmf(
             L"<svg viewBox='0 0 100 40'><path d='M5 20L95 20' stroke='black'/></svg>",
             100.0, 40.0, L"black");
-        Expect(normalResult.success, L"normal EMF fixture generation failed");
+        Expect(
+            normalResult.success,
+            L"normal EMF fixture generation failed: " + normalResult.error);
         std::wstring overflowReason;
         Expect(!HasCatastrophicFrameOverflow(normalResult.emfBytes, &overflowReason),
             L"normal generated EMF was classified as overflow: " + overflowReason);

@@ -530,6 +530,19 @@ FormulaPresentation CreatePresentationFromPayload(const std::wstring& payloadJso
 
         if (acceptable)
         {
+            EmfInkIntegrity inkIntegrity{};
+            if (!AnalyzeEmfInkIntegrity(embeddedEmf, &inkIntegrity))
+            {
+                acceptable = false;
+                if (!diagnostics.empty())
+                    diagnostics += L"; ";
+                diagnostics += inkIntegrity.reason;
+                WriteNativeOleLog(inkIntegrity.reason.c_str());
+            }
+        }
+
+        if (acceptable)
+        {
             std::wstring geometryReason;
 
             if (HasCatastrophicFrameOverflow(

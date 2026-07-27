@@ -16,6 +16,7 @@
 #include <cstring>
 #include <cwchar>
 #include <cwctype>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <set>
@@ -35,6 +36,7 @@ constexpr size_t kMaxDrawCalls = 100000;
 constexpr size_t kMaxEmfBytes = 128 * 1024 * 1024;
 constexpr size_t kMaxEmfRecords = 1000000;
 constexpr DWORD kMaxEmfRecordBytes = 64 * 1024 * 1024;
+constexpr int kInkOracleMaxEdge = 1024;
 constexpr double kMaxCoordinateMagnitude = 1.0e9;
 constexpr double kHimetricPerInch = 2540.0;
 constexpr double kPointsPerInch = 72.0;
@@ -110,6 +112,7 @@ struct RenderContext
     size_t vectorDrawCount = 0;
     size_t pathOperationCount = 0;
     size_t useExpansionCount = 0;
+    SvgGeometryBounds geometricBounds{};
     std::wstring error;
 };
 
@@ -566,6 +569,56 @@ bool DrawOperations(RenderContext* context, const std::vector<SvgPathOperation>&
         return true;
     }
 
+    double left = 0.0, top = 0.0, right = 0.0, bottom = 0.0;
+    bool hasPoint = false;
+    for (const auto& operation : operations)
+    {
+        const size_t pointCount =
+            operation.type == SvgPathOperationType::CubicTo ? 3u :
+            operation.type == SvgPathOperationType::Close ? 0u : 1u;
+        for (size_t index = 0; index < pointCount; ++index)
+        {
+            const SvgPoint point = TransformPoint(matrix, operation.points[index]);
+            if (!hasPoint)
+            {
+                left = right = point.x;
+                top = bottom = point.y;
+                hasPoint = true;
+            }
+            else
+            {
+                left = (std::min)(left, point.x);
+                top = (std::min)(top, point.y);
+                right = (std::max)(right, point.x);
+                bottom = (std::max)(bottom, point.y);
+            }
+        }
+    }
+    if (hasPoint)
+    {
+        const double strokeExpansion =
+            strokeVisible ? style.strokeWidth * MatrixScale(matrix) / 2.0 : 0.0;
+        left -= strokeExpansion;
+        top -= strokeExpansion;
+        right += strokeExpansion;
+        bottom += strokeExpansion;
+        if (!context->geometricBounds.valid)
+        {
+            context->geometricBounds = {true, left, top, right, bottom};
+        }
+        else
+        {
+            context->geometricBounds.left =
+                (std::min)(context->geometricBounds.left, left);
+            context->geometricBounds.top =
+                (std::min)(context->geometricBounds.top, top);
+            context->geometricBounds.right =
+                (std::max)(context->geometricBounds.right, right);
+            context->geometricBounds.bottom =
+                (std::max)(context->geometricBounds.bottom, bottom);
+        }
+    }
+
     HBRUSH brush = static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
     HPEN pen = static_cast<HPEN>(GetStockObject(NULL_PEN));
     HBRUSH createdBrush = nullptr;
@@ -767,6 +820,150 @@ bool RenderNode(RenderContext* context, const SvgNode& node, const Matrix& paren
     {
         if (!RenderNode(context, *child, matrix, style, useStack, useDepth, referenced)) return false;
     }
+    return true;
+}
+
+bool FindInkBounds(
+    const DWORD* pixels,
+    int width,
+    int height,
+    RECT* bounds,
+    std::uint64_t* inkPixels)
+{
+    LONG left = width;
+    LONG top = height;
+    LONG right = -1;
+    LONG bottom = -1;
+    std::uint64_t count = 0;
+    for (LONG y = 0; y < height; ++y)
+    {
+        for (LONG x = 0; x < width; ++x)
+        {
+            const DWORD pixel = pixels[static_cast<size_t>(y) * width + x];
+            const BYTE blue = static_cast<BYTE>(pixel & 0xff);
+            const BYTE green = static_cast<BYTE>((pixel >> 8) & 0xff);
+            const BYTE red = static_cast<BYTE>((pixel >> 16) & 0xff);
+            if (red < 250 || green < 250 || blue < 250)
+            {
+                left = (std::min)(left, x);
+                top = (std::min)(top, y);
+                right = (std::max)(right, x + 1);
+                bottom = (std::max)(bottom, y + 1);
+                ++count;
+            }
+        }
+    }
+    if (right <= left || bottom <= top) return false;
+    *bounds = {left, top, right, bottom};
+    *inkPixels = count;
+    return true;
+}
+
+bool RenderSvgRasterOracle(
+    const SvgNode& root,
+    const Matrix& rootMatrix,
+    const Style& style,
+    const std::map<std::wstring, SvgNode*>& ids,
+    int canvasWidthLogical,
+    int canvasHeightLogical,
+    bool requiresClip,
+    const RECT& contentClip,
+    SvgRasterOracle* oracle,
+    std::wstring* error)
+{
+    *oracle = {};
+    const double aspect =
+        static_cast<double>(canvasWidthLogical) /
+        static_cast<double>(canvasHeightLogical);
+    const int width = aspect >= 1.0
+        ? kInkOracleMaxEdge
+        : (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge * aspect)));
+    const int height = aspect >= 1.0
+        ? (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge / aspect)))
+        : kInkOracleMaxEdge;
+
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = width;
+    bitmapInfo.bmiHeader.biHeight = -height;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    HDC dc = CreateCompatibleDC(nullptr);
+    HBITMAP bitmap = CreateDIBSection(
+        dc,
+        &bitmapInfo,
+        DIB_RGB_COLORS,
+        &pixels,
+        nullptr,
+        0);
+    if (dc == nullptr || bitmap == nullptr || pixels == nullptr)
+    {
+        if (bitmap != nullptr) DeleteObject(bitmap);
+        if (dc != nullptr) DeleteDC(dc);
+        *error = L"SVG_RASTER_ORACLE_FAILED: unable to create bitmap";
+        return false;
+    }
+    HGDIOBJ previous = SelectObject(dc, bitmap);
+    RECT target{0, 0, width, height};
+    FillRect(dc, &target, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    bool configured =
+        SetMapMode(dc, MM_ANISOTROPIC) != 0 &&
+        SetWindowExtEx(dc, canvasWidthLogical, canvasHeightLogical, nullptr) != FALSE &&
+        SetViewportExtEx(dc, width, height, nullptr) != FALSE &&
+        SetBkMode(dc, TRANSPARENT) != 0;
+    if (configured && requiresClip)
+    {
+        configured =
+            IntersectClipRect(
+                dc,
+                contentClip.left,
+                contentClip.top,
+                contentClip.right,
+                contentClip.bottom) != ERROR;
+    }
+
+    RenderContext rasterContext{};
+    rasterContext.dc = dc;
+    rasterContext.ids = ids;
+    std::set<std::wstring> useStack;
+    const bool rendered =
+        configured &&
+        RenderNode(
+            &rasterContext,
+            root,
+            rootMatrix,
+            style,
+            &useStack,
+            0,
+            false);
+    GdiFlush();
+    RECT inkBounds{};
+    std::uint64_t inkPixels = 0;
+    const bool found =
+        rendered &&
+        FindInkBounds(
+            static_cast<const DWORD*>(pixels),
+            width,
+            height,
+            &inkBounds,
+            &inkPixels);
+    SelectObject(dc, previous);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    if (!found)
+    {
+        *error = rasterContext.error.empty()
+            ? L"SVG_RASTER_ORACLE_EMPTY: SVG produced no visible ink"
+            : rasterContext.error;
+        return false;
+    }
+    oracle->valid = true;
+    oracle->inkBounds = inkBounds;
+    oracle->coverageRatio =
+        static_cast<double>(inkPixels) /
+        static_cast<double>(width * height);
     return true;
 }
 
@@ -1035,6 +1232,37 @@ bool ReadEmfRecords(const std::vector<BYTE>& bytes, bool* raster, bool* vector, 
     }
     return true;
 }
+
+bool IsDrawingRecord(DWORD type)
+{
+    switch (type)
+    {
+    case EMR_STROKEPATH: case EMR_FILLPATH: case EMR_STROKEANDFILLPATH:
+    case EMR_POLYBEZIER: case EMR_POLYBEZIERTO: case EMR_POLYGON: case EMR_POLYLINE:
+    case EMR_POLYBEZIER16: case EMR_POLYBEZIERTO16: case EMR_POLYGON16: case EMR_POLYLINE16:
+    case EMR_RECTANGLE: case EMR_ELLIPSE: case EMR_ARC: case EMR_ARCTO:
+    case EMR_CHORD: case EMR_PIE: case EMR_LINETO:
+    case EMR_BITBLT: case EMR_STRETCHBLT: case EMR_MASKBLT: case EMR_PLGBLT:
+    case EMR_SETDIBITSTODEVICE: case EMR_STRETCHDIBITS: case EMR_ALPHABLEND:
+    case EMR_TRANSPARENTBLT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void CountSvgElements(
+    const SvgNode& node,
+    DWORD* pathCount,
+    DWORD* useCount,
+    DWORD* textCount)
+{
+    if (node.name == L"path") ++*pathCount;
+    else if (node.name == L"use") ++*useCount;
+    else if (node.name == L"text") ++*textCount;
+    for (const auto& child : node.children)
+        CountSvgElements(*child, pathCount, useCount, textCount);
+}
 }
 
 bool ContainsRasterEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring* reason)
@@ -1061,6 +1289,189 @@ bool HasVectorDrawingEmfRecords(const std::vector<BYTE>& emfBytes, std::wstring*
     return vector;
 }
 
+bool AnalyzeEmfInkIntegrity(
+    const std::vector<BYTE>& emfBytes,
+    EmfInkIntegrity* integrity,
+    const SvgRasterOracle* expectedRaster)
+{
+    if (integrity == nullptr) return false;
+    *integrity = {};
+    std::wstring reason;
+    if (!ValidateEmfRecords(emfBytes, &reason))
+    {
+        integrity->reason = reason;
+        return false;
+    }
+
+    ENHMETAHEADER header{};
+    std::memcpy(&header, emfBytes.data(), sizeof(header));
+    integrity->recordCount = header.nRecords;
+    integrity->frameHimetric = {
+        header.rclFrame.left,
+        header.rclFrame.top,
+        header.rclFrame.right,
+        header.rclFrame.bottom};
+    integrity->headerInkBoundsDevice = {
+        header.rclBounds.left,
+        header.rclBounds.top,
+        header.rclBounds.right,
+        header.rclBounds.bottom};
+
+    size_t offset = 0;
+    while (offset + sizeof(EMR) <= emfBytes.size())
+    {
+        EMR record{};
+        std::memcpy(&record, emfBytes.data() + offset, sizeof(record));
+        if (IsDrawingRecord(record.iType)) ++integrity->drawingRecordCount;
+        offset += record.nSize;
+        if (record.iType == EMR_EOF) break;
+    }
+    if (integrity->drawingRecordCount == 0)
+    {
+        integrity->reason = L"OLE_INK_DRAWING_RECORD_MISSING: EMF has no drawing records";
+        return false;
+    }
+
+    const LONG frameWidth = header.rclFrame.right - header.rclFrame.left;
+    const LONG frameHeight = header.rclFrame.bottom - header.rclFrame.top;
+    if (frameWidth <= 0 || frameHeight <= 0)
+    {
+        integrity->reason = L"OLE_INK_FRAME_INVALID: EMF frame is empty";
+        return false;
+    }
+    const double frameAspect =
+        static_cast<double>(frameWidth) / static_cast<double>(frameHeight);
+    const int oracleWidth = frameAspect >= 1.0
+        ? kInkOracleMaxEdge
+        : (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge * frameAspect)));
+    const int oracleHeight = frameAspect >= 1.0
+        ? (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge / frameAspect)))
+        : kInkOracleMaxEdge;
+
+    BITMAPINFO bitmapInfo{};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = oracleWidth;
+    bitmapInfo.bmiHeader.biHeight = -oracleHeight;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    void* pixels = nullptr;
+    HDC dc = CreateCompatibleDC(nullptr);
+    HBITMAP bitmap = CreateDIBSection(
+        dc,
+        &bitmapInfo,
+        DIB_RGB_COLORS,
+        &pixels,
+        nullptr,
+        0);
+    if (dc == nullptr || bitmap == nullptr || pixels == nullptr)
+    {
+        if (bitmap != nullptr) DeleteObject(bitmap);
+        if (dc != nullptr) DeleteDC(dc);
+        integrity->reason = L"OLE_INK_ORACLE_FAILED: unable to create raster oracle";
+        return false;
+    }
+    HGDIOBJ previous = SelectObject(dc, bitmap);
+    RECT target{0, 0, oracleWidth, oracleHeight};
+    FillRect(dc, &target, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
+    HENHMETAFILE emf = SetEnhMetaFileBits(
+        static_cast<UINT>(emfBytes.size()),
+        emfBytes.data());
+    const bool played = emf != nullptr && PlayEnhMetaFile(dc, emf, &target) != FALSE;
+    if (emf != nullptr) DeleteEnhMetaFile(emf);
+    GdiFlush();
+
+    RECT oracleBounds{};
+    std::uint64_t inkPixels = 0;
+    const DWORD* values = static_cast<const DWORD*>(pixels);
+    const bool found = played &&
+        FindInkBounds(
+            values,
+            oracleWidth,
+            oracleHeight,
+            &oracleBounds,
+            &inkPixels);
+    SelectObject(dc, previous);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    if (!found)
+    {
+        integrity->reason = L"OLE_INK_ORACLE_EMPTY: EMF raster oracle found no visible ink";
+        return false;
+    }
+    integrity->rasterOracleInkBounds = oracleBounds;
+    integrity->coverageRatio =
+        static_cast<double>(inkPixels) /
+        static_cast<double>(oracleWidth * oracleHeight);
+    const double widthRatio =
+        static_cast<double>(oracleBounds.right - oracleBounds.left) /
+        static_cast<double>(oracleWidth);
+    const double heightRatio =
+        static_cast<double>(oracleBounds.bottom - oracleBounds.top) /
+        static_cast<double>(oracleHeight);
+    if ((widthRatio < 0.005 && heightRatio < 0.005) ||
+        integrity->coverageRatio < 0.0001)
+    {
+        integrity->reason = L"OLE_INK_COVERAGE_TOO_SMALL: visible ink is anomalously small";
+        return false;
+    }
+
+    const LONG headerInkWidth =
+        header.rclBounds.right - header.rclBounds.left;
+    const LONG headerInkHeight =
+        header.rclBounds.bottom - header.rclBounds.top;
+    if (headerInkWidth < 0 || headerInkHeight < 0 ||
+        (headerInkWidth == 0 && headerInkHeight == 0))
+    {
+        integrity->reason = L"OLE_INK_HEADER_BOUNDS_EMPTY: EMF header has no ink bounds";
+        return false;
+    }
+    if (expectedRaster != nullptr && expectedRaster->valid)
+    {
+        const double expectedWidth =
+            expectedRaster->inkBounds.right - expectedRaster->inkBounds.left;
+        const double expectedHeight =
+            expectedRaster->inkBounds.bottom - expectedRaster->inkBounds.top;
+        if (expectedWidth <= 0.0 || expectedHeight <= 0.0)
+        {
+            integrity->reason = L"OLE_INK_EXPECTED_GEOMETRY_EMPTY: SVG geometry is empty";
+            return false;
+        }
+        const double expectedAspect = expectedWidth / expectedHeight;
+        const double oracleInkAspect =
+            static_cast<double>(oracleBounds.right - oracleBounds.left) /
+            static_cast<double>(oracleBounds.bottom - oracleBounds.top);
+        const double rawAspectError =
+            std::abs(oracleInkAspect - expectedAspect) / expectedAspect;
+        const double rasterQuantizationTolerance =
+            1.0 / expectedWidth +
+            1.0 / expectedHeight +
+            1.0 / static_cast<double>(oracleBounds.right - oracleBounds.left) +
+            1.0 / static_cast<double>(oracleBounds.bottom - oracleBounds.top);
+        integrity->aspectRatioError =
+            (std::max)(0.0, rawAspectError - rasterQuantizationTolerance);
+        if (integrity->aspectRatioError > 0.02)
+        {
+            integrity->reason =
+                L"OLE_INK_ASPECT_MISMATCH: error=" +
+                std::to_wstring(integrity->aspectRatioError) +
+                L" expectedAspect=" + std::to_wstring(expectedAspect) +
+                L" oracleAspect=" + std::to_wstring(oracleInkAspect);
+            return false;
+        }
+        if (expectedRaster->coverageRatio > 0.0 &&
+            integrity->coverageRatio / expectedRaster->coverageRatio < 0.90)
+        {
+            integrity->reason =
+                L"OLE_INK_COVERAGE_REGRESSION: EMF retained less than 90% of SVG raster ink";
+            return false;
+        }
+    }
+    integrity->valid = true;
+    integrity->reason = L"OLE_INK_INTEGRITY_PASSED";
+    return true;
+}
+
 SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widthPt, double heightPt, const std::wstring& currentColor)
 {
     SvgToEmfResult result{};
@@ -1071,6 +1482,13 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     }
     std::unique_ptr<SvgNode> root;
     if (!ParseXml(svg, &root, &result.error)) return result;
+    CountSvgElements(
+        *root,
+        &result.svgPathCount,
+        &result.svgUseCount,
+        &result.svgTextCount);
+    if (const std::wstring* viewBox = Attribute(*root, L"viewbox"))
+        result.svgViewBox = *viewBox;
     RenderContext context{};
     if (!IndexIds(root.get(), &context.ids, &result.error)) return result;
     // MathJax's layout width can be slightly tighter than the actual glyph
@@ -1191,6 +1609,41 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     if (context.vectorDrawCount == 0 || !HasVectorDrawingEmfRecords(result.emfBytes, &validationReason))
     {
         result.error = validationReason.empty() ? L"EMF_VECTOR_RECORD_MISSING: SVG rendered no visible vector paths" : validationReason;
+        result.emfBytes.clear();
+        return result;
+    }
+    result.svgGeometricBounds = context.geometricBounds;
+    if (!result.svgGeometricBounds.valid)
+    {
+        result.error = L"SVG_INK_GEOMETRY_EMPTY: SVG produced no visible geometric bounds";
+        result.emfBytes.clear();
+        return result;
+    }
+    if (!RenderSvgRasterOracle(
+            *root,
+            rootMatrix,
+            style,
+            context.ids,
+            canvasWidthLogical,
+            canvasHeightLogical,
+            requiresClip,
+            RECT{
+                paddingXLogical,
+                paddingYLogical,
+                paddingXLogical + contentWidthLogical,
+                paddingYLogical + contentHeightLogical},
+            &result.svgRasterOracle,
+            &result.error))
+    {
+        result.emfBytes.clear();
+        return result;
+    }
+    if (!AnalyzeEmfInkIntegrity(
+            result.emfBytes,
+            &result.inkIntegrity,
+            &result.svgRasterOracle))
+    {
+        result.error = result.inkIntegrity.reason;
         result.emfBytes.clear();
         return result;
     }
