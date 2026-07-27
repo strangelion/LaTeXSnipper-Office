@@ -1,0 +1,46 @@
+name: Recognition runtime regression
+description: Report a sanitized runtime/provider/model readiness regression.
+title: "[Runtime] "
+labels: ["bug", "recognition"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: LaTeXSnipper version
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, macOS, Linux X11, Linux Wayland]
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and provider
+      placeholder: "onnxruntime / directml"
+    validations:
+      required: true
+  - type: input
+    id: models
+    attributes:
+      label: Model IDs only
+      description: Do not attach model binaries or private file paths.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized readiness diagnostics
+      description: Remove API keys, document content, usernames, and full user paths.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps and expected result
+    validations:
+      required: true

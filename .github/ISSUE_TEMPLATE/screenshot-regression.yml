@@ -1,0 +1,46 @@
+name: Screenshot regression
+description: Report overlay, multi-monitor, DPI, permission, or rollback failures.
+title: "[Screenshot] "
+labels: ["bug", "screenshot"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: LaTeXSnipper version
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options: [Windows, macOS, Linux X11, Linux Wayland]
+    validations:
+      required: true
+  - type: input
+    id: monitors
+    attributes:
+      label: Monitor layout and DPI
+      placeholder: "Primary 150%, secondary 100% at negative X"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Initiating host
+      placeholder: "Desktop / Word / Excel / PowerPoint"
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized screenshot failure event
+      description: Include operationId, stage, errorCode, and elapsedMs; remove document content and full paths.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps and whether the main window recovered
+    validations:
+      required: true

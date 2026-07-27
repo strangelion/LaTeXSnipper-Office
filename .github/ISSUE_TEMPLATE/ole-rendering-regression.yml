@@ -1,0 +1,45 @@
+name: OLE rendering regression
+description: Report clipping, stale handlers, or Word geometry failures.
+title: "[OLE] "
+labels: ["bug", "native-office", "ole"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Desktop and OLE handler versions
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Office host and bitness
+      options: [Word x64, Word x86, Excel x64, Excel x86, PowerPoint x64, PowerPoint x86]
+    validations:
+      required: true
+  - type: dropdown
+    id: object_age
+    attributes:
+      label: Object provenance
+      options: [Newly inserted object, Old object reopened, Old object edited and regenerated]
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized OLE diagnostics
+      description: Include route, handler path/version, EMF frame/bounds, and Word/OLE extents. Do not attach documents containing private content.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: formula
+    attributes:
+      label: Minimal non-sensitive LaTeX fixture
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps and observed clipping
+    validations:
+      required: true
