@@ -17,7 +17,7 @@ test = false
 bench = false
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-os = "2"

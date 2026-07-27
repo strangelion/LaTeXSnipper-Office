@@ -15,6 +15,13 @@ import {
   normalizeOfficeInsertMode,
   officeInsertModeIsDisplay,
 } from "./services/office-insert-mode.js";
+import { decideAutoInsert } from "./features/recognition/auto-insert-decision.js";
+import { createPlatformContext } from "./platform/platform-context.js";
+import {
+  migrateLegacySetting,
+  resolveScopedSetting,
+  scopedSettingKey,
+} from "./platform/settings-scope.js";
 
 // ═══════════════════════════════════════════
 // Logging System
@@ -805,9 +812,18 @@ class SettingsManager {
       aiEndpoint: "https://api.openai.com/v1",
       aiApiKey: "",
       aiModel: "gpt-4o",
-      "recognition.screenshotAutoInsert": true,
+      "recognition.screenshotAutoInsert": false,
     };
     this.settings = this.load();
+    const autoInsertScopedKey = scopedSettingKey(
+      "global",
+      "recognition.screenshotAutoInsert",
+    );
+    migrateLegacySetting(
+      this.settings,
+      "recognition.screenshotAutoInsert",
+      autoInsertScopedKey,
+    );
     Logger.info("Settings loaded");
   }
 
@@ -831,6 +847,10 @@ class SettingsManager {
     return this.settings[key];
   }
 
+  getScoped(key, context = {}) {
+    return resolveScopedSetting(this.settings, key, context) ?? this.get(key);
+  }
+
   set(key, value) {
     this.settings[key] = value;
     this.save();
@@ -842,6 +862,13 @@ class SettingsManager {
     ) {
       Logger.debug(`Setting ${key} = ${value}`);
     }
+  }
+
+  setScoped(scope, key, value, context = {}) {
+    this.settings[scopedSettingKey(scope, key, context)] = value;
+    // Keep the legacy flat key synchronized during the migration window.
+    this.settings[key] = value;
+    this.save();
   }
 }
 
@@ -1750,6 +1777,7 @@ class UIController {
     this.themeManager = new ThemeManager();
     this.settingsManager = new SettingsManager();
     this.formulaSvgRenderer = new FormulaSvgRenderer();
+    this.platformContext = createPlatformContext({ host: "desktop" });
     this.platformOperations = new Set();
     this._pendingOfficeEditorRequest = null;
 
@@ -1767,6 +1795,7 @@ class UIController {
     // Listen for recognition results from new workspace
     window.addEventListener("recognition:result-ready", async (event) => {
       const latex = event.detail.latex;
+      const acceptance = event.detail.acceptance;
       this.ocrLatex = latex;
       const resultEl = document.getElementById("ocrResult");
       if (resultEl) resultEl.textContent = this.ocrLatex || "未识别到公式";
@@ -1776,6 +1805,27 @@ class UIController {
       const target = this._pendingOcrTarget;
 
       if (target?.autoInsert && target.sessionId) {
+        const currentRoute = await this.resolveCurrentOfficeRoute(target);
+        const decision = decideAutoInsert({
+          userEnabled:
+            this.settingsManager.getScoped(
+              "recognition.screenshotAutoInsert",
+            ) === true,
+          protocolRequested: target.autoInsert,
+          targetSessionId: target.sessionId,
+          targetHost: target.hostType,
+          expectedDocumentContext: target.documentContext,
+          currentDocumentContext: currentRoute?.target?.documentContext ?? null,
+          acceptance,
+          output: latex,
+        });
+        Logger.info("Recognition auto-insert decision", decision);
+        if (!decision.allowed) {
+          this.showToast(
+            `识别结果需要人工确认：${decision.reasons.join("、")}`,
+          );
+          return;
+        }
         try {
           await this.insertRecognizedFormula(latex, target);
           this.showToast(`识别结果已插入 ${target.hostType}`);
@@ -3372,9 +3422,14 @@ class UIController {
           const { controller } =
             await import("./features/recognition/index.js");
 
-          const response = await controller.startJob(payload.path, "formula", {
-            executionPolicy: "async",
-          });
+          const response = await controller.startJob(
+            payload.path,
+            "cropped-formula",
+            {
+              inputKind: "cropped-formula",
+              executionPolicy: "async",
+            },
+          );
 
           this.showToast(`截图识别任务已提交：${response.jobId}`);
         } catch (error) {
@@ -6150,6 +6205,7 @@ class UIController {
     const { refreshStatus = false } = options;
     const listEl = document.getElementById("platformList");
     if (!listEl) return;
+    this.renderCapabilitySummary();
 
     const officeStatus = refreshStatus
       ? await this.getOfficeStatus()
@@ -6328,6 +6384,53 @@ class UIController {
     listEl
       .querySelector("[data-office-web-repair]")
       ?.addEventListener("click", () => this.repairOfficeWebIntegration());
+  }
+
+  renderCapabilitySummary() {
+    const element = document.getElementById("platformCapabilitySummary");
+    if (!element) return;
+    const contexts = [
+      ["桌面", "desktop"],
+      ["Word", "word"],
+      ["Excel", "excel"],
+      ["PowerPoint", "powerpoint"],
+      ["Office.js", "officejs"],
+      ["WPS Writer", "wps-writer"],
+      ["WPS Spreadsheets", "wps-spreadsheets"],
+      ["WPS Presentation", "wps-presentation"],
+      ["Obsidian", "obsidian"],
+      ["Browser Import", "browser"],
+    ];
+    const labels = {
+      nativeOle: "Native OLE",
+      ommlInsert: "OMML 插入",
+      officeSelectionRead: "读取公式",
+      screenshot: "截图识别",
+      screenshotMultiMonitor: "多屏截图",
+      directMl: "DirectML",
+      coreMl: "CoreML",
+      cuda: "CUDA",
+      officeJs: "Office.js",
+    };
+    const rows = contexts
+      .map(([hostLabel, host]) => {
+        const context = createPlatformContext({
+          os: this.platformContext.os,
+          architecture: this.platformContext.architecture,
+          host,
+        });
+        const features = Object.entries(labels)
+          .map(([key, label]) => {
+            const feature = context.features[key];
+            if (!feature || feature.level === "unsupported") return null;
+            return `${label}: ${feature.level}`;
+          })
+          .filter(Boolean);
+        if (features.length === 0) return null;
+        return `<div class="settings-row"><span class="settings-label">${this._escapeHtml(hostLabel)}</span><span class="settings-value">${this._escapeHtml(features.join(" · "))}</span></div>`;
+      })
+      .filter(Boolean);
+    element.innerHTML = `<div class="settings-row"><span class="settings-label">当前系统</span><span class="settings-value">${this._escapeHtml(`${this.platformContext.os} / ${this.platformContext.architecture}`)}</span></div>${rows.join("")}`;
   }
 
   async repairOfficeWebIntegration() {
@@ -6839,13 +6942,29 @@ class UIController {
           autoInsert:
             Boolean(target?.sessionId) &&
             Boolean(target?.autoInsert) &&
-            this.settingsManager.get("recognition.screenshotAutoInsert") !==
-              false,
+            this.settingsManager.getScoped(
+              "recognition.screenshotAutoInsert",
+            ) === true,
         },
       });
     } catch (error) {
       Logger.error("Screenshot start failed:", error);
       this.showToast(`截图启动失败：${error.message || error}`);
+    }
+  }
+
+  async resolveCurrentOfficeRoute(target) {
+    if (!target?.hostType) return null;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return await invoke("office_resolve_route", {
+        host: target.hostType,
+        preferredSessionId: target.sessionId ?? null,
+        expectedDocumentId: null,
+      });
+    } catch (error) {
+      Logger.warn("Unable to verify Office document context:", error);
+      return null;
     }
   }
 
@@ -6922,7 +7041,11 @@ class UIController {
       if (!selected) return;
       const { invoke } = await import("@tauri-apps/api/core");
       const result = await invoke("recognition_start", {
-        request: { path: selected, mode: "auto" },
+        request: {
+          path: selected,
+          mode: "auto",
+          inputKind: "page-image",
+        },
       });
       Logger.info("Recognition job started:", result.jobId);
       this.showStatus(`识别任务已提交: ${result.jobId}`);
@@ -6942,7 +7065,11 @@ class UIController {
       if (!selected) return;
       const { invoke } = await import("@tauri-apps/api/core");
       const result = await invoke("recognition_start", {
-        request: { path: selected, mode: "full-document" },
+        request: {
+          path: selected,
+          mode: "full-document",
+          inputKind: "document-image",
+        },
       });
       Logger.info("PDF recognition job started:", result.jobId);
       this.showStatus(`PDF 识别任务已提交: ${result.jobId}`);

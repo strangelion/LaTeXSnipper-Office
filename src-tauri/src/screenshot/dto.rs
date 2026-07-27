@@ -15,6 +15,18 @@ pub struct ScreenshotBeginRequest {
 pub struct ScreenshotBeginResult {
     pub session_id: String,
     pub monitor_count: usize,
+    pub capture_ms: u128,
+    pub encode_ms: u128,
+    pub webview_build_ms: u128,
+    pub ready_wait_ms: u128,
+    pub peak_memory_estimate: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenPosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,8 +36,12 @@ pub struct ScreenshotOverlayInit {
     pub monitor_id: String,
     pub physical_width: u32,
     pub physical_height: u32,
+    pub preview_width: u32,
+    pub preview_height: u32,
     pub scale_factor: f64,
-    pub preview_data_url: String,
+    pub logical_position: ScreenPosition,
+    pub physical_position: ScreenPosition,
+    pub preview_path: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

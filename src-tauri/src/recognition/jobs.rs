@@ -110,6 +110,9 @@ pub struct RecognitionJobEntry {
 pub struct RecognitionResult {
     /// The parsed document AST.
     pub document: Document,
+
+    /// Canonical Core mode used for the request.
+    pub mode: String,
 }
 
 // ---------------------------------------------------------------------------

@@ -1,117 +1,58 @@
-//! Runtime management commands.
+//! Runtime installation-hint commands.
 //!
-//! Commands:
-//! - `runtime_list` — List available runtimes and their status.
-//! - `runtime_probe` — Probe the system for available runtimes.
-//! - `runtime_open_directory` — Open the runtime directory in the file manager.
+//! These compatibility commands only report files, directories, and setup
+//! hints. Provider/runtime usability is reported exclusively by Core
+//! `EngineReadiness`.
 
 use serde::Serialize;
 use tauri::State;
 
 use crate::recognition::state::RecognitionState;
 
-// ---------------------------------------------------------------------------
-// DTOs
-// ---------------------------------------------------------------------------
-
-/// Information about a runtime.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeInfo {
-    /// Runtime kind: "onnx", "paddle", "directml", "cuda", "tensorrt", "coreml"
     pub kind: String,
-
-    /// Human-readable name.
     pub name: String,
 
-    /// Whether the runtime is installed/available.
+    /// Deprecated compatibility field. Always false.
     pub available: bool,
 
-    /// Version string (if detected).
-    pub version: Option<String>,
+    /// A provider library file was found. This does not prove loadability.
+    pub library_detected: bool,
 
-    /// Path to the runtime library (if installed).
-    pub path: Option<String>,
+    /// An installation directory or environment hint was found.
+    pub directory_detected: bool,
 
-    /// A health indicator: "ok", "missing", "error", "unknown"
-    pub health: String,
-
-    /// Additional detail message.
-    pub detail: Option<String>,
+    /// Human-readable setup guidance. Core readiness remains authoritative.
+    pub installation_hint: Option<String>,
 }
 
-/// Result of a runtime probe.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeProbeResult {
-    /// List of all probed runtimes.
     pub runtimes: Vec<RuntimeInfo>,
 
-    /// Recommended runtime for this system.
+    /// Deprecated compatibility field. Office does not recommend providers.
     pub recommended: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
-/// List all available runtimes with their current status.
 #[tauri::command]
 pub async fn runtime_list(state: State<'_, RecognitionState>) -> Result<Vec<RuntimeInfo>, String> {
-    let runtimes_dir = &state.paths.runtimes;
-    probe_runtimes(runtimes_dir)
+    collect_runtime_installation_hints(&state.paths.runtimes)
 }
 
-/// Probe the system and runtime directory for available execution providers.
+/// Compatibility command: refresh non-authoritative installation hints.
 #[tauri::command]
 pub async fn runtime_probe(
     state: State<'_, RecognitionState>,
 ) -> Result<RuntimeProbeResult, String> {
-    let runtimes_dir = &state.paths.runtimes;
-    let runtimes = probe_runtimes(runtimes_dir)?;
-
-    // Recommend based on what's available
-    let recommended = recommend_runtime(&runtimes);
-
     Ok(RuntimeProbeResult {
-        runtimes,
-        recommended,
+        runtimes: collect_runtime_installation_hints(&state.paths.runtimes)?,
+        recommended: None,
     })
 }
 
-pub(crate) fn recommend_runtime(runtimes: &[RuntimeInfo]) -> Option<String> {
-    if cfg!(target_os = "windows") {
-        // On Windows, prefer DirectML if available, else ONNX Runtime
-        runtimes
-            .iter()
-            .find(|r| r.kind == "directml" && r.available)
-            .map(|r| r.kind.clone())
-            .or_else(|| {
-                runtimes
-                    .iter()
-                    .find(|r| r.kind == "onnx" && r.available)
-                    .map(|r| r.kind.clone())
-            })
-    } else if cfg!(target_os = "macos") {
-        runtimes
-            .iter()
-            .find(|r| r.kind == "coreml" && r.available)
-            .map(|r| r.kind.clone())
-            .or_else(|| {
-                runtimes
-                    .iter()
-                    .find(|r| r.kind == "onnx" && r.available)
-                    .map(|r| r.kind.clone())
-            })
-    } else {
-        runtimes
-            .iter()
-            .find(|r| r.kind == "onnx" && r.available)
-            .map(|r| r.kind.clone())
-    }
-}
-
-/// Open the runtime directory in the system file manager.
 #[tauri::command]
 pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Result<String, String> {
     let dir = state.paths.runtimes.to_string_lossy().to_string();
@@ -143,43 +84,27 @@ pub async fn runtime_open_directory(state: State<'_, RecognitionState>) -> Resul
     Ok(format!("Opened runtime directory: {dir}"))
 }
 
-// ---------------------------------------------------------------------------
-// Probe logic
-// ---------------------------------------------------------------------------
+pub(crate) fn collect_runtime_installation_hints(
+    runtimes_dir: &std::path::Path,
+) -> Result<Vec<RuntimeInfo>, String> {
+    let mut runtimes = vec![detect_onnx_installation(runtimes_dir)];
 
-/// Probe the runtime directory and system for available runtimes.
-pub(crate) fn probe_runtimes(runtimes_dir: &std::path::Path) -> Result<Vec<RuntimeInfo>, String> {
-    let mut runtimes = Vec::new();
-
-    // ONNX Runtime
-    runtimes.push(probe_onnx_runtime(runtimes_dir));
-
-    // DirectML (Windows only)
     if cfg!(target_os = "windows") {
-        runtimes.push(probe_directml(runtimes_dir));
+        runtimes.push(detect_directml_installation(runtimes_dir));
     }
-
-    // CUDA / TensorRT
     if cfg!(target_os = "windows") || cfg!(target_os = "linux") {
-        runtimes.push(probe_cuda());
-        runtimes.push(probe_tensorrt(runtimes_dir));
+        runtimes.push(detect_cuda_installation());
+        runtimes.push(detect_tensorrt_installation(runtimes_dir));
     }
-
-    // CoreML (macOS only)
     if cfg!(target_os = "macos") {
-        runtimes.push(probe_coreml());
+        runtimes.push(coreml_installation_hint());
     }
-
-    // Paddle Inference
-    runtimes.push(probe_paddle(runtimes_dir));
-
+    runtimes.push(detect_paddle_installation(runtimes_dir));
     Ok(runtimes)
 }
 
-fn probe_onnx_runtime(runtimes_dir: &std::path::Path) -> RuntimeInfo {
+fn detect_onnx_installation(runtimes_dir: &std::path::Path) -> RuntimeInfo {
     let onnx_dir = runtimes_dir.join("onnx");
-
-    // Look for onnxruntime.dll / libonnxruntime.so / libonnxruntime.dylib
     let lib_name = if cfg!(target_os = "windows") {
         "onnxruntime.dll"
     } else if cfg!(target_os = "macos") {
@@ -187,148 +112,133 @@ fn probe_onnx_runtime(runtimes_dir: &std::path::Path) -> RuntimeInfo {
     } else {
         "libonnxruntime.so"
     };
-
-    let lib_path = onnx_dir.join(lib_name);
-    let available = lib_path.exists();
+    let library_detected = onnx_dir.join(lib_name).is_file();
 
     RuntimeInfo {
         kind: "onnx".to_string(),
         name: "ONNX Runtime".to_string(),
-        available,
-        version: None,
-        path: if available {
-            Some(lib_path.to_string_lossy().to_string())
+        available: false,
+        library_detected,
+        directory_detected: onnx_dir.is_dir(),
+        installation_hint: Some(if library_detected {
+            "ONNX Runtime library detected; Core provider validation is required.".to_string()
         } else {
-            None
-        },
-        health: if available {
-            "ok".to_string()
-        } else {
-            "missing".to_string()
-        },
-        detail: if available {
-            Some("ONNX Runtime is installed.".to_string())
-        } else {
-            Some("Place onnxruntime.dll in the runtimes/onnx directory.".to_string())
-        },
+            format!("Place {lib_name} in the runtimes/onnx directory.")
+        }),
     }
 }
 
-fn probe_directml(runtimes_dir: &std::path::Path) -> RuntimeInfo {
+fn detect_directml_installation(runtimes_dir: &std::path::Path) -> RuntimeInfo {
     let dml_dir = runtimes_dir.join("directml");
-    let dll_path = dml_dir.join("DirectML.dll");
-    let available = dll_path.exists();
-
+    let library_detected = dml_dir.join("DirectML.dll").is_file();
     RuntimeInfo {
         kind: "directml".to_string(),
         name: "DirectML".to_string(),
-        available,
-        version: None,
-        path: if available {
-            Some(dll_path.to_string_lossy().to_string())
+        available: false,
+        library_detected,
+        directory_detected: dml_dir.is_dir(),
+        installation_hint: Some(if library_detected {
+            "DirectML.dll detected; Core must still create and validate a session.".to_string()
         } else {
-            None
-        },
-        health: if available {
-            "ok".to_string()
-        } else {
-            "missing".to_string()
-        },
-        detail: if available {
-            Some("DirectML execution provider detected.".to_string())
-        } else {
-            Some("DirectML requires a DirectX 12 compatible GPU.".to_string())
-        },
+            "DirectML requires a DirectX 12 compatible GPU.".to_string()
+        }),
     }
 }
 
-fn probe_cuda() -> RuntimeInfo {
-    // Check for CUDA_PATH or common CUDA locations
+fn detect_cuda_installation() -> RuntimeInfo {
     let cuda_path = std::env::var("CUDA_PATH").ok();
-    let available = cuda_path.is_some();
-
+    let directory_detected = cuda_path
+        .as_deref()
+        .is_some_and(|path| std::path::Path::new(path).is_dir());
     RuntimeInfo {
         kind: "cuda".to_string(),
         name: "CUDA".to_string(),
-        available,
-        version: None,
-        path: cuda_path,
-        health: if available {
-            "ok".to_string()
+        available: false,
+        library_detected: false,
+        directory_detected,
+        installation_hint: Some(if cuda_path.is_some() {
+            "CUDA_PATH is set; Core provider validation is still required.".to_string()
         } else {
-            "missing".to_string()
-        },
-        detail: if available {
-            Some("CUDA installation detected via CUDA_PATH.".to_string())
-        } else {
-            Some("CUDA Toolkit is not installed or CUDA_PATH is not set.".to_string())
-        },
+            "CUDA_PATH is not set.".to_string()
+        }),
     }
 }
 
-fn probe_tensorrt(runtimes_dir: &std::path::Path) -> RuntimeInfo {
+fn detect_tensorrt_installation(runtimes_dir: &std::path::Path) -> RuntimeInfo {
     let trt_dir = runtimes_dir.join("tensorrt");
-    let available = trt_dir.exists() && trt_dir.join("lib").exists();
-
+    let directory_detected = trt_dir.is_dir() && trt_dir.join("lib").is_dir();
     RuntimeInfo {
         kind: "tensorrt".to_string(),
         name: "TensorRT".to_string(),
-        available,
-        version: None,
-        path: if available {
-            Some(trt_dir.to_string_lossy().to_string())
+        available: false,
+        library_detected: false,
+        directory_detected,
+        installation_hint: Some(if directory_detected {
+            "TensorRT directory detected; Core provider validation is required.".to_string()
         } else {
-            None
-        },
-        health: if available {
-            "ok".to_string()
-        } else {
-            "missing".to_string()
-        },
-        detail: if available {
-            Some("TensorRT runtime detected.".to_string())
-        } else {
-            Some("TensorRT requires NVIDIA GPU with CUDA.".to_string())
-        },
+            "TensorRT requires an NVIDIA GPU and CUDA.".to_string()
+        }),
     }
 }
 
-fn probe_coreml() -> RuntimeInfo {
-    // CoreML is available on macOS 10.13+
+fn coreml_installation_hint() -> RuntimeInfo {
     RuntimeInfo {
         kind: "coreml".to_string(),
         name: "CoreML".to_string(),
-        available: true,
-        version: None,
-        path: None,
-        health: "ok".to_string(),
-        detail: Some("CoreML is built into macOS.".to_string()),
+        available: false,
+        library_detected: false,
+        directory_detected: false,
+        installation_hint: Some(
+            "macOS can host CoreML; only Core validation may mark it usable.".to_string(),
+        ),
     }
 }
 
-fn probe_paddle(runtimes_dir: &std::path::Path) -> RuntimeInfo {
+fn detect_paddle_installation(runtimes_dir: &std::path::Path) -> RuntimeInfo {
     let paddle_dir = runtimes_dir.join("paddle");
-    let available = paddle_dir.exists();
-
+    let directory_detected = paddle_dir.is_dir();
     RuntimeInfo {
         kind: "paddle".to_string(),
         name: "Paddle Inference".to_string(),
-        available,
-        version: None,
-        path: if available {
-            Some(paddle_dir.to_string_lossy().to_string())
+        available: false,
+        library_detected: false,
+        directory_detected,
+        installation_hint: Some(if directory_detected {
+            "Paddle directory detected; Core provider validation is required before use."
+                .to_string()
         } else {
-            None
-        },
-        health: if available {
-            "ok".to_string()
+            "Place Paddle Inference libraries in the runtimes/paddle directory.".to_string()
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_runtime_installation_hints;
+
+    #[test]
+    fn installation_hints_never_claim_runtime_availability() {
+        let root = std::env::temp_dir().join(format!(
+            "latexsnipper-runtime-hint-test-{:032x}",
+            rand::random::<u128>()
+        ));
+        let onnx = root.join("onnx");
+        std::fs::create_dir_all(&onnx).unwrap();
+        let library = if cfg!(target_os = "windows") {
+            "onnxruntime.dll"
+        } else if cfg!(target_os = "macos") {
+            "libonnxruntime.dylib"
         } else {
-            "missing".to_string()
-        },
-        detail: if available {
-            Some("Paddle Inference runtime detected.".to_string())
-        } else {
-            Some("Place Paddle Inference libraries in the runtimes/paddle directory.".to_string())
-        },
+            "libonnxruntime.so"
+        };
+        std::fs::write(onnx.join(library), [0u8; 4]).unwrap();
+
+        let hints = collect_runtime_installation_hints(&root).unwrap();
+        let onnx = hints.iter().find(|hint| hint.kind == "onnx").unwrap();
+        assert!(onnx.library_detected);
+        assert!(onnx.directory_detected);
+        assert!(!onnx.available);
+        assert!(hints.iter().all(|hint| !hint.available));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

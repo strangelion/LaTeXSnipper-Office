@@ -3,6 +3,9 @@
 // This replaces ad-hoc insertion logic in Editor, OCR, History, and AI modules.
 // All insertion paths go through this service.
 
+import { featureRegistry } from "../platform/feature-registry.js";
+import { createPlatformContext } from "../platform/platform-context.js";
+
 /**
  * @typedef {'formula' | 'table' | 'document'} ArtifactType
  * @typedef {'Word' | 'Excel' | 'PowerPoint' | 'Visio'} OfficeHost
@@ -25,16 +28,23 @@ export async function insertArtifact({
   targetHost,
   options = {},
 }) {
-  switch (type) {
-    case "formula":
-      return insertFormula(payload, targetHost, options);
-    case "table":
-      return insertTable(payload, targetHost, options);
-    case "document":
-      return insertDocument(payload, targetHost, options);
-    default:
-      throw new Error(`Unsupported artifact type: ${type}`);
-  }
+  const feature = `${type}.insert`;
+  const platformContext = createPlatformContext({
+    host: normalizeInsertionHost(targetHost, options),
+    os: options.os,
+    architecture: options.architecture,
+  });
+  return featureRegistry.resolve(feature, platformContext).execute({
+    payload,
+    targetHost,
+    options,
+    platformContext,
+  });
+}
+
+function normalizeInsertionHost(targetHost, options) {
+  if (options.routeMode === "officeJs") return "officejs";
+  return String(targetHost || "desktop").toLowerCase();
 }
 
 /**
@@ -138,6 +148,20 @@ async function insertDocument(payload, targetHost, options = {}) {
     },
   });
 }
+
+featureRegistry
+  .register("formula.insert", {
+    execute: ({ payload, targetHost, options }) =>
+      insertFormula(payload, targetHost, options),
+  })
+  .register("table.insert", {
+    execute: ({ payload, targetHost, options }) =>
+      insertTable(payload, targetHost, options),
+  })
+  .register("document.insert", {
+    execute: ({ payload, targetHost, options }) =>
+      insertDocument(payload, targetHost, options),
+  });
 
 // ---------------------------------------------------------------------------
 // Batch conversion

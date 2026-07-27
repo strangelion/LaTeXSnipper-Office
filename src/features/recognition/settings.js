@@ -84,9 +84,18 @@ export function initRecognitionSettings(nextContext) {
   const autoInsert = document.getElementById("screenshotAutoInsertToggle");
   if (autoInsert) {
     autoInsert.checked =
-      context?.settingsManager?.get(AUTO_INSERT_SETTING) !== false;
+      (context?.settingsManager?.getScoped?.(AUTO_INSERT_SETTING) ??
+        context?.settingsManager?.get(AUTO_INSERT_SETTING)) === true;
     autoInsert.addEventListener("change", () => {
-      context?.settingsManager?.set(AUTO_INSERT_SETTING, autoInsert.checked);
+      if (context?.settingsManager?.setScoped) {
+        context.settingsManager.setScoped(
+          "global",
+          AUTO_INSERT_SETTING,
+          autoInsert.checked,
+        );
+      } else {
+        context?.settingsManager?.set(AUTO_INSERT_SETTING, autoInsert.checked);
+      }
       log("info", "auto-insert-setting", {
         operationId: operationId("ocr-auto-insert"),
         success: true,
@@ -214,36 +223,65 @@ function renderReadiness(readiness) {
   const element = document.getElementById("recognitionReadinessStatus");
   if (!element) return;
 
-  let status = "尚未配置";
-  if (!readiness.compiled) status = "当前构建未包含识别组件";
-  else if (readiness.runnable) status = "识别服务可运行";
-  else if (readiness.modelCoverage?.formulaRec)
-    status = "可识别公式（部分能力可用）";
-  else if (
-    readiness.runtimeHealth?.some((runtime) => runtime.health === "error")
-  )
-    status = "运行时异常";
-  else if (readiness.missingRequiredModels?.length) status = "缺少必需模型";
-
-  const next = readiness.nextAction ? `；下一步：${readiness.nextAction}` : "";
-  element.textContent = `${status}${next}`;
+  const formula = readiness.modes?.find(
+    (mode) => mode.mode === "cropped-formula",
+  );
+  const status = !formula
+    ? "Core 未返回 cropped-formula 能力"
+    : formula.productionRecommended
+      ? "技术、模型质量与生产基线均通过"
+      : formula.technicalReady
+        ? "技术就绪；结果仍需人工确认"
+        : "技术未就绪";
+  const tasks = (formula?.tasks || [])
+    .map((task) => {
+      const model = task.selectedModel || "未选择模型";
+      return `${task.task}: ${task.technicalReady ? "技术就绪" : task.code || "未就绪"} / ${task.qualityReady ? "质量通过" : "质量未验证"} / ${model}`;
+    })
+    .join("\n");
+  const providers = (readiness.runtimes || [])
+    .flatMap((runtime) =>
+      (runtime.providerValidations || []).map(
+        (provider) =>
+          `${runtime.id}/${provider.provider}: ${provider.validationLevel}`,
+      ),
+    )
+    .join("\n");
+  element.textContent = [
+    `Core ${readiness.coreVersion || "unknown"}（schema ${readiness.schemaVersion || "?"}）：${status}`,
+    tasks,
+    providers,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function renderRuntimes(runtimes, recommended = null) {
   const element = document.getElementById("recognitionRuntimeStatus");
   if (!element) return;
-  const available = runtimes.filter((runtime) => runtime.available);
+  const available = runtimes.filter(
+    (runtime) => runtime.libraryDetected || runtime.directoryDetected,
+  );
   const summary =
     available.length > 0
-      ? `可用：${available.map((runtime) => runtime.name || runtime.kind).join("、")}`
-      : "未检测到可用运行时";
-  const recommendation = recommended ? `；推荐：${recommended}` : "";
+      ? `安装线索：${available.map((runtime) => runtime.name || runtime.kind).join("、")}（不代表可运行）`
+      : "未检测到运行时安装线索";
+  const recommendation = recommended
+    ? `；Core 推荐：${recommended}`
+    : "；可运行状态以 Core readiness 为准";
   const diagnostics = runtimes
     .map((runtime) => {
       const name = runtime.name || runtime.kind;
-      const version = runtime.version ? ` ${runtime.version}` : "";
-      const detail = runtime.detail ? `（${runtime.detail}）` : "";
-      return `${name}: ${runtime.health}${version}${detail}`;
+      const evidence = [
+        runtime.libraryDetected ? "libraryDetected" : null,
+        runtime.directoryDetected ? "directoryDetected" : null,
+      ]
+        .filter(Boolean)
+        .join(" + ");
+      const detail = runtime.installationHint
+        ? `（${runtime.installationHint}）`
+        : "";
+      return `${name}: ${evidence || "未检测"}${detail}`;
     })
     .join("\n");
   element.textContent = `${summary}${recommendation}${diagnostics ? `\n${diagnostics}` : ""}`;

@@ -141,7 +141,7 @@ function effectiveAutoInsert(target, userSetting) {
   return (
     Boolean(target?.sessionId) &&
     Boolean(target?.autoInsert) &&
-    userSetting !== false
+    userSetting === true
   );
 }
 
@@ -155,5 +155,11 @@ assert.equal(
   true,
 );
 assert.equal(effectiveAutoInsert({ autoInsert: true }, true), false);
+
+assert.equal(
+  effectiveAutoInsert({ sessionId: "word-1", autoInsert: true }, undefined),
+  false,
+  "auto insert must default to disabled",
+);
 
 console.log("All recognition office routing tests passed OK");

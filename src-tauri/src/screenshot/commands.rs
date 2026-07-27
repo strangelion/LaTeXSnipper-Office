@@ -3,20 +3,24 @@ use std::{
     time::{Duration, Instant},
 };
 
-use base64::Engine;
-use image::{codecs::jpeg::JpegEncoder, imageops::crop_imm, DynamicImage};
+use image::{
+    codecs::jpeg::JpegEncoder,
+    imageops::{crop_imm, resize, FilterType},
+    DynamicImage,
+};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
 use super::{
     dto::{
-        ScreenshotBeginRequest, ScreenshotBeginResult, ScreenshotCaptured, ScreenshotCommitRequest,
-        ScreenshotFailure, ScreenshotOverlayInit,
+        ScreenPosition, ScreenshotBeginRequest, ScreenshotBeginResult, ScreenshotCaptured,
+        ScreenshotCommitRequest, ScreenshotFailure, ScreenshotOverlayInit,
     },
+    lease::{register_job, release_job_path, JobOwner},
     state::{ScreenshotFrame, ScreenshotSession, ScreenshotState},
 };
 
-const OVERLAY_READY_TIMEOUT: Duration = Duration::from_secs(3);
+const PREVIEW_MAX_EDGE: u32 = 2560;
 
 fn new_session_id() -> String {
     format!("{:032x}", rand::random::<u128>())
@@ -107,23 +111,66 @@ async fn screenshot_begin_transaction(
         })
         .collect::<Vec<_>>();
 
+    let preview_root = std::env::temp_dir()
+        .join("latexsnipper")
+        .join("previews")
+        .join(session_id);
+    std::fs::create_dir_all(&preview_root)
+        .map_err(|error| format!("SCREENSHOT_PREVIEW_DIRECTORY_FAILED: {error}"))?;
+    let capture_started = Instant::now();
+    let preview_root_worker = preview_root.clone();
     let captured = tauri::async_runtime::spawn_blocking(move || {
         let mut frames = Vec::new();
+        let mut capture_ms = 0u128;
+        let mut encode_ms = 0u128;
+        let mut peak_memory_estimate = 0u64;
         for (monitor_id, x, y, width, height, scale_factor) in monitor_specs {
             let center_x = x + i32::try_from(width / 2).unwrap_or(0);
             let center_y = y + i32::try_from(height / 2).unwrap_or(0);
             let monitor = Monitor::from_point(center_x, center_y).map_err(|error| {
                 format!("SCREENSHOT_MONITOR_MAPPING_FAILED: {monitor_id}: {error}")
             })?;
+            let monitor_capture_started = Instant::now();
             let image = monitor
                 .capture_image()
                 .map_err(|error| format!("SCREENSHOT_CAPTURE_FAILED: {monitor_id}: {error}"))?;
-            frames.push((monitor_id, x, y, width, height, scale_factor, image));
+            capture_ms = capture_ms.saturating_add(monitor_capture_started.elapsed().as_millis());
+            let (preview_width, preview_height) = preview_dimensions(image.width(), image.height());
+            let encode_started = Instant::now();
+            let preview = resize(&image, preview_width, preview_height, FilterType::Triangle);
+            let mut jpeg = Vec::new();
+            JpegEncoder::new_with_quality(&mut jpeg, 84)
+                .encode_image(&DynamicImage::ImageRgba8(preview))
+                .map_err(|error| format!("SCREENSHOT_PREVIEW_ENCODING_FAILED: {error}"))?;
+            let preview_path = preview_root_worker.join(format!("{monitor_id}.jpg"));
+            std::fs::write(&preview_path, &jpeg)
+                .map_err(|error| format!("SCREENSHOT_PREVIEW_WRITE_FAILED: {error}"))?;
+            encode_ms = encode_ms.saturating_add(encode_started.elapsed().as_millis());
+            peak_memory_estimate = peak_memory_estimate.saturating_add(
+                u64::from(image.width())
+                    .saturating_mul(u64::from(image.height()))
+                    .saturating_mul(4)
+                    .saturating_add(jpeg.len() as u64),
+            );
+            frames.push((
+                monitor_id,
+                x,
+                y,
+                width,
+                height,
+                scale_factor,
+                image,
+                preview_width,
+                preview_height,
+                preview_path,
+            ));
         }
-        Ok::<_, String>(frames)
+        Ok::<_, String>((frames, capture_ms, encode_ms, peak_memory_estimate))
     })
     .await
     .map_err(|error| format!("SCREENSHOT_WORKER_FAILED: {error}"))??;
+    let (captured, capture_ms, encode_ms, peak_memory_estimate) = captured;
+    debug_assert!(capture_started.elapsed().as_millis() >= capture_ms);
 
     let mut frames = HashMap::new();
     let mut geometries = Vec::new();
@@ -135,6 +182,9 @@ async fn screenshot_begin_transaction(
         physical_height,
         scale_factor,
         image,
+        preview_width,
+        preview_height,
+        preview_path,
     ) in captured
     {
         let label = format!("capture-{session_id}-{monitor_id}");
@@ -151,6 +201,13 @@ async fn screenshot_begin_transaction(
                 monitor_id,
                 window_label: label,
                 scale_factor,
+                logical_x: physical_x as f64 / scale_factor,
+                logical_y: physical_y as f64 / scale_factor,
+                physical_x: f64::from(physical_x),
+                physical_y: f64::from(physical_y),
+                preview_width,
+                preview_height,
+                preview_path,
                 image,
             },
         );
@@ -163,8 +220,10 @@ async fn screenshot_begin_transaction(
         request,
         frames,
         ready_windows: HashSet::new(),
+        preview_decode_ms: 0,
     })?;
 
+    let webview_started = Instant::now();
     for (label, x, y, width, height) in geometries {
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App("capture.html".into()))
             .title("LaTeXSnipper Capture")
@@ -179,17 +238,32 @@ async fn screenshot_begin_transaction(
             .build()
             .map_err(|error| format!("SCREENSHOT_WEBVIEW_BUILD_FAILED: {label}: {error}"))?;
     }
+    let webview_build_ms = webview_started.elapsed().as_millis();
 
-    let deadline = Instant::now() + OVERLAY_READY_TIMEOUT;
+    let ready_timeout = overlay_ready_timeout(
+        monitor_count,
+        state
+            .with_session(session_id, |session| {
+                Ok(session
+                    .frames
+                    .values()
+                    .map(|frame| (frame.image.width(), frame.image.height()))
+                    .collect::<Vec<_>>())
+            })?
+            .as_slice(),
+    );
+    let ready_started = Instant::now();
+    let deadline = Instant::now() + ready_timeout;
     while !state.all_ready(session_id)? {
         if Instant::now() >= deadline {
-            return Err(
-                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within 3000ms"
-                    .to_string(),
-            );
+            return Err(format!(
+                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within {}ms",
+                ready_timeout.as_millis()
+            ));
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
+    let ready_wait_ms = ready_started.elapsed().as_millis();
 
     let labels = state.with_session(session_id, |session| {
         Ok(session
@@ -215,9 +289,23 @@ async fn screenshot_begin_transaction(
             .map_err(|error| format!("SCREENSHOT_OVERLAY_FOCUS_FAILED: {error}"))?;
     }
 
+    log::info!(
+        "captureMs={} encodeMs={} webviewBuildMs={} previewDecodeMs={} readyWaitMs={} peakMemoryEstimate={}",
+        capture_ms,
+        encode_ms,
+        webview_build_ms,
+        state.with_session(session_id, |session| Ok(session.preview_decode_ms))?,
+        ready_wait_ms,
+        peak_memory_estimate
+    );
     Ok(ScreenshotBeginResult {
         session_id: session_id.to_string(),
         monitor_count,
+        capture_ms,
+        encode_ms,
+        webview_build_ms,
+        ready_wait_ms,
+        peak_memory_estimate,
     })
 }
 
@@ -231,21 +319,23 @@ pub fn screenshot_overlay_init(
         let frame = session.frames.get(monitor_id).ok_or_else(|| {
             "SCREENSHOT_MONITOR_FRAME_MISSING: monitor frame not found".to_string()
         })?;
-        let mut jpeg = Vec::new();
-        let image = DynamicImage::ImageRgba8(frame.image.clone());
-        JpegEncoder::new_with_quality(&mut jpeg, 88)
-            .encode_image(&image)
-            .map_err(|error| format!("SCREENSHOT_PREVIEW_ENCODING_FAILED: {error}"))?;
         Ok(ScreenshotOverlayInit {
             session_id: session_id.to_string(),
             monitor_id: monitor_id.to_string(),
             physical_width: frame.image.width(),
             physical_height: frame.image.height(),
+            preview_width: frame.preview_width,
+            preview_height: frame.preview_height,
             scale_factor: frame.scale_factor,
-            preview_data_url: format!(
-                "data:image/jpeg;base64,{}",
-                base64::engine::general_purpose::STANDARD.encode(jpeg)
-            ),
+            logical_position: ScreenPosition {
+                x: frame.logical_x,
+                y: frame.logical_y,
+            },
+            physical_position: ScreenPosition {
+                x: frame.physical_x,
+                y: frame.physical_y,
+            },
+            preview_path: frame.preview_path.to_string_lossy().to_string(),
         })
     })
 }
@@ -253,10 +343,11 @@ pub fn screenshot_overlay_init(
 #[tauri::command]
 pub fn screenshot_overlay_ready(
     window_label: String,
+    preview_decode_ms: Option<u64>,
     state: State<'_, ScreenshotState>,
 ) -> Result<bool, String> {
     let (session_id, _) = parse_window_label(&window_label)?;
-    state.mark_ready(session_id, &window_label)
+    state.mark_ready(session_id, &window_label, preview_decode_ms.unwrap_or(0))
 }
 
 #[tauri::command]
@@ -326,6 +417,15 @@ async fn screenshot_commit_transaction(
     cropped
         .save(&path)
         .map_err(|error| format!("SCREENSHOT_PNG_SAVE_FAILED: {error}"))?;
+    let owner = if target.target_session_id.is_some() {
+        JobOwner::Office
+    } else {
+        JobOwner::Desktop
+    };
+    if let Err(error) = register_job(&job_id, &path, owner) {
+        let _ = release_job_path(&path);
+        return Err(error);
+    }
 
     let result = ScreenshotCaptured {
         path: path.to_string_lossy().to_string(),
@@ -336,8 +436,10 @@ async fn screenshot_commit_transaction(
         document_context: target.document_context,
         auto_insert: target.auto_insert,
     };
-    app.emit("screenshot://captured", &result)
-        .map_err(|error| format!("SCREENSHOT_CAPTURED_EMIT_FAILED: {error}"))?;
+    if let Err(error) = app.emit("screenshot://captured", &result) {
+        let _ = release_job_path(&path);
+        return Err(format!("SCREENSHOT_CAPTURED_EMIT_FAILED: {error}"));
+    }
     close_capture_session(app, state, &session_id)?;
     Ok(result)
 }
@@ -389,9 +491,44 @@ fn close_capture_session(
                 let _ = window.close();
             }
         }
+        if let Some(preview_root) = session
+            .frames
+            .values()
+            .next()
+            .and_then(|frame| frame.preview_path.parent())
+        {
+            let _ = std::fs::remove_dir_all(preview_root);
+        }
     }
     restore_main_window(app);
     removed.map(|_| ())
+}
+
+pub(crate) fn preview_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let longest = width.max(height);
+    if longest <= PREVIEW_MAX_EDGE || longest == 0 {
+        return (width, height);
+    }
+    let scale = f64::from(PREVIEW_MAX_EDGE) / f64::from(longest);
+    (
+        (f64::from(width) * scale).round().max(1.0) as u32,
+        (f64::from(height) * scale).round().max(1.0) as u32,
+    )
+}
+
+pub(crate) fn overlay_ready_timeout(
+    monitor_count: usize,
+    physical_sizes: &[(u32, u32)],
+) -> Duration {
+    let pixels = physical_sizes.iter().fold(0u64, |total, (width, height)| {
+        total.saturating_add(u64::from(*width).saturating_mul(u64::from(*height)))
+    });
+    let megapixels = pixels.div_ceil(1_000_000);
+    let millis = 2_000u64
+        .saturating_add((monitor_count as u64).saturating_mul(500))
+        .saturating_add(megapixels.saturating_mul(75))
+        .clamp(3_000, 8_000);
+    Duration::from_millis(millis)
 }
 
 fn rollback_capture(
@@ -404,6 +541,11 @@ fn rollback_capture(
     elapsed: Duration,
 ) {
     let _ = close_capture_session(app, state, session_id);
+    let preview_root = std::env::temp_dir()
+        .join("latexsnipper")
+        .join("previews")
+        .join(session_id);
+    let _ = std::fs::remove_dir_all(preview_root);
     let failure = ScreenshotFailure {
         operation_id: session_id.to_string(),
         stage: stage.to_string(),
@@ -449,6 +591,9 @@ fn error_stage(error: &str) -> &str {
         "SCREENSHOT_MONITOR_MAPPING_FAILED" => "monitor-mapping",
         "SCREENSHOT_CAPTURE_FAILED" | "SCREENSHOT_WORKER_FAILED" => "capture",
         "SCREENSHOT_PREVIEW_ENCODING_FAILED" => "preview-encoding",
+        "SCREENSHOT_PREVIEW_DIRECTORY_FAILED" | "SCREENSHOT_PREVIEW_WRITE_FAILED" => {
+            "preview-write"
+        }
         "SCREENSHOT_WEBVIEW_BUILD_FAILED" => "webview-build",
         "SCREENSHOT_OVERLAY_READY_TIMEOUT" | "SESSION_NOT_READY" => "overlay-ready",
         "SCREENSHOT_PNG_SAVE_FAILED" | "SCREENSHOT_JOB_DIRECTORY_FAILED" => "png-save",

@@ -43,104 +43,25 @@ pub async fn recognition_get_capabilities(
     }
 }
 
-/// Audit whether the compiled recognition feature has enough runtime/model
-/// coverage to execute useful modes. This never initializes the engine.
+/// Return the authoritative Core readiness contract without duplicating
+/// runtime/model/provider interpretation in the Office application.
+#[cfg(feature = "recognition")]
 #[tauri::command]
 pub async fn recognition_get_readiness(
     state: State<'_, RecognitionState>,
-) -> Result<RecognitionReadiness, String> {
-    let compiled = cfg!(feature = "recognition");
-    let runtime_health = crate::commands::runtimes::probe_runtimes(&state.paths.runtimes)
-        .map_err(|error| format!("READINESS_RUNTIME_PROBE_FAILED: {error}"))?;
-    let recommended_runtime = crate::commands::runtimes::recommend_runtime(&runtime_health);
-    let model_coverage = scan_model_coverage(&state.paths.models);
-    let runtime_available = runtime_health.iter().any(|runtime| runtime.available);
-
-    let mut missing_required_models = Vec::new();
-    if !model_coverage.formula_rec {
-        missing_required_models.push("formula-rec".to_string());
-    }
-
-    let mut warnings = Vec::new();
-    if !compiled {
-        warnings.push(ReadinessDiagnostic {
-            code: "RECOGNITION_FEATURE_NOT_COMPILED".to_string(),
-            message: "The recognition Cargo feature is not included.".to_string(),
-        });
-    }
-    if !runtime_available {
-        warnings.push(ReadinessDiagnostic {
-            code: "RECOGNITION_RUNTIME_MISSING".to_string(),
-            message: "No healthy recognition runtime is available.".to_string(),
-        });
-    }
-    if !model_coverage.formula_rec {
-        warnings.push(ReadinessDiagnostic {
-            code: "FORMULA_RECOGNITION_MODEL_MISSING".to_string(),
-            message: "Formula recognition requires a formula-rec model.".to_string(),
-        });
-    }
-
-    let runnable = compiled && runtime_available && model_coverage.formula_rec;
-    let next_action = if !compiled {
-        Some("安装包含识别组件的 desktop-full 构建".to_string())
-    } else if !runtime_available {
-        Some("安装或修复一个受支持的识别运行时".to_string())
-    } else if !model_coverage.formula_rec {
-        Some("导入 formula-rec .lsmodel 模型包".to_string())
-    } else {
-        None
-    };
-
-    Ok(RecognitionReadiness {
-        compiled,
-        runnable,
-        service_initialized: state.is_service_initialized().await,
-        recommended_runtime,
-        runtime_health,
-        model_coverage,
-        missing_required_models,
-        warnings,
-        next_action,
-    })
+) -> Result<latexsnipper_api_types::EngineReadiness, String> {
+    state.core_readiness().await
 }
 
-fn scan_model_coverage(models_dir: &std::path::Path) -> ModelCoverage {
-    let mut coverage = ModelCoverage::default();
-    let Ok(categories) = std::fs::read_dir(models_dir) else {
-        return coverage;
-    };
-
-    for category in categories.flatten().filter(|entry| entry.path().is_dir()) {
-        let Ok(variants) = std::fs::read_dir(category.path()) else {
-            continue;
-        };
-        for variant in variants.flatten().filter(|entry| entry.path().is_dir()) {
-            let manifest_path = variant.path().join("manifest.toml");
-            let Ok(content) = std::fs::read_to_string(manifest_path) else {
-                continue;
-            };
-            let Ok(manifest) = toml::from_str::<latexsnipper_runtime::ModelManifest>(&content)
-            else {
-                continue;
-            };
-            let task = format!("{:?}", manifest.task)
-                .to_ascii_lowercase()
-                .replace(['_', '-'], "");
-            match task.as_str() {
-                "formuladetection" | "formuladet" => coverage.formula_det = true,
-                "formularecognition" | "formularec" => coverage.formula_rec = true,
-                "textdetection" | "textdet" => coverage.text_det = true,
-                "textrecognition" | "textrec" => coverage.text_rec = true,
-                "layout" | "documentlayout" => coverage.layout = true,
-                "tabledetection" | "tabledet" => coverage.table_det = true,
-                "tablestructure" | "tablestruct" => coverage.table_struct = true,
-                "handwriting" | "handwritingrecognition" => coverage.handwriting = true,
-                _ => {}
-            }
-        }
-    }
-    coverage
+#[cfg(not(feature = "recognition"))]
+#[tauri::command]
+pub async fn recognition_get_readiness(
+    _state: State<'_, RecognitionState>,
+) -> Result<serde_json::Value, String> {
+    Err(
+        "RECOGNITION_FEATURE_NOT_COMPILED: install a desktop-full build with Core recognition"
+            .to_string(),
+    )
 }
 
 /// Start a new recognition job.
@@ -153,6 +74,7 @@ pub async fn recognition_start(
     // Validate input
     validation::validate_input_path(&request.path)?;
     validation::validate_mode(&request.mode)?;
+    validation::validate_input_kind(request.input_kind.as_deref())?;
     // Reject unsupported execution policies (only "async" is valid v1)
     validation::validate_execution_policy(request.execution_policy.as_deref())?;
     // Validate parse_mode early so we fail before creating a job
@@ -171,6 +93,15 @@ pub async fn recognition_start(
 
     #[cfg(feature = "recognition")]
     {
+        let path = PathBuf::from(&request.path);
+        let screenshot_job_lease =
+            crate::screenshot::lease::ScreenshotJobLeaseGuard::acquire(&path);
+
+        // Resolve Core before publishing a queued job. If readiness/service
+        // initialization fails, dropping the guard still releases screenshot
+        // input owned by this process.
+        let service = state.service().await?;
+
         // Create a new job entry
         let job = state.jobs.create().await;
         let job_id = {
@@ -189,15 +120,11 @@ pub async fn recognition_start(
         // Emit initial state
         emit_job_update(&app, &*job.snapshot.read().await);
 
-        // Get the recognition service (lazy-init if needed)
-        let service = state.service().await?;
-
         // Spawn the job
         let app_clone = app.clone();
-        let path = PathBuf::from(&request.path);
 
         tauri::async_runtime::spawn(async move {
-            run_recognition_job(app_clone, service, job, path, request).await;
+            run_recognition_job(app_clone, service, job, path, request, screenshot_job_lease).await;
         });
 
         Ok(RecognitionStartResponse { job_id })
@@ -249,6 +176,7 @@ pub async fn recognition_get_output(
             success: false,
             content: None,
             error: Some("Recognition is not included in this build.".to_string()),
+            acceptance: None,
         });
     }
 
@@ -268,6 +196,7 @@ pub async fn recognition_get_output(
                     success: false,
                     content: None,
                     error: Some(format!("Job is not completed (status: {:?})", snap.status)),
+                    acceptance: None,
                 });
             }
         }
@@ -280,11 +209,15 @@ pub async fn recognition_get_output(
 
         // Convert to the requested format
         let content = convert_document_to_format(&result.document, &request.format)?;
+        let readiness = state.core_readiness().await?;
+        let acceptance =
+            build_recognition_acceptance(&result.document, &result.mode, &content, &readiness);
 
         Ok(GetOutputResponse {
             success: true,
             content: Some(content),
             error: None,
+            acceptance: Some(acceptance),
         })
     }
 }
@@ -300,6 +233,7 @@ async fn run_recognition_job(
     job: std::sync::Arc<RecognitionJobEntry>,
     path: PathBuf,
     request: RecognitionStartRequest,
+    _screenshot_job_lease: crate::screenshot::lease::ScreenshotJobLeaseGuard,
 ) {
     // Transition to Running
     {
@@ -347,9 +281,13 @@ async fn run_recognition_job(
 
     match result {
         Ok(document) => {
+            let mode = request
+                .input_kind
+                .clone()
+                .unwrap_or_else(|| request.mode.clone());
             // Store result
             *job.result.write().await = Some(std::sync::Arc::new(
-                crate::recognition::jobs::RecognitionResult { document },
+                crate::recognition::jobs::RecognitionResult { document, mode },
             ));
 
             // Transition to Completed
@@ -382,6 +320,113 @@ async fn run_recognition_job(
                 job.snapshot.read().await.id
             );
         }
+    }
+}
+
+#[cfg(feature = "recognition")]
+fn build_recognition_acceptance(
+    document: &latexsnipper_ast::Document,
+    mode_name: &str,
+    output: &str,
+    readiness: &latexsnipper_api_types::EngineReadiness,
+) -> RecognitionAcceptanceDto {
+    use latexsnipper_api_types::{ModelQualityStatus, RecognitionAcceptance, RecognitionAction};
+
+    let report = latexsnipper_ast::DocumentReport::from_document(document);
+    let mode = readiness.modes.iter().find(|mode| mode.mode == mode_name);
+    let technically_valid = mode.is_some_and(|mode| mode.technical_ready);
+    let quality_status = mode
+        .map(|mode| mode_quality_status(mode, readiness))
+        .unwrap_or(ModelQualityStatus::Unknown);
+    let confidence = report.confidence_summary.min.unwrap_or(0.0);
+    let parse_valid = !output.trim().is_empty();
+    let structure_valid = if mode_name == "cropped-formula" {
+        report.block_summary.formulas == 1
+    } else {
+        report.block_summary.total > 0
+    };
+    let review_required = document
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "POSTPROCESS_REVIEW_REQUIRED");
+    let acceptance = RecognitionAcceptance::decide(
+        technically_valid,
+        quality_status,
+        confidence,
+        parse_valid,
+        structure_valid,
+        review_required,
+    );
+
+    RecognitionAcceptanceDto {
+        technically_valid: acceptance.technically_valid,
+        quality_status: quality_status_name(acceptance.quality_status).to_string(),
+        confidence: acceptance.confidence,
+        parse_valid: acceptance.parse_valid,
+        structure_valid: acceptance.structure_valid,
+        review_required: acceptance.review_required,
+        recommended_action: match acceptance.recommended_action {
+            RecognitionAction::AutoAccept => "autoAccept",
+            RecognitionAction::RequireReview => "requireReview",
+            RecognitionAction::Reject => "reject",
+        }
+        .to_string(),
+        reasons: acceptance
+            .reasons
+            .into_iter()
+            .map(|reason| reason.as_str().to_string())
+            .collect(),
+    }
+}
+
+#[cfg(feature = "recognition")]
+fn mode_quality_status(
+    mode: &latexsnipper_api_types::ModeReadiness,
+    readiness: &latexsnipper_api_types::EngineReadiness,
+) -> latexsnipper_api_types::ModelQualityStatus {
+    use latexsnipper_api_types::ModelQualityStatus;
+
+    let mut statuses = mode.tasks.iter().filter_map(|task| {
+        let selected = task.selected_model.as_deref()?;
+        readiness
+            .models
+            .iter()
+            .find(|model| model.id == selected)
+            .map(|model| model.quality_status)
+    });
+    let Some(first) = statuses.next() else {
+        return ModelQualityStatus::Unknown;
+    };
+    statuses.fold(first, |current, next| {
+        if quality_rank(next) < quality_rank(current) {
+            next
+        } else {
+            current
+        }
+    })
+}
+
+#[cfg(feature = "recognition")]
+const fn quality_rank(status: latexsnipper_api_types::ModelQualityStatus) -> u8 {
+    use latexsnipper_api_types::ModelQualityStatus;
+    match status {
+        ModelQualityStatus::Unknown => 0,
+        ModelQualityStatus::BaselineMissing => 1,
+        ModelQualityStatus::BaselineFailed => 0,
+        ModelQualityStatus::Experimental => 2,
+        ModelQualityStatus::Validated => 3,
+    }
+}
+
+#[cfg(feature = "recognition")]
+const fn quality_status_name(status: latexsnipper_api_types::ModelQualityStatus) -> &'static str {
+    use latexsnipper_api_types::ModelQualityStatus;
+    match status {
+        ModelQualityStatus::Unknown => "unknown",
+        ModelQualityStatus::BaselineMissing => "baselineMissing",
+        ModelQualityStatus::BaselineFailed => "baselineFailed",
+        ModelQualityStatus::Experimental => "experimental",
+        ModelQualityStatus::Validated => "validated",
     }
 }
 

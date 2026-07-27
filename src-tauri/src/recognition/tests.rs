@@ -93,10 +93,36 @@ mod rec_tests {
     fn test_validation_mode() {
         assert!(validation::validate_mode("auto").is_ok());
         assert!(validation::validate_mode("formula").is_ok());
+        assert!(validation::validate_mode("cropped-formula").is_ok());
         assert!(validation::validate_mode("text").is_ok());
         assert!(validation::validate_mode("table").is_ok());
         assert!(validation::validate_mode("full-document").is_ok());
         assert!(validation::validate_mode("invalid").is_err());
+    }
+
+    #[cfg(feature = "recognition")]
+    #[test]
+    fn test_input_kind_maps_centrally_to_core_mode() {
+        use crate::recognition::state::map_input_kind_to_core_mode;
+        use latexsnipper_engine::RecognizeMode;
+
+        assert_eq!(
+            map_input_kind_to_core_mode("cropped-formula").unwrap(),
+            RecognizeMode::CroppedFormula
+        );
+        assert_eq!(
+            map_input_kind_to_core_mode("page-image").unwrap(),
+            RecognizeMode::Mixed
+        );
+        assert_eq!(
+            map_input_kind_to_core_mode("document-image").unwrap(),
+            RecognizeMode::Mixed
+        );
+        assert_eq!(
+            map_input_kind_to_core_mode("table-image").unwrap(),
+            RecognizeMode::Table
+        );
+        assert!(map_input_kind_to_core_mode("unknown").is_err());
     }
 
     #[test]
@@ -137,6 +163,7 @@ mod rec_tests {
         let json = r#"{
             "path": "/tmp/test.png",
             "mode": "auto",
+            "inputKind": "page-image",
             "parseMode": "full",
             "executionPolicy": "async",
             "modelOverrides": {
@@ -147,6 +174,7 @@ mod rec_tests {
         let req: RecognitionStartRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.path, "/tmp/test.png");
         assert_eq!(req.mode, "auto");
+        assert_eq!(req.input_kind, Some("page-image".to_string()));
         assert_eq!(req.parse_mode, Some("full".to_string()));
         assert_eq!(req.execution_policy, Some("async".to_string()));
 

@@ -57,7 +57,7 @@ impl RecognitionService {
         path: &Path,
         request: &RecognitionStartRequest,
     ) -> Result<latexsnipper_ast::Document, String> {
-        let mode = parse_recognize_mode(&request.mode)?;
+        let mode = map_request_to_core_mode(request)?;
 
         let is_pdf = path
             .extension()
@@ -152,21 +152,17 @@ impl RecognitionState {
             service: RwLock::new(None),
         }
     }
-
-    pub async fn is_service_initialized(&self) -> bool {
-        #[cfg(feature = "recognition")]
-        {
-            self.service.read().await.is_some()
-        }
-        #[cfg(not(feature = "recognition"))]
-        {
-            false
-        }
-    }
 }
 
 #[cfg(feature = "recognition")]
 impl RecognitionState {
+    /// Return the authoritative Core readiness snapshot. Creating the service
+    /// resolves manifests and providers but does not warm up a model session.
+    pub async fn core_readiness(&self) -> Result<latexsnipper_api_types::EngineReadiness, String> {
+        let service = self.service().await?;
+        Ok(service.engine.readiness())
+    }
+
     /// Get (or lazily create) the recognition service.
     pub async fn service(&self) -> Result<Arc<RecognitionService>, String> {
         {
@@ -218,14 +214,37 @@ fn parse_recognize_mode(s: &str) -> Result<latexsnipper_engine::RecognizeMode, S
     match s {
         "auto" | "mixed" | "full-document" => Ok(latexsnipper_engine::RecognizeMode::Mixed),
         "formula" => Ok(latexsnipper_engine::RecognizeMode::Formula),
+        "cropped-formula" => Ok(latexsnipper_engine::RecognizeMode::CroppedFormula),
         "text" => Ok(latexsnipper_engine::RecognizeMode::Text),
         "table" => Ok(latexsnipper_engine::RecognizeMode::Table),
         "handwriting" => Ok(latexsnipper_engine::RecognizeMode::Handwriting),
         "formula-layout" => Ok(latexsnipper_engine::RecognizeMode::FormulaLayout),
         other => Err(format!(
             "Unknown recognition mode '{other}'. \
-             Valid: auto, formula, text, table, handwriting, formula-layout"
+             Valid: auto, formula, cropped-formula, text, table, handwriting, formula-layout"
         )),
+    }
+}
+
+#[cfg(feature = "recognition")]
+pub(crate) fn map_input_kind_to_core_mode(
+    input_kind: &str,
+) -> Result<latexsnipper_engine::RecognizeMode, String> {
+    match input_kind {
+        "cropped-formula" => Ok(latexsnipper_engine::RecognizeMode::CroppedFormula),
+        "page-image" | "document-image" => Ok(latexsnipper_engine::RecognizeMode::Mixed),
+        "table-image" => Ok(latexsnipper_engine::RecognizeMode::Table),
+        other => Err(format!("Unknown recognition input kind '{other}'")),
+    }
+}
+
+#[cfg(feature = "recognition")]
+fn map_request_to_core_mode(
+    request: &RecognitionStartRequest,
+) -> Result<latexsnipper_engine::RecognizeMode, String> {
+    match request.input_kind.as_deref() {
+        Some(input_kind) => map_input_kind_to_core_mode(input_kind),
+        None => parse_recognize_mode(&request.mode),
     }
 }
 

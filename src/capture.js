@@ -1,5 +1,10 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import {
+  normalizeRect,
+  pointerToPreview as mapPointerToPreview,
+  previewRectToPhysical as mapPreviewRectToPhysical,
+} from "./features/screenshot/coordinates.js";
 
 const currentWindow = getCurrentWebviewWindow();
 const canvas = document.getElementById("captureCanvas");
@@ -12,25 +17,13 @@ let current = null;
 let selection = null;
 let dragging = false;
 
-function normalizeRect(a, b) {
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-
-  return {
-    x,
-    y,
-    width: Math.abs(a.x - b.x),
-    height: Math.abs(a.y - b.y),
-  };
-}
-
-function pointerToPhysical(event) {
-  const rect = canvas.getBoundingClientRect();
-
-  return {
-    x: Math.round(((event.clientX - rect.left) / rect.width) * canvas.width),
-    y: Math.round(((event.clientY - rect.top) / rect.height) * canvas.height),
-  };
+function pointerToPreview(event) {
+  return mapPointerToPreview(
+    event.clientX,
+    event.clientY,
+    canvas.getBoundingClientRect(),
+    { width: canvas.width, height: canvas.height },
+  );
 }
 
 function draw() {
@@ -60,7 +53,8 @@ function draw() {
     selection.height,
   );
 
-  const text = `${selection.width} × ${selection.height}`;
+  const physical = previewRectToPhysical(selection);
+  const text = `${physical.width} × ${physical.height}`;
   context.font = `${Math.round(13 * init.scaleFactor)}px Segoe UI`;
   const metrics = context.measureText(text);
 
@@ -84,14 +78,15 @@ function draw() {
 }
 
 async function confirmSelection() {
-  if (!selection || selection.width < 8 || selection.height < 8) {
+  const physical = selection ? previewRectToPhysical(selection) : null;
+  if (!physical || physical.width < 8 || physical.height < 8) {
     return;
   }
 
   await invoke("screenshot_commit", {
     request: {
       windowLabel: currentWindow.label,
-      ...selection,
+      ...physical,
     },
   });
 }
@@ -104,7 +99,7 @@ async function cancel() {
 
 canvas.addEventListener("pointerdown", (event) => {
   canvas.setPointerCapture(event.pointerId);
-  start = pointerToPhysical(event);
+  start = pointerToPreview(event);
   current = start;
   selection = null;
   dragging = true;
@@ -114,7 +109,7 @@ canvas.addEventListener("pointerdown", (event) => {
 canvas.addEventListener("pointermove", (event) => {
   if (!dragging || !start) return;
 
-  current = pointerToPhysical(event);
+  current = pointerToPreview(event);
   selection = normalizeRect(start, current);
   draw();
 });
@@ -122,7 +117,7 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("pointerup", (event) => {
   if (!dragging) return;
 
-  current = pointerToPhysical(event);
+  current = pointerToPreview(event);
   selection = normalizeRect(start, current);
   dragging = false;
   draw();
@@ -145,20 +140,30 @@ canvas.addEventListener("dblclick", confirmSelection);
 async function initialize() {
   init = await initializeOverlayWithRetry();
 
-  canvas.width = init.physicalWidth;
-  canvas.height = init.physicalHeight;
+  canvas.width = init.previewWidth;
+  canvas.height = init.previewHeight;
 
   screenshot = new Image();
+  const decodeStarted = performance.now();
   await new Promise((resolve, reject) => {
     screenshot.onload = resolve;
     screenshot.onerror = () =>
       reject(new Error("SCREENSHOT_PREVIEW_DECODE_FAILED"));
-    screenshot.src = init.previewDataUrl;
+    screenshot.src = convertFileSrc(init.previewPath);
   });
   draw();
   await invoke("screenshot_overlay_ready", {
     windowLabel: currentWindow.label,
+    previewDecodeMs: Math.round(performance.now() - decodeStarted),
   });
+}
+
+function previewRectToPhysical(rect) {
+  return mapPreviewRectToPhysical(
+    rect,
+    { width: init.previewWidth, height: init.previewHeight },
+    { width: init.physicalWidth, height: init.physicalHeight },
+  );
 }
 
 async function initializeOverlayWithRetry() {

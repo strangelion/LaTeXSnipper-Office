@@ -1,7 +1,12 @@
 use super::{
-    commands::{parse_window_label, validate_selection},
+    commands::{overlay_ready_timeout, parse_window_label, preview_dimensions, validate_selection},
+    lease::{
+        cleanup_job_root, JobOwner, ScreenshotJobLeaseGuard, SCREENSHOT_JOB_MAX_BYTES,
+        SCREENSHOT_JOB_TTL,
+    },
     state::ScreenshotState,
 };
+use std::time::{Duration, SystemTime};
 
 #[test]
 fn parses_capture_window_label() {
@@ -61,6 +66,23 @@ fn crops_exact_physical_pixels() {
 }
 
 #[test]
+fn preview_is_downsampled_without_changing_aspect_ratio() {
+    assert_eq!(preview_dimensions(1920, 1080), (1920, 1080));
+    assert_eq!(preview_dimensions(3840, 2160), (2560, 1440));
+    assert_eq!(preview_dimensions(2160, 3840), (1440, 2560));
+}
+
+#[test]
+fn overlay_timeout_scales_and_is_capped() {
+    let single = overlay_ready_timeout(1, &[(1920, 1080)]);
+    let mixed = overlay_ready_timeout(3, &[(3840, 2160), (2560, 1440), (1920, 1080)]);
+    let extreme = overlay_ready_timeout(12, &[(7680, 4320); 12]);
+    assert!(single >= Duration::from_secs(3));
+    assert!(mixed > single);
+    assert_eq!(extreme, Duration::from_secs(8));
+}
+
+#[test]
 fn mixed_dpi_coordinates_are_not_reused_as_physical_pixels() {
     // Physical coordinates from the canvas pointer event must
     // match the RGBA image dimensions, not logical screen coords.
@@ -97,6 +119,94 @@ fn cancellation_removes_all_monitor_windows() {
     let removed = sessions.remove("test-session");
     assert!(removed.is_some());
     assert!(sessions.is_empty());
+}
+
+#[test]
+fn screenshot_job_lease_cleanup_removes_expired_jobs() {
+    let root = std::env::temp_dir().join(format!(
+        "latexsnipper-lease-test-{:032x}",
+        rand::random::<u128>()
+    ));
+    let job_dir = root.join("expired");
+    std::fs::create_dir_all(&job_dir).unwrap();
+    let source = job_dir.join("source.png");
+    std::fs::write(&source, [1u8; 32]).unwrap();
+    let lease = super::lease::ScreenshotJobLease {
+        job_id: "expired".to_string(),
+        path: source,
+        created_at_unix_ms: 1,
+        owner: JobOwner::Desktop,
+        consumed: false,
+    };
+    std::fs::write(
+        job_dir.join("lease.json"),
+        serde_json::to_vec(&lease).unwrap(),
+    )
+    .unwrap();
+    let report = cleanup_job_root(
+        &root,
+        SystemTime::UNIX_EPOCH + SCREENSHOT_JOB_TTL + Duration::from_secs(2),
+    )
+    .unwrap();
+    assert_eq!(report.removed_jobs, 1);
+    assert!(!job_dir.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn job_registration_records_office_owner() {
+    let job_id = format!("{:032x}", rand::random::<u128>());
+    let job_dir = super::lease::jobs_root().join(&job_id);
+    std::fs::create_dir_all(&job_dir).unwrap();
+    let source = job_dir.join("source.png");
+    std::fs::write(&source, [1u8; 8]).unwrap();
+    {
+        let _guard = ScreenshotJobLeaseGuard::register(&job_id, &source, JobOwner::Office)
+            .expect("lease registration should work");
+        let lease: super::lease::ScreenshotJobLease = serde_json::from_slice(
+            &std::fs::read(job_dir.join("lease.json")).expect("lease should exist"),
+        )
+        .expect("lease should deserialize");
+        assert_eq!(lease.owner, JobOwner::Office);
+        assert!(!lease.consumed);
+    }
+    assert!(!job_dir.exists(), "dropping the guard must remove the job");
+}
+
+#[test]
+fn screenshot_job_lease_cleanup_enforces_oldest_first_size_cap() {
+    let root = std::env::temp_dir().join(format!(
+        "latexsnipper-lease-cap-test-{:032x}",
+        rand::random::<u128>()
+    ));
+    for (job_id, created_at_unix_ms) in [("older", 1u64), ("newer", 2u64)] {
+        let job_dir = root.join(job_id);
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let source = job_dir.join("source.png");
+        std::fs::File::create(&source)
+            .unwrap()
+            .set_len(300 * 1024 * 1024)
+            .unwrap();
+        let lease = super::lease::ScreenshotJobLease {
+            job_id: job_id.to_string(),
+            path: source,
+            created_at_unix_ms,
+            owner: JobOwner::Desktop,
+            consumed: false,
+        };
+        std::fs::write(
+            job_dir.join("lease.json"),
+            serde_json::to_vec(&lease).unwrap(),
+        )
+        .unwrap();
+    }
+
+    let report = cleanup_job_root(&root, SystemTime::UNIX_EPOCH + Duration::from_secs(1)).unwrap();
+    assert_eq!(report.removed_jobs, 1);
+    assert!(report.retained_bytes <= SCREENSHOT_JOB_MAX_BYTES);
+    assert!(!root.join("older").exists());
+    assert!(root.join("newer").exists());
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

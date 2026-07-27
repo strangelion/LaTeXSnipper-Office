@@ -1,7 +1,7 @@
 mod commands;
 mod engine;
 mod math;
-mod office_integration;
+pub mod office_integration;
 mod platforms;
 mod recognition;
 

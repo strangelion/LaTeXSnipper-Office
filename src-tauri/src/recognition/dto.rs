@@ -16,6 +16,10 @@ pub struct RecognitionStartRequest {
     /// Recognition mode: "auto", "formula", "text", "table", "full-document"
     pub mode: String,
 
+    /// Semantic input contract. When present this is the authoritative source
+    /// for Core mode selection; `mode` is retained for older callers.
+    pub input_kind: Option<String>,
+
     /// Document parse mode override.
     pub parse_mode: Option<String>,
 
@@ -69,6 +73,22 @@ pub struct GetOutputResponse {
 
     /// Error message (if !success).
     pub error: Option<String>,
+
+    /// Core-backed evidence consumed by the frontend auto-insert gate.
+    pub acceptance: Option<RecognitionAcceptanceDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecognitionAcceptanceDto {
+    pub technically_valid: bool,
+    pub quality_status: String,
+    pub confidence: f32,
+    pub parse_valid: bool,
+    pub structure_valid: bool,
+    pub review_required: bool,
+    pub recommended_action: String,
+    pub reasons: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,38 +113,4 @@ pub struct RecognitionCapabilities {
 
     /// Number of currently active jobs.
     pub active_jobs: usize,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelCoverage {
-    pub formula_det: bool,
-    pub formula_rec: bool,
-    pub text_det: bool,
-    pub text_rec: bool,
-    pub layout: bool,
-    pub table_det: bool,
-    pub table_struct: bool,
-    pub handwriting: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadinessDiagnostic {
-    pub code: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecognitionReadiness {
-    pub compiled: bool,
-    pub runnable: bool,
-    pub service_initialized: bool,
-    pub recommended_runtime: Option<String>,
-    pub runtime_health: Vec<crate::commands::runtimes::RuntimeInfo>,
-    pub model_coverage: ModelCoverage,
-    pub missing_required_models: Vec<String>,
-    pub warnings: Vec<ReadinessDiagnostic>,
-    pub next_action: Option<String>,
 }

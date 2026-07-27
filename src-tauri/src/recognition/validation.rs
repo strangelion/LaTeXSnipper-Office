@@ -15,11 +15,19 @@ const SUPPORTED_OUTPUT_FORMATS: &[&str] = &["markdown", "latex", "typst", "html"
 const SUPPORTED_MODES: &[&str] = &[
     "auto",
     "formula",
+    "cropped-formula",
     "text",
     "table",
     "handwriting",
     "formula-layout",
     "full-document",
+];
+
+const SUPPORTED_INPUT_KINDS: &[&str] = &[
+    "cropped-formula",
+    "page-image",
+    "document-image",
+    "table-image",
 ];
 
 /// Validate that a file path exists and has a supported extension.
@@ -52,6 +60,16 @@ pub fn validate_mode(mode: &str) -> Result<(), String> {
         Err(format!(
             "Unknown recognition mode '{mode}'. Supported: {SUPPORTED_MODES:?}"
         ))
+    }
+}
+
+pub fn validate_input_kind(input_kind: Option<&str>) -> Result<(), String> {
+    match input_kind {
+        None => Ok(()),
+        Some(value) if SUPPORTED_INPUT_KINDS.contains(&value) => Ok(()),
+        Some(value) => Err(format!(
+            "Unknown input kind '{value}'. Supported: {SUPPORTED_INPUT_KINDS:?}"
+        )),
     }
 }
 

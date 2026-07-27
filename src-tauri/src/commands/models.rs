@@ -96,7 +96,7 @@ pub async fn model_list(state: State<'_, RecognitionState>) -> Result<Vec<ModelI
                     Ok(content) => {
                         match toml::from_str::<latexsnipper_runtime::ModelManifest>(&content) {
                             Ok(m) => {
-                                let task_str = format!("{:?}", m.task).to_lowercase();
+                                let task_str = model_task_name(m.task).to_string();
                                 (m.id.clone(), task_str, m.version.clone(), m.adapter.clone())
                             }
                             Err(_) => (
@@ -174,7 +174,7 @@ pub async fn model_inspect_package(path: String) -> Result<ModelInspectResult, S
 
             Ok(ModelInspectResult {
                 id: Some(manifest.id),
-                task: Some(format!("{:?}", manifest.task).to_lowercase()),
+                task: Some(model_task_name(manifest.task).to_string()),
                 version: Some(manifest.version),
                 adapter: Some(manifest.adapter),
                 runtime_variants,
@@ -384,6 +384,30 @@ pub async fn model_refresh(
 // Helpers
 // ---------------------------------------------------------------------------
 
+fn model_task_name(task: latexsnipper_runtime::ModelTask) -> &'static str {
+    use latexsnipper_runtime::ModelTask;
+
+    match task {
+        ModelTask::FormulaDetection => "formuladetection",
+        ModelTask::FormulaRecognition => "formularecognition",
+        ModelTask::TextDetection => "textdetection",
+        ModelTask::TextRecognition => "textrecognition",
+        ModelTask::TableDetection => "tabledetection",
+        ModelTask::TableStructure => "tablestructure",
+        ModelTask::LayoutAnalysis => "layoutanalysis",
+        ModelTask::HandwritingRecognition => "handwritingrecognition",
+        ModelTask::VisionLanguageRecognition => "visionlanguagerecognition",
+        ModelTask::DocumentUnderstanding => "documentunderstanding",
+        ModelTask::FormulaCorrection => "formulacorrection",
+        ModelTask::TextCorrection => "textcorrection",
+        ModelTask::TableSemanticParsing => "tablesemanticparsing",
+        ModelTask::DiagramUnderstanding => "diagramunderstanding",
+        ModelTask::ChartUnderstanding => "chartunderstanding",
+        ModelTask::ReadingOrderAnalysis => "readingorderanalysis",
+        ModelTask::StyleClassification => "styleclassification",
+    }
+}
+
 fn validate_model_name(name: &str) -> Result<(), String> {
     if name.is_empty()
         || name.contains('/')
@@ -423,4 +447,19 @@ fn dir_size(path: &std::path::Path) -> Result<u64, std::io::Error> {
         }
     }
     Ok(total)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::model_task_name;
+    use latexsnipper_runtime::ModelTask;
+
+    #[test]
+    fn model_task_mapping_is_typed_and_covers_layout_analysis() {
+        assert_eq!(
+            model_task_name(ModelTask::FormulaRecognition),
+            "formularecognition"
+        );
+        assert_eq!(model_task_name(ModelTask::LayoutAnalysis), "layoutanalysis");
+    }
 }

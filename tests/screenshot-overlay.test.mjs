@@ -7,21 +7,15 @@
 
 import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
+import {
+  normalizeRect,
+  pointerToPreview,
+  previewRectToPhysical,
+} from "../src/features/screenshot/coordinates.js";
 
 // ---------------------------------------------------------------------------
 // normalizeRect
 // ---------------------------------------------------------------------------
-
-function normalizeRect(a, b) {
-  const x = Math.min(a.x, b.x);
-  const y = Math.min(a.y, b.y);
-  return {
-    x,
-    y,
-    width: Math.abs(a.x - b.x),
-    height: Math.abs(a.y - b.y),
-  };
-}
 
 function testNormalizeRect() {
   // Basic: positive drag
@@ -54,20 +48,6 @@ function testNormalizeRect() {
 // DPI conversion
 // ---------------------------------------------------------------------------
 
-function pointerToPhysical(
-  eventX,
-  eventY,
-  canvasW,
-  canvasH,
-  physicalW,
-  physicalH,
-) {
-  return {
-    x: Math.round(((eventX - 0) / canvasW) * physicalW),
-    y: Math.round(((eventY - 0) / canvasH) * physicalH),
-  };
-}
-
 function simulateCanvas(scaleFactor = 1.0) {
   const logicalW = 1920;
   const logicalH = 1080;
@@ -80,13 +60,10 @@ function testDpi100() {
   const canvas = simulateCanvas(1.0);
 
   // Click at logical (960, 540) => physical (960, 540)
-  const pt = pointerToPhysical(
-    960,
-    540,
-    canvas.logicalW,
-    canvas.logicalH,
-    canvas.physicalW,
-    canvas.physicalH,
+  const pt = previewRectToPhysical(
+    { x: 960, y: 540, width: 0, height: 0 },
+    { width: canvas.logicalW, height: canvas.logicalH },
+    { width: canvas.physicalW, height: canvas.physicalH },
   );
   assert.strictEqual(pt.x, 960);
   assert.strictEqual(pt.y, 540);
@@ -96,13 +73,10 @@ function testDpi125() {
   const canvas = simulateCanvas(1.25);
 
   // Click at logical (960, 540) => physical (1200, 675)
-  const pt = pointerToPhysical(
-    960,
-    540,
-    canvas.logicalW,
-    canvas.logicalH,
-    canvas.physicalW,
-    canvas.physicalH,
+  const pt = previewRectToPhysical(
+    { x: 960, y: 540, width: 0, height: 0 },
+    { width: canvas.logicalW, height: canvas.logicalH },
+    { width: canvas.physicalW, height: canvas.physicalH },
   );
   assert.strictEqual(pt.x, 1200);
   assert.strictEqual(pt.y, 675);
@@ -112,13 +86,10 @@ function testDpi150() {
   const canvas = simulateCanvas(1.5);
 
   // Click at logical (960, 540) => physical (1440, 810)
-  const pt = pointerToPhysical(
-    960,
-    540,
-    canvas.logicalW,
-    canvas.logicalH,
-    canvas.physicalW,
-    canvas.physicalH,
+  const pt = previewRectToPhysical(
+    { x: 960, y: 540, width: 0, height: 0 },
+    { width: canvas.logicalW, height: canvas.logicalH },
+    { width: canvas.physicalW, height: canvas.physicalH },
   );
   assert.strictEqual(pt.x, 1440);
   assert.strictEqual(pt.y, 810);
@@ -128,13 +99,10 @@ function testDpi200() {
   const canvas = simulateCanvas(2.0);
 
   // Click at logical (960, 540) => physical (1920, 1080)
-  const pt = pointerToPhysical(
-    960,
-    540,
-    canvas.logicalW,
-    canvas.logicalH,
-    canvas.physicalW,
-    canvas.physicalH,
+  const pt = previewRectToPhysical(
+    { x: 960, y: 540, width: 0, height: 0 },
+    { width: canvas.logicalW, height: canvas.logicalH },
+    { width: canvas.physicalW, height: canvas.physicalH },
   );
   assert.strictEqual(pt.x, 1920);
   assert.strictEqual(pt.y, 1080);
@@ -143,13 +111,10 @@ function testDpi200() {
 function testDpiNotReusedAsPhysical() {
   // At 150% DPI, logical coords must NOT be used directly as physical
   const canvas = simulateCanvas(1.5);
-  const pt = pointerToPhysical(
-    960,
-    540,
-    canvas.logicalW,
-    canvas.logicalH,
-    canvas.physicalW,
-    canvas.physicalH,
+  const pt = previewRectToPhysical(
+    { x: 960, y: 540, width: 0, height: 0 },
+    { width: canvas.logicalW, height: canvas.logicalH },
+    { width: canvas.physicalW, height: canvas.physicalH },
   );
 
   // If we naively used logical as physical, we'd get 960x540
@@ -177,6 +142,31 @@ function testSelectionValidation() {
   assert.ok(!isTooSmall(200, 100));
 }
 
+function testPreviewPointerAndNegativeMonitorOrigin() {
+  const point = pointerToPreview(
+    500,
+    350,
+    { left: 100, top: 50, width: 800, height: 600 },
+    { width: 1600, height: 1200 },
+  );
+  assert.deepEqual(point, { x: 800, y: 600 });
+
+  const rect = previewRectToPhysical(
+    { x: 128, y: 72, width: 512, height: 288 },
+    { width: 2560, height: 1440 },
+    { width: 3840, height: 2160 },
+  );
+  assert.deepEqual(rect, { x: 192, y: 108, width: 768, height: 432 });
+
+  // Monitor origin is transported separately; local preview coordinates
+  // remain non-negative even for a secondary display at negative X/Y.
+  const physicalOrigin = { x: -2560, y: -240 };
+  assert.deepEqual(
+    { x: physicalOrigin.x + rect.x, y: physicalOrigin.y + rect.y },
+    { x: -2368, y: -132 },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------------
@@ -188,12 +178,16 @@ testDpi150();
 testDpi200();
 testDpiNotReusedAsPhysical();
 testSelectionValidation();
+testPreviewPointerAndNegativeMonitorOrigin();
 
 const captureSource = readFileSync(
   new URL("../src/capture.js", import.meta.url),
   "utf8",
 );
 assert.match(captureSource, /screenshot_overlay_ready/);
+assert.match(captureSource, /convertFileSrc\(init\.previewPath\)/);
+assert.match(captureSource, /previewRectToPhysical/);
+assert.doesNotMatch(captureSource, /previewDataUrl/);
 assert.match(captureSource, /for \(let attempt = 0; attempt < 5;/);
 assert.match(captureSource, /SESSION_NOT_READY/);
 assert.ok(

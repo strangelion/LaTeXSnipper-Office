@@ -86,11 +86,18 @@ pub async fn ocr_recognize(
             // Build a formula-only recognition request
             let request = RecognitionStartRequest {
                 path: source_path.to_string_lossy().to_string(),
-                mode: "formula".to_string(),
+                mode: "cropped-formula".to_string(),
+                input_kind: Some("cropped-formula".to_string()),
                 parse_mode: None,
                 execution_policy: None,
                 model_overrides: None,
             };
+            let _screenshot_job_lease =
+                crate::screenshot::lease::ScreenshotJobLeaseGuard::register(
+                    &job_id,
+                    &source_path,
+                    crate::screenshot::lease::JobOwner::Desktop,
+                )?;
 
             // Route through managed RecognitionService (NOT raw Snipper::from_file)
             let service = state.service().await?;
@@ -131,9 +138,6 @@ pub async fn ocr_recognize(
                     0.0
                 }
             };
-
-            // Clean up temp file
-            let _ = std::fs::remove_dir_all(&temp_dir);
 
             log::info!(
                 "OCR recognition complete: {} blocks, confidence: {:.2}",

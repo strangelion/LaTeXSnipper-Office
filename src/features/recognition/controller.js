@@ -21,7 +21,7 @@ export function registerJobUpdateListener() {
           format: "latex",
         });
         if (output.success && output.content) {
-          renderRecognitionResult(output.content);
+          renderRecognitionResult(output.content, output.acceptance);
         }
       } catch (err) {
         console.error("[Recognition] Failed to fetch output:", err);
@@ -30,7 +30,7 @@ export function registerJobUpdateListener() {
   });
 }
 
-function renderRecognitionResult(latex) {
+function renderRecognitionResult(latex, acceptance) {
   const resultEl = document.getElementById("ocrResult");
   if (resultEl) resultEl.textContent = latex;
   const insertBtn = document.getElementById("ocrInsertBtn");
@@ -39,7 +39,9 @@ function renderRecognitionResult(latex) {
   if (copyBtn) copyBtn.disabled = false;
   // Dispatch so UIController.ocrLatex is updated (insert/copy use this)
   window.dispatchEvent(
-    new CustomEvent("recognition:result-ready", { detail: { latex } }),
+    new CustomEvent("recognition:result-ready", {
+      detail: { latex, acceptance },
+    }),
   );
 }
 
@@ -50,6 +52,7 @@ export async function startJob(path, mode = "auto", options = {}) {
   const request = {
     path,
     mode,
+    inputKind: options.inputKind || null,
     parseMode: options.parseMode || null,
     executionPolicy: options.executionPolicy || "async",
     modelOverrides: options.modelOverrides || null,

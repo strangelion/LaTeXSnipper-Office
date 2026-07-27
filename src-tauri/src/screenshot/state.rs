@@ -13,6 +13,13 @@ pub struct ScreenshotFrame {
     pub monitor_id: String,
     pub window_label: String,
     pub scale_factor: f64,
+    pub logical_x: f64,
+    pub logical_y: f64,
+    pub physical_x: f64,
+    pub physical_y: f64,
+    pub preview_width: u32,
+    pub preview_height: u32,
+    pub preview_path: std::path::PathBuf,
     pub image: RgbaImage,
 }
 
@@ -23,12 +30,31 @@ pub struct ScreenshotSession {
     pub request: ScreenshotBeginRequest,
     pub frames: HashMap<String, ScreenshotFrame>,
     pub ready_windows: HashSet<String>,
+    pub preview_decode_ms: u128,
 }
 
-#[derive(Default)]
 pub struct ScreenshotState {
     sessions: Mutex<HashMap<String, ScreenshotSession>>,
     active_session: Mutex<Option<String>>,
+}
+
+impl Default for ScreenshotState {
+    fn default() -> Self {
+        match super::lease::cleanup_default_root() {
+            Ok(report) if report.removed_jobs > 0 => log::info!(
+                "screenshotJobCleanup removedJobs={} removedBytes={} retainedBytes={}",
+                report.removed_jobs,
+                report.removed_bytes,
+                report.retained_bytes
+            ),
+            Ok(_) => {}
+            Err(error) => log::warn!("screenshotJobCleanup errorCode={}", error),
+        }
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+            active_session: Mutex::new(None),
+        }
+    }
 }
 
 impl ScreenshotState {
@@ -71,7 +97,12 @@ impl ScreenshotState {
         callback(session)
     }
 
-    pub fn mark_ready(&self, session_id: &str, window_label: &str) -> Result<bool, String> {
+    pub fn mark_ready(
+        &self,
+        session_id: &str,
+        window_label: &str,
+        preview_decode_ms: u64,
+    ) -> Result<bool, String> {
         let mut sessions = self
             .sessions
             .lock()
@@ -87,6 +118,9 @@ impl ScreenshotState {
             return Err("SCREENSHOT_UNKNOWN_OVERLAY: overlay is not part of session".to_string());
         }
         session.ready_windows.insert(window_label.to_string());
+        session.preview_decode_ms = session
+            .preview_decode_ms
+            .saturating_add(u128::from(preview_decode_ms));
         Ok(session.ready_windows.len() == session.frames.len())
     }
 

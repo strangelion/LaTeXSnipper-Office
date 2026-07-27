@@ -22,6 +22,10 @@ assert.match(settingsSource, /data-remove-model/);
 assert.match(settingsSource, /extensions: \["lsmodel"\]/);
 assert.match(settingsSource, /MODEL_PACKAGE_INCOMPATIBLE/);
 assert.match(settingsSource, /recognition\.screenshotAutoInsert/);
+assert.match(settingsSource, /=== true/);
+assert.match(settingsSource, /providerValidations/);
+assert.match(settingsSource, /validationLevel/);
+assert.doesNotMatch(settingsSource, /readiness\.modelCoverage/);
 assert.match(mainSource, /initRecognitionSettings\(\{/);
 assert.match(mainSource, /scheduleRecognitionSettingsRefresh\(\)/);
 
