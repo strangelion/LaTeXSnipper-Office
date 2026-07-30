@@ -43,12 +43,6 @@ constexpr double kMinimumRetainedInkCoverage = 0.85;
 constexpr double kMaxCoordinateMagnitude = 1.0e9;
 constexpr double kHimetricPerInch = 2540.0;
 constexpr double kPointsPerInch = 72.0;
-// GDI replays an enhanced metafile through a reference-device transform.
-// Recording the anisotropic viewport at the current monitor DPI applies that
-// transform twice and shrinks ink on playback (for example, to 50% in both
-// dimensions at 96 DPI). A stable 192-unit recording grid keeps the vector
-// geometry device-independent; the EMF frame still carries the physical size.
-constexpr int kEmfRecordingDpi = 192;
 constexpr double kLogicalUnitsPerInch = 25400.0;
 constexpr double kPi = 3.1415926535897932384626433832795;
 
@@ -1592,12 +1586,34 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     HDC reference = GetDC(nullptr);
     if (reference == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: GetDC failed"; return result; }
 
-    // frame is in 0.01 mm; 1 inch = 2540 hundredths of mm. Keep the recorded
-    // viewport independent of the monitor that happened to build the object.
+    // frame is in 0.01 mm; 1 inch = 2540 hundredths of mm. Match the viewport
+    // to the reference HDC used by CreateEnhMetaFile. A fixed DPI is incorrect:
+    // it records ink at a different scale from the EMF header on machines whose
+    // display DPI differs (for example, 96-DPI CI versus a 192-DPI workstation).
+    const int physicalWidthPixels = GetDeviceCaps(reference, DESKTOPHORZRES);
+    const int physicalHeightPixels = GetDeviceCaps(reference, DESKTOPVERTRES);
+    const int physicalWidthMillimeters = GetDeviceCaps(reference, HORZSIZE);
+    const int physicalHeightMillimeters = GetDeviceCaps(reference, VERTSIZE);
+    const int referenceDpiX =
+        physicalWidthPixels > 0 && physicalWidthMillimeters > 0
+            ? static_cast<int>(std::lround(
+                  physicalWidthPixels * 25.4 / physicalWidthMillimeters))
+            : GetDeviceCaps(reference, LOGPIXELSX);
+    const int referenceDpiY =
+        physicalHeightPixels > 0 && physicalHeightMillimeters > 0
+            ? static_cast<int>(std::lround(
+                  physicalHeightPixels * 25.4 / physicalHeightMillimeters))
+            : GetDeviceCaps(reference, LOGPIXELSY);
+    if (referenceDpiX <= 0 || referenceDpiY <= 0)
+    {
+        ReleaseDC(nullptr, reference);
+        result.error = L"SVG_VECTOR_GDI_ERROR: reference device DPI is invalid";
+        return result;
+    }
     const int canvasWidthDevice =
-        (std::max)(1, MulDiv(frame.right, kEmfRecordingDpi, 2540));
+        (std::max)(1, MulDiv(frame.right, referenceDpiX, 2540));
     const int canvasHeightDevice =
-        (std::max)(1, MulDiv(frame.bottom, kEmfRecordingDpi, 2540));
+        (std::max)(1, MulDiv(frame.bottom, referenceDpiY, 2540));
 
     HDC metafileDc = CreateEnhMetaFileW(reference, nullptr, &frame, L"LaTeXSnipper\0MathJax SVG vector formula\0");
     ReleaseDC(nullptr, reference);
