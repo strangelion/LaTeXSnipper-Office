@@ -48,6 +48,7 @@
       "resources/Obsidian/**/*",
       "resources/Ecosystem/**/*",
       "resources/PdfRenderer/**/*",
+      "resources/RecognitionQuality/**/*",
       "resources/provenance.json"
     ],
     "windows": {

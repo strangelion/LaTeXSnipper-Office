@@ -16,6 +16,17 @@ const fixtureDir = join(
   "fixtures",
   "mathjax-svg",
 );
+const longFormula = Array.from(
+  { length: 32 },
+  (_, index) => `x_{${index + 1}}^2`,
+).join("+");
+const nestedContinuedFraction = (depth) => {
+  let expression = "x";
+  for (let level = depth; level >= 1; level -= 1) {
+    expression = String.raw`\cfrac{1}{${level}+${expression}}`;
+  }
+  return expression;
+};
 const fixtures = [
   {
     name: "fraction-radical",
@@ -36,6 +47,31 @@ const fixtures = [
     name: "inline-greek",
     tex: String.raw`\alpha+\beta\to\gamma`,
     display: false,
+  },
+  {
+    name: "arrow-in-superscript",
+    tex: String.raw`x^{\vec v}`,
+    display: true,
+  },
+  {
+    name: "operator-limit-function-to-one",
+    tex: String.raw`\lim_{x\to1}\frac{\sin x}{x}`,
+    display: true,
+  },
+  {
+    name: "piecewise-cases",
+    tex: String.raw`f(x)=\begin{cases}x^2&x\geq0\\-x&x<0\end{cases}`,
+    display: true,
+  },
+  {
+    name: "extreme-wide-32-terms",
+    tex: longFormula,
+    display: true,
+  },
+  {
+    name: "extreme-tall-12-level-fraction",
+    tex: nestedContinuedFraction(12),
+    display: true,
   },
 ];
 

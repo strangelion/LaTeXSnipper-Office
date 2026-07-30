@@ -9,9 +9,9 @@ use image::{
     DynamicImage,
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use xcap::Monitor;
 
 use super::{
+    backend::{active_backend, ScreenshotBackend},
     dto::{
         ScreenPosition, ScreenshotBeginRequest, ScreenshotBeginResult, ScreenshotCaptured,
         ScreenshotCommitRequest, ScreenshotFailure, ScreenshotOverlayInit,
@@ -120,6 +120,7 @@ async fn screenshot_begin_transaction(
     let capture_started = Instant::now();
     let preview_root_worker = preview_root.clone();
     let captured = tauri::async_runtime::spawn_blocking(move || {
+        let backend = active_backend();
         let mut frames = Vec::new();
         let mut capture_ms = 0u128;
         let mut encode_ms = 0u128;
@@ -127,13 +128,10 @@ async fn screenshot_begin_transaction(
         for (monitor_id, x, y, width, height, scale_factor) in monitor_specs {
             let center_x = x + i32::try_from(width / 2).unwrap_or(0);
             let center_y = y + i32::try_from(height / 2).unwrap_or(0);
-            let monitor = Monitor::from_point(center_x, center_y).map_err(|error| {
-                format!("SCREENSHOT_MONITOR_MAPPING_FAILED: {monitor_id}: {error}")
-            })?;
             let monitor_capture_started = Instant::now();
-            let image = monitor
-                .capture_image()
-                .map_err(|error| format!("SCREENSHOT_CAPTURE_FAILED: {monitor_id}: {error}"))?;
+            let image = backend
+                .capture_at_point(center_x, center_y)
+                .map_err(|error| format!("{error}: {monitor_id}"))?;
             capture_ms = capture_ms.saturating_add(monitor_capture_started.elapsed().as_millis());
             let (preview_width, preview_height) = preview_dimensions(image.width(), image.height());
             let encode_started = Instant::now();

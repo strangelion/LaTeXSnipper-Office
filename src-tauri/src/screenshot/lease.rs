@@ -6,6 +6,7 @@ use std::{
 };
 
 pub const SCREENSHOT_JOB_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+pub const SCREENSHOT_IN_USE_STALE_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 pub const SCREENSHOT_JOB_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const LEASE_FILE: &str = "lease.json";
 
@@ -16,14 +17,31 @@ pub enum JobOwner {
     Office,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenshotJobState {
+    Created,
+    InUse,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl ScreenshotJobState {
+    const fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotJobLease {
     pub job_id: String,
     pub path: PathBuf,
     pub created_at_unix_ms: u64,
+    pub last_transition_at_unix_ms: u64,
     pub owner: JobOwner,
-    pub consumed: bool,
+    pub state: ScreenshotJobState,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -42,22 +60,45 @@ pub fn register_job(
     source_path: &Path,
     owner: JobOwner,
 ) -> Result<ScreenshotJobLease, String> {
+    let now = unix_ms(SystemTime::now());
     let lease = ScreenshotJobLease {
         job_id: job_id.to_string(),
         path: source_path.to_path_buf(),
-        created_at_unix_ms: unix_ms(SystemTime::now()),
+        created_at_unix_ms: now,
+        last_transition_at_unix_ms: now,
         owner,
-        consumed: false,
+        state: ScreenshotJobState::Created,
     };
     write_lease(&lease)?;
     Ok(lease)
 }
 
 pub fn mark_in_use(source_path: &Path) -> Result<bool, String> {
+    transition_job(source_path, ScreenshotJobState::InUse)
+}
+
+pub fn transition_job(source_path: &Path, next: ScreenshotJobState) -> Result<bool, String> {
     let Some(mut lease) = read_owned_lease(source_path)? else {
         return Ok(false);
     };
-    lease.consumed = true;
+    let valid = matches!(
+        (lease.state, next),
+        (ScreenshotJobState::Created, ScreenshotJobState::InUse)
+            | (
+                ScreenshotJobState::Created | ScreenshotJobState::InUse,
+                ScreenshotJobState::Completed
+                    | ScreenshotJobState::Failed
+                    | ScreenshotJobState::Cancelled
+            )
+    );
+    if !valid {
+        return Err(format!(
+            "SCREENSHOT_JOB_INVALID_TRANSITION: {:?} -> {:?}",
+            lease.state, next
+        ));
+    }
+    lease.state = next;
+    lease.last_transition_at_unix_ms = unix_ms(SystemTime::now());
     write_lease(&lease)?;
     Ok(true)
 }
@@ -95,33 +136,57 @@ pub fn cleanup_job_root(root: &Path, now: SystemTime) -> Result<CleanupReport, S
             .metadata()
             .and_then(|metadata| metadata.modified())
             .unwrap_or(UNIX_EPOCH);
-        let created = read_lease_file(&path.join(LEASE_FILE))
-            .ok()
-            .map(|lease| UNIX_EPOCH + Duration::from_millis(lease.created_at_unix_ms))
+        let lease = read_lease_file(&path.join(LEASE_FILE)).ok();
+        let created = lease
+            .as_ref()
+            .map(|value| UNIX_EPOCH + Duration::from_millis(value.created_at_unix_ms))
             .unwrap_or(modified);
-        entries.push((path, created));
+        entries.push((path, created, lease));
     }
-    entries.sort_by_key(|(_, created)| *created);
+    entries.sort_by_key(|(_, created, _)| *created);
 
     let mut report = CleanupReport::default();
     let mut retained = Vec::new();
-    for (path, created) in entries {
+    for (path, created, lease) in entries {
         let size = directory_size(&path);
-        let expired = now.duration_since(created).unwrap_or_default() >= SCREENSHOT_JOB_TTL;
+        let created_expired = now.duration_since(created).unwrap_or_default() >= SCREENSHOT_JOB_TTL;
+        let transition_age = lease
+            .as_ref()
+            .map(|value| {
+                now.duration_since(
+                    UNIX_EPOCH + Duration::from_millis(value.last_transition_at_unix_ms),
+                )
+                .unwrap_or_default()
+            })
+            .unwrap_or_default();
+        let terminal = lease
+            .as_ref()
+            .is_some_and(|value| value.state.is_terminal());
+        let stale_in_use = lease.as_ref().is_some_and(|value| {
+            value.state == ScreenshotJobState::InUse
+                && transition_age >= SCREENSHOT_IN_USE_STALE_TTL
+        });
+        let active_in_use = lease
+            .as_ref()
+            .is_some_and(|value| value.state == ScreenshotJobState::InUse && !stale_in_use);
+        let expired = terminal || stale_in_use || (created_expired && !active_in_use);
         if expired {
             fs::remove_dir_all(&path)
                 .map_err(|error| format!("SCREENSHOT_JOB_CLEANUP_FAILED: {error}"))?;
             report.removed_jobs += 1;
             report.removed_bytes = report.removed_bytes.saturating_add(size);
         } else {
-            retained.push((path, created, size));
+            retained.push((path, created, size, active_in_use));
             report.retained_bytes = report.retained_bytes.saturating_add(size);
         }
     }
 
-    for (path, _, size) in retained {
+    for (path, _, size, active_in_use) in retained {
         if report.retained_bytes <= SCREENSHOT_JOB_MAX_BYTES {
             break;
+        }
+        if active_in_use {
+            continue;
         }
         fs::remove_dir_all(&path)
             .map_err(|error| format!("SCREENSHOT_JOB_CLEANUP_FAILED: {error}"))?;
@@ -154,11 +219,35 @@ impl ScreenshotJobLeaseGuard {
             source_path: owned.then(|| source_path.to_path_buf()),
         }
     }
+
+    pub fn complete(&mut self) -> Result<(), String> {
+        self.finish(ScreenshotJobState::Completed)
+    }
+
+    pub fn fail(&mut self) -> Result<(), String> {
+        self.finish(ScreenshotJobState::Failed)
+    }
+
+    pub fn cancel(&mut self) -> Result<(), String> {
+        self.finish(ScreenshotJobState::Cancelled)
+    }
+
+    fn finish(&mut self, state: ScreenshotJobState) -> Result<(), String> {
+        let Some(path) = self.source_path.take() else {
+            return Ok(());
+        };
+        let transition_result = transition_job(&path, state);
+        let release_result = release_job_path(&path);
+        transition_result?;
+        release_result?;
+        Ok(())
+    }
 }
 
 impl Drop for ScreenshotJobLeaseGuard {
     fn drop(&mut self) {
         if let Some(path) = self.source_path.take() {
+            let _ = transition_job(&path, ScreenshotJobState::Failed);
             let _ = release_job_path(&path);
         }
     }

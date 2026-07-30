@@ -12,6 +12,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
+using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 using Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word.Host;
@@ -144,11 +145,23 @@ internal sealed class WordBatchConversionExecutor
             // Transactional replacement: backup original text
             string backupText = originalText;
             Range? backupRange = target.Duplicate;
+            var preInsertValidation = OmmlValidator.Validate(item.Omml);
+            if (!preInsertValidation.IsValid)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordBatchConversion] Invalid OMML for {item.SourceId}: " +
+                    preInsertValidation.Issues[0].Code);
+                return false;
+            }
 
             try
             {
                 target.Text = "";
                 target.InsertXML(item.Omml!);
+                var readBack = OmmlValidator.ValidateHostReadBack(item.Omml!, target.WordOpenXML);
+                if (!readBack.IsValid)
+                    throw new InvalidOperationException(
+                        "OMML host read-back failed: " + readBack.Issues[0].Code);
                 return true;
             }
             catch (Exception ex)
@@ -181,10 +194,16 @@ internal sealed class WordBatchConversionExecutor
         if (!range.Find.Found) return false;
 
         string backupText = range.Text;
+        var preInsertValidation = OmmlValidator.Validate(item.Omml);
+        if (!preInsertValidation.IsValid) return false;
         try
         {
             range.Text = "";
             range.InsertXML(item.Omml!);
+            var readBack = OmmlValidator.ValidateHostReadBack(item.Omml!, range.WordOpenXML);
+            if (!readBack.IsValid)
+                throw new InvalidOperationException(
+                    "OMML host read-back failed: " + readBack.Issues[0].Code);
             return true;
         }
         catch (Exception ex)

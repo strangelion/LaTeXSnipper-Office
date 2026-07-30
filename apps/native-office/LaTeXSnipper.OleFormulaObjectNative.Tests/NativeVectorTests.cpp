@@ -99,8 +99,12 @@ void TestVectorFixture(const std::wstring& name, const std::wstring& body, doubl
 
             const LONG expectedRight = static_cast<LONG>(std::ceil(frameWDevice));
             const LONG expectedBottom = static_cast<LONG>(std::ceil(frameHDevice));
-            const LONG toleranceX = (std::max)(4L, static_cast<LONG>(std::ceil(frameWDevice * 0.05)));
-            const LONG toleranceY = (std::max)(4L, static_cast<LONG>(std::ceil(frameHDevice * 0.05)));
+            // rclBounds uses inclusive device coordinates and can differ by
+            // one pixel after EMF record/playback quantization.
+            const LONG toleranceX =
+                (std::max)(4L, static_cast<LONG>(std::ceil(frameWDevice * 0.05))) + 1;
+            const LONG toleranceY =
+                (std::max)(4L, static_cast<LONG>(std::ceil(frameHDevice * 0.05))) + 1;
 
             Expect(boundsW > 0, name + L": drawing bounds width is empty");
             Expect(boundsH > 0, name + L": drawing bounds height is empty");
@@ -283,7 +287,20 @@ void TestMathJaxGoldenFixtures(const std::filesystem::path& directory)
         std::wstring svg(static_cast<size_t>(wideLength), L'\0');
         MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), static_cast<int>(utf8.size()),
             svg.data(), wideLength);
-        SvgToEmfResult result = ConvertMathJaxSvgToVectorEmf(svg, 180.0, 60.0, L"black");
+        double widthPt = 180.0;
+        double heightPt = 60.0;
+        if (entry.path().filename() == L"extreme-wide-32-terms.svg")
+        {
+            widthPt = 1200.0;
+            heightPt = 1200.0 * 1146.5 / 78301.2;
+        }
+        else if (entry.path().filename() == L"extreme-tall-12-level-fraction.svg")
+        {
+            heightPt = 240.0;
+            widthPt = 240.0 * 28021.3 / 14097.6;
+        }
+        SvgToEmfResult result =
+            ConvertMathJaxSvgToVectorEmf(svg, widthPt, heightPt, L"black");
         Expect(result.success, L"real MathJax fixture failed: " + entry.path().filename().wstring() + L": " + result.error);
         Expect(!result.svgViewBox.empty(), L"golden fixture did not report its SVG viewBox");
         Expect(

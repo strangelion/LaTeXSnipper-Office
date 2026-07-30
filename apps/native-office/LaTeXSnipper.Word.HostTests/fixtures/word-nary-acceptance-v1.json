@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "modes": ["inline", "display", "displayNumbered"],
+  "cases": [
+    {
+      "name": "inline-integral",
+      "latex": "\\int_0^1 x\\,dx",
+      "operator": "∫",
+      "operandProbe": "x"
+    },
+    {
+      "name": "display-integral",
+      "latex": "I=\\int_0^\\infty x\\,dx",
+      "operator": "∫",
+      "operandProbe": "x"
+    },
+    {
+      "name": "gaussian-integral",
+      "latex": "\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx",
+      "operator": "∫",
+      "operandProbe": "e"
+    },
+    {
+      "name": "double-integral",
+      "latex": "\\iint_D f(x,y)\\,dA",
+      "operator": "∬",
+      "operandProbe": "f"
+    },
+    {
+      "name": "sum",
+      "latex": "\\sum_{i=1}^{n} x_i",
+      "operator": "∑",
+      "operandProbe": "x"
+    },
+    {
+      "name": "product",
+      "latex": "\\prod_{k=1}^{n} k",
+      "operator": "∏",
+      "operandProbe": "k"
+    },
+    {
+      "name": "nested-integral",
+      "latex": "\\int_0^1\\int_0^1 f(x,y)\\,dx\\,dy",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "contour-integral",
+      "latex": "\\oint_C\\vec F\\cdot d\\vec r",
+      "operator": "∮",
+      "operandProbe": "F"
+    },
+    {
+      "name": "relation-boundary",
+      "latex": "\\int_0^1 f(x)\\,dx = 1",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "integrals-inside-limits",
+      "latex": "\\int_{\\int_0^1 a\\,da}^{\\int_0^1 b\\,db} f(x)\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "vector-limits",
+      "latex": "\\int_{\\vec a}^{\\vec b} f(x)\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "arrow-in-superscript",
+      "latex": "x^{\\vec v}",
+      "operator": "",
+      "operandProbe": "v"
+    },
+    {
+      "name": "long-arrow-in-superscript",
+      "latex": "A^{\\overrightarrow{BC}}",
+      "operator": "",
+      "operandProbe": "B"
+    },
+    {
+      "name": "accent-with-superscript",
+      "latex": "\\vec{x}^{2}",
+      "operator": "",
+      "operandProbe": "x"
+    },
+    {
+      "name": "nested-fraction-and-root",
+      "latex": "\\frac{\\alpha+\\beta}{\\sqrt[3]{x_1^2}}",
+      "operator": "",
+      "operandProbe": "x"
+    },
+    {
+      "name": "matrix-inside-fraction",
+      "latex": "\\frac{1}{\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}}",
+      "operator": "",
+      "operandProbe": "a"
+    },
+    {
+      "name": "piecewise-cases",
+      "latex": "f(x)=\\begin{cases}x^2&x\\geq0\\\\-x&x<0\\end{cases}",
+      "operator": "",
+      "operandProbe": "f"
+    },
+    {
+      "name": "delimited-base-with-arrow-script",
+      "latex": "\\left(\\frac{a}{b}\\right)_{i}^{\\vec v}",
+      "operator": "",
+      "operandProbe": "v"
+    },
+    {
+      "name": "accent-family",
+      "latex": "\\hat{x}+\\bar{y}+\\tilde{z}+\\dot{q}+\\ddot{r}+\\vec v",
+      "operator": "",
+      "operandProbe": "v"
+    },
+    {
+      "name": "sum-product-fraction",
+      "latex": "\\sum_{i=1}^{n}\\prod_{j=1}^{m}\\frac{x_{ij}}{1+x_{ij}^2}",
+      "operator": "∑",
+      "operandProbe": "x"
+    },
+    {
+      "name": "operator-limit-and-function",
+      "latex": "\\lim_{x\\to0}\\frac{\\sin x}{x}=1",
+      "operator": "",
+      "operandProbe": "x"
+    },
+    {
+      "name": "limit-to-one",
+      "latex": "\\lim_{x\\to1}f(x)",
+      "operator": "",
+      "operandProbe": "x"
+    },
+    {
+      "name": "nested-integral-depth-4",
+      "latex": "\\int_0^1\\int_0^1\\int_0^1\\int_0^1 f(x)\\,dx\\,dx\\,dx\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "nested-integral-depth-8",
+      "latex": "\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1 f(x)\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "nested-integral-depth-16",
+      "latex": "\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1 f(x)\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    },
+    {
+      "name": "nested-integral-depth-32",
+      "latex": "\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1\\int_0^1 f(x)\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx\\,dx",
+      "operator": "∫",
+      "operandProbe": "f"
+    }
+  ]
+}

@@ -114,9 +114,10 @@ export function initRecognitionSettings(nextContext) {
     ?.addEventListener("click", importModelPackage);
   document
     .getElementById("refreshModelListBtn")
-    ?.addEventListener("click", () =>
-      refreshRecognitionSettings({ areas: ["models", "readiness"] }),
-    );
+    ?.addEventListener("click", async () => {
+      await api.refreshModels();
+      await refreshRecognitionSettings({ areas: ["models", "readiness"] });
+    });
   document
     .getElementById("installedModelList")
     ?.addEventListener("click", removeModel);
@@ -151,6 +152,8 @@ export async function refreshRecognitionSettings(options = {}) {
     tasks.push(withTimeout(api.listModels(), 5000, "MODEL_LIST_TIMEOUT"));
   }
   if (requested.has("readiness")) {
+    const readiness = document.getElementById("recognitionReadinessStatus");
+    if (readiness) readiness.textContent = "正在重新获取 Core readiness...";
     areas.push("readiness");
     tasks.push(withTimeout(api.getReadiness(), 5000, "READINESS_TIMEOUT"));
   }
@@ -207,8 +210,11 @@ function renderArea(area, value) {
 function renderAreaError(area, error) {
   const details = errorDetails(error, `${area.toUpperCase()}_FAILED`);
   const text = `${details.code}：${details.message}`;
-  if (area === "capabilities" || area === "readiness") {
+  if (area === "capabilities") {
     const element = document.getElementById("recognitionCapabilityStatus");
+    if (element) element.textContent = text;
+  } else if (area === "readiness") {
+    const element = document.getElementById("recognitionReadinessStatus");
     if (element) element.textContent = text;
   } else if (area === "runtimes") {
     const element = document.getElementById("recognitionRuntimeStatus");
@@ -243,7 +249,8 @@ function renderReadiness(readiness) {
     .flatMap((runtime) =>
       (runtime.providerValidations || []).map(
         (provider) =>
-          `${runtime.id}/${provider.provider}: ${provider.validationLevel}`,
+          `${runtime.id}/${provider.provider}: ${formatProviderValidationLevel(provider.validationLevel)}` +
+          `${provider.stale ? "（stale）" : ""}`,
       ),
     )
     .join("\n");
@@ -254,6 +261,18 @@ function renderReadiness(readiness) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function formatProviderValidationLevel(level) {
+  const labels = {
+    declared: "Declared",
+    libraryDetected: "LibraryDetected",
+    probePassed: "ProbePassed",
+    sessionCreated: "SessionCreated",
+    smokeInferencePassed: "SmokeInferencePassed",
+    benchmarkValidated: "BenchmarkValidated",
+  };
+  return labels[level] || `Unknown(${level || "missing"})`;
 }
 
 function renderRuntimes(runtimes, recommended = null) {

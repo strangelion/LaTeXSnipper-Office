@@ -42,21 +42,30 @@ assert.ok(
     currentDocumentContext: "doc-2",
   }).reasons.includes("DOCUMENT_CONTEXT_CHANGED"),
 );
+const coreOwnsThresholds = decideAutoInsert({
+  ...valid,
+  output: "",
+  acceptance: {
+    ...valid.acceptance,
+    technicallyValid: false,
+    qualityStatus: "experimental",
+    confidence: 0,
+    parseValid: false,
+    structureValid: false,
+    reviewRequired: true,
+    reasons: ["POSTPROCESS_REVIEW_REQUIRED"],
+    recommendedAction: "autoAccept",
+  },
+});
+assert.equal(coreOwnsThresholds.allowed, true);
+assert.deepEqual(coreOwnsThresholds.coreReasons, [
+  "POSTPROCESS_REVIEW_REQUIRED",
+]);
 assert.ok(
   decideAutoInsert({
     ...valid,
-    acceptance: { ...valid.acceptance, qualityStatus: "experimental" },
-  }).reasons.includes("MODEL_QUALITY_EXPERIMENTAL"),
-);
-assert.ok(
-  decideAutoInsert({
-    ...valid,
-    acceptance: {
-      ...valid.acceptance,
-      reviewRequired: true,
-      reasons: ["POSTPROCESS_REVIEW_REQUIRED"],
-    },
-  }).reasons.includes("POSTPROCESS_REVIEW_REQUIRED"),
+    acceptance: { ...valid.acceptance, recommendedAction: "requireReview" },
+  }).reasons.includes("CORE_AUTO_ACCEPT_NOT_RECOMMENDED"),
 );
 
 console.log("Auto-insert quality gate contracts passed OK");

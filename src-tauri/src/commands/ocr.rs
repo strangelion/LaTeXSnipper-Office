@@ -92,7 +92,7 @@ pub async fn ocr_recognize(
                 execution_policy: None,
                 model_overrides: None,
             };
-            let _screenshot_job_lease =
+            let mut screenshot_job_lease =
                 crate::screenshot::lease::ScreenshotJobLeaseGuard::register(
                     &job_id,
                     &source_path,
@@ -145,6 +145,7 @@ pub async fn ocr_recognize(
                 confidence
             );
 
+            screenshot_job_lease.complete()?;
             Ok(OcrResult {
                 latex,
                 confidence: confidence as f64,

@@ -63,6 +63,21 @@ function Require-Dir {
     }
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+    $stream = [System.IO.File]::OpenRead($LiteralPath)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "")
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 # PE Machine type constants
 $PE_MACHINE_X86  = 0x14c
 $PE_MACHINE_X64  = 0x8664
@@ -318,7 +333,7 @@ $provenance = [ordered]@{
     officeJsTypingsVersion = Get-PackageVersion `
         (Join-Path $ProjectRoot "apps/office-addin/node_modules/@types/office-js/package.json") `
         "Office.js typings"
-    officeJsBundleSha256 = if ($hasOfficeJs) { (Get-FileHash -Algorithm SHA256 -LiteralPath $officeJsBundle).Hash } else { $null }
+    officeJsBundleSha256 = if ($hasOfficeJs) { Get-Sha256Hex -LiteralPath $officeJsBundle } else { $null }
     mathJaxVersion = Get-PackageVersion `
         (Join-Path $ProjectRoot "node_modules/mathjax/package.json") `
         "MathJax"
@@ -354,21 +369,21 @@ foreach ($resourceName in @("OfficeJS", "WPS", "Obsidian", "Ecosystem")) {
         Sort-Object FullName |
         ForEach-Object {
             $relative = $_.FullName.Substring($resourcePath.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
-            $hashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash
+            $hashes[$relative] = Get-Sha256Hex -LiteralPath $_.FullName
         }
     $provenance.resourceHashes[$resourceName] = $hashes
 }
 foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
     $wpsFile = Resolve-RelativePath $wpsDest $relative
     if (Test-Path -LiteralPath $wpsFile -PathType Leaf) {
-        $provenance.wpsHashes[$relative] = (Get-FileHash -Algorithm SHA256 -LiteralPath $wpsFile).Hash
+        $provenance.wpsHashes[$relative] = Get-Sha256Hex -LiteralPath $wpsFile
     }
 }
 if ($runningOnWindows) {
     foreach ($name in @("LaTeXSnipper.NativeOffice.msi")) {
         $filePath = Join-Path $vstoDest $name
         if (Test-Path -LiteralPath $filePath -PathType Leaf) {
-            $provenance.nativeOfficeHashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $filePath).Hash
+            $provenance.nativeOfficeHashes[$name] = Get-Sha256Hex -LiteralPath $filePath
         }
     }
 }

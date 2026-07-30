@@ -10,7 +10,12 @@ export function macosCapabilities() {
     }),
     officeJs: capability("available"),
     screenshot: capability("experimental", {
-      message: "ScreenCaptureKit adapter",
+      backend: "xcap",
+      code: "MACOS_XCAP_EXPERIMENTAL",
+      message:
+        "backend=xcap; no independent ScreenCaptureKit adapter is implemented.",
+      nextAction:
+        "Grant Screen Recording permission and verify a test capture.",
     }),
     globalShortcut: capability("available"),
     secureCredentialStore: capability("available", {

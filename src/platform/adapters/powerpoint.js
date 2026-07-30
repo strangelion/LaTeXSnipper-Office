@@ -1,13 +1,9 @@
 import { capability, unsupported } from "../capabilities.js";
+import { nativeOleCapability } from "./native-ole.js";
 
-export function powerpointCapabilities({ os } = {}) {
+export function powerpointCapabilities({ os, runtimeState } = {}) {
   return {
-    nativeOle:
-      os === "windows"
-        ? capability("available", {
-            message: "Signed x86/x64 COM handler",
-          })
-        : unsupported("Native COM/OLE is Windows-only."),
+    nativeOle: nativeOleCapability({ os, runtimeState }),
     ommlInsert: unsupported(
       "PowerPoint formulas are inserted as slide shapes.",
     ),

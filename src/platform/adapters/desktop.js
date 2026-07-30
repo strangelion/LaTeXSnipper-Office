@@ -1,9 +1,19 @@
-import { capability } from "../capabilities.js";
+import { capability, unsupported } from "../capabilities.js";
 
-export function desktopCapabilities() {
+export function desktopCapabilities({ os } = {}) {
   return {
-    screenshot: capability("available"),
-    screenshotMultiMonitor: capability("available"),
-    globalShortcut: capability("available"),
+    ...(os === "unknown"
+      ? {
+          screenshot: unsupported(
+            "Unknown OS has no selected capture backend.",
+          ),
+          screenshotMultiMonitor: unsupported(
+            "Unknown OS has no selected multi-monitor backend.",
+          ),
+          globalShortcut: unsupported(
+            "Unknown OS has no selected shortcut backend.",
+          ),
+        }
+      : { globalShortcut: capability("available") }),
   };
 }

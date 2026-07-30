@@ -233,7 +233,7 @@ async fn run_recognition_job(
     job: std::sync::Arc<RecognitionJobEntry>,
     path: PathBuf,
     request: RecognitionStartRequest,
-    _screenshot_job_lease: crate::screenshot::lease::ScreenshotJobLeaseGuard,
+    mut screenshot_job_lease: crate::screenshot::lease::ScreenshotJobLeaseGuard,
 ) {
     // Transition to Running
     {
@@ -247,6 +247,7 @@ async fn run_recognition_job(
     // Check cancellation before starting
     if job.cancellation.is_cancelled() {
         finish_cancelled(&app, &job);
+        let _ = screenshot_job_lease.cancel();
         return;
     }
 
@@ -276,6 +277,7 @@ async fn run_recognition_job(
     // Check cancellation
     if job.cancellation.is_cancelled() {
         finish_cancelled(&app, &job);
+        let _ = screenshot_job_lease.cancel();
         return;
     }
 
@@ -304,6 +306,7 @@ async fn run_recognition_job(
                 "[Recognition] Job {} completed successfully",
                 job.snapshot.read().await.id
             );
+            let _ = screenshot_job_lease.complete();
         }
         Err(error) => {
             // Transition to Failed
@@ -319,6 +322,7 @@ async fn run_recognition_job(
                 "[Recognition] Job {} failed: {error}",
                 job.snapshot.read().await.id
             );
+            let _ = screenshot_job_lease.fail();
         }
     }
 }

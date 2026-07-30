@@ -8,6 +8,7 @@
       "resources/WPS/**/*",
       "resources/Obsidian/**/*",
       "resources/Ecosystem/**/*",
+      "resources/RecognitionQuality/**/*",
       "resources/provenance.json"
     ]
   }

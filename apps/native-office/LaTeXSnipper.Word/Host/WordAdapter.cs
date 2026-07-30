@@ -2,16 +2,22 @@
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
+using OmmlValidationResult = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidationResult;
+using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 
 namespace LaTeXSnipper.Word.Host
 {
     internal sealed class WordAdapter : ICommandHostAdapter
     {
         private readonly Microsoft.Office.Interop.Word.Application _application;
+        private readonly int? _oleServerProcessId;
 
-        public WordAdapter(Microsoft.Office.Interop.Word.Application application)
+        public WordAdapter(
+            Microsoft.Office.Interop.Word.Application application,
+            int? oleServerProcessId = null)
         {
             _application = application;
+            _oleServerProcessId = oleServerProcessId;
         }
 
         public string HostType => "word";
@@ -719,6 +725,11 @@ namespace LaTeXSnipper.Word.Host
                 var cleanOmml = NormalizeOmml(payload.Omml, mode);
                 if (string.IsNullOrWhiteSpace(cleanOmml))
                     return new InsertResult { Success = false, Error = "OMML conversion returned empty content" };
+                var preInsertValidation = OmmlValidator.Validate(cleanOmml);
+                if (!preInsertValidation.IsValid)
+                    return OmmlValidationFailure(preInsertValidation, "OMML failed pre-insert validation.");
+                range = range.Duplicate;
+                range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
 
                 var body = mode == InsertMode.DisplayNumbered
                     ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId, GetContainerWidthTwips(range))
@@ -728,14 +739,24 @@ namespace LaTeXSnipper.Word.Host
                 range = NormalizeToBlockInsertionPoint(range);
                 range.InsertXML(flatOpc);
 
+                var candidate = FindFormulaContentControl(doc, payload.FormulaId);
+                var readBackResult = ValidateNativeCandidate(candidate, cleanOmml);
+                if (!readBackResult.IsValid)
+                    return RollbackInvalidNativeCandidate(
+                        doc,
+                        candidate,
+                        payload.FormulaId,
+                        readBackResult);
+
                 FormulaDocumentManifest.Write(doc, payload);
+                var committedRange = candidate.Range.Duplicate;
 
                 return new InsertResult
                 {
                     Success = true,
                     FormulaId = payload.FormulaId,
-                    RangeStart = (uint)range.Start,
-                    RangeEnd = (uint)range.End
+                    RangeStart = (uint)committedRange.Start,
+                    RangeEnd = (uint)committedRange.End
                 };
             }
             catch (Exception ex)
@@ -751,8 +772,8 @@ namespace LaTeXSnipper.Word.Host
         }
 
         /// <summary>
-        /// Insert an inline formula using Word's native OMaths.Add().BuildUp().
-        /// This avoids the block-level XML error from InsertXML with <w:p>-containing Flat OPC.
+        /// Inserts an inline native OMML candidate through Flat OPC InsertXML,
+        /// then validates WordOpenXML before committing formula metadata.
         /// </summary>
         private InsertResult InsertWordInlineNative(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
         {
@@ -775,6 +796,13 @@ namespace LaTeXSnipper.Word.Host
                         if (start >= 0 && end > start)
                             mathOnly = mathOnly.Substring(start, end + "</m:oMath>".Length - start);
                     }
+                    var preInsertValidation = OmmlValidator.Validate(mathOnly);
+                    if (!preInsertValidation.IsValid)
+                        return OmmlValidationFailure(
+                            preInsertValidation,
+                            "Inline OMML failed pre-insert validation.");
+                    range = range.Duplicate;
+                    range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
 
                     // Wrap in minimal inline content control for metadata tracking
                     var inlineBody = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
@@ -808,14 +836,24 @@ namespace LaTeXSnipper.Word.Host
                     </pkg:package>";
 
                     range.InsertXML(flatOpc);
+                    var candidate = FindFormulaContentControl(doc, payload.FormulaId);
+                    var readBackResult = ValidateNativeCandidate(candidate, mathOnly);
+                    if (!readBackResult.IsValid)
+                        return RollbackInvalidNativeCandidate(
+                            doc,
+                            candidate,
+                            payload.FormulaId,
+                            readBackResult);
+
                     FormulaDocumentManifest.Write(doc, payload);
+                    var committedRange = candidate.Range.Duplicate;
 
                     return new InsertResult
                     {
                         Success = true,
                         FormulaId = payload.FormulaId,
-                        RangeStart = (uint)range.Start,
-                        RangeEnd = (uint)range.End
+                        RangeStart = (uint)committedRange.Start,
+                        RangeEnd = (uint)committedRange.End
                     };
                 }
 
@@ -834,6 +872,67 @@ namespace LaTeXSnipper.Word.Host
                 System.Diagnostics.Debug.WriteLine($"[WordAdapter] InsertWordInlineNative error: {ex.Message}");
                 return new InsertResult { Success = false, Error = $"Inline formula insert failed: {ex.Message}" };
             }
+        }
+
+        private static OmmlValidationResult ValidateNativeCandidate(
+            Microsoft.Office.Interop.Word.ContentControl candidate,
+            string expectedOmml)
+        {
+            if (candidate != null)
+                return OmmlValidator.ValidateHostReadBack(expectedOmml, candidate.Range.WordOpenXML);
+
+            var missing = new OmmlValidationResult();
+            missing.Issues.Add(new LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidationIssue
+            {
+                Code = "OMML_HOST_CANDIDATE_MISSING",
+                Message = "Word did not return the tagged native OMML candidate.",
+                NaryIndex = -1
+            });
+            return missing;
+        }
+
+        private static InsertResult RollbackInvalidNativeCandidate(
+            Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.ContentControl candidate,
+            string formulaId,
+            OmmlValidationResult validation)
+        {
+            try
+            {
+                if (candidate != null)
+                {
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+            }
+            catch (Exception cleanupError)
+            {
+                OfficeOperationLog.Failure(
+                    "cleanup-invalid-native-omml-candidate",
+                    "word",
+                    formulaId,
+                    cleanupError);
+            }
+            FormulaDocumentManifest.Remove(document, formulaId);
+            return OmmlValidationFailure(validation, "Word OMML read-back validation failed.");
+        }
+
+        private static InsertResult OmmlValidationFailure(
+            OmmlValidationResult validation,
+            string prefix)
+        {
+            var first = validation.Issues.Count > 0 ? validation.Issues[0] : null;
+            string code = validation.HasIssue("OMML_NARY_OPERAND_DETACHED")
+                ? "OMML_NARY_OPERAND_DETACHED"
+                : first?.Code ?? "OMML_HOST_VALIDATION_FAILED";
+            string detail = first?.Message ?? "No validation detail was returned.";
+            return new InsertResult
+            {
+                Success = false,
+                ErrorCode = code,
+                Error = prefix + " " + detail
+            };
         }
 
         /// <summary>
@@ -936,10 +1035,10 @@ namespace LaTeXSnipper.Word.Host
         }
 
         /// <summary>
-        /// Numbered OLE formulas own an otherwise-empty paragraph so their local
-        /// tab stops disappear with the formula and never mutate a user paragraph.
+        /// Block OLE formulas own an otherwise-empty paragraph so centering or
+        /// numbered-equation tab stops never mutate a user paragraph.
         /// </summary>
-        private static Microsoft.Office.Interop.Word.Range PrepareNumberedOleInsertionRange(
+        private static Microsoft.Office.Interop.Word.Range PrepareBlockOleInsertionRange(
             Microsoft.Office.Interop.Word.Document doc,
             Microsoft.Office.Interop.Word.Range sourceRange)
         {
@@ -960,6 +1059,13 @@ namespace LaTeXSnipper.Word.Host
             int dedicatedParagraphStart = paragraphRange.End;
             paragraphRange.InsertParagraphAfter();
             return doc.Range(dedicatedParagraphStart, dedicatedParagraphStart);
+        }
+
+        private static Microsoft.Office.Interop.Word.Range PrepareNumberedOleInsertionRange(
+            Microsoft.Office.Interop.Word.Document doc,
+            Microsoft.Office.Interop.Word.Range sourceRange)
+        {
+            return PrepareBlockOleInsertionRange(doc, sourceRange);
         }
 
         private static void ConfigureOleContentControl(
@@ -1001,16 +1107,24 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = ex.Message };
                 }
 
-                if (mode == InsertMode.DisplayNumbered)
+                FitOleRenderToWordContainer(range, payload);
+
+                if (mode != InsertMode.Inline)
                 {
-                    range = PrepareNumberedOleInsertionRange(doc, range);
+                    range = mode == InsertMode.DisplayNumbered
+                        ? PrepareNumberedOleInsertionRange(doc, range)
+                        : PrepareBlockOleInsertionRange(doc, range);
                 }
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
                 OleActivationResult activation;
                 OleExtentPoints targetExtent;
 
-                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
+                using (PendingPayloadLease payloadLease = _oleServerProcessId.HasValue
+                    ? OleFormulaPendingPayloadStore.SaveForProcess(
+                        payload,
+                        _oleServerProcessId.Value)
+                    : OleFormulaPendingPayloadStore.Save(payload))
                 {
                     oleShape = (Microsoft.Office.Interop.Word.InlineShape)
                         doc.InlineShapes.AddOLEObject(
@@ -1147,23 +1261,34 @@ namespace LaTeXSnipper.Word.Host
                     };
                 }
 
-                // Now set final dimensions — SetExtent accepts them after CompleteInsertion
-                oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
-                oleShape.Width = targetExtent.DisplayWidthPt;
-                oleShape.Height = targetExtent.DisplayHeightPt;
+                // Word preserves an embedded OLE object's insertion-time size and aspect
+                // ratio even when Width/Height or ScaleWidth are assigned through COM.
+                // Oversized payloads are therefore fitted before AddOLEObject. At this
+                // point Word's settled rectangle is authoritative and is synchronized
+                // back to the OLE server.
                 oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
 
                 float wordWidth = oleShape.Width;
                 float wordHeight = oleShape.Height;
+                var wordSynchronizedExtent = new OleExtentPoints(
+                    synchronizedWordExtent.NaturalWidthPt,
+                    synchronizedWordExtent.NaturalHeightPt,
+                    wordWidth,
+                    wordHeight);
+                bool wordExtentSynchronized =
+                    OleFormulaInterop.TrySetDisplayExtent(
+                        activation.AutomationObject,
+                        wordSynchronizedExtent);
                 bool oleExtentReadBack =
                     OleFormulaInterop.TryGetExtentPoints(
                         activation.AutomationObject,
                         out OleExtentPoints finalOleExtent);
                 bool geometryMatches =
+                    wordExtentSynchronized &&
                     oleExtentReadBack &&
-                    OleFormulaInterop.DisplayExtentMatches(targetExtent, finalOleExtent) &&
+                    OleFormulaInterop.DisplayExtentMatches(wordSynchronizedExtent, finalOleExtent) &&
                     OleFormulaInterop.HostGeometryMatches(
-                        targetExtent,
+                        wordSynchronizedExtent,
                         wordWidth,
                         wordHeight);
                 if (OleFormulaInterop.TryGetDiagnosticsJson(
@@ -1194,6 +1319,12 @@ namespace LaTeXSnipper.Word.Host
 
                 // MUST be after final dimensions are set so requiredHeight reflects the enlarged object.
                 FixWordParagraphForOle(oleShape);
+
+                if (mode == InsertMode.Display)
+                {
+                    oleShape.Range.Paragraphs[1].Alignment =
+                        Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+                }
 
                 // Add auto-numbering for DisplayNumbered mode
                 if (mode == InsertMode.DisplayNumbered)
@@ -1244,8 +1375,17 @@ namespace LaTeXSnipper.Word.Host
                             " SEQ LaTeXSnipperEquation \\* ARABIC ",
                             true);
                         field.Update();
-                        var closingRange = doc.Range(field.Result.End, field.Result.End);
-                        closingRange.InsertAfter(")");
+                        // Result.End is immediately before the field-end marker. Text
+                        // inserted there becomes part of the field result and disappears
+                        // on the next update/save. Move one character past that marker.
+                        int closingPosition = field.Result.End + 1;
+                        var closingRange = doc.Range(closingPosition, closingPosition);
+                        closingRange.Text = ")";
+                        if (!string.Equals(closingRange.Text, ")", StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException(
+                                "The numbered formula closing delimiter was not inserted.");
+                        }
                         var bookmarkName = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(payload.FormulaId, "[^A-Za-z0-9_]", "_");
                         if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
                         var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
@@ -1371,7 +1511,112 @@ namespace LaTeXSnipper.Word.Host
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[WordAdapter] OLE insert error: {ex.Message}");
-                return new InsertResult { Success = false, Error = $"OLE insert failed: {ex.Message}" };
+                OfficeOperationLog.Failure(
+                    "insert-ole-object",
+                    "word",
+                    payload?.FormulaId,
+                    ex);
+                return new InsertResult
+                {
+                    Success = false,
+                    ErrorCode = $"OLE_INSERT_EXCEPTION_0x{ex.HResult:X8}",
+                    Error = $"OLE insert failed: {ex.Message}"
+                };
+            }
+        }
+
+        private static void FitOleRenderToWordContainer(
+            Microsoft.Office.Interop.Word.Range range,
+            FormulaPayload payload)
+        {
+            if (payload.Render == null ||
+                payload.Render.WidthPt <= 0 ||
+                payload.Render.HeightPt <= 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var paragraphFormat = range.ParagraphFormat;
+                float availableWidth;
+                float availableHeight;
+                if (Convert.ToBoolean(
+                    range.get_Information(
+                        Microsoft.Office.Interop.Word.WdInformation.wdWithInTable)))
+                {
+                    var cell = range.Cells[1];
+                    availableWidth =
+                        cell.Width -
+                        cell.LeftPadding -
+                        cell.RightPadding -
+                        Math.Max(0.0f, paragraphFormat.LeftIndent) -
+                        Math.Max(0.0f, paragraphFormat.RightIndent);
+                    var pageSetup = range.Sections[1].PageSetup;
+                    availableHeight =
+                        pageSetup.PageHeight -
+                        pageSetup.TopMargin -
+                        pageSetup.BottomMargin;
+                }
+                else
+                {
+                    var pageSetup = range.Sections[1].PageSetup;
+                    availableWidth =
+                        pageSetup.PageWidth -
+                        pageSetup.LeftMargin -
+                        pageSetup.RightMargin -
+                        Math.Max(0.0f, paragraphFormat.LeftIndent) -
+                        Math.Max(0.0f, paragraphFormat.RightIndent);
+                    availableHeight =
+                        pageSetup.PageHeight -
+                        pageSetup.TopMargin -
+                        pageSetup.BottomMargin;
+                }
+
+                // Word inserts an OLE inline shape at approximately 4/3 of the
+                // server's natural point extent. Fit before activation because
+                // post-insertion COM resizing is not reliable for extreme ratios.
+                // Keep a small horizontal gutter as well: a shape that merely
+                // equals the printable width can have its final script clipped
+                // by Word's range/presentation boundary.
+                const float wordOleInsertionScale = 1.35f;
+                const float wordContainerHorizontalGutterPt = 18.0f;
+                // The native SVG presentation adds up to 4pt on each horizontal
+                // side and 3pt on each vertical side. Word scales that complete
+                // EMF frame, so account for the transparent frame as well as the
+                // requested formula content.
+                const float nativeMaximumHorizontalPaddingPt = 8.0f;
+                const float nativeMaximumVerticalPaddingPt = 6.0f;
+                float maximumRenderWidth =
+                    Math.Max(
+                        36.0f,
+                        (availableWidth - wordContainerHorizontalGutterPt) /
+                            wordOleInsertionScale -
+                            nativeMaximumHorizontalPaddingPt);
+                float maximumRenderHeight =
+                    Math.Max(
+                        72.0f,
+                        (availableHeight - 4.0f) /
+                            wordOleInsertionScale -
+                            nativeMaximumVerticalPaddingPt);
+                float scale = Math.Min(
+                    1.0f,
+                    Math.Min(
+                        maximumRenderWidth / payload.Render.WidthPt,
+                        maximumRenderHeight / payload.Render.HeightPt));
+                if (scale < 1.0f)
+                {
+                    payload.Render.WidthPt *= scale;
+                    payload.Render.HeightPt *= scale;
+                }
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure(
+                    "fit-ole-render-before-insert",
+                    "word",
+                    payload.FormulaId,
+                    ex);
             }
         }
 
@@ -1504,18 +1749,56 @@ namespace LaTeXSnipper.Word.Host
                     }
                     else
                     {
-                        // Insert new ContentControl with OMML at same position
+                        // Candidate-first conversion. A temporary ID prevents read-back
+                        // from accidentally resolving the still-live original control.
                         var range = existingCc.Range.Duplicate;
-                        var modeEnum = existing.Display == "inline" ? InsertMode.Inline : InsertMode.Display;
-                        var body = BuildFormulaBody(omml, convertedFormulaId, modeEnum);
-                        var flatOpc = BuildFlatOpc(body);
-
-                        // First insert new content (before deleting old)
+                        var modeEnum = ParseInsertMode(existing.Display);
+                        string candidateId = FormulaIdHelper.NewId();
+                        var candidatePayload = new FormulaPayload
+                        {
+                            FormulaId = candidateId,
+                            Latex = existing.Latex,
+                            Omml = existing.Omml,
+                            Display = existing.Display,
+                            StorageMode = "native-omml",
+                            Revision = existing.Revision + 1,
+                            Render = existing.Render,
+                            Presentation = existing.Presentation
+                        };
                         _application.Selection.SetRange(range.Start, range.Start);
-                        _application.Selection.Range.InsertXML(flatOpc);
+                        var insertResult = InsertFormula(candidatePayload, modeEnum);
+                        if (!insertResult.Success)
+                            return insertResult;
 
-                        // Delete old ContentControl only after successful insertion
-                        existingCc.Delete();
+                        var candidate = FindFormulaContentControl(doc, candidateId);
+                        if (candidate == null)
+                            return new InsertResult
+                            {
+                                Success = false,
+                                ErrorCode = "OMML_HOST_CANDIDATE_MISSING",
+                                Error = "Converted native OMML candidate could not be read back."
+                            };
+                        try
+                        {
+                            existingCc.LockContents = false;
+                            existingCc.LockContentControl = false;
+                            existingCc.Delete(true);
+                        }
+                        catch (Exception deleteError)
+                        {
+                            candidate.LockContents = false;
+                            candidate.LockContentControl = false;
+                            candidate.Delete(true);
+                            FormulaDocumentManifest.Remove(doc, candidateId);
+                            return new InsertResult
+                            {
+                                Success = false,
+                                ErrorCode = "ORIGINAL_DELETE_FAILED",
+                                Error = deleteError.Message
+                            };
+                        }
+                        candidate.Tag = $"latexsnipper:formula:{convertedFormulaId}";
+                        FormulaDocumentManifest.Remove(doc, candidateId);
                     }
 
                     // Update manifest
@@ -1528,8 +1811,8 @@ namespace LaTeXSnipper.Word.Host
                         StorageMode = "native-omml",
                         Revision = existing.Revision + 1
                     };
-                    FormulaDocumentManifest.Write(doc, newPayload);
                     FormulaDocumentManifest.Remove(doc, formulaId);
+                    FormulaDocumentManifest.Write(doc, newPayload);
 
                     return new InsertResult { Success = true, FormulaId = convertedFormulaId, StorageMode = "native-omml" };
                 }
@@ -1621,11 +1904,13 @@ namespace LaTeXSnipper.Word.Host
             }
             else if (!clean.Contains("<m:oMath"))
             {
-                clean = $"<m:oMath>{clean}</m:oMath>";
+                clean = "<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">" +
+                    clean + "</m:oMath>";
             }
 
             if (mode != InsertMode.Inline && !clean.Contains("<m:oMathPara"))
-                clean = $"<m:oMathPara>{clean}</m:oMathPara>";
+                clean = "<m:oMathPara xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">" +
+                    clean + "</m:oMathPara>";
 
             return clean;
         }

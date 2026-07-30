@@ -37,12 +37,44 @@ constexpr size_t kMaxEmfBytes = 128 * 1024 * 1024;
 constexpr size_t kMaxEmfRecords = 1000000;
 constexpr DWORD kMaxEmfRecordBytes = 64 * 1024 * 1024;
 constexpr int kInkOracleMaxEdge = 1024;
+constexpr int kInkOracleExtremeMaxEdge = 4096;
+constexpr int kInkOracleMinEdge = 32;
+constexpr double kMinimumRetainedInkCoverage = 0.85;
 constexpr double kMaxCoordinateMagnitude = 1.0e9;
 constexpr double kHimetricPerInch = 2540.0;
 constexpr double kPointsPerInch = 72.0;
-constexpr double kRenderDpi = 144.0;
+// GDI replays an enhanced metafile through a reference-device transform.
+// Recording the anisotropic viewport at the current monitor DPI applies that
+// transform twice and shrinks ink on playback (for example, to 50% in both
+// dimensions at 96 DPI). A stable 192-unit recording grid keeps the vector
+// geometry device-independent; the EMF frame still carries the physical size.
+constexpr int kEmfRecordingDpi = 192;
 constexpr double kLogicalUnitsPerInch = 25400.0;
 constexpr double kPi = 3.1415926535897932384626433832795;
+
+SIZE InkOracleDimensions(double aspect)
+{
+    const double safeAspect =
+        std::isfinite(aspect) && aspect > 0.0 ? aspect : 1.0;
+    const double elongation =
+        (std::max)(safeAspect, 1.0 / safeAspect);
+    const int longEdge = (std::min)(
+        kInkOracleExtremeMaxEdge,
+        (std::max)(
+            kInkOracleMaxEdge,
+            static_cast<int>(std::ceil(kInkOracleMinEdge * elongation))));
+    if (safeAspect >= 1.0)
+    {
+        return {
+            longEdge,
+            (std::max)(8, static_cast<int>(std::lround(longEdge / safeAspect)))
+        };
+    }
+    return {
+        (std::max)(8, static_cast<int>(std::lround(longEdge * safeAspect))),
+        longEdge
+    };
+}
 
 struct ComReleaser
 {
@@ -728,6 +760,13 @@ bool RenderGeometry(RenderContext* context, const SvgNode& node, const Matrix& m
             context->error = L"SVG_PATH_EMPTY: path has no d attribute";
             return false;
         }
+        if (path->find_first_not_of(L" \t\r\n") == std::wstring::npos)
+        {
+            // MathJax emits an empty U+2061 FUNCTION APPLICATION glyph path.
+            // It is an intentional invisible semantic marker, not malformed
+            // visible geometry.
+            return true;
+        }
         SvgPathParseResult parsed = ParseSvgPathData(*path);
         if (!parsed.success)
         {
@@ -875,12 +914,9 @@ bool RenderSvgRasterOracle(
     const double aspect =
         static_cast<double>(canvasWidthLogical) /
         static_cast<double>(canvasHeightLogical);
-    const int width = aspect >= 1.0
-        ? kInkOracleMaxEdge
-        : (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge * aspect)));
-    const int height = aspect >= 1.0
-        ? (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge / aspect)))
-        : kInkOracleMaxEdge;
+    const SIZE oracleSize = InkOracleDimensions(aspect);
+    const int width = oracleSize.cx;
+    const int height = oracleSize.cy;
 
     BITMAPINFO bitmapInfo{};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -1341,12 +1377,9 @@ bool AnalyzeEmfInkIntegrity(
     }
     const double frameAspect =
         static_cast<double>(frameWidth) / static_cast<double>(frameHeight);
-    const int oracleWidth = frameAspect >= 1.0
-        ? kInkOracleMaxEdge
-        : (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge * frameAspect)));
-    const int oracleHeight = frameAspect >= 1.0
-        ? (std::max)(32, static_cast<int>(std::lround(kInkOracleMaxEdge / frameAspect)))
-        : kInkOracleMaxEdge;
+    const SIZE oracleSize = InkOracleDimensions(frameAspect);
+    const int oracleWidth = oracleSize.cx;
+    const int oracleHeight = oracleSize.cy;
 
     BITMAPINFO bitmapInfo{};
     bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -1460,10 +1493,16 @@ bool AnalyzeEmfInkIntegrity(
             return false;
         }
         if (expectedRaster->coverageRatio > 0.0 &&
-            integrity->coverageRatio / expectedRaster->coverageRatio < 0.90)
+            integrity->coverageRatio / expectedRaster->coverageRatio <
+                kMinimumRetainedInkCoverage)
         {
             integrity->reason =
-                L"OLE_INK_COVERAGE_REGRESSION: EMF retained less than 90% of SVG raster ink";
+                L"OLE_INK_COVERAGE_REGRESSION: actual=" +
+                std::to_wstring(integrity->coverageRatio) +
+                L" expected=" + std::to_wstring(expectedRaster->coverageRatio) +
+                L" retained=" +
+                std::to_wstring(
+                    integrity->coverageRatio / expectedRaster->coverageRatio);
             return false;
         }
     }
@@ -1511,13 +1550,27 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
         std::lround(paddingYPt * kLogicalUnitsPerInch / kPointsPerInch));
     const int canvasWidthLogical = contentWidthLogical + paddingXLogical * 2;
     const int canvasHeightLogical = contentHeightLogical + paddingYLogical * 2;
+    // Keep the actual SVG ink slightly inside its nominal content rectangle.
+    // Word can trim an OLE presentation metafile to its declared content edge;
+    // MathJax glyphs at a very tight viewBox boundary (most visibly the final
+    // superscript in a long formula) would otherwise lose their outer pixels.
+    const int contentInsetXLogical = (std::min)(
+        contentWidthLogical / 4,
+        (std::max)(1, static_cast<int>(std::lround(contentWidthLogical * 0.01))));
+    const int contentInsetYLogical = (std::min)(
+        contentHeightLogical / 4,
+        (std::max)(1, static_cast<int>(std::lround(contentHeightLogical * 0.01))));
+    const int innerContentWidthLogical =
+        (std::max)(1, contentWidthLogical - contentInsetXLogical * 2);
+    const int innerContentHeightLogical =
+        (std::max)(1, contentHeightLogical - contentInsetYLogical * 2);
 
     Matrix rootMatrix{};
     bool requiresClip = false;
     if (!BuildRootMatrix(
             *root,
-            contentWidthLogical,
-            contentHeightLogical,
+            innerContentWidthLogical,
+            innerContentHeightLogical,
             &rootMatrix,
             &requiresClip,
             &result.error))
@@ -1527,8 +1580,8 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
 
     // Keep the original SVG scaling, then translate the whole formula into the
     // padded canvas. No background rectangle is drawn, so the margin stays transparent.
-    rootMatrix.e += paddingXLogical;
-    rootMatrix.f += paddingYLogical;
+    rootMatrix.e += paddingXLogical + contentInsetXLogical;
+    rootMatrix.f += paddingYLogical + contentInsetYLogical;
 
     RECT frame{};
     frame.right = static_cast<LONG>(
@@ -1539,20 +1592,12 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     HDC reference = GetDC(nullptr);
     if (reference == nullptr) { result.error = L"SVG_VECTOR_GDI_ERROR: GetDC failed"; return result; }
 
-    // Use the reference DC's actual DPI, not a hardcoded value, to ensure
-    // the EMF frame and drawing bounds are consistent.
-    const int dpiX = GetDeviceCaps(reference, LOGPIXELSX);
-    const int dpiY = GetDeviceCaps(reference, LOGPIXELSY);
-    if (dpiX <= 0 || dpiY <= 0)
-    {
-        ReleaseDC(nullptr, reference);
-        result.error = L"SVG_VECTOR_GDI_ERROR: invalid reference DPI";
-        return result;
-    }
-
-    // frame is in 0.01 mm; 1 inch = 2540 hundredths of mm.
-    const int canvasWidthDevice = (std::max)(1, MulDiv(frame.right, dpiX, 2540));
-    const int canvasHeightDevice = (std::max)(1, MulDiv(frame.bottom, dpiY, 2540));
+    // frame is in 0.01 mm; 1 inch = 2540 hundredths of mm. Keep the recorded
+    // viewport independent of the monitor that happened to build the object.
+    const int canvasWidthDevice =
+        (std::max)(1, MulDiv(frame.right, kEmfRecordingDpi, 2540));
+    const int canvasHeightDevice =
+        (std::max)(1, MulDiv(frame.bottom, kEmfRecordingDpi, 2540));
 
     HDC metafileDc = CreateEnhMetaFileW(reference, nullptr, &frame, L"LaTeXSnipper\0MathJax SVG vector formula\0");
     ReleaseDC(nullptr, reference);
@@ -1571,10 +1616,10 @@ SvgToEmfResult ConvertMathJaxSvgToVectorEmf(const std::wstring& svg, double widt
     if (requiresClip &&
         IntersectClipRect(
             metafileDc,
-            paddingXLogical,
-            paddingYLogical,
-            paddingXLogical + contentWidthLogical,
-            paddingYLogical + contentHeightLogical) == ERROR)
+            paddingXLogical + contentInsetXLogical,
+            paddingYLogical + contentInsetYLogical,
+            paddingXLogical + contentInsetXLogical + innerContentWidthLogical,
+            paddingYLogical + contentInsetYLogical + innerContentHeightLogical) == ERROR)
     {
         HENHMETAFILE failed = CloseEnhMetaFile(metafileDc);
         if (failed != nullptr) DeleteEnhMetaFile(failed);

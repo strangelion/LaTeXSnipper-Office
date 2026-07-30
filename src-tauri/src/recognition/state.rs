@@ -44,6 +44,8 @@ pub struct RecognitionService {
     pub engine: latexsnipper_engine::SnipperEngine,
     /// Models directory used to build this engine.
     models_dir: PathBuf,
+    /// Explicit trusted quality baseline directory.
+    quality_baselines_dir: PathBuf,
 }
 
 #[cfg(feature = "recognition")]
@@ -82,7 +84,8 @@ impl RecognitionService {
     ) -> Result<latexsnipper_engine::SnipperEngine, String> {
         use latexsnipper_engine::{default_runtime_registry, EngineConfig};
 
-        let mut config = EngineConfig::with_models_dir(self.models_dir.clone());
+        let mut config = EngineConfig::with_models_dir(self.models_dir.clone())
+            .with_quality_baselines_dir(self.quality_baselines_dir.clone());
 
         if let Some(ref overrides) = request.model_overrides {
             if let Some(ref v) = overrides.formula_det {
@@ -195,13 +198,19 @@ impl RecognitionState {
         use latexsnipper_engine::{default_runtime_registry, EngineConfig};
 
         let models_dir = self.paths.models.clone();
-        let config = EngineConfig::with_models_dir(models_dir.clone());
+        let quality_baselines_dir = self.paths.quality_baselines.clone();
+        let config = EngineConfig::with_models_dir(models_dir.clone())
+            .with_quality_baselines_dir(quality_baselines_dir.clone());
         let registry = default_runtime_registry(&models_dir)
             .map_err(|e| format!("Failed to create runtime registry: {e}"))?;
         let engine = latexsnipper_engine::SnipperEngine::with_runtime_registry(config, registry)
             .map_err(|e| format!("Failed to create engine: {e}"))?;
 
-        Ok(RecognitionService { engine, models_dir })
+        Ok(RecognitionService {
+            engine,
+            models_dir,
+            quality_baselines_dir,
+        })
     }
 }
 

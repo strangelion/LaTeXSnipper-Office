@@ -242,6 +242,14 @@ const windowsConfig = readFileSync(
 );
 if (!windowsConfig.includes("resources/NativeOffice/**/*"))
   failures.push("Windows Tauri config does not include NativeOffice resources");
+if (!windowsConfig.includes("resources/RecognitionQuality/**/*"))
+  failures.push(
+    "Windows Tauri config does not include trusted RecognitionQuality resources",
+  );
+if (!JSON.stringify(tauri.bundle.resources).includes("RecognitionQuality"))
+  failures.push(
+    "Base Tauri config does not include trusted RecognitionQuality resources",
+  );
 
 const cppProtocol = readFileSync(
   resolve(

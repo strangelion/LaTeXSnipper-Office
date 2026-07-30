@@ -10,6 +10,29 @@ mod screenshot;
 
 #[cfg(not(feature = "screen-capture"))]
 mod screenshot {
+    pub mod backend {
+        use serde::Serialize;
+
+        #[derive(Debug, Clone, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        pub struct ScreenshotBackendCapability {
+            pub backend: &'static str,
+            pub available: bool,
+            pub experimental: bool,
+            pub implementation: &'static str,
+        }
+
+        #[tauri::command]
+        pub fn screenshot_backend_capability() -> ScreenshotBackendCapability {
+            ScreenshotBackendCapability {
+                backend: "none",
+                available: false,
+                experimental: false,
+                implementation: "screen-capture feature not compiled",
+            }
+        }
+    }
+
     pub mod commands {
         use serde::Deserialize;
         use tauri::AppHandle;
@@ -161,6 +184,22 @@ pub fn run() {
             // Recognition subsystem state (lazy — no runtime init at startup)
             let recognition_paths = recognition::paths::RecognitionPaths::resolve(app.handle())
                 .map_err(std::io::Error::other)?;
+            match recognition::quality_baselines::deploy_bundled(
+                app.handle(),
+                &recognition_paths.quality_baselines,
+            ) {
+                Ok(report) => log::info!(
+                    "qualityBaselineDeployment status={} sourceDigest={} target={}",
+                    report.status,
+                    report.source_digest.as_deref().unwrap_or("none"),
+                    recognition_paths.quality_baselines.display()
+                ),
+                Err(error) => log::error!(
+                    "qualityBaselineDeployment status=failed target={} error={}",
+                    recognition_paths.quality_baselines.display(),
+                    error
+                ),
+            }
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
             app.manage(screenshot::state::ScreenshotState::default());
 
@@ -308,6 +347,7 @@ pub fn run() {
             commands::export::export_formula,
             commands::export::copy_to_clipboard,
             commands::ocr::screenshot_capture,
+            screenshot::backend::screenshot_backend_capability,
             screenshot::commands::screenshot_begin,
             screenshot::commands::screenshot_overlay_init,
             screenshot::commands::screenshot_overlay_ready,

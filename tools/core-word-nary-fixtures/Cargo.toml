@@ -1,0 +1,9 @@
+[package]
+name = "core-word-nary-fixtures"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+latexsnipper-conversion = { path = "../../src-tauri/latexsnipper-core/crates/conversion", default-features = false }
+serde_json = "1"

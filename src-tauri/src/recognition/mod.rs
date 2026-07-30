@@ -10,6 +10,7 @@
 pub mod dto;
 pub mod jobs;
 pub mod paths;
+pub mod quality_baselines;
 pub mod settings;
 pub mod state;
 pub mod validation;

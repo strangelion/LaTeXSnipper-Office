@@ -231,6 +231,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += PipeReconnectCoordinatorTests.Run();
             Console.WriteLine("RUN VisioIntegrationTests");
             failures += VisioIntegrationTests.Run();
+            Console.WriteLine("RUN OmmlValidatorTests");
+            failures += OmmlValidatorTests.Run();
+            Console.WriteLine("RUN WordNaryFixtureTests");
+            failures += WordNaryFixtureTests.Run();
             Console.WriteLine("RUN FormulaIdTests");
             string formulaId = FormulaIdHelper.NewId();
             Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");

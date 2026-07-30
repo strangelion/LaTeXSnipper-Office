@@ -1,5 +1,3 @@
-export const AUTO_INSERT_CONFIDENCE_THRESHOLD = 0.9;
-
 const FORMULA_INSERT_HOSTS = new Set([
   "word",
   "excel",
@@ -22,8 +20,6 @@ export function decideAutoInsert({
   expectedDocumentContext,
   currentDocumentContext,
   acceptance,
-  output,
-  confidenceThreshold = AUTO_INSERT_CONFIDENCE_THRESHOLD,
 }) {
   const reasons = [];
   const host = String(targetHost || "").toLowerCase();
@@ -37,32 +33,6 @@ export function decideAutoInsert({
   } else if (expectedDocumentContext !== currentDocumentContext) {
     reasons.push("DOCUMENT_CONTEXT_CHANGED");
   }
-  if (!acceptance?.technicallyValid) reasons.push("CORE_NOT_TECHNICALLY_READY");
-  if (
-    acceptance?.qualityStatus === "unknown" ||
-    acceptance?.qualityStatus === "baselineFailed" ||
-    acceptance?.qualityStatus === "baselineMissing"
-  ) {
-    reasons.push("MODEL_QUALITY_NOT_VALIDATED");
-  }
-  if (acceptance?.qualityStatus === "experimental") {
-    reasons.push("MODEL_QUALITY_EXPERIMENTAL");
-  }
-  if (!String(output || "").trim()) reasons.push("OUTPUT_EMPTY");
-  if (!acceptance?.parseValid) reasons.push("OUTPUT_PARSE_INVALID");
-  if (!acceptance?.structureValid) reasons.push("OUTPUT_STRUCTURE_INVALID");
-  if (
-    acceptance?.reviewRequired ||
-    acceptance?.reasons?.includes("POSTPROCESS_REVIEW_REQUIRED")
-  ) {
-    reasons.push("POSTPROCESS_REVIEW_REQUIRED");
-  }
-  if (
-    !Number.isFinite(acceptance?.confidence) ||
-    acceptance.confidence < confidenceThreshold
-  ) {
-    reasons.push("CONFIDENCE_BELOW_THRESHOLD");
-  }
   if (acceptance?.recommendedAction !== "autoAccept") {
     reasons.push("CORE_AUTO_ACCEPT_NOT_RECOMMENDED");
   }
@@ -73,7 +43,7 @@ export function decideAutoInsert({
   return Object.freeze({
     allowed: reasons.length === 0,
     reasons: Object.freeze([...new Set(reasons)]),
-    confidenceThreshold,
+    coreReasons: Object.freeze([...(acceptance?.reasons || [])]),
     qualityStatus: acceptance?.qualityStatus || "unknown",
     targetHost: host || "unknown",
   });

@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "modelId": "trocr-deit",
+  "modelVersion": "models-v3.1.0",
+  "modelSha256": "c68629f7efe6b51e05833617f630aee90551dd505064a4a2d8e2529d11bff7f8",
+  "datasetVersion": "latexsnipper-formula-recognition/1.0.0",
+  "runtime": "onnxruntime",
+  "provider": "cpu",
+  "generatedByCommit": "52ce8dcd6e574a5a085888bb0bc33d3430f57a49",
+  "evidenceSha256": "689b2b4a27274339501cc2beaefe118522466240b1cc072586630b34bdd66497",
+  "containsSynthetic": true,
+  "containsReal": false,
+  "containsHardNegatives": false,
+  "metrics": {
+    "normalizedExact": 0.0,
+    "cer": 1.3022407503908286,
+    "ter": 0.6284916201117319,
+    "hardNegativeFpr": null
+  },
+  "thresholds": {
+    "minimumNormalizedExact": 0.7,
+    "maximumCer": 0.2,
+    "maximumHardNegativeFpr": 0.05
+  }
+}

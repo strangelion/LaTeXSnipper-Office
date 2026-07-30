@@ -4,12 +4,18 @@ export function linuxCapabilities({ displayServer = "unknown" } = {}) {
   return {
     nativeOle: unsupported("COM/OLE is not available on Linux."),
     screenshot: capability("available", {
+      backend: "xcap",
       message:
-        displayServer === "wayland" ? "Wayland portal" : "X11 capture adapter",
+        displayServer === "wayland"
+          ? "backend=xcap/libwayshot (Wayland)"
+          : "backend=xcap (X11)",
     }),
     screenshotWaylandPortal:
       displayServer === "wayland"
-        ? capability("available")
+        ? capability("experimental", {
+            backend: "xcap/libwayshot",
+            message: "Portal availability must still be proven by capture.",
+          })
         : unsupported("Wayland portal is only used in a Wayland session."),
     cuda: capability("requiresSetup", {
       code: "CUDA_CORE_VALIDATION_REQUIRED",

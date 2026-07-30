@@ -49,16 +49,56 @@ const wayland = createPlatformContext({
   host: "desktop",
   displayServer: "wayland",
 });
+const unknown = createPlatformContext({
+  os: "freebsd",
+  host: "desktop",
+  displayServer: "wayland",
+});
+const healthyOle = createPlatformContext({
+  os: "windows",
+  host: "word",
+  runtimeState: {
+    nativeOle: {
+      registered: true,
+      currentDllMatches: true,
+      available: true,
+      bitnessMatch: true,
+      geometryContract: true,
+      inkIntegrity: true,
+      handlerVersion: "1.6.0.0",
+    },
+  },
+});
+const staleOle = createPlatformContext({
+  os: "windows",
+  host: "word",
+  runtimeState: {
+    nativeOle: {
+      registered: true,
+      currentDllMatches: false,
+      available: false,
+      bitnessMatch: true,
+      geometryContract: true,
+      inkIntegrity: false,
+    },
+  },
+});
 
 assert.equal(windowsDesktop.features.nativeOle.level, "unsupported");
 assert.equal(windowsDesktop.features.screenshotMultiMonitor.level, "available");
-assert.equal(windowsWord.features.nativeOle.level, "available");
+assert.equal(windowsWord.features.nativeOle.level, "requiresSetup");
 assert.equal(macWord.features.nativeOle.level, "unsupported");
 assert.equal(officeJs.features.nativeOle.level, "unsupported");
 assert.equal(officeJs.features.officeJs.level, "available");
 assert.equal(wpsWriter.features.nativeOle.level, "unsupported");
 assert.equal(wpsWriter.features.ommlInsert.level, "experimental");
-assert.equal(wayland.features.screenshotWaylandPortal.level, "available");
+assert.equal(wayland.features.screenshotWaylandPortal.level, "experimental");
+assert.equal(unknown.os, "unknown");
+assert.equal(unknown.features.screenshot.level, "unsupported");
+assert.equal(unknown.features.screenshotWaylandPortal.level, "unsupported");
+assert.equal(unknown.features.cuda.level, "unsupported");
+assert.equal(healthyOle.features.nativeOle.level, "available");
+assert.equal(staleOle.features.nativeOle.level, "requiresSetup");
 
 const registry = new FeatureRegistry();
 registry.register("formula.insert", { execute: () => "fallback" }).register(

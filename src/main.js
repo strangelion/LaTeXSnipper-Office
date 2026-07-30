@@ -1777,7 +1777,11 @@ class UIController {
     this.themeManager = new ThemeManager();
     this.settingsManager = new SettingsManager();
     this.formulaSvgRenderer = new FormulaSvgRenderer();
-    this.platformContext = createPlatformContext({ host: "desktop" });
+    this.platformRuntimeState = {};
+    this.platformContext = createPlatformContext({
+      host: "desktop",
+      runtimeState: this.platformRuntimeState,
+    });
     this.platformOperations = new Set();
     this._pendingOfficeEditorRequest = null;
 
@@ -1817,7 +1821,6 @@ class UIController {
           expectedDocumentContext: target.documentContext,
           currentDocumentContext: currentRoute?.target?.documentContext ?? null,
           acceptance,
-          output: latex,
         });
         Logger.info("Recognition auto-insert decision", decision);
         if (!decision.allowed) {
@@ -5800,6 +5803,28 @@ class UIController {
         errorCode: status?.errorCode || null,
         detail,
       };
+      this.platformRuntimeState.nativeOle = {
+        registered:
+          status?.x64Registered === true || status?.x86Registered === true,
+        currentDllMatches: status?.matchesCurrentInstallation === true,
+        available: status?.available === true,
+        bitnessMatch:
+          status?.matchingViewHealthy === true &&
+          status?.bitnessMismatch !== true,
+        handlerVersion:
+          status?.registeredFileVersion ||
+          status?.loadedModuleVersion ||
+          "unknown",
+        geometryContract: status?.geometryContract === true,
+        inkIntegrity: status?.inkIntegrity === true,
+      };
+      this.platformContext = createPlatformContext({
+        os: this.platformContext.os,
+        architecture: this.platformContext.architecture,
+        host: "desktop",
+        runtimeState: this.platformRuntimeState,
+      });
+      this.renderCapabilitySummary();
       const path = status?.inprocServer32
         ? `\n${status.registryView || "?"} 位 InprocServer32：${status.inprocServer32}`
         : "";
@@ -6418,6 +6443,7 @@ class UIController {
           os: this.platformContext.os,
           architecture: this.platformContext.architecture,
           host,
+          runtimeState: this.platformRuntimeState,
         });
         const features = Object.entries(labels)
           .map(([key, label]) => {

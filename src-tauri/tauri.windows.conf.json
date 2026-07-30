@@ -6,6 +6,7 @@
       "resources/NativeOffice/**/*",
       "resources/Obsidian/**/*",
       "resources/Ecosystem/**/*",
+      "resources/RecognitionQuality/**/*",
       "resources/provenance.json"
     ]
   }

@@ -194,6 +194,18 @@ public static class OleFormulaInterop
                 "OLE formula requires valid preview data (Render.Svg, Render.Png with valid Base64+PNG magic, or Presentation.EmfBase64). " +
                 "Ensure the formula is rendered before OLE insertion.");
         }
+        if ((hasSvg || hasPng) &&
+            (payload.Render == null ||
+             float.IsNaN(payload.Render.WidthPt) ||
+             float.IsInfinity(payload.Render.WidthPt) ||
+             float.IsNaN(payload.Render.HeightPt) ||
+             float.IsInfinity(payload.Render.HeightPt) ||
+             payload.Render.WidthPt <= 0 ||
+             payload.Render.HeightPt <= 0))
+        {
+            throw new InvalidOperationException(
+                "OLE formula render widthPt/heightPt must be positive finite values.");
+        }
 
         return payload;
     }

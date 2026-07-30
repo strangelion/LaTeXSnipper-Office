@@ -73,6 +73,7 @@
     <Compile Include="IMathInsertionAdapter.cs" />
     <Compile Include="SourceHash.cs" />
     <Compile Include="MathInsertionTargets.cs" />
+    <Compile Include="Math\OmmlValidator.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

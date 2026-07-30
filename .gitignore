@@ -40,6 +40,7 @@ apps/native-office/**/LaTeXSnipper.NativeOffice.Excel/
 apps/native-office/**/LaTeXSnipper.NativeOffice.PowerPoint/
 apps/native-office/**/LaTeXSnipper.NativeOffice.Word/
 apps/native-office/Installer/output/
+apps/native-office/Installer/WiX/HostComponents.wxi
 /output/*.exe
 /output/*.log
 /output/prerequisites/

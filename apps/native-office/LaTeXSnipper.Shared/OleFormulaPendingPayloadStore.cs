@@ -41,8 +41,30 @@ public static class OleFormulaPendingPayloadStore
 
     public static PendingPayloadLease Save(FormulaPayload payload)
     {
+        return SaveForProcess(payload, Process.GetCurrentProcess().Id);
+    }
+
+    /// <summary>
+    /// Save a payload for an out-of-process Office host used by real-host
+    /// acceptance tests. The target must be alive in the caller's session.
+    /// Production add-ins use <see cref="Save(FormulaPayload)"/> because the
+    /// managed add-in and native OLE handler share the Office process.
+    /// </summary>
+    public static PendingPayloadLease SaveForProcess(
+        FormulaPayload payload,
+        int targetProcessId)
+    {
         if (payload == null) throw new ArgumentNullException(nameof(payload));
-        int pid = Process.GetCurrentProcess().Id;
+        if (targetProcessId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(targetProcessId));
+        using (Process target = Process.GetProcessById(targetProcessId))
+        using (Process current = Process.GetCurrentProcess())
+        {
+            if (target.HasExited || target.SessionId != current.SessionId)
+                throw new InvalidOperationException(
+                    "OLE payload target must be alive in the current logon session.");
+        }
+        int pid = targetProcessId;
         uint tid = GetCurrentThreadId();
         var mutex = new Mutex(false, $@"Local\LaTeXSnipper.OlePayload.{pid}");
         bool ownsMutex = false;

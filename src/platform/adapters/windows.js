@@ -2,8 +2,11 @@ import { capability } from "../capabilities.js";
 
 export function windowsCapabilities() {
   return {
-    screenshot: capability("available"),
-    screenshotMultiMonitor: capability("available"),
+    screenshot: capability("available", {
+      backend: "xcap",
+      message: "xcap Windows capture backend",
+    }),
+    screenshotMultiMonitor: capability("available", { backend: "xcap" }),
     directMl: capability("requiresSetup", {
       code: "DIRECTML_CORE_VALIDATION_REQUIRED",
       message:

@@ -2,6 +2,7 @@ import { mergeFeatureCapabilities } from "./capabilities.js";
 import { windowsCapabilities } from "./adapters/windows.js";
 import { macosCapabilities } from "./adapters/macos.js";
 import { linuxCapabilities } from "./adapters/linux.js";
+import { unknownCapabilities } from "./adapters/unknown.js";
 import { desktopCapabilities } from "./adapters/desktop.js";
 import { wordCapabilities } from "./adapters/word.js";
 import { excelCapabilities } from "./adapters/excel.js";
@@ -27,7 +28,8 @@ export function normalizeOs(value) {
   const os = String(value || "").toLowerCase();
   if (os.includes("win")) return "windows";
   if (os.includes("mac") || os.includes("darwin")) return "macos";
-  return "linux";
+  if (os.includes("linux")) return "linux";
+  return "unknown";
 }
 
 export function normalizeHost(value) {
@@ -39,7 +41,7 @@ export function detectBrowserOs() {
   return normalizeOs(
     globalThis.navigator?.userAgentData?.platform ||
       globalThis.navigator?.platform ||
-      "linux",
+      "unknown",
   );
 }
 
@@ -54,16 +56,19 @@ export function createPlatformContext(options = {}) {
       ? windowsCapabilities()
       : os === "macos"
         ? macosCapabilities()
-        : linuxCapabilities(options);
+        : os === "linux"
+          ? linuxCapabilities(options)
+          : unknownCapabilities();
+  const runtimeState = options.runtimeState || {};
   const hostPatch =
     host === "desktop" || host === "browser"
-      ? desktopCapabilities()
+      ? desktopCapabilities({ os })
       : host === "word"
-        ? wordCapabilities({ os })
+        ? wordCapabilities({ os, runtimeState })
         : host === "excel"
-          ? excelCapabilities({ os })
+          ? excelCapabilities({ os, runtimeState })
           : host === "powerpoint"
-            ? powerpointCapabilities({ os })
+            ? powerpointCapabilities({ os, runtimeState })
             : host === "officejs"
               ? officeJsCapabilities()
               : host.startsWith("wps-")
@@ -71,12 +76,17 @@ export function createPlatformContext(options = {}) {
                 : host === "obsidian"
                   ? obsidianCapabilities()
                   : {};
+  const safeHostPatch =
+    os === "unknown" && !["desktop", "browser", "officejs"].includes(host)
+      ? {}
+      : hostPatch;
 
   return Object.freeze({
     schemaVersion: 1,
     os,
     host,
     architecture,
-    features: Object.freeze(mergeFeatureCapabilities(osPatch, hostPatch)),
+    runtimeState: Object.freeze({ ...runtimeState }),
+    features: Object.freeze(mergeFeatureCapabilities(osPatch, safeHostPatch)),
   });
 }

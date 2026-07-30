@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using LaTeXSnipper.NativeOffice.Shared;
+using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 using InteropWord = Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word.Host
@@ -175,8 +176,21 @@ namespace LaTeXSnipper.Word.Host
                 omml.IndexOf("<pkg:package", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 omml.IndexOf("Relationship", StringComparison.OrdinalIgnoreCase) >= 0)
                 throw new InvalidOperationException("Formula OMML contains forbidden active/package content.");
+            var preInsertValidation = OmmlValidator.Validate(omml);
+            if (!preInsertValidation.IsValid)
+                throw new InvalidOperationException(
+                    "Formula OMML structure is invalid: " + preInsertValidation.Issues[0].Code);
             int start = cursor.Start;
             cursor.InsertXML(omml);
+            var readBackValidation =
+                OmmlValidator.ValidateHostReadBack(omml, cursor.WordOpenXML);
+            if (!readBackValidation.IsValid)
+            {
+                cursor.Delete();
+                throw new InvalidOperationException(
+                    "Formula OMML host read-back is invalid: " +
+                    readBackValidation.Issues[0].Code);
+            }
             cursor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
             if (display)
             {

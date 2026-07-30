@@ -15,6 +15,8 @@ pub struct RecognitionPaths {
     pub models: PathBuf,
     /// Runtime shared libraries (ONNX Runtime, Paddle, etc.)
     pub runtimes: PathBuf,
+    /// Trusted, release-owned Core quality baselines
+    pub quality_baselines: PathBuf,
     /// Temporary cache directory
     pub cache: PathBuf,
     /// Per-job working directories
@@ -40,6 +42,7 @@ impl RecognitionPaths {
         let paths = Self {
             models: root.join("models"),
             runtimes: root.join("runtimes"),
+            quality_baselines: root.join("quality").join("baselines"),
             cache: root.join("cache"),
             jobs: root.join("jobs"),
             logs: root.join("logs"),
@@ -58,6 +61,7 @@ impl RecognitionPaths {
             &self.root,
             &self.models,
             &self.runtimes,
+            &self.quality_baselines,
             &self.cache,
             &self.jobs,
             &self.logs,

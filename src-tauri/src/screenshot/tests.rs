@@ -1,8 +1,8 @@
 use super::{
     commands::{overlay_ready_timeout, parse_window_label, preview_dimensions, validate_selection},
     lease::{
-        cleanup_job_root, JobOwner, ScreenshotJobLeaseGuard, SCREENSHOT_JOB_MAX_BYTES,
-        SCREENSHOT_JOB_TTL,
+        cleanup_job_root, JobOwner, ScreenshotJobLeaseGuard, ScreenshotJobState,
+        SCREENSHOT_IN_USE_STALE_TTL, SCREENSHOT_JOB_MAX_BYTES, SCREENSHOT_JOB_TTL,
     },
     state::ScreenshotState,
 };
@@ -135,8 +135,9 @@ fn screenshot_job_lease_cleanup_removes_expired_jobs() {
         job_id: "expired".to_string(),
         path: source,
         created_at_unix_ms: 1,
+        last_transition_at_unix_ms: 1,
         owner: JobOwner::Desktop,
-        consumed: false,
+        state: ScreenshotJobState::Created,
     };
     std::fs::write(
         job_dir.join("lease.json"),
@@ -168,7 +169,7 @@ fn job_registration_records_office_owner() {
         )
         .expect("lease should deserialize");
         assert_eq!(lease.owner, JobOwner::Office);
-        assert!(!lease.consumed);
+        assert_eq!(lease.state, ScreenshotJobState::Created);
     }
     assert!(!job_dir.exists(), "dropping the guard must remove the job");
 }
@@ -191,8 +192,9 @@ fn screenshot_job_lease_cleanup_enforces_oldest_first_size_cap() {
             job_id: job_id.to_string(),
             path: source,
             created_at_unix_ms,
+            last_transition_at_unix_ms: created_at_unix_ms,
             owner: JobOwner::Desktop,
-            consumed: false,
+            state: ScreenshotJobState::Created,
         };
         std::fs::write(
             job_dir.join("lease.json"),
@@ -206,6 +208,74 @@ fn screenshot_job_lease_cleanup_enforces_oldest_first_size_cap() {
     assert!(report.retained_bytes <= SCREENSHOT_JOB_MAX_BYTES);
     assert!(!root.join("older").exists());
     assert!(root.join("newer").exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn screenshot_job_cleanup_protects_active_in_use_job() {
+    let root = std::env::temp_dir().join(format!(
+        "latexsnipper-lease-active-test-{:032x}",
+        rand::random::<u128>()
+    ));
+    let job_dir = root.join("active");
+    std::fs::create_dir_all(&job_dir).unwrap();
+    let source = job_dir.join("source.png");
+    std::fs::write(&source, [1u8; 32]).unwrap();
+    let transition_at = SCREENSHOT_JOB_TTL.as_millis() as u64;
+    let lease = super::lease::ScreenshotJobLease {
+        job_id: "active".to_string(),
+        path: source,
+        created_at_unix_ms: 1,
+        last_transition_at_unix_ms: transition_at,
+        owner: JobOwner::Desktop,
+        state: ScreenshotJobState::InUse,
+    };
+    std::fs::write(
+        job_dir.join("lease.json"),
+        serde_json::to_vec(&lease).unwrap(),
+    )
+    .unwrap();
+    let now = SystemTime::UNIX_EPOCH + SCREENSHOT_JOB_TTL + SCREENSHOT_IN_USE_STALE_TTL
+        - Duration::from_secs(1);
+    let report = cleanup_job_root(&root, now).unwrap();
+    assert_eq!(report.removed_jobs, 0);
+    assert!(job_dir.exists(), "active InUse job must be protected");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn screenshot_job_cleanup_recovers_stale_in_use_and_terminal_jobs() {
+    let root = std::env::temp_dir().join(format!(
+        "latexsnipper-lease-recovery-test-{:032x}",
+        rand::random::<u128>()
+    ));
+    for (job_id, state) in [
+        ("stale", ScreenshotJobState::InUse),
+        ("done", ScreenshotJobState::Completed),
+    ] {
+        let job_dir = root.join(job_id);
+        std::fs::create_dir_all(&job_dir).unwrap();
+        let source = job_dir.join("source.png");
+        std::fs::write(&source, [1u8; 32]).unwrap();
+        let lease = super::lease::ScreenshotJobLease {
+            job_id: job_id.to_string(),
+            path: source,
+            created_at_unix_ms: 1,
+            last_transition_at_unix_ms: 1,
+            owner: JobOwner::Office,
+            state,
+        };
+        std::fs::write(
+            job_dir.join("lease.json"),
+            serde_json::to_vec(&lease).unwrap(),
+        )
+        .unwrap();
+    }
+    let now = SystemTime::UNIX_EPOCH + SCREENSHOT_IN_USE_STALE_TTL + Duration::from_secs(1);
+    let report = cleanup_job_root(&root, now).unwrap();
+    assert_eq!(report.removed_jobs, 2);
+    assert!(!root.join("stale").exists());
+    assert!(!root.join("done").exists());
     let _ = std::fs::remove_dir_all(root);
 }
 

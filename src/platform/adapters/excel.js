@@ -1,13 +1,9 @@
 import { capability, unsupported } from "../capabilities.js";
+import { nativeOleCapability } from "./native-ole.js";
 
-export function excelCapabilities({ os } = {}) {
+export function excelCapabilities({ os, runtimeState } = {}) {
   return {
-    nativeOle:
-      os === "windows"
-        ? capability("available", {
-            message: "Signed x86/x64 COM handler",
-          })
-        : unsupported("Native COM/OLE is Windows-only."),
+    nativeOle: nativeOleCapability({ os, runtimeState }),
     ommlInsert: unsupported("Excel formulas are inserted as anchored shapes."),
     officeSelectionRead: capability("available", {
       message: "Cell range and selected-shape context",

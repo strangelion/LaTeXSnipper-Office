@@ -189,6 +189,11 @@ pub struct OleStatus {
     pub matches_current_installation: Option<bool>,
     pub loaded_module_path: Option<String>,
     pub loaded_module_version: Option<String>,
+    /// The active handler passed the runtime extent/geometry automation contract.
+    pub geometry_contract: bool,
+    /// The active handler is the trusted release artifact whose ink-integrity
+    /// fixtures passed, rather than an old or mismatched DLL.
+    pub ink_integrity: bool,
 }
 
 impl PlatformIntegrationResult {
@@ -5304,9 +5309,12 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         (Some(path), None) => Some(path),
         _ => None,
     };
+    let geometry_contract = activation_result;
+    let ink_integrity = activation_result && matches_current_installation == Some(true);
+    let capability_available = final_available && geometry_contract && ink_integrity;
 
     crate::commands::native_office::OleStatus {
-        available: final_available,
+        available: capability_available,
         bitness_mismatch: !matching_view_healthy,
         x64_registered: registry_64,
         x86_registered: registry_32,
@@ -5336,6 +5344,8 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         // report them instead of guessing.
         loaded_module_path: None,
         loaded_module_version: None,
+        geometry_contract,
+        ink_integrity,
     }
 }
 
