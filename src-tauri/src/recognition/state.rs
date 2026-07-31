@@ -46,6 +46,8 @@ pub struct RecognitionService {
     models_dir: PathBuf,
     /// Explicit trusted quality baseline directory.
     quality_baselines_dir: PathBuf,
+    /// Versioned provider smoke fixture deployed from the embedded Core asset.
+    provider_smoke_fixture: PathBuf,
 }
 
 #[cfg(feature = "recognition")]
@@ -85,7 +87,8 @@ impl RecognitionService {
         use latexsnipper_engine::{default_runtime_registry, EngineConfig};
 
         let mut config = EngineConfig::with_models_dir(self.models_dir.clone())
-            .with_quality_baselines_dir(self.quality_baselines_dir.clone());
+            .with_quality_baselines_dir(self.quality_baselines_dir.clone())
+            .with_provider_smoke_fixture(self.provider_smoke_fixture.clone());
 
         if let Some(ref overrides) = request.model_overrides {
             if let Some(ref v) = overrides.formula_det {
@@ -166,6 +169,17 @@ impl RecognitionState {
         Ok(service.engine.readiness())
     }
 
+    pub async fn validate_provider(
+        &self,
+        request: latexsnipper_api_types::ProviderValidationRequest,
+    ) -> Result<latexsnipper_api_types::ProviderValidationReport, String> {
+        let service = self.service().await?;
+        tokio::task::spawn_blocking(move || service.engine.validate_provider(request))
+            .await
+            .map_err(|error| format!("PROVIDER_VALIDATION_TASK_FAILED: {error}"))?
+            .map_err(|error| format!("PROVIDER_VALIDATION_FAILED: {error}"))
+    }
+
     /// Get (or lazily create) the recognition service.
     pub async fn service(&self) -> Result<Arc<RecognitionService>, String> {
         {
@@ -199,8 +213,10 @@ impl RecognitionState {
 
         let models_dir = self.paths.models.clone();
         let quality_baselines_dir = self.paths.quality_baselines.clone();
+        let provider_smoke_fixture = self.paths.provider_smoke_fixture.clone();
         let config = EngineConfig::with_models_dir(models_dir.clone())
-            .with_quality_baselines_dir(quality_baselines_dir.clone());
+            .with_quality_baselines_dir(quality_baselines_dir.clone())
+            .with_provider_smoke_fixture(provider_smoke_fixture.clone());
         let registry = default_runtime_registry(&models_dir)
             .map_err(|e| format!("Failed to create runtime registry: {e}"))?;
         let engine = latexsnipper_engine::SnipperEngine::with_runtime_registry(config, registry)
@@ -210,6 +226,7 @@ impl RecognitionState {
             engine,
             models_dir,
             quality_baselines_dir,
+            provider_smoke_fixture,
         })
     }
 }

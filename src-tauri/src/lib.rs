@@ -200,6 +200,8 @@ pub fn run() {
                     error
                 ),
             }
+            recognition::provider_smoke::deploy_embedded(&recognition_paths.provider_smoke_fixture)
+                .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
             app.manage(screenshot::state::ScreenshotState::default());
 
@@ -357,6 +359,7 @@ pub fn run() {
             commands::ocr::ocr_recognize,
             commands::recognition_cmd::recognition_get_capabilities,
             commands::recognition_cmd::recognition_get_readiness,
+            commands::recognition_cmd::recognition_validate_provider,
             commands::recognition_cmd::recognition_start,
             commands::recognition_cmd::recognition_get_job,
             commands::recognition_cmd::recognition_list_jobs,

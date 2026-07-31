@@ -53,6 +53,22 @@ pub async fn recognition_get_readiness(
     state.core_readiness().await
 }
 
+#[cfg(feature = "recognition")]
+#[tauri::command]
+pub async fn recognition_validate_provider(
+    state: State<'_, RecognitionState>,
+    provider: String,
+    policy: latexsnipper_api_types::ProviderValidationPolicy,
+) -> Result<latexsnipper_api_types::ProviderValidationReport, String> {
+    state
+        .validate_provider(latexsnipper_api_types::ProviderValidationRequest {
+            provider,
+            policy,
+            key: None,
+        })
+        .await
+}
+
 #[cfg(not(feature = "recognition"))]
 #[tauri::command]
 pub async fn recognition_get_readiness(
@@ -62,6 +78,16 @@ pub async fn recognition_get_readiness(
         "RECOGNITION_FEATURE_NOT_COMPILED: install a desktop-full build with Core recognition"
             .to_string(),
     )
+}
+
+#[cfg(not(feature = "recognition"))]
+#[tauri::command]
+pub async fn recognition_validate_provider(
+    _state: State<'_, RecognitionState>,
+    _provider: String,
+    _policy: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    Err("RECOGNITION_FEATURE_NOT_COMPILED: provider validation requires desktop-full".to_string())
 }
 
 /// Start a new recognition job.

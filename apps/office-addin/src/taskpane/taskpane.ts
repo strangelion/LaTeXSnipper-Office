@@ -101,7 +101,7 @@ Office.onReady((info) => {
 });
 
 async function initializeHost(host: string): Promise<void> {
-  setStatus("Checking Office capabilities...");
+  setStatus("正在检查 Office 宿主能力…");
   const result = await exec({ type: "GetHostCapabilities", payload: {} });
   capabilities = result.ok ? (result.data as CapabilityResult) : null;
   applyCapabilities();
@@ -109,7 +109,7 @@ async function initializeHost(host: string): Promise<void> {
   window.setInterval(() => void updateBridgeState(host), 10000);
   window.setInterval(() => void pollActions(), 1000);
   setStatus(
-    capabilities ? "Ready" : result.error || "Unsupported Office host",
+    capabilities ? "已就绪" : result.error || "不支持当前 Office 宿主",
     capabilities ? "success" : "error",
   );
 }
@@ -131,7 +131,7 @@ async function updateBridgeState(host: string): Promise<void> {
   } catch {
     connected = false;
   }
-  setText("bridgeStatus", `Bridge: ${connected ? "connected" : "offline"}`);
+  setText("bridgeStatus", `桥接服务：${connected ? "已连接" : "离线"}`);
 }
 
 function applyCapabilities(): void {
@@ -153,7 +153,7 @@ function applyCapabilities(): void {
       busy || !capabilities?.equationReference || !selectedFormulaId;
   setText(
     "capabilityStatus",
-    capabilities ? `Host: ${capabilities.host}` : "Host: unsupported",
+    capabilities ? `宿主：${capabilities.host}` : "宿主：不支持",
   );
   updateNumberingControls();
 }
@@ -192,18 +192,18 @@ function updateNumberingPreview(): void {
         : "(1)";
   setText(
     "numberingPreview",
-    getInsertMode() === "display-numbered" ? `Numbering: ${preview}` : "",
+    getInsertMode() === "display-numbered" ? `编号预览：${preview}` : "",
   );
 }
 
 async function handleLoad(): Promise<void> {
   if (busy) return;
   setBusy(true);
-  setStatus("Loading selected formula...");
+  setStatus("正在加载选中的公式…");
   try {
     const result = await exec({ type: "GetSelectedFormula", payload: {} });
     if (!result.ok || !result.data) {
-      setStatus(result.error || "No supported formula selected", "error");
+      setStatus(result.error || "当前选区没有受支持的公式", "error");
       return;
     }
     selectedFormulaId = result.data.formulaId;
@@ -219,7 +219,7 @@ async function handleLoad(): Promise<void> {
             ? "inline"
             : "display";
     updateNumberingControls();
-    setStatus(`Loaded formula (${result.data.source})`, "success");
+    setStatus(`已加载公式（${result.data.source}）`, "success");
   } finally {
     setBusy(false);
   }
@@ -228,12 +228,12 @@ async function handleLoad(): Promise<void> {
 async function handleInsert(): Promise<void> {
   const latex = getEditorContent();
   if (!latex) {
-    setStatus("Enter a LaTeX formula first", "error");
+    setStatus("请先输入 LaTeX 公式", "error");
     return;
   }
   if (busy) return;
   setBusy(true);
-  setStatus("Inserting formula...");
+  setStatus("正在插入公式…");
   try {
     const result = await exec({
       type: "InsertFormula",
@@ -241,8 +241,8 @@ async function handleInsert(): Promise<void> {
     });
     if (result.ok) {
       selectedFormulaId = result.data?.formulaId;
-      setStatus("Inserted", "success");
-    } else setStatus(`Insert failed: ${result.error}`, "error");
+      setStatus("公式已插入", "success");
+    } else setStatus(`插入失败：${result.error}`, "error");
   } finally {
     setBusy(false);
   }
@@ -251,12 +251,12 @@ async function handleInsert(): Promise<void> {
 async function handleUpdate(): Promise<void> {
   const latex = getEditorContent();
   if (!latex) {
-    setStatus("Enter a LaTeX formula first", "error");
+    setStatus("请先输入 LaTeX 公式", "error");
     return;
   }
   if (busy) return;
   setBusy(true);
-  setStatus("Updating selected formula...");
+  setStatus("正在更新选中的公式…");
   try {
     const result = await exec({
       type: "ReplaceSelectedFormula",
@@ -264,8 +264,8 @@ async function handleUpdate(): Promise<void> {
     });
     if (result.ok) {
       selectedFormulaId = result.data?.formulaId;
-      setStatus("Updated in place", "success");
-    } else setStatus(`Update failed: ${result.error}`, "error");
+      setStatus("公式已原位更新", "success");
+    } else setStatus(`更新失败：${result.error}`, "error");
   } finally {
     setBusy(false);
   }
@@ -274,13 +274,13 @@ async function handleUpdate(): Promise<void> {
 async function handleDelete(): Promise<void> {
   if (busy) return;
   setBusy(true);
-  setStatus("Deleting formula...");
+  setStatus("正在删除公式…");
   try {
     const result = await exec({ type: "DeleteSelectedFormula", payload: {} });
     if (result.ok) {
       selectedFormulaId = undefined;
-      setStatus("Deleted formula", "success");
-    } else setStatus(`Delete failed: ${result.error}`, "error");
+      setStatus("公式已删除", "success");
+    } else setStatus(`删除失败：${result.error}`, "error");
   } finally {
     setBusy(false);
   }
@@ -288,24 +288,19 @@ async function handleDelete(): Promise<void> {
 
 async function handleReference(): Promise<void> {
   if (!selectedFormulaId) {
-    setStatus(
-      "Load a numbered formula before inserting its reference",
-      "error",
-    );
+    setStatus("请先加载一个编号公式，再插入其交叉引用", "error");
     return;
   }
   if (busy) return;
   setBusy(true);
-  setStatus("Inserting equation reference...");
+  setStatus("正在插入公式交叉引用…");
   try {
     const result = await exec({
       type: "InsertEquationReference",
       payload: { formulaId: selectedFormulaId },
     });
     setStatus(
-      result.ok
-        ? "Inserted equation reference"
-        : `Reference failed: ${result.error}`,
+      result.ok ? "公式交叉引用已插入" : `插入交叉引用失败：${result.error}`,
       result.ok ? "success" : "error",
     );
   } finally {
@@ -400,7 +395,7 @@ async function executeBridgeAction(action: any): Promise<BridgeActionResult> {
       },
     });
     setStatus(
-      result.ok ? "Auto-inserted" : `Auto-insert failed: ${result.error}`,
+      result.ok ? "公式已自动插入" : `自动插入失败：${result.error}`,
       result.ok ? "success" : "error",
     );
     return {
@@ -410,7 +405,7 @@ async function executeBridgeAction(action: any): Promise<BridgeActionResult> {
   }
   return {
     success: false,
-    error: `Unsupported action: ${action.type}`,
+    error: `不支持的操作：${action.type}`,
   };
 }
 

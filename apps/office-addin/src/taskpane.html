@@ -1,125 +1,229 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://appsforoffice.microsoft.com; style-src 'unsafe-inline'; connect-src 'self' https://localhost:19876 https://127.0.0.1:19876; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>LaTeXSnipper</title>
-  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js" type="text/javascript"></script>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f6f7f9;
-      color: #202124;
-      font-size: 14px;
-    }
-    #app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      padding: 12px;
-      gap: 10px;
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      min-height: 24px;
-    }
-    .title {
-      font-weight: 650;
-    }
-    #hostLabel {
-      color: #5f6368;
-      font-size: 12px;
-    }
-    .toolbar {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-    button, select {
-      min-height: 32px;
-      border: 1px solid #c8ccd2;
-      background: #fff;
-      border-radius: 4px;
-      color: #202124;
-      font: inherit;
-    }
-    button {
-      cursor: pointer;
-    }
-    button:hover:not(:disabled) {
-      background: #eef3f8;
-    }
-    button:disabled, select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
-    button.primary {
-      background: #0f6cbd;
-      border-color: #0f6cbd;
-      color: #fff;
-    }
-    button.primary:hover {
-      background: #115ea3;
-    }
-    textarea {
-      flex: 1;
-      width: 100%;
-      min-height: 180px;
-      padding: 10px;
-      border: 1px solid #c8ccd2;
-      border-radius: 4px;
-      font-family: Consolas, "Courier New", monospace;
-      font-size: 14px;
-      resize: none;
-      background: #fff;
-    }
-    .field { display: grid; gap: 4px; }
-    .field label { color: #5f6368; font-size: 12px; }
-    input { min-height: 32px; border: 1px solid #c8ccd2; border-radius: 4px; padding: 0 8px; font: inherit; }
-    .connection { display: flex; gap: 8px; flex-wrap: wrap; color: #5f6368; font-size: 12px; }
-    .status {
-      min-height: 24px;
-      padding: 5px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #0f6cbd;
-    }
-    .status.error {
-      color: #b42318;
-      background: #fef3f2;
-    }
-    .status.success {
-      color: #027a48;
-      background: #ecfdf3;
-    }
-  </style>
-</head>
-<body>
-  <div id="app">
-    <div class="header">
-      <div class="title">LaTeXSnipper</div>
-      <div id="hostLabel">Office</div>
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' https://appsforoffice.microsoft.com; style-src 'unsafe-inline'; connect-src 'self' https://localhost:19876 https://127.0.0.1:19876; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>LaTeXSnipper</title>
+    <script
+      src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"
+      type="text/javascript"
+    ></script>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f6f7f9;
+        color: #202124;
+        font-size: 14px;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        padding: 12px;
+        gap: 10px;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 24px;
+      }
+      .title {
+        font-weight: 650;
+      }
+      #hostLabel {
+        color: #5f6368;
+        font-size: 12px;
+      }
+      .toolbar {
+        display: grid;
+        grid-template-areas:
+          "load insert"
+          "update delete"
+          "reference reference";
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      #loadBtn {
+        grid-area: load;
+      }
+      #insertBtn {
+        grid-area: insert;
+      }
+      #updateBtn {
+        grid-area: update;
+      }
+      #deleteBtn {
+        grid-area: delete;
+      }
+      #referenceBtn {
+        grid-area: reference;
+      }
+      button,
+      select {
+        min-height: 32px;
+        min-width: 0;
+        padding: 6px 10px;
+        border: 1px solid #c8ccd2;
+        background: #fff;
+        border-radius: 4px;
+        color: #202124;
+        -webkit-text-fill-color: currentColor;
+        font: inherit;
+      }
+      button {
+        appearance: none;
+        cursor: pointer;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+      button:hover:not(:disabled) {
+        background: #eef3f8;
+      }
+      button:disabled,
+      select:disabled,
+      input:disabled {
+        opacity: 0.62;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: #0f6cbd;
+        border-color: #0f6cbd;
+        color: #fff;
+      }
+      button.primary:hover {
+        background: #115ea3;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        outline: 2px solid #0f6cbd;
+        outline-offset: 2px;
+      }
+      textarea {
+        flex: 1;
+        width: 100%;
+        min-height: 180px;
+        padding: 10px;
+        border: 1px solid #c8ccd2;
+        border-radius: 4px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 14px;
+        resize: none;
+        background: #fff;
+      }
+      .field {
+        display: grid;
+        gap: 4px;
+      }
+      .field label {
+        color: #5f6368;
+        font-size: 12px;
+      }
+      input {
+        min-height: 32px;
+        border: 1px solid #c8ccd2;
+        border-radius: 4px;
+        padding: 0 8px;
+        font: inherit;
+      }
+      .connection {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        color: #5f6368;
+        font-size: 12px;
+      }
+      .status {
+        min-height: 24px;
+        padding: 5px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        color: #0f6cbd;
+      }
+      .status.error {
+        color: #b42318;
+        background: #fef3f2;
+      }
+      .status.success {
+        color: #027a48;
+        background: #ecfdf3;
+      }
+      @media (max-width: 270px) {
+        .toolbar {
+          grid-template-areas: "load" "insert" "update" "delete" "reference";
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="header">
+        <div class="title">LaTeXSnipper</div>
+        <div id="hostLabel">Office</div>
+      </div>
+      <div class="toolbar">
+        <button id="loadBtn" title="加载当前选中的公式">加载选中</button>
+        <button id="insertBtn" class="primary" title="在当前选区插入公式">
+          插入公式
+        </button>
+        <button id="updateBtn" title="原位更新当前选中的公式">更新公式</button>
+        <button id="deleteBtn" title="删除当前选中的公式对象">删除公式</button>
+        <button
+          id="referenceBtn"
+          title="为最近加载的编号公式插入 Word 交叉引用"
+        >
+          插入交叉引用
+        </button>
+      </div>
+      <div class="field">
+        <label for="modeSelect">公式模式</label
+        ><select id="modeSelect" title="公式模式">
+          <option value="inline">行内公式</option>
+          <option value="display" selected>行间公式</option>
+          <option value="numbered">编号公式</option>
+        </select>
+      </div>
+      <div class="field" id="layoutField">
+        <label for="layoutProfile">编号方案</label
+        ><select id="layoutProfile">
+          <option value="document-default">文档默认（全局）</option>
+          <option value="chapter-dot">章节点号</option>
+          <option value="chapter-hyphen">章节连字符</option>
+        </select>
+      </div>
+      <div class="field" id="labelField">
+        <label for="equationLabel">公式标签（可选）</label
+        ><input
+          id="equationLabel"
+          maxlength="80"
+          placeholder="energy_identity"
+        />
+      </div>
+      <div class="connection">
+        <span id="capabilityStatus">宿主能力：正在检查</span
+        ><span id="bridgeStatus">桥接服务：正在检查</span
+        ><span id="numberingPreview"></span>
+      </div>
+      <textarea
+        id="editor"
+        spellcheck="false"
+        placeholder="输入 LaTeX，例如：\frac{a}{b} + \sum_{i=0}^{n} x_i"
+      ></textarea>
+      <div id="status" class="status info">正在启动…</div>
     </div>
-    <div class="toolbar">
-      <button id="loadBtn" title="Load the current selection">Load</button>
-      <button id="insertBtn" class="primary" title="Insert into the current selection">Insert</button>
-      <button id="updateBtn" title="Update the selected formula in place">Update</button>
-      <button id="deleteBtn" title="Delete the selected formula object">Delete</button>
-      <button id="referenceBtn" title="Insert a Word REF field for the last loaded numbered formula">Insert reference</button>
-    </div>
-    <div class="field"><label for="modeSelect">Formula mode</label><select id="modeSelect" title="Formula mode">
-      <option value="inline">Inline</option><option value="display" selected>Display</option><option value="numbered">Numbered</option>
-    </select></div>
-    <div class="field" id="layoutField"><label for="layoutProfile">Equation layout</label><select id="layoutProfile">
-      <option value="document-default">Document default (global)</option><option value="chapter-dot">Chapter dot</option><option value="chapter-hyphen">Chapter hyphen</option>
-    </select></div>
-    <div class="field" id="labelField"><label for="equationLabel">Equation label (optional)</label><input id="equationLabel" maxlength="80" placeholder="energy_identity"></div>
-    <div class="connection"><span id="capabilityStatus">Capabilities: checking</span><span id="bridgeStatus">Bridge: checking</span><span id="numberingPreview"></span></div>
-    <textarea id="editor" spellcheck="false" placeholder="Enter LaTeX, for example: \frac{a}{b} + \sum_{i=0}^{n} x_i"></textarea>
-    <div id="status" class="status info">Starting...</div>
-  </div>
-  <script type="module" src="./taskpane/taskpane.ts"></script>
-</body>
+    <script type="module" src="./taskpane/taskpane.ts"></script>
+  </body>
 </html>

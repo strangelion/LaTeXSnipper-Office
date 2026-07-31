@@ -134,3 +134,29 @@ test("Native Office can re-read an identified formula without relying on selecti
   assert.match(session, /"native-office-formula-snapshot"/);
   assert.match(command, /native_office_read_formula_by_id/);
 });
+
+test("Word image storage honors inline, display, and numbered insertion modes", () => {
+  const wordAdapter = read(
+    "apps",
+    "native-office",
+    "LaTeXSnipper.Word",
+    "Host",
+    "WordAdapter.cs",
+  );
+
+  assert.match(
+    wordAdapter,
+    /InsertImageObject\(doc,\s*range,\s*payload,\s*mode\)/,
+  );
+  assert.match(
+    wordAdapter,
+    /mode != InsertMode\.Inline[\s\S]*PrepareNumberedOleInsertionRange/,
+  );
+  assert.match(
+    wordAdapter,
+    /mode == InsertMode\.Display[\s\S]*wdAlignParagraphCenter/,
+  );
+  assert.match(wordAdapter, /SEQ LaTeXSnipperEquation/);
+  assert.match(wordAdapter, /closingRange\.Text = "\)"/);
+  assert.match(wordAdapter, /IMAGE_NUMBERING_FAILED/);
+});

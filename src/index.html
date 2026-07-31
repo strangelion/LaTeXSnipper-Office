@@ -144,7 +144,7 @@
                       />
                       全局 `(1)`</label
                     >
-                    <label title="Native Word 当前仅支持全局序列"
+                    <label title="原生 Word 当前仅支持全局序列"
                       ><input
                         type="radio"
                         name="equationNumberingScheme"
@@ -153,7 +153,7 @@
                       />
                       章节点号 `(2.1)`</label
                     >
-                    <label title="Native Word 当前仅支持全局序列"
+                    <label title="原生 Word 当前仅支持全局序列"
                       ><input
                         type="radio"
                         name="equationNumberingScheme"
@@ -166,11 +166,11 @@
                       id="equationNumberingLabel"
                       class="numbering-disabled-option"
                       type="text"
-                      placeholder="标签/书签（当前 Native Word 暂不支持）"
+                      placeholder="标签/书签（当前原生 Word 暂不支持）"
                       disabled
                     />
                     <small
-                      >Native Word
+                      >原生 Word
                       当前仅支持全局编号；章节方案会在协议实现后开放。</small
                     >
                   </div>
@@ -187,13 +187,13 @@
                         TeX
                       </div>
                       <div class="custom-select-option" data-value="roman">
-                        Roman
+                        正体
                       </div>
                       <div class="custom-select-option" data-value="bold">
-                        Bold
+                        粗体
                       </div>
                       <div class="custom-select-option" data-value="italic">
-                        Italic
+                        斜体
                       </div>
                     </div>
                   </div>
@@ -310,7 +310,7 @@
                       Obsidian
                     </div>
                     <div class="custom-select-option" data-value="browser">
-                      Browser
+                      浏览器
                     </div>
                     <div class="custom-select-option" data-value="wps">WPS</div>
                   </div>
@@ -1139,6 +1139,12 @@
               <div class="settings-row">
                 <span class="settings-label">运行时</span>
                 <span id="recognitionRuntimeStatus">检测中...</span>
+                <select id="providerValidationPolicy">
+                  <option value="probeOnly">仅探测</option>
+                  <option value="createSession">创建会话</option>
+                  <option value="smokeInference" selected>Smoke 推理</option>
+                  <option value="benchmark">基准测量</option>
+                </select>
                 <button id="probeRuntimeBtn" class="btn">重新探测</button>
               </div>
               <div class="settings-row">
@@ -1486,7 +1492,7 @@
       class="browser-imports-button"
       type="button"
     >
-      Browser Imports <span id="browserImportsBadge">0</span>
+      浏览器导入 <span id="browserImportsBadge">0</span>
     </button>
     <div id="browserImportsModal" class="browser-imports-modal" hidden>
       <section
@@ -1496,15 +1502,14 @@
         aria-labelledby="browserImportsTitle"
       >
         <header>
-          <h2 id="browserImportsTitle">Browser Imports</h2>
-          <button id="browserImportsClose" type="button">Close</button>
+          <h2 id="browserImportsTitle">浏览器导入</h2>
+          <button id="browserImportsClose" type="button">关闭</button>
         </header>
         <div class="browser-imports-layout">
           <aside id="browserImportsList"></aside>
           <main id="browserImportPreview">
             <p>
-              Select an import to preview. No Office or WPS document is modified
-              until you confirm.
+              选择一个导入项进行预览。在确认之前，Office 或 WPS 文档不会被修改。
             </p>
           </main>
         </div>

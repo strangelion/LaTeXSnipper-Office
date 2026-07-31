@@ -85,6 +85,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Omml
                 ValidateNary(nary, index, result, allowWordImplicitIntegralCharacter);
                 index++;
             }
+            ValidateAccents(document, result);
             return result;
         }
 
@@ -319,6 +320,50 @@ namespace LaTeXSnipper.NativeOffice.Shared.Omml
                 Superscript = CanonicalText(nary.Element(Math + "sup")),
                 Operand = operandText
             });
+        }
+
+        private static void ValidateAccents(
+            XDocument document,
+            OmmlValidationResult result)
+        {
+            int index = 0;
+            foreach (XElement accent in document.Descendants(Math + "acc"))
+            {
+                XElement operand = accent.Element(Math + "e");
+                if (operand == null)
+                {
+                    AddIssue(
+                        result,
+                        "OMML_ACCENT_OPERAND_MISSING",
+                        $"m:acc at index {index} has no m:e operand.",
+                        -1);
+                    index++;
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(CanonicalText(operand)))
+                {
+                    XElement detached = NextSignificantMathSibling(accent);
+                    if (detached != null && IsOperand(detached))
+                    {
+                        AddIssue(
+                            result,
+                            "OMML_ACCENT_OPERAND_DETACHED",
+                            $"The following m:{detached.Name.LocalName} is outside " +
+                            $"m:acc/m:e at accent index {index}.",
+                            -1);
+                    }
+                    else
+                    {
+                        AddIssue(
+                            result,
+                            "OMML_ACCENT_OPERAND_EMPTY",
+                            $"m:acc/m:e at accent index {index} is empty.",
+                            -1);
+                    }
+                }
+                index++;
+            }
         }
 
         private static XElement NextSignificantMathSibling(XElement element)

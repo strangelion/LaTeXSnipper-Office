@@ -18,16 +18,17 @@ assert.doesNotMatch(
   errorRenderer,
   /area === "capabilities" \|\| area === "readiness"/,
 );
-assert.match(source, /正在重新获取 Core readiness/);
-for (const level of [
-  "Declared",
-  "LibraryDetected",
-  "ProbePassed",
-  "SessionCreated",
-  "SmokeInferencePassed",
-  "BenchmarkValidated",
+assert.match(source, /正在重新获取 Core 就绪状态/);
+for (const label of [
+  "已声明",
+  "已检测运行库",
+  "探测通过",
+  "会话已创建",
+  "冒烟推理通过",
+  "基准已测量",
+  "基准已验证",
 ]) {
-  assert.match(source, new RegExp(level));
+  assert.match(source, new RegExp(label));
 }
 
 console.log("Recognition settings state isolation contracts passed OK");

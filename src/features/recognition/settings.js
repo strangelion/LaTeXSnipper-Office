@@ -153,7 +153,7 @@ export async function refreshRecognitionSettings(options = {}) {
   }
   if (requested.has("readiness")) {
     const readiness = document.getElementById("recognitionReadinessStatus");
-    if (readiness) readiness.textContent = "正在重新获取 Core readiness...";
+    if (readiness) readiness.textContent = "正在重新获取 Core 就绪状态...";
     areas.push("readiness");
     tasks.push(withTimeout(api.getReadiness(), 5000, "READINESS_TIMEOUT"));
   }
@@ -265,17 +265,18 @@ function renderReadiness(readiness) {
 
 function formatProviderValidationLevel(level) {
   const labels = {
-    declared: "Declared",
-    libraryDetected: "LibraryDetected",
-    probePassed: "ProbePassed",
-    sessionCreated: "SessionCreated",
-    smokeInferencePassed: "SmokeInferencePassed",
-    benchmarkValidated: "BenchmarkValidated",
+    declared: "已声明",
+    libraryDetected: "已检测运行库",
+    probePassed: "探测通过",
+    sessionCreated: "会话已创建",
+    smokeInferencePassed: "冒烟推理通过",
+    benchmarkMeasured: "基准已测量",
+    benchmarkValidated: "基准已验证",
   };
   return labels[level] || `Unknown(${level || "missing"})`;
 }
 
-function renderRuntimes(runtimes, recommended = null) {
+function renderRuntimes(runtimes, recommended = null, validations = []) {
   const element = document.getElementById("recognitionRuntimeStatus");
   if (!element) return;
   const available = runtimes.filter(
@@ -287,7 +288,7 @@ function renderRuntimes(runtimes, recommended = null) {
       : "未检测到运行时安装线索";
   const recommendation = recommended
     ? `；Core 推荐：${recommended}`
-    : "；可运行状态以 Core readiness 为准";
+    : "；可运行状态以 Core 就绪状态为准";
   const diagnostics = runtimes
     .map((runtime) => {
       const name = runtime.name || runtime.kind;
@@ -303,7 +304,17 @@ function renderRuntimes(runtimes, recommended = null) {
       return `${name}: ${evidence || "未检测"}${detail}`;
     })
     .join("\n");
-  element.textContent = `${summary}${recommendation}${diagnostics ? `\n${diagnostics}` : ""}`;
+  const validationDetails = validations
+    .map(
+      (report) =>
+        `Core/${report.provider}: ${formatProviderValidationLevel(report.validationLevel)}` +
+        `${report.stale ? "（stale）" : ""}` +
+        `${report.diagnostics?.length ? `（${report.diagnostics.join("；")}）` : ""}`,
+    )
+    .join("\n");
+  element.textContent =
+    `${summary}${recommendation}${diagnostics ? `\n${diagnostics}` : ""}` +
+    `${validationDetails ? `\n${validationDetails}` : ""}`;
 }
 
 async function probeRuntimes() {
@@ -312,13 +323,37 @@ async function probeRuntimes() {
   const started = performance.now();
   setBusy(button, true, "探测中...");
   try {
-    const result = await withTimeout(
-      api.probeRuntimes(),
-      10000,
-      "RUNTIME_PROBE_TIMEOUT",
+    const [result, readiness] = await Promise.all([
+      withTimeout(api.probeRuntimes(), 10000, "RUNTIME_PROBE_TIMEOUT"),
+      withTimeout(api.getReadiness(), 10000, "READINESS_TIMEOUT"),
+    ]);
+    const providers = [
+      ...new Set(
+        (readiness.runtimes || [])
+          .filter((runtime) => runtime.available)
+          .flatMap((runtime) => runtime.providers || []),
+      ),
+    ];
+    const policy =
+      document.getElementById("providerValidationPolicy")?.value ||
+      "smokeInference";
+    const validations = [];
+    for (const provider of providers) {
+      validations.push(
+        await withTimeout(
+          api.validateProvider(provider, policy),
+          policy === "benchmark" ? 120000 : 60000,
+          "PROVIDER_VALIDATION_TIMEOUT",
+        ),
+      );
+    }
+    renderRuntimes(result.runtimes, result.recommended, validations);
+    await refreshRecognitionSettings({ areas: ["readiness"] });
+    toast(
+      providers.length
+        ? `Core provider 验证完成（${policy}）`
+        : "未发现可由 Core 验证的 provider",
     );
-    renderRuntimes(result.runtimes, result.recommended);
-    toast("运行时探测完成");
     log("info", "runtime-probe", {
       operationId: id,
       elapsedMs: Math.round(performance.now() - started),

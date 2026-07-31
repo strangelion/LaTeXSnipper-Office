@@ -710,7 +710,7 @@ namespace LaTeXSnipper.Word.Host
 
                 if (storageMode == "image")
                 {
-                    return InsertImageObject(doc, range, payload);
+                    return InsertImageObject(doc, range, payload, mode);
                 }
 
                 // Default: native OMML (also "auto" and "native-omml")
@@ -804,39 +804,15 @@ namespace LaTeXSnipper.Word.Host
                     range = range.Duplicate;
                     range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
 
-                    // Wrap in minimal inline content control for metadata tracking
-                    var inlineBody = $@"<w:sdt xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
-                                         xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-                        <w:sdtPr>
-                            <w:tag w:val=""latexsnipper:formula:{payload.FormulaId}""/>
-                        </w:sdtPr>
-                        <w:sdtContent>
-                            <w:p>{mathOnly}</w:p>
-                        </w:sdtContent>
-                    </w:sdt>";
-
-                    // Wrap in Flat OPC for InsertXML
-                    var flatOpc = $@"<?xml version=""1.0"" encoding=""UTF-8""?>
-                    <pkg:package xmlns:pkg=""http://schemas.microsoft.com/office/2006/xmlPackage"">
-                        <pkg:part pkg:name=""/_rels/.rels"" pkg:contentType=""application/vnd.openxmlformats-package.relationships+xml"">
-                            <pkg:xmlData>
-                                <Relationships xmlns=""http://schemas.openxmlformats.org/package/2006/relationships"">
-                                    <Relationship Id=""rId1"" Type=""http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"" Target=""word/document.xml""/>
-                                </Relationships>
-                            </pkg:xmlData>
-                        </pkg:part>
-                        <pkg:part pkg:name=""/word/document.xml"" pkg:contentType=""application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"">
-                            <pkg:xmlData>
-                                <w:document xmlns:w=""http://schemas.openxmlformats.org/wordprocessingml/2006/main""
-                                            xmlns:m=""http://schemas.openxmlformats.org/officeDocument/2006/math"">
-                                    <w:body>{inlineBody}</w:body>
-                                </w:document>
-                            </pkg:xmlData>
-                        </pkg:part>
-                    </pkg:package>";
-
-                    range.InsertXML(flatOpc);
-                    var candidate = FindFormulaContentControl(doc, payload.FormulaId);
+                    // Word only accepts OMML through a block-level Flat OPC package.
+                    // Materialize it in a scratch paragraph, copy the exact OMath
+                    // FormattedText to the requested run position, then wrap that
+                    // precise range in an inline content control.
+                    var candidate = InsertInlineOmmlViaScratch(
+                        doc,
+                        range,
+                        mathOnly,
+                        payload.FormulaId);
                     var readBackResult = ValidateNativeCandidate(candidate, mathOnly);
                     if (!readBackResult.IsValid)
                         return RollbackInvalidNativeCandidate(
@@ -852,25 +828,92 @@ namespace LaTeXSnipper.Word.Host
                     {
                         Success = true,
                         FormulaId = payload.FormulaId,
+                        StorageMode = "native-omml",
                         RangeStart = (uint)committedRange.Start,
                         RangeEnd = (uint)committedRange.End
                     };
                 }
 
-                // Fallback: insert linear formula text
-                if (!string.IsNullOrEmpty(payload.Latex))
+                return new InsertResult
                 {
-                    range.Text = payload.Latex;
-                    FormulaDocumentManifest.Write(doc, payload);
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
-                }
-
-                return new InsertResult { Success = false, Error = "No OMML or LaTeX content for inline formula" };
+                    Success = false,
+                    ErrorCode = "INLINE_OMML_REQUIRED",
+                    Error = "Native inline insertion requires non-empty OMML; no text fallback was committed."
+                };
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[WordAdapter] InsertWordInlineNative error: {ex.Message}");
                 return new InsertResult { Success = false, Error = $"Inline formula insert failed: {ex.Message}" };
+            }
+        }
+
+        private static Microsoft.Office.Interop.Word.ContentControl InsertInlineOmmlViaScratch(
+            Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.Range target,
+            string mathOnly,
+            string formulaId)
+        {
+            int targetStart = target.Start;
+            string scratchId = formulaId + "-inline-scratch-" + Guid.NewGuid().ToString("N");
+            Microsoft.Office.Interop.Word.ContentControl scratchCandidate = null;
+            try
+            {
+                var scratch = document.Range(
+                    document.Content.End - 1,
+                    document.Content.End - 1);
+                scratch.InsertParagraphAfter();
+                scratch = document.Range(
+                    document.Content.End - 1,
+                    document.Content.End - 1);
+                scratch.InsertXML(BuildFlatOpc(
+                    BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
+                scratchCandidate = FindFormulaContentControl(document, scratchId);
+                if (scratchCandidate == null || scratchCandidate.Range.OMaths.Count != 1)
+                    throw new InvalidOperationException(
+                        "Word scratch conversion did not create exactly one OMath.");
+
+                var sourceMath = scratchCandidate.Range.OMaths[1].Range.Duplicate;
+                int sourceLength = sourceMath.End - sourceMath.Start;
+                if (sourceLength <= 0)
+                    throw new InvalidOperationException(
+                        "Word scratch conversion returned an empty OMath range.");
+
+                var destination = document.Range(targetStart, targetStart);
+                destination.FormattedText = sourceMath.FormattedText;
+                var insertedMath = document.Range(
+                    targetStart,
+                    Math.Min(document.Content.End - 1, targetStart + sourceLength));
+                if (insertedMath.OMaths.Count != 1)
+                    throw new InvalidOperationException(
+                        "Word did not preserve one OMath while copying formatted math.");
+
+                var candidate = document.ContentControls.Add(
+                    Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                    insertedMath);
+                candidate.Tag = "latexsnipper:formula:" + formulaId;
+                candidate.Title = "LaTeXSnipper Formula";
+                return candidate;
+            }
+            finally
+            {
+                if (scratchCandidate != null)
+                {
+                    try
+                    {
+                        scratchCandidate.LockContents = false;
+                        scratchCandidate.LockContentControl = false;
+                        scratchCandidate.Delete(true);
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "cleanup-inline-omml-scratch",
+                            "word",
+                            formulaId,
+                            cleanupError);
+                    }
+                }
             }
         }
 
@@ -1095,6 +1138,7 @@ namespace LaTeXSnipper.Word.Host
 
         private InsertResult InsertOleObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload, InsertMode mode = InsertMode.Inline)
         {
+            OleActivationResult? activation = null;
             try
             {
                 // Normalize OLE payload before insertion
@@ -1117,7 +1161,6 @@ namespace LaTeXSnipper.Word.Host
                 }
 
                 Microsoft.Office.Interop.Word.InlineShape oleShape;
-                OleActivationResult activation;
                 OleExtentPoints targetExtent;
 
                 using (PendingPayloadLease payloadLease = _oleServerProcessId.HasValue
@@ -1523,6 +1566,10 @@ namespace LaTeXSnipper.Word.Host
                     Error = $"OLE insert failed: {ex.Message}"
                 };
             }
+            finally
+            {
+                activation?.Dispose();
+            }
         }
 
         private static void FitOleRenderToWordContainer(
@@ -1620,13 +1667,24 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
-        private InsertResult InsertImageObject(Microsoft.Office.Interop.Word.Document doc, Microsoft.Office.Interop.Word.Range range, FormulaPayload payload)
+        private InsertResult InsertImageObject(
+            Microsoft.Office.Interop.Word.Document doc,
+            Microsoft.Office.Interop.Word.Range range,
+            FormulaPayload payload,
+            InsertMode mode)
         {
             string tempPath = "";
             try
             {
                 if (payload.Render?.Png == null && payload.Render?.Svg == null)
                     return new InsertResult { Success = false, ErrorCode = "NO_RENDER_DATA", Error = "No render data for image insertion" };
+
+                if (mode != InsertMode.Inline)
+                {
+                    range = mode == InsertMode.DisplayNumbered
+                        ? PrepareNumberedOleInsertionRange(doc, range)
+                        : PrepareBlockOleInsertionRange(doc, range);
+                }
 
                 Microsoft.Office.Interop.Word.InlineShape image;
                 string imageId = Guid.NewGuid().ToString("N");
@@ -1649,7 +1707,34 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, ErrorCode = "NO_RENDER_DATA", Error = "No render data for image insertion" };
                 }
                 image.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                if (payload.Render!.WidthPt > 0) image.Width = payload.Render.WidthPt;
+                if (payload.Render!.WidthPt > 0)
+                {
+                    float targetWidth = payload.Render.WidthPt;
+                    try
+                    {
+                        var paragraphFormat = image.Range.ParagraphFormat;
+                        var pageSetup = image.Range.Sections[1].PageSetup;
+                        float availableWidth =
+                            pageSetup.PageWidth -
+                            pageSetup.LeftMargin -
+                            pageSetup.RightMargin -
+                            Math.Max(0.0f, paragraphFormat.LeftIndent) -
+                            Math.Max(0.0f, paragraphFormat.RightIndent) -
+                            4.0f;
+                        targetWidth = Math.Min(
+                            targetWidth,
+                            Math.Max(36.0f, availableWidth));
+                    }
+                    catch (Exception fitError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "fit-image-container-width",
+                            "word",
+                            payload.FormulaId,
+                            fitError);
+                    }
+                    image.Width = targetWidth;
+                }
 
                 // Wrap the image in a ContentControl with tag so Delete/Replace/Convert can find it.
                 // Without this tag, image formulas cannot be read, replaced, deleted, or converted.
@@ -1662,6 +1747,19 @@ namespace LaTeXSnipper.Word.Host
                     cc.Tag = $"latexsnipper:formula:{payload.FormulaId}";
                     cc.LockContentControl = false;
                     cc.LockContents = false;
+                    try
+                    {
+                        cc.Appearance =
+                            Microsoft.Office.Interop.Word.WdContentControlAppearance.wdContentControlHidden;
+                    }
+                    catch (Exception appearanceError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "hide-image-content-control",
+                            "word",
+                            payload.FormulaId,
+                            appearanceError);
+                    }
                 }
                 catch
                 {
@@ -1669,8 +1767,173 @@ namespace LaTeXSnipper.Word.Host
                     System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap image with ContentControl");
                 }
 
+                if (mode == InsertMode.Display)
+                {
+                    image.Range.Paragraphs[1].Alignment =
+                        Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+                }
+
+                if (mode == InsertMode.DisplayNumbered)
+                {
+                    try
+                    {
+                        if (cc == null)
+                        {
+                            throw new InvalidOperationException(
+                                "The image content control is unavailable.");
+                        }
+
+                        var paragraph = image.Range.Paragraphs[1];
+                        var paragraphFormat = paragraph.Format;
+                        float availableWidth;
+                        if ((bool)image.Range.get_Information(
+                            Microsoft.Office.Interop.Word.WdInformation.wdWithInTable))
+                        {
+                            var cell = image.Range.Cells[1];
+                            availableWidth =
+                                cell.Width - cell.LeftPadding - cell.RightPadding;
+                        }
+                        else
+                        {
+                            var pageSetup = image.Range.Sections[1].PageSetup;
+                            availableWidth =
+                                pageSetup.PageWidth -
+                                pageSetup.LeftMargin -
+                                pageSetup.RightMargin;
+                            try
+                            {
+                                var columns =
+                                    image.Range.Sections[1].PageSetup.TextColumns;
+                                if (columns.Count > 1)
+                                {
+                                    availableWidth = columns[1].Width;
+                                }
+                            }
+                            catch (Exception columnError)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[WordAdapter] Image column width fallback: {columnError.Message}");
+                            }
+                        }
+
+                        availableWidth = Math.Max(
+                            72.0f,
+                            availableWidth -
+                            paragraphFormat.LeftIndent -
+                            paragraphFormat.RightIndent);
+                        paragraphFormat.TabStops.Add(
+                            availableWidth / 2.0f,
+                            Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
+                        paragraphFormat.TabStops.Add(
+                            availableWidth,
+                            Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
+
+                        var beforeImage = doc.Range(
+                            image.Range.Start,
+                            image.Range.Start);
+                        beforeImage.Text = "\t";
+                        var numberedRange = cc.Range.Duplicate;
+                        numberedRange.Collapse(
+                            Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                        numberedRange.Text = "\t(";
+                        numberedRange.Collapse(
+                            Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+
+                        var field = doc.Fields.Add(
+                            numberedRange,
+                            Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                            " SEQ LaTeXSnipperEquation \\* ARABIC ",
+                            true);
+                        field.Update();
+                        int closingPosition = field.Result.End + 1;
+                        var closingRange = doc.Range(
+                            closingPosition,
+                            closingPosition);
+                        closingRange.Text = ")";
+                        if (!string.Equals(
+                            closingRange.Text,
+                            ")",
+                            StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException(
+                                "The numbered image closing delimiter was not inserted.");
+                        }
+
+                        var bookmarkName =
+                            "LSNEq_" +
+                            System.Text.RegularExpressions.Regex.Replace(
+                                payload.FormulaId,
+                                "[^A-Za-z0-9_]",
+                                "_");
+                        if (bookmarkName.Length > 40)
+                        {
+                            bookmarkName = bookmarkName.Substring(0, 40);
+                        }
+                        var bookmarkRange = doc.Range(
+                            field.Code.Start,
+                            closingRange.End);
+                        doc.Bookmarks.Add(bookmarkName, bookmarkRange);
+
+                        var ownedRange =
+                            image.Range.Paragraphs[1].Range.Duplicate;
+                        cc.Delete(false);
+                        cc = doc.ContentControls.Add(
+                            Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                            ownedRange);
+                        ConfigureOleContentControl(
+                            cc,
+                            payload.FormulaId,
+                            "LaTeXSnipper Numbered Image",
+                            "hide-numbered-image-content-control");
+                    }
+                    catch (Exception ex)
+                    {
+                        OfficeOperationLog.Failure(
+                            "number-image-formula",
+                            "word",
+                            payload.FormulaId,
+                            ex);
+                        try
+                        {
+                            image.Range.Paragraphs[1].Range.Delete();
+                        }
+                        catch (Exception rollbackError)
+                        {
+                            OfficeOperationLog.Failure(
+                                "rollback-numbered-image",
+                                "word",
+                                payload.FormulaId,
+                                rollbackError);
+                        }
+                        return new InsertResult
+                        {
+                            Success = false,
+                            ErrorCode = "IMAGE_NUMBERING_FAILED",
+                            Error = $"Numbered image insertion failed: {ex.Message}"
+                        };
+                    }
+                }
+
                 // Write to manifest for reliable read/replace/delete/convert
                 FormulaDocumentManifest.Write(doc, payload);
+
+                try
+                {
+                    var afterRange = cc?.Range.Duplicate ?? image.Range.Duplicate;
+                    afterRange.Collapse(
+                        Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+                    _application.Selection.SetRange(
+                        afterRange.Start,
+                        afterRange.End);
+                }
+                catch (Exception selectionError)
+                {
+                    OfficeOperationLog.Failure(
+                        "collapse-after-image-insert",
+                        "word",
+                        payload.FormulaId,
+                        selectionError);
+                }
 
                 return new InsertResult
                 {

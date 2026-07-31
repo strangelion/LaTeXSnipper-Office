@@ -1,57 +1,196 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>LaTeXSnipper WPS</title>
-  <style>
-    :root { color-scheme: light; --bg:#f7f8fb; --panel:#fff; --line:#d7dfec; --text:#182235; --muted:#667085; --accent:#2e7be6; --error:#b42318; --success:#067647; }
-    * { box-sizing: border-box; }
-    body { margin:0; padding:14px; color:var(--text); background:var(--bg); font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif; }
-    h1 { margin:0 0 4px; font-size:18px; }
-    .host { margin-bottom:12px; color:var(--muted); font-size:12px; }
-    .panel { margin-bottom:12px; padding:12px; border:1px solid var(--line); border-radius:7px; background:var(--panel); }
-    #status { margin-bottom:12px; padding:9px 10px; border:1px solid var(--line); border-radius:6px; font-size:12px; }
-    #status.success { color:var(--success); }
-    #status.error { color:var(--error); }
-    textarea { width:100%; min-height:110px; padding:8px; border:1px solid var(--line); border-radius:5px; resize:vertical; font:14px/1.45 Consolas,monospace; }
-    .preview { min-height:64px; margin-top:8px; padding:8px; display:flex; align-items:center; justify-content:center; border:1px solid var(--line); border-radius:5px; overflow:auto; }
-    .preview img { max-width:100%; }
-    .modes,.options { display:flex; flex-wrap:wrap; gap:8px; margin-top:9px; font-size:12px; }
-    .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    button { min-height:36px; border:1px solid var(--line); border-radius:5px; background:#fff; cursor:pointer; }
-    button.primary { color:#fff; border-color:var(--accent); background:var(--accent); }
-    button:disabled { opacity:.5; cursor:default; }
-  </style>
-</head>
-<body>
-  <h1>LaTeXSnipper</h1>
-  <div class="host">已连接宿主：<strong id="hostName">正在检测…</strong></div>
-  <div id="status">正在连接桌面 Bridge…</div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>LaTeXSnipper WPS</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7f8fb;
+        --panel: #fff;
+        --line: #d7dfec;
+        --text: #182235;
+        --muted: #667085;
+        --accent: #2e7be6;
+        --error: #b42318;
+        --success: #067647;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 14px;
+        color: var(--text);
+        background: var(--bg);
+        font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .host {
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .panel {
+        margin-bottom: 12px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+      }
+      #status {
+        margin-bottom: 12px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      #status.success {
+        color: var(--success);
+      }
+      #status.error {
+        color: var(--error);
+      }
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        resize: vertical;
+        font:
+          14px/1.45 Consolas,
+          monospace;
+      }
+      .preview {
+        min-height: 64px;
+        margin-top: 8px;
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        overflow: auto;
+      }
+      .preview img {
+        max-width: 100%;
+      }
+      .modes,
+      .options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 9px;
+        font-size: 12px;
+      }
+      .actions {
+        display: grid;
+        grid-template-areas: "load insert" "update delete" "renumber renumber";
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      #loadButton {
+        grid-area: load;
+      }
+      #insertButton {
+        grid-area: insert;
+      }
+      #updateButton {
+        grid-area: update;
+      }
+      #deleteButton {
+        grid-area: delete;
+      }
+      #renumberButton {
+        grid-area: renumber;
+      }
+      button {
+        appearance: none;
+        min-width: 0;
+        min-height: 36px;
+        padding: 7px 10px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--text);
+        -webkit-text-fill-color: currentColor;
+        background: #fff;
+        cursor: pointer;
+        font: inherit;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+        white-space: normal;
+      }
+      button.primary {
+        color: #fff;
+        -webkit-text-fill-color: #fff;
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.62;
+        cursor: not-allowed;
+      }
+      button:focus-visible,
+      textarea:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      @media (max-width: 270px) {
+        .actions {
+          grid-template-areas: "load" "insert" "update" "delete" "renumber";
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>LaTeXSnipper</h1>
+    <div class="host">已连接宿主：<strong id="hostName">正在检测…</strong></div>
+    <div id="status">正在连接桌面桥接服务…</div>
 
-  <section class="panel">
-    <label for="latexSource">LaTeX</label>
-    <textarea id="latexSource" spellcheck="false" placeholder="例如：\frac{a}{b}"></textarea>
-    <div id="preview" class="preview">输入公式后显示预览</div>
-    <div id="writerModes" class="modes">
-      <label><input type="radio" name="mode" value="inline" checked> 行内</label>
-      <label><input type="radio" name="mode" value="block"> 行间</label>
-      <label><input id="numberedMode" type="radio" name="mode" value="numbered"> 编号</label>
-    </div>
-    <div id="imageOptions" class="options" hidden>
-      <label><input id="naturalSize" type="checkbox"> 更新时使用自然尺寸</label>
-      <span>图片公式（保持宽高比）</span>
-    </div>
-  </section>
+    <section class="panel">
+      <label for="latexSource">LaTeX</label>
+      <textarea
+        id="latexSource"
+        spellcheck="false"
+        placeholder="例如：\frac{a}{b}"
+      ></textarea>
+      <div id="preview" class="preview">输入公式后显示预览</div>
+      <div id="writerModes" class="modes">
+        <label
+          ><input type="radio" name="mode" value="inline" checked /> 行内</label
+        >
+        <label><input type="radio" name="mode" value="block" /> 行间</label>
+        <label
+          ><input id="numberedMode" type="radio" name="mode" value="numbered" />
+          编号</label
+        >
+      </div>
+      <div id="imageOptions" class="options" hidden>
+        <label
+          ><input id="naturalSize" type="checkbox" /> 更新时使用自然尺寸</label
+        >
+        <span>图片公式（保持宽高比）</span>
+      </div>
+    </section>
 
-  <section class="actions">
-    <button id="loadButton">加载选中</button>
-    <button id="insertButton" class="primary">插入</button>
-    <button id="updateButton">更新</button>
-    <button id="deleteButton">删除</button>
-    <button id="renumberButton">重新编号</button>
-  </section>
-  <script src="taskpane.js"></script>
-</body>
+    <section class="actions">
+      <button id="loadButton">加载选中</button>
+      <button id="insertButton" class="primary">插入</button>
+      <button id="updateButton">更新</button>
+      <button id="deleteButton">删除</button>
+      <button id="renumberButton">重新编号</button>
+    </section>
+    <script src="taskpane.js"></script>
+  </body>
 </html>

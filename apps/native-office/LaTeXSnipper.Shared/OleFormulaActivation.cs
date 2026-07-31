@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
-public sealed class OleActivationResult
+public sealed class OleActivationResult : IDisposable
 {
     public bool Success { get; private set; }
     public string ErrorCode { get; private set; } = "";
@@ -18,6 +18,23 @@ public sealed class OleActivationResult
 
     public static OleActivationResult Failure(string errorCode, int hresult, string message) =>
         new OleActivationResult { Success = false, ErrorCode = errorCode, HResult = hresult, Message = message };
+
+    public void Dispose()
+    {
+        object? automationObject = AutomationObject;
+        AutomationObject = null;
+        if (automationObject == null || !Marshal.IsComObject(automationObject))
+            return;
+
+        try
+        {
+            Marshal.FinalReleaseComObject(automationObject);
+        }
+        catch (InvalidComObjectException)
+        {
+            // A host may already have disconnected the RCW while finalizing the object.
+        }
+    }
 }
 
 public static class OleFormulaActivation

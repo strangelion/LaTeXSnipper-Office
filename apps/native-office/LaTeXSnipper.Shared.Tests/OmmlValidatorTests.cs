@@ -75,6 +75,29 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 !changedDelimiterResult.IsValid &&
                 changedDelimiterResult.HasIssue("OMML_HOST_STRUCTURE_PROPERTY_CHANGED"),
                 "host read-back delimiter change was accepted");
+
+            string validAccent = Wrap(
+                "<m:acc><m:accPr><m:chr m:val=\"⃗\"/></m:accPr>" +
+                "<m:e>" + RunText("v") + "</m:e></m:acc>");
+            failures += ExpectValid("vector accent", validAccent);
+
+            string emptyAccent = Wrap(
+                "<m:acc><m:accPr><m:chr m:val=\"⃗\"/></m:accPr>" +
+                "<m:e></m:e></m:acc>");
+            OmmlValidationResult emptyAccentResult = OmmlValidator.Validate(emptyAccent);
+            failures += Expect(
+                !emptyAccentResult.IsValid &&
+                emptyAccentResult.HasIssue("OMML_ACCENT_OPERAND_EMPTY"),
+                "empty accent operand was accepted");
+
+            string detachedAccent = Wrap(
+                "<m:acc><m:accPr><m:chr m:val=\"⃗\"/></m:accPr>" +
+                "<m:e></m:e></m:acc>" + RunText("v"));
+            OmmlValidationResult detachedAccentResult = OmmlValidator.Validate(detachedAccent);
+            failures += Expect(
+                !detachedAccentResult.IsValid &&
+                detachedAccentResult.HasIssue("OMML_ACCENT_OPERAND_DETACHED"),
+                "detached accent operand was accepted");
             return failures;
         }
 

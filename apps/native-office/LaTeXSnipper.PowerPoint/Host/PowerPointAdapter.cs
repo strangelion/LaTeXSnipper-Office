@@ -260,7 +260,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.Name = $"LSNO_{payload.FormulaId}";
                     shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
-                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                    using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => shape.OLEFormat?.Object,
                         payload,
                         () => shape.Delete());

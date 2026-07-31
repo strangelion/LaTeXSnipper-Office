@@ -1,13 +1,13 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "a418dc2b25c42e8b5257ed06f0c00c961b26a269",
+    "sourceCommitSha":  "f7f95c1fbcddfd9fd7da3768f029c98c0f9027ee",
     "packageVersion":  "1.6.0-rc.2",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
     "officeJsSha256":  null,
     "officeJsTypingsVersion":  "1.0.598",
-    "officeJsBundleSha256":  "C70ABC28D63E98AC8C73023F4178A2023B1F2B73CFC40738ACFF23C2D9124532",
+    "officeJsBundleSha256":  "059ED193F594EFAF22D2E4F438B431F3C2DF4EB8BBED35B4836F178DC3D5D207",
     "mathJaxVersion":  "3.2.2",
     "buildPlatform":  "Microsoft Windows 10.0.26200 ",
     "manifestVersion":  "1.6.0-rc.2.0",
@@ -38,8 +38,8 @@
                                             "site/assets/icon-16.png":  "E09901BFEFBD4DDE91B0A937BCFC77AD986A4DD9A6B8660D0EBD8E46B54E202B",
                                             "site/assets/icon-32.png":  "947D0EAFFC435BBBE57EA9A67EDE44B3A4D560A6A1A32419B9384699F0F39AE7",
                                             "site/assets/icon-80.png":  "888CB1724E8ABDC9DB4C30F9CAFA9A2DA806E3E3743DF0FF73EB74278E7E0E3E",
-                                            "site/assets/taskpane-CY8AnWQ7.js":  "C70ABC28D63E98AC8C73023F4178A2023B1F2B73CFC40738ACFF23C2D9124532",
-                                            "site/taskpane.html":  "A6B71724C83C5B93D93A4DF030452995D9308352B71C5E20D151A60A0D75798F"
+                                            "site/assets/taskpane-Dy5M3ctt.js":  "059ED193F594EFAF22D2E4F438B431F3C2DF4EB8BBED35B4836F178DC3D5D207",
+                                            "site/taskpane.html":  "D5FE6767EA9D12486D6967C0877EE9D1481B361D8D1F57D1E6096E57269E90CE"
                                         },
                            "WPS":  {
                                        "images/auto_number.svg":  "3A47BCD18AE2C3D2241DD5F0E354C54C5FABB350DD00818B8F1EDE9D401FD011",
@@ -64,8 +64,8 @@
                                        "manifest.json":  "6BABF378B01478866FDABD79C166418AC80DBD1265A29D34998F810BF260BB02",
                                        "manifest.xml":  "995CA31EAB2662EE6A83DCAA7845701EE3F1CE0BBB4150C66836F30C2AB8791B",
                                        "ribbon.xml":  "BD58BB1D98B460C0B081FBCC3C3B3BE10238581496C5AD2BAA6937E0FFCA2BBD",
-                                       "ui/taskpane.html":  "489D030E12DB8D43A3CE40DC978178DDBF47956D5D664F173B5BE9EF95F9C932",
-                                       "ui/taskpane.js":  "AA7A1B1F1DF7F19625C17BF5E374ACC66A8DA682C60C353F26F6DF1DD53059E0"
+                                       "ui/taskpane.html":  "7FCE136CA2CB7237E22ECFB92B4FE20090CB17BAAFF7E80A0C5CFCFF68D22D6A",
+                                       "ui/taskpane.js":  "7FCAA250973CF7C806404FE62D10FB0D395C68FE6C1F92860ED22B9A65736F29"
                                    },
                            "Obsidian":  {
                                             "main.js":  "F06AC59DEEDF44D0A5D76F73A3B0D59F5A864E336BF0104C92AD12164DDB502B",

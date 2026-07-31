@@ -136,6 +136,16 @@ export async function probeRuntimes() {
 }
 
 /**
+ * Ask Core to validate one execution provider under an explicit policy.
+ * @param {string} provider
+ * @param {"probeOnly"|"createSession"|"smokeInference"|"benchmark"} policy
+ * @returns {object}
+ */
+export async function validateProvider(provider, policy) {
+  return invoke("recognition_validate_provider", { provider, policy });
+}
+
+/**
  * Open the runtime directory in the file manager.
  * @returns {string}
  */

@@ -8,9 +8,9 @@
   var adapterKey = layer.getActiveAdapterKey();
   var capabilities = layer.getCapabilities();
   var hostNames = {
-    wps: "WPS Writer",
-    et: "WPS Spreadsheets",
-    wpp: "WPS Presentation",
+    wps: "WPS 文字",
+    et: "WPS 表格",
+    wpp: "WPS 演示",
     unknown: "未知宿主",
   };
   var elements = {
@@ -49,12 +49,17 @@
   }
 
   function dispatch(type) {
-    return layer.dispatch(adapterKey, { type: type, payload: payload() }).then(function (result) {
-      if (!result.ok) {
-        status("error", (result.errorCode || "COMMAND_FAILED") + "：" + result.error);
-      }
-      return result;
-    });
+    return layer
+      .dispatch(adapterKey, { type: type, payload: payload() })
+      .then(function (result) {
+        if (!result.ok) {
+          status(
+            "error",
+            (result.errorCode || "COMMAND_FAILED") + "：" + result.error,
+          );
+        }
+        return result;
+      });
   }
 
   function refreshPreview() {
@@ -88,7 +93,8 @@
   elements.remove.disabled = capabilities.deleteFormula !== true;
 
   elements.insert.addEventListener("click", function () {
-    if (!elements.latex.value.trim()) return status("error", "请输入 LaTeX 公式。");
+    if (!elements.latex.value.trim())
+      return status("error", "请输入 LaTeX 公式。");
     dispatch("InsertFormula").then(function (result) {
       if (result.ok) status("success", "公式插入成功。");
     });
@@ -98,7 +104,9 @@
       if (!result.ok) return;
       elements.latex.value = result.data.latex || "";
       var target = document.querySelector(
-        'input[name="mode"][value="' + (result.data.displayMode || "inline") + '"]',
+        'input[name="mode"][value="' +
+          (result.data.displayMode || "inline") +
+          '"]',
       );
       if (target) target.checked = true;
       refreshPreview();
@@ -106,7 +114,8 @@
     });
   });
   elements.update.addEventListener("click", function () {
-    if (!elements.latex.value.trim()) return status("error", "请输入 LaTeX 公式。");
+    if (!elements.latex.value.trim())
+      return status("error", "请输入 LaTeX 公式。");
     dispatch("UpdateFormula").then(function (result) {
       if (result.ok) status("success", "公式更新成功。");
     });
@@ -127,7 +136,10 @@
     window.clearTimeout(previewTimer);
     previewTimer = window.setTimeout(refreshPreview, 350);
     try {
-      root.Application.PluginStorage.setItem("current_latex", elements.latex.value);
+      root.Application.PluginStorage.setItem(
+        "current_latex",
+        elements.latex.value,
+      );
     } catch (_error) {
       console.warn("[LaTeXSnipper WPS] operation failed", {
         operation: "persist-taskpane-draft",
@@ -146,7 +158,9 @@
     .startHeartbeat(host, capabilities, function (online, error) {
       status(
         online ? "success" : "error",
-        online ? "Bridge 已连接，宿主心跳正常。" : "BRIDGE_OFFLINE：" + error.message,
+        online
+          ? "桥接服务已连接，宿主心跳正常。"
+          : "BRIDGE_OFFLINE：" + error.message,
       );
     })
     .then(function (registration) {

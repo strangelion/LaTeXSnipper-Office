@@ -101,6 +101,97 @@ test("Office and WPS pages declare restrictive CSPs", () => {
   assert.match(wps, /connect-src 'self'/);
 });
 
+test("desktop, Office, and WPS controls keep visible text and stable action order", () => {
+  const desktop = read("src", "index.html");
+  const desktopLogic = read("src", "main.js");
+  const desktopCss = read("src", "styles", "main.css");
+  const i18n = read("src", "i18n.js");
+  const recognitionSettings = read(
+    "src",
+    "features",
+    "recognition",
+    "settings.js",
+  );
+  const office = read("apps", "office-addin", "src", "taskpane.html");
+  const officeLogic = read(
+    "apps",
+    "office-addin",
+    "src",
+    "taskpane",
+    "taskpane.ts",
+  );
+  const wps = read("apps", "wps", "ui", "taskpane.html");
+
+  for (const html of [desktop, office, wps]) {
+    assert.match(html, /<html lang="zh-CN">/);
+  }
+  assert.match(i18n, /setLocale\("zh-CN"\)/);
+  assert.doesNotMatch(desktop, />Browser Imports</);
+  assert.doesNotMatch(
+    desktopLogic,
+    /\$\{plan\.operations\.length\} native Word operations/,
+  );
+  assert.doesNotMatch(desktopLogic, /\$\{formulas\} OMML formulas/);
+  assert.doesNotMatch(
+    desktopLogic,
+    /\$\{plan\.diagnostics\.length\} diagnostics/,
+  );
+  assert.doesNotMatch(recognitionSettings, /正在重新获取 Core readiness/);
+  assert.doesNotMatch(office, />Load</);
+  assert.doesNotMatch(office, />Insert</);
+  assert.doesNotMatch(office, />Update</);
+  assert.doesNotMatch(office, />Delete</);
+  for (const phrase of [
+    "Checking Office capabilities",
+    "No supported formula selected",
+    "Enter a LaTeX formula first",
+    "Inserting formula",
+    "Updating selected formula",
+    "Deleting formula",
+    "Auto-inserted",
+  ]) {
+    assert.doesNotMatch(officeLogic, new RegExp(phrase));
+  }
+
+  const officeActionIds = [
+    "loadBtn",
+    "insertBtn",
+    "updateBtn",
+    "deleteBtn",
+    "referenceBtn",
+  ];
+  const wpsActionIds = [
+    "loadButton",
+    "insertButton",
+    "updateButton",
+    "deleteButton",
+    "renumberButton",
+  ];
+  const assertDomOrder = (html, ids) => {
+    const positions = ids.map((id) => html.indexOf(`id="${id}"`));
+    assert.ok(positions.every((position) => position >= 0));
+    assert.deepEqual(
+      positions,
+      [...positions].sort((a, b) => a - b),
+    );
+  };
+  assertDomOrder(office, officeActionIds);
+  assertDomOrder(wps, wpsActionIds);
+
+  assert.match(
+    office,
+    /grid-template-areas:[\s\S]*"load insert"[\s\S]*"update delete"[\s\S]*"reference reference"/,
+  );
+  assert.match(
+    wps,
+    /grid-template-areas:\s*"load insert" "update delete" "renumber renumber"/,
+  );
+  for (const css of [desktopCss, office, wps]) {
+    assert.match(css, /-webkit-text-fill-color/);
+    assert.match(css, /focus-visible/);
+  }
+});
+
 test("browser content returns through desktop and never calls Office or WPS hosts", () => {
   const browserSource = ["background.ts", "content.ts", "popup.ts"]
     .map((file) => read("apps", "browser-extension", "src", file))

@@ -11,8 +11,8 @@ using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Latex;
 using Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.Word.Host;
@@ -20,10 +20,6 @@ namespace LaTeXSnipper.Word.Host;
 internal sealed class WordBatchLatexScanner
 {
     private readonly Application _application;
-
-    private static readonly Regex LatexMathPattern = new(
-        @"(?<!\\)(?:\$\$(.+?)\$\$|\$(.+?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\])",
-        RegexOptions.Singleline | RegexOptions.Compiled);
 
     public WordBatchLatexScanner(Application application) => _application = application;
 
@@ -103,21 +99,14 @@ internal sealed class WordBatchLatexScanner
             if (string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = range.Start;
-            var matches = LatexMathPattern.Matches(text);
+            var matches = LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
-            foreach (Match match in matches)
+            foreach (LatexDelimiterMatch match in matches)
             {
                 matchIndex++;
-                string? latex = match.Groups[1].Success ? match.Groups[1].Value
-                    : match.Groups[2].Success ? match.Groups[2].Value
-                    : match.Groups[3].Success ? match.Groups[3].Value
-                    : match.Groups[4].Success ? match.Groups[4].Value
-                    : null;
-
-                if (string.IsNullOrWhiteSpace(latex)) continue;
-
-                string source = match.Value.Trim();
+                string latex = match.Latex;
+                string source = match.OriginalText;
                 string sourceHash = ComputeSha256(source);
 
                 var locator = new WordRangeLocator
@@ -125,15 +114,15 @@ internal sealed class WordBatchLatexScanner
                     StoryType = (int)storyType,
                     SectionIndex = sectionIndex,
                     StoryIndex = 0,
-                    Start = rangeStart + match.Index,
-                    End = rangeStart + match.Index + match.Length,
+                    Start = rangeStart + match.Offset,
+                    End = rangeStart + match.Offset + match.Length,
                 };
 
                 candidates.Add(new LatexCandidateDto
                 {
                     Id = $"latex-{location.GetHashCode():x8}-{matchIndex:x4}",
                     Source = source,
-                    NormalizedLatex = latex.Trim(),
+                    NormalizedLatex = latex,
                     Location = $"{location}/{matchIndex}",
                     Locator = JsonSerializer.SerializeToElement(locator),
                     SourceHash = sourceHash,
@@ -152,35 +141,28 @@ internal sealed class WordBatchLatexScanner
             if (string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = textRange.Start;
-            var matches = LatexMathPattern.Matches(text);
+            var matches = LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
-            foreach (Match match in matches)
+            foreach (LatexDelimiterMatch match in matches)
             {
                 matchIndex++;
-                string? latex = match.Groups[1].Success ? match.Groups[1].Value
-                    : match.Groups[2].Success ? match.Groups[2].Value
-                    : match.Groups[3].Success ? match.Groups[3].Value
-                    : match.Groups[4].Success ? match.Groups[4].Value
-                    : null;
-
-                if (string.IsNullOrWhiteSpace(latex)) continue;
-
-                string source = match.Value.Trim();
+                string latex = match.Latex;
+                string source = match.OriginalText;
                 string sourceHash = ComputeSha256(source);
 
                 var locator = new WordTextFrameLocator
                 {
                     ShapeName = shapeName,
-                    Start = rangeStart + match.Index,
-                    End = rangeStart + match.Index + match.Length,
+                    Start = rangeStart + match.Offset,
+                    End = rangeStart + match.Offset + match.Length,
                 };
 
                 candidates.Add(new LatexCandidateDto
                 {
                     Id = $"latex-tb-{shapeName.GetHashCode():x8}-{matchIndex:x4}",
                     Source = source,
-                    NormalizedLatex = latex.Trim(),
+                    NormalizedLatex = latex,
                     Location = $"TextBox '{shapeName}'/{matchIndex}",
                     Locator = JsonSerializer.SerializeToElement(locator),
                     SourceHash = sourceHash,

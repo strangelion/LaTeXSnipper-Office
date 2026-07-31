@@ -1217,17 +1217,27 @@ a:hover {
   gap: 0.5rem;
 }
 .btn {
+  appearance: none;
   padding: 6px 14px;
+  min-width: 0;
   border: none;
   border-radius: var(--btn-radius);
   background: var(--card-bg);
   color: var(--fg);
+  -webkit-text-fill-color: currentColor;
   font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   box-shadow: var(--btn-shadow);
   transition: all 0.2s;
   font-family: inherit;
+}
+.btn:focus-visible,
+.nav-tab:focus-visible,
+.theme-toggle:focus-visible,
+.custom-select-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .btn:hover {
   background: var(--border-color);
@@ -2150,6 +2160,9 @@ body {
   padding: 7px;
   gap: 6px;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
   border-radius: 24px;
   background: rgba(var(--glass-rgb), 0.62);
   box-shadow:
@@ -2157,6 +2170,11 @@ body {
     0 12px 42px rgba(15, 23, 42, 0.16);
 }
 .office-action-dock .btn {
+  flex: 0 1 auto;
+  min-height: 32px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  white-space: normal;
   border-color: transparent;
   background: rgba(var(--glass-rgb), 0.25);
 }

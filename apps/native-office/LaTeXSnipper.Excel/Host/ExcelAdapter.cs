@@ -369,7 +369,7 @@ namespace LaTeXSnipper.Excel.Host
                     ole.Name = $"LSNO_{payload.FormulaId}";
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
 
-                    OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
+                    using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => ole.Object,
                         payload,
                         () => ole.Delete());

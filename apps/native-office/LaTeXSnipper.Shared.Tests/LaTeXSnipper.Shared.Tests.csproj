@@ -43,6 +43,7 @@
     <Compile Include="OfficeStaDispatcherTests.cs" />
     <Compile Include="PipeReconnectCoordinatorTests.cs" />
     <Compile Include="VisioIntegrationTests.cs" />
+    <Compile Include="LatexDelimiterScannerTests.cs" />
     <Compile Include="OmmlValidatorTests.cs" />
     <Compile Include="WordNaryFixtureTests.cs" />
     <Compile Include="..\LaTeXSnipper.Visio\Model\VisioFormulaMetadataCodec.cs">

@@ -5906,7 +5906,12 @@ class UIController {
       previewHost.style.fontFamily = style === "roman" ? "serif" : "";
     }
 
-    this.showStatus(`字体样式: ${style}`);
+    const styleLabels = {
+      roman: "正体",
+      bold: "粗体",
+      italic: "斜体",
+    };
+    this.showStatus(`字体样式：${styleLabels[style] || style}`);
   }
 
   updateFontColor(color) {
@@ -7306,7 +7311,7 @@ async function setupBrowserImportInbox(controller) {
       const formulas = plan.operations.filter(
         (operation) => operation.kind === "formula",
       ).length;
-      diagnostics.textContent = `${plan.operations.length} native Word operations · ${formulas} OMML formulas · ${plan.diagnostics.length} diagnostics`;
+      diagnostics.textContent = `${plan.operations.length} 个原生 Word 操作 · ${formulas} 个 OMML 公式 · ${plan.diagnostics.length} 条诊断`;
       diagnostics.className = plan.canCommit
         ? "browser-import-success"
         : "browser-import-warning";

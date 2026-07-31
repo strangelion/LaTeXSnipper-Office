@@ -112,6 +112,11 @@ namespace LaTeXSnipper.Word.HostTests
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (!oleMode)
+                    ValidateNativeInlineRoundTrip(
+                        document,
+                        adapter,
+                        contract.Cases.First());
 
                 foreach (AcceptanceCase fixture in contract.Cases)
                 {
@@ -131,10 +136,12 @@ namespace LaTeXSnipper.Word.HostTests
                             $"{record.Status} {record.Name}/{record.Mode} " +
                             $"nary={record.ActualNaryCount} blankGapPx={record.MaximumBlankGapPixels} " +
                             $"rightMarginPx={record.RightBlankMarginPixels}");
+                        DrainReleasedComObjects();
                     }
                 }
 
                 document.Fields.Update();
+                ValidateAutomaticNumberSequence(document, evidence);
                 string documentPath = Path.Combine(
                     evidenceDirectory,
                     oleMode ? "word-ole-acceptance.docx" : "word-nary-acceptance.docx");
@@ -158,6 +165,48 @@ namespace LaTeXSnipper.Word.HostTests
             }
         }
 
+        private static void ValidateAutomaticNumberSequence(
+            InteropWord.Document document,
+            IReadOnlyList<EvidenceRecord> evidence)
+        {
+            int expectedCount = evidence.Count(item =>
+                string.Equals(
+                    item.Mode,
+                    "displayNumbered",
+                    StringComparison.OrdinalIgnoreCase));
+            var sequenceFields = new List<InteropWord.Field>();
+            foreach (InteropWord.Field field in document.Fields)
+            {
+                string code = field.Code?.Text ?? string.Empty;
+                if (code.IndexOf(
+                        "SEQ LaTeXSnipperEquation",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    sequenceFields.Add(field);
+                }
+            }
+            if (sequenceFields.Count != expectedCount)
+            {
+                throw new InvalidOperationException(
+                    $"Numbered formula field count changed: expected {expectedCount}, " +
+                    $"observed {sequenceFields.Count}.");
+            }
+
+            for (int index = 0; index < sequenceFields.Count; index++)
+            {
+                string observed = (sequenceFields[index].Result?.Text ?? string.Empty)
+                    .Trim('\r', '\a', ' ', '\t');
+                string expected = (index + 1).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                if (!string.Equals(observed, expected, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Numbered formula sequence did not advance at index {index}: " +
+                        $"expected {expected}, observed '{observed}'.");
+                }
+            }
+        }
+
         private static int GetOfficeProcessId(InteropWord.Application application)
         {
             IntPtr windowHandle = new IntPtr(application.ActiveWindow.Hwnd);
@@ -169,6 +218,67 @@ namespace LaTeXSnipper.Word.HostTests
                     "Could not resolve the Word process for OLE payload transport.");
             }
             return (int)processId;
+        }
+
+        private static void ValidateNativeInlineRoundTrip(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            const string left = "INLINE-LEFT";
+            const string right = "INLINE-RIGHT";
+            InteropWord.Range paragraph =
+                document.Range(document.Content.End - 1, document.Content.End - 1);
+            paragraph.InsertParagraphAfter();
+            paragraph.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            int paragraphStart = paragraph.Start;
+            paragraph.Text = left + right;
+            document.Range(
+                paragraphStart + left.Length,
+                paragraphStart + left.Length).Select();
+
+            string formulaId = FormulaIdHelper.NewId();
+            InsertResult inserted = adapter.InsertFormula(
+                new FormulaPayload
+                {
+                    FormulaId = formulaId,
+                    Latex = fixture.Latex,
+                    Omml = fixture.Omml,
+                    Display = "inline",
+                    StorageMode = "native-omml"
+                },
+                InsertMode.Inline);
+            if (!inserted.Success)
+                throw new InvalidOperationException(
+                    $"inline anchor regression insert failed: {inserted.ErrorCode} {inserted.Error}");
+
+            InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+            if (candidate == null)
+                throw new InvalidOperationException("inline anchor content control missing.");
+            if (candidate.Range.Paragraphs.Count != 1 ||
+                candidate.Range.Text.Contains(left) ||
+                candidate.Range.Text.Contains(right))
+                throw new InvalidOperationException(
+                    "inline content control captured a paragraph or adjacent text.");
+
+            string withFormula = document
+                .Range(paragraphStart, document.Content.End - 1)
+                .Paragraphs[1]
+                .Range.Text;
+            if (!withFormula.Contains(left) || !withFormula.Contains(right))
+                throw new InvalidOperationException(
+                    "inline insertion split or removed adjacent runs.");
+
+            candidate.LockContents = false;
+            candidate.LockContentControl = false;
+            candidate.Delete(true);
+            string afterDelete = document
+                .Range(paragraphStart, document.Content.End - 1)
+                .Paragraphs[1]
+                .Range.Text.TrimEnd('\r', '\a');
+            if (!string.Equals(afterDelete, left + right, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"inline deletion did not preserve one paragraph of adjacent text: '{afterDelete}'");
         }
 
         private static EvidenceRecord ExecuteCase(
@@ -360,36 +470,52 @@ namespace LaTeXSnipper.Word.HostTests
                     $"OLE content control owns {candidate.Range.InlineShapes.Count} inline shapes.");
 
             InteropWord.InlineShape shape = candidate.Range.InlineShapes[1];
-            dynamic automation = shape.OLEFormat?.Object;
-            if (automation == null)
-                throw new InvalidOperationException("Word returned no OLE automation object.");
+            object automation = null;
+            try
+            {
+                automation = shape.OLEFormat?.Object;
+                if (automation == null)
+                    throw new InvalidOperationException("Word returned no OLE automation object.");
 
-            initialized = OleFormulaInterop.IsInitialized(automation);
-            roundTripVerified = OleFormulaInterop.VerifyRoundTrip(automation, payload);
-            if (!initialized || !roundTripVerified)
-                throw new InvalidOperationException(
-                    $"OLE automation contract failed: initialized={initialized}, " +
-                    $"roundTrip={roundTripVerified}.");
+                initialized = OleFormulaInterop.IsInitialized(automation);
+                roundTripVerified = OleFormulaInterop.VerifyRoundTrip(automation, payload);
+                if (!initialized || !roundTripVerified)
+                    throw new InvalidOperationException(
+                        $"OLE automation contract failed: initialized={initialized}, " +
+                        $"roundTrip={roundTripVerified}.");
 
-            if (!OleFormulaInterop.TryGetExtentPoints(automation, out OleExtentPoints extent))
-                throw new InvalidOperationException("OLE object returned no valid extent.");
-            hostWidthPt = shape.Width;
-            hostHeightPt = shape.Height;
-            if (!OleFormulaInterop.HostGeometryMatches(extent, hostWidthPt, hostHeightPt))
-                throw new InvalidOperationException(
-                    $"Word/OLE extent mismatch: host={hostWidthPt:F2}x{hostHeightPt:F2}pt, " +
-                    $"ole={extent.DisplayWidthPt:F2}x{extent.DisplayHeightPt:F2}pt.");
-            float availableWidthPt = GetAvailableWidthPt(shape.Range);
-            if (hostWidthPt > availableWidthPt + 0.75f)
-                throw new InvalidOperationException(
-                    $"OLE formula exceeds its Word container: host={hostWidthPt:F2}pt, " +
-                    $"available={availableWidthPt:F2}pt.");
+                if (!OleFormulaInterop.TryGetExtentPoints(automation, out OleExtentPoints extent))
+                    throw new InvalidOperationException("OLE object returned no valid extent.");
+                hostWidthPt = shape.Width;
+                hostHeightPt = shape.Height;
+                if (!OleFormulaInterop.HostGeometryMatches(extent, hostWidthPt, hostHeightPt))
+                    throw new InvalidOperationException(
+                        $"Word/OLE extent mismatch: host={hostWidthPt:F2}x{hostHeightPt:F2}pt, " +
+                        $"ole={extent.DisplayWidthPt:F2}x{extent.DisplayHeightPt:F2}pt.");
+                float availableWidthPt = GetAvailableWidthPt(shape.Range);
+                if (hostWidthPt > availableWidthPt + 0.75f)
+                    throw new InvalidOperationException(
+                        $"OLE formula exceeds its Word container: host={hostWidthPt:F2}pt, " +
+                        $"available={availableWidthPt:F2}pt.");
 
-            diagnostics = OleFormulaInterop.TryGetDiagnosticsJson(automation, out string value)
-                ? value
-                : null;
-            if (string.IsNullOrWhiteSpace(diagnostics))
-                throw new InvalidOperationException("OLE object returned no diagnostics JSON.");
+                diagnostics = OleFormulaInterop.TryGetDiagnosticsJson(automation, out string value)
+                    ? value
+                    : null;
+                if (string.IsNullOrWhiteSpace(diagnostics))
+                    throw new InvalidOperationException("OLE object returned no diagnostics JSON.");
+            }
+            finally
+            {
+                if (automation != null && Marshal.IsComObject(automation))
+                {
+                    try { Marshal.FinalReleaseComObject(automation); }
+                    catch (InvalidComObjectException ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            "OLE automation object was already released: " + ex.Message);
+                    }
+                }
+            }
 
             FormulaPayload readBack = adapter.ReadFormulaById(payload.FormulaId);
             if (readBack == null ||
@@ -416,6 +542,27 @@ namespace LaTeXSnipper.Word.HostTests
                         $"Numbered OLE formula has incomplete delimiters after field update: " +
                         $"[{candidate.Range.Text}]");
                 }
+            }
+            ReleaseComObject(shape);
+        }
+
+        private static void DrainReleasedComObjects()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+
+        private static void ReleaseComObject(object value)
+        {
+            if (value == null || !Marshal.IsComObject(value))
+                return;
+            try { Marshal.FinalReleaseComObject(value); }
+            catch (InvalidComObjectException ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "COM test object was already released: " + ex.Message);
             }
         }
 

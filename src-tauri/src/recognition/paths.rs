@@ -17,6 +17,8 @@ pub struct RecognitionPaths {
     pub runtimes: PathBuf,
     /// Trusted, release-owned Core quality baselines
     pub quality_baselines: PathBuf,
+    /// Versioned tensor fixture used for explicit provider validation.
+    pub provider_smoke_fixture: PathBuf,
     /// Temporary cache directory
     pub cache: PathBuf,
     /// Per-job working directories
@@ -43,6 +45,10 @@ impl RecognitionPaths {
             models: root.join("models"),
             runtimes: root.join("runtimes"),
             quality_baselines: root.join("quality").join("baselines"),
+            provider_smoke_fixture: root
+                .join("quality")
+                .join("provider-smoke")
+                .join("provider-smoke-v1.json"),
             cache: root.join("cache"),
             jobs: root.join("jobs"),
             logs: root.join("logs"),
@@ -62,6 +68,9 @@ impl RecognitionPaths {
             &self.models,
             &self.runtimes,
             &self.quality_baselines,
+            self.provider_smoke_fixture
+                .parent()
+                .ok_or_else(|| "Provider smoke fixture path has no parent".to_owned())?,
             &self.cache,
             &self.jobs,
             &self.logs,

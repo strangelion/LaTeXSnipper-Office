@@ -25,6 +25,8 @@ assert.match(settingsSource, /recognition\.screenshotAutoInsert/);
 assert.match(settingsSource, /=== true/);
 assert.match(settingsSource, /providerValidations/);
 assert.match(settingsSource, /validationLevel/);
+assert.match(settingsSource, /api\.validateProvider\(provider, policy\)/);
+assert.match(settingsSource, /PROVIDER_VALIDATION_TIMEOUT/);
 assert.doesNotMatch(settingsSource, /readiness\.modelCoverage/);
 assert.match(mainSource, /initRecognitionSettings\(\{/);
 assert.match(mainSource, /scheduleRecognitionSettingsRefresh\(\)/);

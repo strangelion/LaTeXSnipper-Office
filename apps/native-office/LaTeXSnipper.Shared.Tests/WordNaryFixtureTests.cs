@@ -45,8 +45,9 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             "<m:r><m:t>" + text + "</m:t></m:r>";
 
         private static string Inline(string math) =>
-            "<w:sdt xmlns:w=\"" + W + "\" xmlns:m=\"" + M +
-            "\"><w:sdtContent><w:p>" + math + "</w:p></w:sdtContent></w:sdt>";
+            "<w:p xmlns:w=\"" + W + "\" xmlns:m=\"" + M +
+            "\"><w:r><w:t>A</w:t></w:r><w:sdt><w:sdtContent>" + math +
+            "</w:sdtContent></w:sdt><w:r><w:t>B</w:t></w:r></w:p>";
 
         private static string Display(string math) =>
             "<w:sdt xmlns:w=\"" + W + "\" xmlns:m=\"" + M +

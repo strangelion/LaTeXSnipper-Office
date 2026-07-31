@@ -70,5 +70,7 @@ export function applyTranslations(root = document) {
   });
 }
 
-// Auto-initialize
-setLocale("auto");
+// The desktop shell is currently Chinese-first. Keep the localized islands in
+// the same language as the surrounding hard-coded interface until a complete
+// language switcher can translate the whole shell atomically.
+setLocale("zh-CN");

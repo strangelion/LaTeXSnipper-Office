@@ -231,6 +231,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += PipeReconnectCoordinatorTests.Run();
             Console.WriteLine("RUN VisioIntegrationTests");
             failures += VisioIntegrationTests.Run();
+            Console.WriteLine("RUN LatexDelimiterScannerTests");
+            failures += LatexDelimiterScannerTests.Run();
             Console.WriteLine("RUN OmmlValidatorTests");
             failures += OmmlValidatorTests.Run();
             Console.WriteLine("RUN WordNaryFixtureTests");
