@@ -32,6 +32,7 @@ pub struct BaselineDeploymentReport {
 #[serde(rename_all = "camelCase")]
 pub struct BaselineDeploymentState {
     pub status: String,
+    pub auto_accept_blocked: bool,
     pub source_digest: Option<String>,
     pub target: String,
     pub error: Option<String>,
@@ -41,6 +42,7 @@ impl BaselineDeploymentState {
     pub fn completed(report: BaselineDeploymentReport, target: &Path) -> Self {
         Self {
             status: report.status.to_string(),
+            auto_accept_blocked: false,
             source_digest: report.source_digest,
             target: target.display().to_string(),
             error: None,
@@ -50,6 +52,7 @@ impl BaselineDeploymentState {
     pub fn failed(error: String, target: &Path) -> Self {
         Self {
             status: "failed".to_string(),
+            auto_accept_blocked: true,
             source_digest: None,
             target: target.display().to_string(),
             error: Some(error),
@@ -72,7 +75,12 @@ pub fn deploy_bundled(
         .path()
         .resource_dir()
         .map_err(|error| format!("QUALITY_BASELINE_RESOURCE_DIR_FAILED: {error}"))?;
-    let source = [
+    let source = bundled_source(&resource_root)?;
+    deploy_verified_directory(&source, target_baselines)
+}
+
+fn bundled_source(resource_root: &Path) -> Result<PathBuf, String> {
+    [
         resource_root
             .join("resources")
             .join("RecognitionQuality")
@@ -80,15 +88,13 @@ pub fn deploy_bundled(
         resource_root.join("RecognitionQuality").join("baselines"),
     ]
     .into_iter()
-    .find(|candidate| candidate.join(INDEX_FILE).is_file());
-
-    let Some(source) = source else {
-        return Ok(BaselineDeploymentReport {
-            status: "bundleMissing",
-            source_digest: None,
-        });
-    };
-    deploy_verified_directory(&source, target_baselines)
+    .find(|candidate| candidate.join(INDEX_FILE).is_file())
+    .ok_or_else(|| {
+        format!(
+            "QUALITY_BASELINE_BUNDLE_MISSING: no verified baseline index under '{}'",
+            resource_root.display()
+        )
+    })
 }
 
 pub(crate) fn deploy_verified_directory(
@@ -347,6 +353,18 @@ mod tests {
         assert!(deploy_verified_directory(&corrupt, &target).is_err());
         assert!(target.join("formula/model/v1.json").is_file());
         assert!(!target.join("formula/model/v2.json").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_release_bundle_fails_closed() {
+        let root = std::env::temp_dir().join(format!(
+            "latexsnipper-quality-missing-{:032x}",
+            rand::random::<u128>()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let error = bundled_source(&root).unwrap_err();
+        assert!(error.starts_with("QUALITY_BASELINE_BUNDLE_MISSING:"));
         let _ = fs::remove_dir_all(root);
     }
 }

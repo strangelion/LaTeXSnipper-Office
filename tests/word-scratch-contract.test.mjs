@@ -14,11 +14,21 @@ assert.match(adapter, /scratchParagraph\.Paragraphs\[1\]\.Range\.Delete\(\)/);
 assert.match(adapter, /cleanup-inline-omml-scratch-paragraph/);
 assert.match(adapter, /insertedProbe\.OMaths\[1\]\.Range\.Duplicate/);
 assert.match(adapter, /trailing != "\\r" && trailing != "\\a"/);
+assert.match(adapter, /EnsureStandaloneMathNamespace\(mathOnly\)/);
+assert.match(
+  adapter,
+  /xmlns:m=\\"http:\/\/schemas\.openxmlformats\.org\/officeDocument\/2006\/math\\"/,
+);
+assert.match(adapter, /ReleaseLocalComObject\(control\)/);
+assert.match(adapter, /ReleaseLocalComObject\(controls\)/);
 assert.match(hostTest, /new\[\] \{ 1, 20, 100 \}/);
 assert.match(hostTest, /document\.Content\.End != baselineContentEnd/);
 assert.match(hostTest, /candidateRange\.End >= candidateParagraph\.End/);
 assert.match(hostTest, /AssertNoScratchArtifacts\(document\)/);
 assert.match(hostTest, /empty tail content control/);
 assert.match(hostTest, /empty tail OMath/);
+assert.match(hostTest, /ReleaseComObject\(candidate\)/);
+assert.match(hostTest, /HasEmptyTailContentControl/);
+assert.match(hostTest, /HasEmptyTailMath/);
 
 console.log("Word inline scratch cleanup contract passed OK");

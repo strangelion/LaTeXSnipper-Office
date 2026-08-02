@@ -36,15 +36,15 @@ Provider 验证用 allSettled 隔离单项失败，保留 passed、failed、unsu
 
 ### I. Word scratch
 
-生产代码显式删除 tracked scratch paragraph。真实 Word Host 测试连续插入 1、20、100 次，检查段落数、Content.End、相邻文本、段落标记、空 ContentControl、空 OMath 和 scratch tag。
+生产代码显式删除 tracked scratch paragraph。真实 Word Host 测试连续插入 1、20、100 次，检查段落数、Content.End、相邻文本、段落标记、空 ContentControl、空 OMath 和 scratch tag。本机 100 次压力循环暴露并修复了 ContentControls 扫描未释放非匹配 RCW 导致的 `RPC_E_DISCONNECTED`；修复后压力循环和后续 78 次原生 OMML 插入全部通过。
 
 ### J. OLE COM 与 mixed-DPI
 
-RCW 所有权显式区分 OwnedTemporaryRcw、BorrowedHostRcw、TransferredToResult；失败只释放自有临时 RCW，成功转移给可释放结果。现有宿主验收记录 DLL、extent、geometry、ink 与截图。未在本轮实测的 120/144/192 DPI、双屏、4K、RDP 组合不得标记 Stable。
+RCW 所有权显式区分 OwnedTemporaryRcw、BorrowedHostRcw、TransferredToResult；失败只释放自有临时 RCW，成功转移给可释放结果。真实 Word OLE 宿主验收通过 6 个高风险公式 × 3 种插入模式共 18 次插入，18/18 初始化和持久化回读成功，并记录 DLL、extent、geometry、ink 与截图。当前机器在 144 DPI（150%）与 2240×1400 主屏上完成该轮验证；未实测的 120/192 DPI、真实双屏切换、4K 和 RDP 组合仍不得标记 Stable。
 
 ### K. 截图平台状态
 
-ScreenshotJobLease 使用 Created、InUse、Completed、Failed、Cancelled 状态，保护 InUse，执行 TTL、容量和陈旧恢复。macOS xcap 与 Wayland 替代路线仍按 experimental/需要权限呈现。
+ScreenshotJobLease 使用 Created、InUse、Completed、Failed、Cancelled 状态，保护 InUse，执行 TTL、容量和陈旧恢复。Windows 本机真实显示器捕获 ignored 测试已单独执行通过。Linux 现在按 X11、Wayland 和未知会话分别报告：X11 可使用 xcap；尚未实现 Portal/PipeWire 的 Wayland 不再误报可用。macOS 与 Wayland 替代路线仍按 experimental/需要权限呈现。
 
 ### L. UI 可访问性
 
@@ -56,11 +56,19 @@ ScreenshotJobLease 使用 Created、InUse、Completed、Failed、Cancelled 状�
 
 ### N. 未完成项
 
-缺少的硬件、mixed-DPI、RDP 和部分 Drawing 外部编译器实机证据均保持 blocked/notRun/unsupported；这些状态不是发布成功声明。
+缺少的 INT8 模型与验证 runner、CUDA/CoreML 硬件、mixed-DPI、RDP、macOS/Linux 实机和 Drawing 外部编译器证据均保持 blocked/notRun/unsupported。本机未安装 `tectonic`、`dvisvgm`、Graphviz `dot` 或 Mermaid CLI，因此这些外部 Drawing 路线不产生成功声明；内置 SVG 消毒路线按其独立测试证据判定。
+
+### N.1 本轮真实 Office 宿主证据
+
+- Word 原生 OMML：26 个高风险与深度样例 × 行内/独立行/带编号独立行，78/78 通过；覆盖箭头、极限、`sin`、分段函数、积分/求和、矩阵、极长/极高公式与 4/8/16/32 层嵌套。
+- Word 可编辑 OLE：6 个高风险样例 × 3 种插入模式，18/18 通过，OLE 初始化与保存后回读均通过。
+- PowerPoint 样例：真实 PowerPoint COM 打开，4 个图片对象与 4 个嵌入 OLE 对象类型、名称全部通过。
+- Excel 样例：真实 Excel COM 打开，4 个图片对象与 4 个嵌入 OLE 对象类型、名称全部通过。
+- 原生 OMML 测试还发现并修复 Core 独立片段缺少 `xmlns:m` 以及 Office 行内归一化剥离继承命名空间的问题；测试 fixture 现由固定 Core 子模块的实际转换器生成，不再接受手写 OMML 替代。
 
 ### O. 提交 SHA
 
-Core 基线为 `b1bd555617656738d1197c91d6ead826e2a377f1`。Office SHA 在合并本报告的提交后由 Git 历史确定。
+Core 基线为 `33d8e1e82f17845d2b2adbd0343ac663d5d1fb4d`。Office SHA 在合并本报告的提交后由 Git 历史确定。
 
 ### P. 自动插入职责边界
 
@@ -154,4 +162,4 @@ Drawing failure 使用同一隐私候选模型，包含 adapter/compiler 指纹�
 
 ### P. 提交 SHA
 
-Core Drawing 实现在 `b1bd555617656738d1197c91d6ead826e2a377f1` 所含历史中；Office SHA 由本次最终提交确定。
+Core Drawing 实现在 `33d8e1e82f17845d2b2adbd0343ac663d5d1fb4d` 所含历史中；Office SHA 由本次最终提交确定。

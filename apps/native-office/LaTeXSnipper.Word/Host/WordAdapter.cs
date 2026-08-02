@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using OmmlValidationResult = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidationResult;
@@ -609,12 +610,31 @@ namespace LaTeXSnipper.Word.Host
             string formulaId)
         {
             string tag = $"latexsnipper:formula:{formulaId}";
-            foreach (Microsoft.Office.Interop.Word.ContentControl control in document.ContentControls)
+            Microsoft.Office.Interop.Word.ContentControls controls = null;
+            try
             {
-                if (string.Equals(control.Tag as string, tag, StringComparison.Ordinal))
-                    return control;
+                controls = document.ContentControls;
+                for (int index = 1; index <= controls.Count; index++)
+                {
+                    Microsoft.Office.Interop.Word.ContentControl control = controls[index];
+                    if (string.Equals(control.Tag as string, tag, StringComparison.Ordinal))
+                        return control;
+                    ReleaseLocalComObject(control);
+                }
+                return null;
             }
-            return null;
+            finally
+            {
+                ReleaseLocalComObject(controls);
+            }
+        }
+
+        private static void ReleaseLocalComObject(object value)
+        {
+            if (value == null || !Marshal.IsComObject(value))
+                return;
+            try { Marshal.ReleaseComObject(value); }
+            catch (InvalidComObjectException) { return; }
         }
 
         private static void RestoreManifest(
@@ -796,6 +816,7 @@ namespace LaTeXSnipper.Word.Host
                         if (start >= 0 && end > start)
                             mathOnly = mathOnly.Substring(start, end + "</m:oMath>".Length - start);
                     }
+                    mathOnly = EnsureStandaloneMathNamespace(mathOnly);
                     var preInsertValidation = OmmlValidator.Validate(mathOnly);
                     if (!preInsertValidation.IsValid)
                         return OmmlValidationFailure(
@@ -2203,7 +2224,8 @@ namespace LaTeXSnipper.Word.Host
 
                 var end = clean.LastIndexOf("</m:oMath>");
                 if (start >= 0 && end > start)
-                    return clean.Substring(start, end + "</m:oMath>".Length - start);
+                    return EnsureStandaloneMathNamespace(
+                        clean.Substring(start, end + "</m:oMath>".Length - start));
             }
             else if (!clean.Contains("<m:oMath"))
             {
@@ -2216,6 +2238,21 @@ namespace LaTeXSnipper.Word.Host
                     clean + "</m:oMathPara>";
 
             return clean;
+        }
+
+        private static string EnsureStandaloneMathNamespace(string omml)
+        {
+            if (string.IsNullOrWhiteSpace(omml) || omml.Contains("xmlns:m="))
+                return omml;
+
+            var root = omml.IndexOf("<m:oMath", StringComparison.Ordinal);
+            if (root < 0)
+                return omml;
+
+            var insertion = root + "<m:oMath".Length;
+            return omml.Insert(
+                insertion,
+                " xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"");
         }
 
         private static string BuildFormulaBody(string omml, string formulaId, InsertMode mode)

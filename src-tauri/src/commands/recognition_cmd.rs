@@ -191,13 +191,14 @@ pub async fn recognition_cancel(
 #[tauri::command]
 pub async fn recognition_get_output(
     state: State<'_, RecognitionState>,
+    baseline_deployment: State<'_, crate::recognition::quality_baselines::BaselineDeploymentState>,
     request: GetOutputRequest,
 ) -> Result<GetOutputResponse, String> {
     validation::validate_output_format(&request.format)?;
 
     #[cfg(not(feature = "recognition"))]
     {
-        let _ = (state, request);
+        let _ = (state, baseline_deployment, request);
         return Ok(GetOutputResponse {
             success: false,
             content: None,
@@ -236,8 +237,13 @@ pub async fn recognition_get_output(
         // Convert to the requested format
         let content = convert_document_to_format(&result.document, &request.format)?;
         let readiness = state.core_readiness().await?;
-        let acceptance =
-            build_recognition_acceptance(&result.document, &result.mode, &content, &readiness);
+        let acceptance = build_recognition_acceptance(
+            &result.document,
+            &result.mode,
+            &content,
+            &readiness,
+            baseline_deployment.auto_accept_blocked,
+        );
 
         Ok(GetOutputResponse {
             success: true,
@@ -359,6 +365,7 @@ fn build_recognition_acceptance(
     mode_name: &str,
     output: &str,
     readiness: &latexsnipper_api_types::EngineReadiness,
+    baseline_auto_accept_blocked: bool,
 ) -> RecognitionAcceptanceDto {
     use latexsnipper_api_types::{ModelQualityStatus, RecognitionAcceptance, RecognitionAction};
 
@@ -388,24 +395,33 @@ fn build_recognition_acceptance(
         review_required,
     );
 
+    let mut reasons = acceptance
+        .reasons
+        .into_iter()
+        .map(|reason| reason.as_str().to_string())
+        .collect::<Vec<_>>();
+    if baseline_auto_accept_blocked {
+        reasons.push("QUALITY_BASELINE_DEPLOYMENT_FAILED".to_string());
+    }
+
     RecognitionAcceptanceDto {
         technically_valid: acceptance.technically_valid,
         quality_status: quality_status_name(acceptance.quality_status).to_string(),
         confidence: acceptance.confidence,
         parse_valid: acceptance.parse_valid,
         structure_valid: acceptance.structure_valid,
-        review_required: acceptance.review_required,
-        recommended_action: match acceptance.recommended_action {
-            RecognitionAction::AutoAccept => "autoAccept",
-            RecognitionAction::RequireReview => "requireReview",
-            RecognitionAction::Reject => "reject",
+        review_required: acceptance.review_required || baseline_auto_accept_blocked,
+        recommended_action: if baseline_auto_accept_blocked {
+            "requireReview"
+        } else {
+            match acceptance.recommended_action {
+                RecognitionAction::AutoAccept => "autoAccept",
+                RecognitionAction::RequireReview => "requireReview",
+                RecognitionAction::Reject => "reject",
+            }
         }
         .to_string(),
-        reasons: acceptance
-            .reasons
-            .into_iter()
-            .map(|reason| reason.as_str().to_string())
-            .collect(),
+        reasons,
     }
 }
 

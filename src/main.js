@@ -4967,7 +4967,7 @@ class UIController {
       }
       if (detailNode) {
         detailNode.textContent = failed
-          ? `${report.error || "未知错误"} · ${report.target}`
+          ? `${report.error || "未知错误"} · 自动接受已阻止 · ${report.target}`
           : `${report.sourceDigest || "无打包基线"} · ${report.target}`;
       }
     } catch (error) {

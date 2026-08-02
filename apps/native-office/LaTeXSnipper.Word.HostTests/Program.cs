@@ -338,20 +338,32 @@ namespace LaTeXSnipper.Word.HostTests
                             $"{inserted.ErrorCode} {inserted.Error}");
                     formulaIds.Add(formulaId);
 
-                    InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
-                    InteropWord.Range candidateRange = candidate?.Range;
-                    InteropWord.Range candidateParagraph = candidateRange?.Paragraphs[1].Range;
-                    if (candidateRange == null ||
-                        candidateRange.Paragraphs.Count != 1 ||
-                        candidateParagraph == null ||
-                        candidateRange.End >= candidateParagraph.End)
+                    InteropWord.ContentControl candidate = null;
+                    InteropWord.Range candidateRange = null;
+                    InteropWord.Range candidateParagraph = null;
+                    try
                     {
-                        throw new InvalidOperationException(
-                            "Inline content control captured a paragraph mark: " +
-                            $"range={candidateRange?.Start}-{candidateRange?.End}, " +
-                            $"paragraph={candidateParagraph?.Start}-{candidateParagraph?.End}.");
+                        candidate = FindCandidate(document, formulaId);
+                        candidateRange = candidate?.Range;
+                        candidateParagraph = candidateRange?.Paragraphs[1].Range;
+                        if (candidateRange == null ||
+                            candidateRange.Paragraphs.Count != 1 ||
+                            candidateParagraph == null ||
+                            candidateRange.End >= candidateParagraph.End)
+                        {
+                            throw new InvalidOperationException(
+                                "Inline content control captured a paragraph mark: " +
+                                $"range={candidateRange?.Start}-{candidateRange?.End}, " +
+                                $"paragraph={candidateParagraph?.Start}-{candidateParagraph?.End}.");
+                        }
+                        AssertNoScratchArtifacts(document);
                     }
-                    AssertNoScratchArtifacts(document);
+                    finally
+                    {
+                        ReleaseComObject(candidateParagraph);
+                        ReleaseComObject(candidateRange);
+                        ReleaseComObject(candidate);
+                    }
                 }
 
                 if (document.Paragraphs.Count != baselineParagraphCount)
@@ -377,6 +389,7 @@ namespace LaTeXSnipper.Word.HostTests
                     candidate.LockContents = false;
                     candidate.LockContentControl = false;
                     candidate.Delete(true);
+                    ReleaseComObject(candidate);
                 }
             }
 
@@ -396,16 +409,12 @@ namespace LaTeXSnipper.Word.HostTests
                 throw new InvalidOperationException(
                     $"Inline scratch deletion changed adjacent text after {insertionCount} inserts.");
             AssertNoScratchArtifacts(document);
-            if (document.ContentControls.Cast<InteropWord.ContentControl>().Any(control =>
-                    control.Range.Start >= baselineContentEnd - 1 &&
-                    string.IsNullOrWhiteSpace(control.Range.Text?.Trim('\r', '\a'))))
+            if (HasEmptyTailContentControl(document, baselineContentEnd))
             {
                 throw new InvalidOperationException(
                     "Inline scratch cleanup left an empty tail content control.");
             }
-            if (document.OMaths.Cast<InteropWord.OMath>().Any(math =>
-                    math.Range.Start >= baselineContentEnd - 1 &&
-                    string.IsNullOrWhiteSpace(math.Range.Text?.Trim('\r', '\a'))))
+            if (HasEmptyTailMath(document, baselineContentEnd))
             {
                 throw new InvalidOperationException(
                     "Inline scratch cleanup left an empty tail OMath.");
@@ -414,12 +423,95 @@ namespace LaTeXSnipper.Word.HostTests
 
         private static void AssertNoScratchArtifacts(InteropWord.Document document)
         {
-            foreach (InteropWord.ContentControl control in document.ContentControls)
+            InteropWord.ContentControls controls = null;
+            try
             {
-                string tag = control.Tag as string ?? string.Empty;
-                if (tag.IndexOf("-inline-scratch-", StringComparison.Ordinal) >= 0)
-                    throw new InvalidOperationException(
-                        $"Inline scratch tag survived cleanup: {tag}");
+                controls = document.ContentControls;
+                for (int index = 1; index <= controls.Count; index++)
+                {
+                    InteropWord.ContentControl control = controls[index];
+                    try
+                    {
+                        string tag = control.Tag as string ?? string.Empty;
+                        if (tag.IndexOf("-inline-scratch-", StringComparison.Ordinal) >= 0)
+                            throw new InvalidOperationException(
+                                $"Inline scratch tag survived cleanup: {tag}");
+                    }
+                    finally
+                    {
+                        ReleaseComObject(control);
+                    }
+                }
+            }
+            finally
+            {
+                ReleaseComObject(controls);
+            }
+        }
+
+        private static bool HasEmptyTailContentControl(
+            InteropWord.Document document,
+            int baselineContentEnd)
+        {
+            InteropWord.ContentControls controls = null;
+            try
+            {
+                controls = document.ContentControls;
+                for (int index = 1; index <= controls.Count; index++)
+                {
+                    InteropWord.ContentControl control = controls[index];
+                    InteropWord.Range range = null;
+                    try
+                    {
+                        range = control.Range;
+                        if (range.Start >= baselineContentEnd - 1 &&
+                            string.IsNullOrWhiteSpace(range.Text?.Trim('\r', '\a')))
+                            return true;
+                    }
+                    finally
+                    {
+                        ReleaseComObject(range);
+                        ReleaseComObject(control);
+                    }
+                }
+                return false;
+            }
+            finally
+            {
+                ReleaseComObject(controls);
+            }
+        }
+
+        private static bool HasEmptyTailMath(
+            InteropWord.Document document,
+            int baselineContentEnd)
+        {
+            InteropWord.OMaths maths = null;
+            try
+            {
+                maths = document.OMaths;
+                for (int index = 1; index <= maths.Count; index++)
+                {
+                    InteropWord.OMath math = maths[index];
+                    InteropWord.Range range = null;
+                    try
+                    {
+                        range = math.Range;
+                        if (range.Start >= baselineContentEnd - 1 &&
+                            string.IsNullOrWhiteSpace(range.Text?.Trim('\r', '\a')))
+                            return true;
+                    }
+                    finally
+                    {
+                        ReleaseComObject(range);
+                        ReleaseComObject(math);
+                    }
+                }
+                return false;
+            }
+            finally
+            {
+                ReleaseComObject(maths);
             }
         }
 
@@ -745,10 +837,23 @@ namespace LaTeXSnipper.Word.HostTests
         private static InteropWord.ContentControl FindCandidate(InteropWord.Document document, string formulaId)
         {
             string tag = "latexsnipper:formula:" + formulaId;
-            foreach (InteropWord.ContentControl control in document.ContentControls)
-                if (string.Equals(control.Tag as string, tag, StringComparison.Ordinal))
-                    return control;
-            return null;
+            InteropWord.ContentControls controls = null;
+            try
+            {
+                controls = document.ContentControls;
+                for (int index = 1; index <= controls.Count; index++)
+                {
+                    InteropWord.ContentControl control = controls[index];
+                    if (string.Equals(control.Tag as string, tag, StringComparison.Ordinal))
+                        return control;
+                    ReleaseComObject(control);
+                }
+                return null;
+            }
+            finally
+            {
+                ReleaseComObject(controls);
+            }
         }
 
         private static void ValidateModeLayout(

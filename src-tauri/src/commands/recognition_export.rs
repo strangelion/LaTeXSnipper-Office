@@ -12,6 +12,7 @@ use crate::recognition::state::RecognitionState;
 #[tauri::command]
 pub async fn recognition_export(
     state: State<'_, RecognitionState>,
+    baseline_deployment: State<'_, crate::recognition::quality_baselines::BaselineDeploymentState>,
     job_id: String,
     format: String,
     output_path: String,
@@ -22,7 +23,8 @@ pub async fn recognition_export(
         format: format.clone(),
     };
 
-    let output = super::recognition_cmd::recognition_get_output(state, request).await?;
+    let output =
+        super::recognition_cmd::recognition_get_output(state, baseline_deployment, request).await?;
 
     if !output.success {
         return Err(output.error.unwrap_or_else(|| "Unknown error".to_string()));

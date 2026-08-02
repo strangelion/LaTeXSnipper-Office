@@ -15,6 +15,13 @@ const hostTests = readFileSync(
   ),
   "utf8",
 );
+const sampleHostTests = readFileSync(
+  new URL(
+    "../apps/native-office/LaTeXSnipper.Office.SampleHostTests/Program.cs",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const adapterSources = ["Word", "Excel", "PowerPoint"].map((host) =>
   readFileSync(
     new URL(
@@ -47,5 +54,11 @@ for (const source of adapterSources) {
 }
 assert.match(hostTests, /MaximumBlankGapPixels/);
 assert.match(hostTests, /paragraph/i);
+assert.match(sampleHostTests, /ExpectedImages\s*=\s*4/);
+assert.match(sampleHostTests, /ExpectedOleObjects\s*=\s*4/);
+assert.match(sampleHostTests, /msoEmbeddedOLEObject/);
+assert.match(sampleHostTests, /msoPicture/);
+assert.match(sampleHostTests, /ValidatePowerPoint/);
+assert.match(sampleHostTests, /ValidateExcel/);
 
 console.log("OLE RCW ownership and host evidence contract passed OK");

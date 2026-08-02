@@ -196,4 +196,21 @@ assert.ok(
   "overlay must wait for preview decode before sending ready",
 );
 
+const screenshotBackendSource = readFileSync(
+  new URL("../src-tauri/src/screenshot/backend.rs", import.meta.url),
+  "utf8",
+);
+assert.match(screenshotBackendSource, /XDG_SESSION_TYPE/);
+assert.match(screenshotBackendSource, /WAYLAND_DISPLAY/);
+assert.match(screenshotBackendSource, /DISPLAY/);
+assert.match(screenshotBackendSource, /backend: "xcap-wayland"/);
+assert.match(
+  screenshotBackendSource,
+  /Portal\/PipeWire adapter is not implemented/,
+);
+assert.match(
+  screenshotBackendSource,
+  /backend: "xcap-wayland",[\s\S]*?available: false/,
+);
+
 console.log("All screenshot overlay tests passed OK");

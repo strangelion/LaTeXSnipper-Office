@@ -53,3 +53,18 @@ Excel：
 Word：
 
 ![Word VSTO 图片](previews/word-vsto-image.png)
+
+## 自动化真实宿主复核
+
+在安装 64 位 Microsoft Office 的 Windows 机器上，可以先构建
+`apps/native-office/LaTeXSnipper.Office.SampleHostTests`，再运行：
+
+```powershell
+& 'apps\native-office\LaTeXSnipper.Office.SampleHostTests\bin\x64\Release\LaTeXSnipper.Office.SampleHostTests.exe' `
+  'docs\manual-acceptance-samples' `
+  'src-tauri\target\office-sample-host-evidence.json'
+```
+
+校验器会让真实 PowerPoint 和 Excel 分别打开样例，确认每个文件包含 4 个
+`msoPicture` 图片对象和 4 个 `msoEmbeddedOLEObject` 可编辑 OLE 对象，并输出 JSON 证据。
+它验证的是安装后的 Office COM 对象模型，而不是只解析压缩包内的 XML。
