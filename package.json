@@ -20,6 +20,7 @@
     "format:check": "prettier --check src/**/*.{js,ts,css} tests/**/*.mjs scripts/**/*.mjs",
     "typecheck": "tsc -p tsconfig.ci.json",
     "test": "npm run test:frontend",
+    "contract": "node scripts/run-agent-contracts.mjs",
     "stage:resources": "node scripts/stage-resources.js",
     "prepare:native-office": "node scripts/prepare-native-office.js",
     "check:office-package": "node scripts/check-native-office-package.mjs",

@@ -21,6 +21,15 @@ if ($OutputDir -eq ".\output") {
 }
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
 
+function New-PlainTextSecureString([string]$PlainText) {
+    $secure = New-Object System.Security.SecureString
+    foreach ($character in $PlainText.ToCharArray()) {
+        $secure.AppendChar($character)
+    }
+    $secure.MakeReadOnly()
+    return $secure
+}
+
 # Convert semver to MSI ProductVersion (major.minor.build).
 # Windows Installer only uses the first THREE fields for version comparison;
 # the 4th field is ignored. We encode the RC number in the 3rd (build) field
@@ -304,7 +313,7 @@ if ($SkipSigning) {
         }
 
         if ($Password) {
-            $importParams.Password = ConvertTo-SecureString $Password -AsPlainText -Force
+            $importParams.Password = New-PlainTextSecureString $Password
         }
 
         try {
@@ -356,7 +365,7 @@ if ($SkipSigning) {
         $is_dev_cert = $true
         $tempPath = if ($env:TEMP) { $env:TEMP } else { [System.IO.Path]::GetTempPath() }
         $devPfx = Join-Path $tempPath "LaTeXSnipper-Office.pfx"
-        $pwd = ConvertTo-SecureString "test" -AsPlainText -Force
+        $pwd = New-PlainTextSecureString "test"
         $storeCert = New-SelfSignedCertificate -Type Custom -Subject "CN=LaTeXSnipper-Office, O=strangelion" `
             -KeyUsage DigitalSignature -FriendlyName "LaTeXSnipper Office Dev" `
             -CertStoreLocation "Cert:\CurrentUser\My" `

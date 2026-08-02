@@ -1,0 +1,58 @@
+{
+  "contractVersion": 1,
+  "name": "Office read-back and OLE ownership contract",
+  "rules": [
+    {
+      "id": "OFFICE-READBACK-001",
+      "description": "Native Office preserves formula correlation, insertion modes, metadata and replacement safety.",
+      "scope": ["word", "excel", "powerpoint"],
+      "severity": "blocking",
+      "suite": "word-readback",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/native-office-realtime-p0.test.mjs"
+        ]
+      },
+      "failureMessage": "Native Office read-back source contract failed."
+    },
+    {
+      "id": "OFFICE-WORD-SCRATCH-CLEANUP-002",
+      "description": "Word inline scratch insertion is exercised 1, 20 and 100 times without paragraph, boundary, empty object or scratch-tag leakage.",
+      "scope": ["word", "native-omml"],
+      "severity": "blocking",
+      "suite": "word-readback",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/word-scratch-contract.test.mjs"]
+      },
+      "failureMessage": "Word inline scratch lifecycle coverage or explicit tail cleanup is missing."
+    },
+    {
+      "id": "OFFICE-OLE-CAPABILITY-001",
+      "description": "OLE capability remains setup-required until registration, bitness, DLL, geometry and ink evidence pass.",
+      "scope": ["windows", "ole"],
+      "severity": "blocking",
+      "suite": "ole",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "tests/platform-capabilities.test.mjs"]
+      },
+      "failureMessage": "Native OLE capability was promoted from static support."
+    },
+    {
+      "id": "OFFICE-OLE-RCW-OWNERSHIP-001",
+      "description": "Successful activation transfers RCW ownership while every failure path releases temporary automation.",
+      "scope": ["windows", "ole"],
+      "severity": "blocking",
+      "suite": "ole",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/ole-lifecycle-contract.test.mjs"]
+      },
+      "failureMessage": "OLE failure path can retain a temporary RCW."
+    }
+  ]
+}

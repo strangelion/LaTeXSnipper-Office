@@ -4,11 +4,13 @@
 *.cer
 node_modules/
 /output/ci-diagnostics/
+/artifacts/
 .wix/
 dist/
 apps/obsidian-plugin/main.js
 apps/obsidian-plugin/node_modules/
 src-tauri/target/
+/tools/core-word-nary-fixtures/target/
 src-tauri/gen/
 scripts/out/
 *.dotm
@@ -45,6 +47,8 @@ apps/native-office/Installer/WiX/HostComponents.wxi
 /output/*.log
 /output/prerequisites/
 /output/verify-*/
+/output/word-host-contract/
+/output/playwright/
 /output/publish/*/Application Files/
 /output/staging/**/*.dll.config
 /output/staging/**/System.ValueTuple.dll

@@ -319,6 +319,8 @@ class FormulaEditor {
 
     try {
       const { MathfieldElement } = await import("mathlive");
+      MathfieldElement.strings = { "zh-CN": _MATHLIVE_I18N };
+      MathfieldElement.locale = "zh-CN";
 
       const container = document.getElementById("mathfieldHost");
       if (container) {
@@ -2030,9 +2032,21 @@ class UIController {
   initEventListeners() {
     document.querySelectorAll(".nav-tab").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        this.switchSection(e.target.id.replace("Btn", ""));
+        this.switchSection(e.currentTarget.id.replace("Btn", ""));
       });
     });
+
+    document.getElementById("settingsBtn")?.addEventListener("click", () => {
+      this.switchSection("settings");
+    });
+
+    document
+      .querySelectorAll("[data-command]")
+      .forEach((button) =>
+        button.addEventListener("click", () =>
+          this.executeWorkspaceCommand(button.dataset.command),
+        ),
+      );
 
     const sidebarPanel = document.getElementById("sidebarPanel");
     const sidebarOverlay = document.getElementById("sidebarOverlay");
@@ -4870,6 +4884,62 @@ class UIController {
     if (section === "ocr") {
       this.checkBridgeStatus();
     }
+
+    if (section === "diagnostics") {
+      this.refreshQualityBaselineDeployment();
+    }
+  }
+
+  async refreshQualityBaselineDeployment() {
+    const stateNode = document.getElementById("qualityBaselineDeploymentState");
+    const detailNode = document.getElementById(
+      "qualityBaselineDeploymentDetail",
+    );
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const report = await invoke("quality_baseline_deployment_status");
+      const failed = report.status === "failed";
+      if (stateNode) {
+        stateNode.textContent = failed
+          ? "质量基线部署失败"
+          : `质量基线：${report.status}`;
+        stateNode.classList.toggle("diagnostic-failure", failed);
+      }
+      if (detailNode) {
+        detailNode.textContent = failed
+          ? `${report.error || "未知错误"} · ${report.target}`
+          : `${report.sourceDigest || "无打包基线"} · ${report.target}`;
+      }
+    } catch (error) {
+      Logger.warn("Quality baseline deployment status unavailable", error);
+      if (stateNode) {
+        stateNode.textContent = "质量基线状态不可用";
+        stateNode.classList.add("diagnostic-failure");
+      }
+      if (detailNode) {
+        detailNode.textContent = "无法读取本地状态，请在桌面应用中重试。";
+      }
+    }
+  }
+
+  executeWorkspaceCommand(command) {
+    const delegated = {
+      screenshot: "screenshotBtn",
+      insert: "insertToWord",
+      copy: "copyLatex",
+    }[command];
+    const labels = {
+      export: "导出",
+      undo: "撤销",
+      redo: "重做",
+      palette: "命令面板",
+    };
+    if (command === "screenshot") this.switchSection("ocr");
+    if (delegated) {
+      document.getElementById(delegated)?.click();
+      return;
+    }
+    this.showStatus(`${labels[command] || "该命令"}暂不可用`);
   }
 
   openSettingsPage(pageId = null) {

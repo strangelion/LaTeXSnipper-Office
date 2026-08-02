@@ -4,7 +4,7 @@
 //! copies into a sibling staging directory, verifies the staged copy, then
 //! swaps directories with rollback support.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -26,6 +26,42 @@ struct BaselineTrustIndex {
 pub struct BaselineDeploymentReport {
     pub status: &'static str,
     pub source_digest: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaselineDeploymentState {
+    pub status: String,
+    pub source_digest: Option<String>,
+    pub target: String,
+    pub error: Option<String>,
+}
+
+impl BaselineDeploymentState {
+    pub fn completed(report: BaselineDeploymentReport, target: &Path) -> Self {
+        Self {
+            status: report.status.to_string(),
+            source_digest: report.source_digest,
+            target: target.display().to_string(),
+            error: None,
+        }
+    }
+
+    pub fn failed(error: String, target: &Path) -> Self {
+        Self {
+            status: "failed".to_string(),
+            source_digest: None,
+            target: target.display().to_string(),
+            error: Some(error),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn quality_baseline_deployment_status(
+    state: tauri::State<'_, BaselineDeploymentState>,
+) -> BaselineDeploymentState {
+    state.inner().clone()
 }
 
 pub fn deploy_bundled(

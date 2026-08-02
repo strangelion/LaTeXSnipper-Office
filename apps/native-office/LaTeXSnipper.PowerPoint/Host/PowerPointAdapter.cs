@@ -263,7 +263,8 @@ namespace LaTeXSnipper.PowerPoint.Host
                     using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => shape.OLEFormat?.Object,
                         payload,
-                        () => shape.Delete());
+                        () => shape.Delete(),
+                        OleRcwOwnership.OwnedTemporaryRcw);
                     if (!activation.Success)
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };

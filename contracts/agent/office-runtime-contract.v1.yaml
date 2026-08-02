@@ -1,0 +1,70 @@
+{
+  "contractVersion": 1,
+  "name": "Office runtime evidence contract",
+  "rules": [
+    {
+      "id": "OFFICE-PROVIDER-PARTIAL-RESULT-001",
+      "description": "Provider validation collects each outcome independently with allSettled semantics.",
+      "scope": ["provider", "diagnostics"],
+      "severity": "blocking",
+      "suite": "provider",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/provider-partial-results.test.mjs"]
+      },
+      "failureMessage": "One provider failure erased other provider results."
+    },
+    {
+      "id": "OFFICE-PROVIDER-BENCHMARK-LABEL-001",
+      "description": "BenchmarkMeasured is never presented as BenchmarkValidated without versioned evidence.",
+      "scope": ["provider", "diagnostics"],
+      "severity": "blocking",
+      "suite": "provider",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/provider-partial-results.test.mjs"]
+      },
+      "failureMessage": "Measured provider timing was mislabeled as validated."
+    },
+    {
+      "id": "OFFICE-ORT128-MATRIX-001",
+      "description": "Office ORT 1.28 matrix records effective providers, missing hardware evidence and external-data dimensions truthfully.",
+      "scope": ["runtime", "office"],
+      "severity": "blocking",
+      "suite": "provider",
+      "evidence": {
+        "kind": "truthfulMatrix",
+        "matrix": "tests/matrices/ort-1.28-office-matrix.yaml"
+      },
+      "failureMessage": "ORT 1.28 Office matrix is incomplete or overclaims evidence."
+    },
+    {
+      "id": "OFFICE-SETTINGS-MIGRATION-001",
+      "description": "Legacy settings migrate idempotently into global, OS, host, document and session scopes.",
+      "scope": ["settings"],
+      "severity": "blocking",
+      "suite": "provider",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "tests/platform-settings-scope.test.mjs"]
+      },
+      "failureMessage": "Scoped settings migration is lossy or non-idempotent."
+    },
+    {
+      "id": "OFFICE-QUALITY-BASELINE-DEPLOYMENT-001",
+      "description": "Quality baseline deployment success or failure is retained by the backend and exposed in the diagnostics workspace.",
+      "scope": ["quality", "diagnostics"],
+      "severity": "blocking",
+      "suite": "provider",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/quality-baseline-deployment.test.mjs"
+        ]
+      },
+      "failureMessage": "Quality baseline deployment failure is log-only or invisible in diagnostics."
+    }
+  ]
+}

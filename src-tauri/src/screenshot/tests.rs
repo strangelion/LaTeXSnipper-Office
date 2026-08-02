@@ -134,6 +134,7 @@ fn screenshot_job_lease_cleanup_removes_expired_jobs() {
     let lease = super::lease::ScreenshotJobLease {
         job_id: "expired".to_string(),
         path: source,
+        preview_paths: Vec::new(),
         created_at_unix_ms: 1,
         last_transition_at_unix_ms: 1,
         owner: JobOwner::Desktop,
@@ -191,6 +192,7 @@ fn screenshot_job_lease_cleanup_enforces_oldest_first_size_cap() {
         let lease = super::lease::ScreenshotJobLease {
             job_id: job_id.to_string(),
             path: source,
+            preview_paths: Vec::new(),
             created_at_unix_ms,
             last_transition_at_unix_ms: created_at_unix_ms,
             owner: JobOwner::Desktop,
@@ -225,6 +227,7 @@ fn screenshot_job_cleanup_protects_active_in_use_job() {
     let lease = super::lease::ScreenshotJobLease {
         job_id: "active".to_string(),
         path: source,
+        preview_paths: Vec::new(),
         created_at_unix_ms: 1,
         last_transition_at_unix_ms: transition_at,
         owner: JobOwner::Desktop,
@@ -260,6 +263,7 @@ fn screenshot_job_cleanup_recovers_stale_in_use_and_terminal_jobs() {
         let lease = super::lease::ScreenshotJobLease {
             job_id: job_id.to_string(),
             path: source,
+            preview_paths: Vec::new(),
             created_at_unix_ms: 1,
             last_transition_at_unix_ms: 1,
             owner: JobOwner::Office,

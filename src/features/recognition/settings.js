@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
 import * as api from "./api.js";
+import { collectProviderValidations } from "./provider-validation.js";
 
 const AUTO_INSERT_SETTING = "recognition.screenshotAutoInsert";
 const REFRESH_DEBOUNCE_MS = 250;
@@ -337,21 +338,24 @@ async function probeRuntimes() {
     const policy =
       document.getElementById("providerValidationPolicy")?.value ||
       "smokeInference";
-    const validations = [];
-    for (const provider of providers) {
-      validations.push(
-        await withTimeout(
+    const providerResults = await collectProviderValidations(
+      providers,
+      (provider) =>
+        withTimeout(
           api.validateProvider(provider, policy),
           policy === "benchmark" ? 120000 : 60000,
           "PROVIDER_VALIDATION_TIMEOUT",
         ),
-      );
-    }
+      policy,
+    );
+    const validations = providerResults.map((result) => result.report);
     renderRuntimes(result.runtimes, result.recommended, validations);
     await refreshRecognitionSettings({ areas: ["readiness"] });
     toast(
       providers.length
-        ? `Core provider 验证完成（${policy}）`
+        ? `Core provider 验证完成（${policy}）：${providerResults
+            .map((result) => `${result.provider} ${result.status}`)
+            .join("，")}`
         : "未发现可由 Core 验证的 provider",
     );
     log("info", "runtime-probe", {

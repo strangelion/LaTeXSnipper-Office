@@ -51,3 +51,20 @@ export function migrateLegacySetting(settings, legacyKey, scopedKey) {
   }
   return settings;
 }
+
+export const SETTING_DEFINITIONS = Object.freeze({
+  "recognition.screenshotAutoInsert": "global",
+  "windows.ole.enabled": "os",
+  "word.insertMode": "host",
+  "document.formulaNumbering": "document",
+  "session.targetDocumentId": "session",
+});
+
+export function migrateLegacySettings(settings, context) {
+  const migrated = { ...settings };
+  for (const [legacyKey, scope] of Object.entries(SETTING_DEFINITIONS)) {
+    const scopedKey = scopedSettingKey(scope, legacyKey, context);
+    migrateLegacySetting(migrated, legacyKey, scopedKey);
+  }
+  return migrated;
+}

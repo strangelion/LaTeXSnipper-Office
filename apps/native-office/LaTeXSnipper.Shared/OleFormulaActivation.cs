@@ -5,6 +5,13 @@ using System.Threading.Tasks;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
 
+public enum OleRcwOwnership
+{
+    OwnedTemporaryRcw,
+    BorrowedHostRcw,
+    TransferredToResult
+}
+
 public sealed class OleActivationResult : IDisposable
 {
     public bool Success { get; private set; }
@@ -12,9 +19,19 @@ public sealed class OleActivationResult : IDisposable
     public int HResult { get; private set; }
     public string Message { get; private set; } = "";
     public object? AutomationObject { get; private set; }
+    public OleRcwOwnership Ownership { get; private set; }
 
-    public static OleActivationResult Ok(object automationObject) =>
-        new OleActivationResult { Success = true, AutomationObject = automationObject };
+    public static OleActivationResult Ok(
+        object automationObject,
+        OleRcwOwnership acquiredOwnership) =>
+        new OleActivationResult
+        {
+            Success = true,
+            AutomationObject = automationObject,
+            Ownership = acquiredOwnership == OleRcwOwnership.OwnedTemporaryRcw
+                ? OleRcwOwnership.TransferredToResult
+                : OleRcwOwnership.BorrowedHostRcw
+        };
 
     public static OleActivationResult Failure(string errorCode, int hresult, string message) =>
         new OleActivationResult { Success = false, ErrorCode = errorCode, HResult = hresult, Message = message };
@@ -23,7 +40,9 @@ public sealed class OleActivationResult : IDisposable
     {
         object? automationObject = AutomationObject;
         AutomationObject = null;
-        if (automationObject == null || !Marshal.IsComObject(automationObject))
+        if (Ownership != OleRcwOwnership.TransferredToResult ||
+            automationObject == null ||
+            !Marshal.IsComObject(automationObject))
             return;
 
         try
@@ -44,7 +63,11 @@ public static class OleFormulaActivation
     private const int MkEUnavailable = unchecked((int)0x800401E3);
     private const int RegdbEClassNotReg = unchecked((int)0x80040154);
 
-    public static OleActivationResult ActivateAndVerify(Func<dynamic?> getAutomation, FormulaPayload payload, Action rollback)
+    public static OleActivationResult ActivateAndVerify(
+        Func<dynamic?> getAutomation,
+        FormulaPayload payload,
+        Action rollback,
+        OleRcwOwnership acquiredOwnership)
     {
         if (getAutomation == null) throw new ArgumentNullException(nameof(getAutomation));
         if (payload == null) throw new ArgumentNullException(nameof(payload));
@@ -69,7 +92,13 @@ public static class OleFormulaActivation
             }
             catch (Exception ex)
             {
-                return FailWithRollback("OLE_AUTOMATION_UNAVAILABLE", ex.HResult, ex.Message, rollback);
+                return FailWithRollback(
+                    "OLE_AUTOMATION_UNAVAILABLE",
+                    ex.HResult,
+                    ex.Message,
+                    automation,
+                    acquiredOwnership,
+                    rollback);
             }
             Task.Delay(delaysMs[attempt]).GetAwaiter().GetResult();
         }
@@ -80,7 +109,13 @@ public static class OleFormulaActivation
             string message = lastAcquireError?.Message ?? "OLE automation object was not available.";
             string code = lastAcquireError is COMException com && IsRetryable(com.ErrorCode)
                 ? "OLE_COM_CALL_REJECTED" : "OLE_AUTOMATION_UNAVAILABLE";
-            return FailWithRollback(code, hresult, message, rollback);
+            return FailWithRollback(
+                code,
+                hresult,
+                message,
+                automation,
+                acquiredOwnership,
+                rollback);
         }
 
         // Phase 2: Initialize and verify with retries
@@ -112,25 +147,53 @@ public static class OleFormulaActivation
             }
 
             if (initialized && verified)
-                return OleActivationResult.Ok(automation);
+                return OleActivationResult.Ok(automation, acquiredOwnership);
 
             Task.Delay(delaysMs[attempt]).GetAwaiter().GetResult();
         }
 
-        return FailWithRollback(finalErrorCode, 0, finalMessage, rollback);
+        return FailWithRollback(
+            finalErrorCode,
+            0,
+            finalMessage,
+            automation,
+            acquiredOwnership,
+            rollback);
     }
 
     private static bool IsRetryable(int hresult) =>
         hresult == RpcECallRejected || hresult == RpcEServerCallRetryLater || hresult == MkEUnavailable;
 
-    private static OleActivationResult FailWithRollback(string code, int hresult, string message, Action rollback)
+    private static OleActivationResult FailWithRollback(
+        string code,
+        int hresult,
+        string message,
+        object? temporaryAutomation,
+        OleRcwOwnership ownership,
+        Action rollback)
     {
         System.Diagnostics.Debug.WriteLine($"[OleFormulaActivation] code={code} hresult=0x{hresult:X8} detail={message}");
+        ReleaseTemporaryAutomation(temporaryAutomation, ownership);
         try { rollback(); }
         catch (Exception rollbackError)
         {
             message += $" Rollback failed: {rollbackError.Message}";
         }
         return OleActivationResult.Failure(code, hresult, message);
+    }
+
+    private static void ReleaseTemporaryAutomation(
+        object? automation,
+        OleRcwOwnership ownership)
+    {
+        if (ownership != OleRcwOwnership.OwnedTemporaryRcw ||
+            automation == null ||
+            !Marshal.IsComObject(automation))
+            return;
+        try { Marshal.FinalReleaseComObject(automation); }
+        catch (InvalidComObjectException)
+        {
+            // The host disconnected the temporary RCW before failure cleanup.
+        }
     }
 }

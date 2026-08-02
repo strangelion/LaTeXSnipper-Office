@@ -37,7 +37,10 @@ impl ScreenshotJobState {
 #[serde(rename_all = "camelCase")]
 pub struct ScreenshotJobLease {
     pub job_id: String,
+    #[serde(rename = "sourcePath", alias = "path")]
     pub path: PathBuf,
+    #[serde(default)]
+    pub preview_paths: Vec<PathBuf>,
     pub created_at_unix_ms: u64,
     pub last_transition_at_unix_ms: u64,
     pub owner: JobOwner,
@@ -64,6 +67,7 @@ pub fn register_job(
     let lease = ScreenshotJobLease {
         job_id: job_id.to_string(),
         path: source_path.to_path_buf(),
+        preview_paths: Vec::new(),
         created_at_unix_ms: now,
         last_transition_at_unix_ms: now,
         owner,

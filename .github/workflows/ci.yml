@@ -158,6 +158,117 @@ jobs:
           CARGO_BUILD_JOBS: "2"
         run: cargo test --locked --lib
 
+  contract-ui:
+    name: contract-ui
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: ui
+
+  contract-recognition:
+    name: contract-recognition
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: recognition
+
+  contract-provider:
+    name: contract-provider
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: provider
+
+  contract-word-readback:
+    name: contract-word-readback
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: word-readback
+
+  contract-ole:
+    name: contract-ole
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: ole
+
+  contract-screenshot:
+    name: contract-screenshot
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: screenshot
+
+  contract-failure-corpus:
+    name: contract-failure-corpus
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: failure-corpus
+
+  contract-package-resources:
+    name: contract-package-resources
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/run-office-contract
+        with:
+          suite: package-resources
+
+  contracts-gate:
+    if: always()
+    needs:
+      - contract-ui
+      - contract-recognition
+      - contract-provider
+      - contract-word-readback
+      - contract-ole
+      - contract-screenshot
+      - contract-failure-corpus
+      - contract-package-resources
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce Office contract results
+        env:
+          RESULTS: >-
+            ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          if [[ "$RESULTS" == *failure* || "$RESULTS" == *cancelled* ]]; then
+            exit 1
+          fi
+
   native-office:
     uses: ./.github/workflows/native-office-ci.yml
     permissions:
@@ -183,6 +294,7 @@ jobs:
         rust,
         native-office,
         package-smoke,
+        contracts-gate,
       ]
     runs-on: ubuntu-24.04
     steps:
@@ -193,6 +305,7 @@ jobs:
           RUST_RESULT: ${{ needs.rust.result }}
           NATIVE_RESULT: ${{ needs.native-office.result }}
           PACKAGE_RESULT: ${{ needs.package-smoke.result }}
+          CONTRACTS_RESULT: ${{ needs.contracts-gate.result }}
         run: |
           failed=0
           for pair in \
@@ -200,7 +313,8 @@ jobs:
             "source-frontend-protocol=$SOURCE_RESULT" \
             "rust=$RUST_RESULT" \
             "native-office=$NATIVE_RESULT" \
-            "package-smoke=$PACKAGE_RESULT"; do
+            "package-smoke=$PACKAGE_RESULT" \
+            "contracts-gate=$CONTRACTS_RESULT"; do
             echo "$pair"
             result="${pair#*=}"
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then

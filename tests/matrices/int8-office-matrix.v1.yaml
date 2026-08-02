@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "thresholds": "src-tauri/latexsnipper-core/quality/int8/thresholds.v1.json",
+  "cases": [
+    "single-formula",
+    "long-formula",
+    "matrix",
+    "cases",
+    "integral-limits",
+    "mixed-text-formula",
+    "table-cell-formula",
+    "low-contrast-screenshot"
+  ],
+  "comparisonLayers": [
+    "tokens",
+    "latexRaw",
+    "latexNormalized",
+    "latexCorrected",
+    "astSemanticHash",
+    "ommlNormalizedHash",
+    "wordReadbackOmmlHash",
+    "excelPptMetadata",
+    "olePayloadHash",
+    "perceptualHash"
+  ],
+  "devices": [
+    {
+      "id": "cpu-fp32",
+      "status": "notRun",
+      "reason": "Office real-host output bundle not recorded for this commit"
+    },
+    {
+      "id": "cpu-int8",
+      "status": "blocked",
+      "reason": "Validated INT8 model package not installed"
+    },
+    {
+      "id": "directml-int8",
+      "status": "blocked",
+      "reason": "Validated INT8 model and DirectML runner unavailable"
+    },
+    {
+      "id": "cuda-int8",
+      "status": "blocked",
+      "reason": "Validated INT8 model and CUDA runner unavailable"
+    },
+    {
+      "id": "tensorrt-int8",
+      "status": "blocked",
+      "reason": "Validated INT8 engine unavailable"
+    },
+    {
+      "id": "coreml-int8",
+      "status": "unsupported",
+      "reason": "Core does not report a real CoreML INT8 path for this package"
+    }
+  ]
+}

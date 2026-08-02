@@ -51,13 +51,20 @@ if (!allOk) {
   process.exit(1);
 }
 
-// Default Office Bridge builds must not pull local recognition runtimes.
+// The Native Office Bridge-only build must not pull local recognition
+// runtimes. The desktop-full default intentionally includes recognition and
+// ORT, so inspecting an unqualified default tree would reject the supported
+// desktop product instead of the package-specific graph.
 try {
-  const tree = execFileSync("cargo", ["tree"], {
-    cwd: resolve("src-tauri"),
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const tree = execFileSync(
+    "cargo",
+    ["tree", "--no-default-features", "--features", "office-bridge"],
+    {
+      cwd: resolve("src-tauri"),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   const ortLines = tree
     .split(/\r?\n/)
     .filter((line) => /\b(ort|ort-sys|onnxruntime)\b/i.test(line));
@@ -70,7 +77,7 @@ try {
     }
     process.exit(1);
   }
-  console.log("  OK: default cargo tree has no ORT dependencies");
+  console.log("  OK: Office Bridge-only cargo tree has no ORT dependencies");
 } catch (e) {
   console.error(
     `  INVALID: failed to inspect default cargo tree: ${e.message}`,

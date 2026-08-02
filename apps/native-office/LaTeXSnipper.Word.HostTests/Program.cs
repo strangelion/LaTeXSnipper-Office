@@ -113,10 +113,16 @@ namespace LaTeXSnipper.Word.HostTests
                     : (int?)null;
                 var adapter = new WordAdapter(application, oleServerProcessId);
                 if (!oleMode)
+                {
                     ValidateNativeInlineRoundTrip(
                         document,
                         adapter,
                         contract.Cases.First());
+                    ValidateInlineScratchLifecycle(
+                        document,
+                        adapter,
+                        contract.Cases.First());
+                }
 
                 foreach (AcceptanceCase fixture in contract.Cases)
                 {
@@ -279,6 +285,142 @@ namespace LaTeXSnipper.Word.HostTests
             if (!string.Equals(afterDelete, left + right, StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"inline deletion did not preserve one paragraph of adjacent text: '{afterDelete}'");
+        }
+
+        private static void ValidateInlineScratchLifecycle(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            foreach (int insertionCount in new[] { 1, 20, 100 })
+                ValidateInlineScratchBatch(document, adapter, fixture, insertionCount);
+        }
+
+        private static void ValidateInlineScratchBatch(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture,
+            int insertionCount)
+        {
+            string left = $"SCRATCH-{insertionCount}-LEFT";
+            string right = $"SCRATCH-{insertionCount}-RIGHT";
+            InteropWord.Range paragraph =
+                document.Range(document.Content.End - 1, document.Content.End - 1);
+            paragraph.InsertParagraphAfter();
+            paragraph.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            int paragraphStart = paragraph.Start;
+            paragraph.Text = left + right;
+            int baselineParagraphCount = document.Paragraphs.Count;
+            int baselineContentEnd = document.Content.End;
+            var formulaIds = new List<string>();
+
+            try
+            {
+                for (int index = 0; index < insertionCount; index++)
+                {
+                    document.Range(
+                        paragraphStart + left.Length,
+                        paragraphStart + left.Length).Select();
+                    string formulaId = FormulaIdHelper.NewId();
+                    InsertResult inserted = adapter.InsertFormula(
+                        new FormulaPayload
+                        {
+                            FormulaId = formulaId,
+                            Latex = fixture.Latex,
+                            Omml = fixture.Omml,
+                            Display = "inline",
+                            StorageMode = "native-omml"
+                        },
+                        InsertMode.Inline);
+                    if (!inserted.Success)
+                        throw new InvalidOperationException(
+                            $"inline scratch batch {insertionCount} failed at {index}: " +
+                            $"{inserted.ErrorCode} {inserted.Error}");
+                    formulaIds.Add(formulaId);
+
+                    InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+                    InteropWord.Range candidateRange = candidate?.Range;
+                    InteropWord.Range candidateParagraph = candidateRange?.Paragraphs[1].Range;
+                    if (candidateRange == null ||
+                        candidateRange.Paragraphs.Count != 1 ||
+                        candidateParagraph == null ||
+                        candidateRange.End >= candidateParagraph.End)
+                    {
+                        throw new InvalidOperationException(
+                            "Inline content control captured a paragraph mark: " +
+                            $"range={candidateRange?.Start}-{candidateRange?.End}, " +
+                            $"paragraph={candidateParagraph?.Start}-{candidateParagraph?.End}.");
+                    }
+                    AssertNoScratchArtifacts(document);
+                }
+
+                if (document.Paragraphs.Count != baselineParagraphCount)
+                    throw new InvalidOperationException(
+                        $"Inline scratch paragraph leak after {insertionCount} inserts: " +
+                        $"expected {baselineParagraphCount}, observed {document.Paragraphs.Count}.");
+
+                string withFormulas = document
+                    .Range(paragraphStart, document.Content.End - 1)
+                    .Paragraphs[1]
+                    .Range.Text;
+                if (!withFormulas.Contains(left) || !withFormulas.Contains(right))
+                    throw new InvalidOperationException(
+                        $"Inline scratch batch {insertionCount} split adjacent text.");
+            }
+            finally
+            {
+                foreach (string formulaId in formulaIds)
+                {
+                    InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+                    if (candidate == null)
+                        continue;
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+            }
+
+            if (document.Paragraphs.Count != baselineParagraphCount ||
+                document.Content.End != baselineContentEnd)
+            {
+                throw new InvalidOperationException(
+                    $"Inline scratch cleanup changed document boundaries after {insertionCount} inserts: " +
+                    $"paragraphs={document.Paragraphs.Count}/{baselineParagraphCount}, " +
+                    $"end={document.Content.End}/{baselineContentEnd}.");
+            }
+            string afterDelete = document
+                .Range(paragraphStart, document.Content.End - 1)
+                .Paragraphs[1]
+                .Range.Text.TrimEnd('\r', '\a');
+            if (!string.Equals(afterDelete, left + right, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Inline scratch deletion changed adjacent text after {insertionCount} inserts.");
+            AssertNoScratchArtifacts(document);
+            if (document.ContentControls.Cast<InteropWord.ContentControl>().Any(control =>
+                    control.Range.Start >= baselineContentEnd - 1 &&
+                    string.IsNullOrWhiteSpace(control.Range.Text?.Trim('\r', '\a'))))
+            {
+                throw new InvalidOperationException(
+                    "Inline scratch cleanup left an empty tail content control.");
+            }
+            if (document.OMaths.Cast<InteropWord.OMath>().Any(math =>
+                    math.Range.Start >= baselineContentEnd - 1 &&
+                    string.IsNullOrWhiteSpace(math.Range.Text?.Trim('\r', '\a'))))
+            {
+                throw new InvalidOperationException(
+                    "Inline scratch cleanup left an empty tail OMath.");
+            }
+        }
+
+        private static void AssertNoScratchArtifacts(InteropWord.Document document)
+        {
+            foreach (InteropWord.ContentControl control in document.ContentControls)
+            {
+                string tag = control.Tag as string ?? string.Empty;
+                if (tag.IndexOf("-inline-scratch-", StringComparison.Ordinal) >= 0)
+                    throw new InvalidOperationException(
+                        $"Inline scratch tag survived cleanup: {tag}");
+            }
         }
 
         private static EvidenceRecord ExecuteCase(

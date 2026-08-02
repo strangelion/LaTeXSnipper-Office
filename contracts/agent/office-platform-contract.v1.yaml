@@ -1,0 +1,50 @@
+{
+  "contractVersion": 1,
+  "name": "Office platform, screenshot and package contract",
+  "rules": [
+    {
+      "id": "OFFICE-SCREENSHOT-LEASE-001",
+      "description": "Screenshot jobs use explicit lifecycle states, protect InUse jobs and enforce TTL and capacity cleanup.",
+      "scope": ["screenshot"],
+      "severity": "blocking",
+      "suite": "screenshot",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/screenshot-lease-contract.test.mjs"
+        ]
+      },
+      "failureMessage": "Screenshot lease lifecycle or cleanup contract failed."
+    },
+    {
+      "id": "OFFICE-FAILURE-CORPUS-001",
+      "description": "Office and Drawing failures enter a sanitized candidate lifecycle without raw user data.",
+      "scope": ["quality", "privacy"],
+      "severity": "blocking",
+      "suite": "failure-corpus",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/failure-corpus-contract.test.mjs"]
+      },
+      "failureMessage": "Failure candidate privacy or promotion contract failed."
+    },
+    {
+      "id": "OFFICE-PACKAGE-RESOURCES-001",
+      "description": "Core submodule, quality baseline, provider smoke fixture and Office/WPS resources match pinned hashes.",
+      "scope": ["package"],
+      "severity": "blocking",
+      "suite": "package-resources",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/package-resources-contract.test.mjs"
+        ]
+      },
+      "failureMessage": "Pinned Office package resource is absent or has drifted."
+    }
+  ]
+}

@@ -2,6 +2,14 @@
 
 独立的 LaTeX 公式编辑器和插入工具，支持 Office (OLE/VSTO)、Obsidian、WPS、VS Code、浏览器等多平台。
 
+![LaTeXSnipper Office 主界面](docs/images/main-workspace.png)
+
+## 界面与工作流
+
+应用按任务划分为五个稳定工作区：**编辑**用于公式与绘图创作，**识别**管理截图、图片和 PDF 识别任务，**公式库**统一历史与收藏，**Office**展示当前宿主和可用插入路线，**诊断**集中呈现 Core、执行后端、Office 桥接、OLE 与截图权限证据。全局设置独立于工作区，并按设备、平台和宿主作用域保存。
+
+编辑工作区采用“资源—编辑/预览—插入与导出”三栏布局，支持浅色/深色主题和窄窗口导航。公式可导出为 LaTeX、MathML、Typst、SVG、PNG、PDF 或 OMML；绘图按宿主能力选择原生 shape、可编辑 OLE、SVG、PNG 或打印 PDF，并在能力不足时明确降级。
+
 ## 技术栈
 
 | 层级 | 技术 | 说明 |
@@ -33,6 +41,9 @@
 - **公式库**: 2100+ 预置公式，18 个分类
 - **多种输出格式**: LaTeX、MathML、SVG、PNG、OMML
 - **Office OLE 公式对象**: 双击编辑，持久嵌入，原生 Word/Excel/PowerPoint 支持
+- **Office 宿主感知**: 运行时权限与真实宿主能力共同决定 OMML、OLE、SVG 或 PNG 路线
+- **绘图适配器**: TikZ、PGFPlots、Mermaid、Graphviz 与 PlantUML 分级支持
+- **诊断与质量证据**: Provider 验证、ORT/模型状态、质量基线和脱敏失败样本
 - **字体处理**: 自定义字体样式、颜色、缩放
 - **跨平台**: 一套代码多端运行
 
@@ -77,8 +88,6 @@ LaTeXSnipper-Office/
 ├── package.json
 └── vite.config.js
 ```
-
-## 快速开始
 
 ## 安装指南
 
@@ -158,6 +167,18 @@ git push origin v1.2.2
 - Excel: 单元格公式
 - PowerPoint: 幻灯片公式
 - Visio: SVG 优先、PNG fallback 的公式 shape（Beta；OLE Experimental/unavailable）
+
+### Office 插入能力矩阵
+
+`VSTO` 是 Windows Office 的宿主集成路径，不是文档中的第四种对象格式。
+
+| 宿主 | 原生 OMML | 图片（SVG/PNG） | 可编辑 OLE | VSTO 宿主路径 |
+|------|-----------|-----------------|------------|---------------|
+| Word | ✅ | ✅ | ✅ | ✅ |
+| PowerPoint | 不适用 | ✅ | ✅ | ✅ |
+| Excel | 不适用 | ✅ | ✅ | ✅ |
+
+PowerPoint 和 Excel 不提供 Word 原生 OMML 对象模型，因此使用图片或嵌入式 OLE；三种宿主都经过项目自身适配器的真实插入和重新读取验证。可直接下载并人工检查的 Word、PowerPoint、Excel 样例、预览截图与高风险公式清单见 [Office 人工验收样例](docs/manual-acceptance-samples/README.md)。其中包含箭头、极限、分段函数、积分/求和上下限、编号右括号、极长/极高公式，以及最高 32 层嵌套积分。
 
 ## 发布
 

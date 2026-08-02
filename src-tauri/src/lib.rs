@@ -184,22 +184,35 @@ pub fn run() {
             // Recognition subsystem state (lazy — no runtime init at startup)
             let recognition_paths = recognition::paths::RecognitionPaths::resolve(app.handle())
                 .map_err(std::io::Error::other)?;
-            match recognition::quality_baselines::deploy_bundled(
+            let baseline_deployment = match recognition::quality_baselines::deploy_bundled(
                 app.handle(),
                 &recognition_paths.quality_baselines,
             ) {
-                Ok(report) => log::info!(
-                    "qualityBaselineDeployment status={} sourceDigest={} target={}",
-                    report.status,
-                    report.source_digest.as_deref().unwrap_or("none"),
-                    recognition_paths.quality_baselines.display()
-                ),
-                Err(error) => log::error!(
-                    "qualityBaselineDeployment status=failed target={} error={}",
-                    recognition_paths.quality_baselines.display(),
-                    error
-                ),
-            }
+                Ok(report) => {
+                    log::info!(
+                        "qualityBaselineDeployment status={} sourceDigest={} target={}",
+                        report.status,
+                        report.source_digest.as_deref().unwrap_or("none"),
+                        recognition_paths.quality_baselines.display()
+                    );
+                    recognition::quality_baselines::BaselineDeploymentState::completed(
+                        report,
+                        &recognition_paths.quality_baselines,
+                    )
+                }
+                Err(error) => {
+                    log::error!(
+                        "qualityBaselineDeployment status=failed target={} error={}",
+                        recognition_paths.quality_baselines.display(),
+                        error
+                    );
+                    recognition::quality_baselines::BaselineDeploymentState::failed(
+                        error,
+                        &recognition_paths.quality_baselines,
+                    )
+                }
+            };
+            app.manage(baseline_deployment);
             recognition::provider_smoke::deploy_embedded(&recognition_paths.provider_smoke_fixture)
                 .map_err(std::io::Error::other)?;
             app.manage(recognition::state::RecognitionState::new(recognition_paths));
@@ -358,6 +371,7 @@ pub fn run() {
             #[allow(deprecated)]
             commands::ocr::ocr_recognize,
             commands::recognition_cmd::recognition_get_capabilities,
+            recognition::quality_baselines::quality_baseline_deployment_status,
             commands::recognition_cmd::recognition_get_readiness,
             commands::recognition_cmd::recognition_validate_provider,
             commands::recognition_cmd::recognition_start,

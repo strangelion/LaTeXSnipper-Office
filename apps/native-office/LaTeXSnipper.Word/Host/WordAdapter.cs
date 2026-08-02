@@ -857,6 +857,7 @@ namespace LaTeXSnipper.Word.Host
             int targetStart = target.Start;
             string scratchId = formulaId + "-inline-scratch-" + Guid.NewGuid().ToString("N");
             Microsoft.Office.Interop.Word.ContentControl scratchCandidate = null;
+            Microsoft.Office.Interop.Word.Range scratchParagraph = null;
             try
             {
                 var scratch = document.Range(
@@ -866,6 +867,7 @@ namespace LaTeXSnipper.Word.Host
                 scratch = document.Range(
                     document.Content.End - 1,
                     document.Content.End - 1);
+                scratchParagraph = scratch.Paragraphs[1].Range.Duplicate;
                 scratch.InsertXML(BuildFlatOpc(
                     BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
                 scratchCandidate = FindFormulaContentControl(document, scratchId);
@@ -881,12 +883,30 @@ namespace LaTeXSnipper.Word.Host
 
                 var destination = document.Range(targetStart, targetStart);
                 destination.FormattedText = sourceMath.FormattedText;
-                var insertedMath = document.Range(
+                var insertedProbe = document.Range(
                     targetStart,
                     Math.Min(document.Content.End - 1, targetStart + sourceLength));
-                if (insertedMath.OMaths.Count != 1)
+                if (insertedProbe.OMaths.Count != 1)
                     throw new InvalidOperationException(
                         "Word did not preserve one OMath while copying formatted math.");
+
+                // Re-read the actual target OMath instead of trusting the source
+                // scratch length. Word can include a scratch paragraph boundary in
+                // the copied source range; a run-level content control must never
+                // own that boundary.
+                var insertedMath = insertedProbe.OMaths[1].Range.Duplicate;
+                int insertedEnd = insertedMath.End;
+                while (insertedEnd > insertedMath.Start)
+                {
+                    string trailing = document.Range(insertedEnd - 1, insertedEnd).Text;
+                    if (trailing != "\r" && trailing != "\a")
+                        break;
+                    insertedEnd--;
+                }
+                insertedMath.SetRange(insertedMath.Start, insertedEnd);
+                if (insertedMath.End <= insertedMath.Start || insertedMath.OMaths.Count != 1)
+                    throw new InvalidOperationException(
+                        "Word target OMath range was empty after removing paragraph boundaries.");
 
                 var candidate = document.ContentControls.Add(
                     Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
@@ -909,6 +929,25 @@ namespace LaTeXSnipper.Word.Host
                     {
                         OfficeOperationLog.Failure(
                             "cleanup-inline-omml-scratch",
+                            "word",
+                            formulaId,
+                            cleanupError);
+                    }
+                }
+                if (scratchParagraph != null)
+                {
+                    try
+                    {
+                        // Word keeps the paragraph created by InsertParagraphAfter even
+                        // after the temporary content control is removed. Delete that
+                        // exact tracked paragraph so repeated inline inserts cannot grow
+                        // the document tail or leave an empty OMath/scratch container.
+                        scratchParagraph.Paragraphs[1].Range.Delete();
+                    }
+                    catch (Exception cleanupError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "cleanup-inline-omml-scratch-paragraph",
                             "word",
                             formulaId,
                             cleanupError);
@@ -1180,7 +1219,8 @@ namespace LaTeXSnipper.Word.Host
                     activation = OleFormulaActivation.ActivateAndVerify(
                         () => oleShape.OLEFormat?.Object,
                         payload,
-                        () => oleShape.Delete());
+                        () => oleShape.Delete(),
+                        OleRcwOwnership.OwnedTemporaryRcw);
                     if (!activation.Success)
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };

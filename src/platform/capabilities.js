@@ -37,6 +37,12 @@ export function capability(level, options = {}) {
       ? { installedBackend: options.installedBackend }
       : {}),
     ...(options.runtimeHealth ? { runtimeHealth: options.runtimeHealth } : {}),
+    ...(options.runtimePermission
+      ? { runtimePermission: options.runtimePermission }
+      : {}),
+    ...(options.hostCapability
+      ? { hostCapability: options.hostCapability }
+      : {}),
   });
 }
 
@@ -44,6 +50,8 @@ export function layeredCapability({
   staticSupported,
   installedBackend,
   runtimeHealthy,
+  runtimePermission = true,
+  hostCapability = true,
   message,
   nextAction,
   backend,
@@ -63,6 +71,8 @@ export function layeredCapability({
         : runtimeHealthy === false
           ? "unhealthy"
           : "unknown",
+    runtimePermission: runtimePermission ? "granted" : "denied",
+    hostCapability: hostCapability ? "supported" : "unsupported",
     message,
     nextAction,
     backend,
@@ -71,6 +81,18 @@ export function layeredCapability({
     return capability("requiresSetup", {
       ...layers,
       code: "PLATFORM_BACKEND_SETUP_REQUIRED",
+    });
+  }
+  if (!runtimePermission) {
+    return capability("requiresSetup", {
+      ...layers,
+      code: "PLATFORM_RUNTIME_PERMISSION_REQUIRED",
+    });
+  }
+  if (!hostCapability) {
+    return capability("unsupported", {
+      ...layers,
+      code: "PLATFORM_HOST_CAPABILITY_UNSUPPORTED",
     });
   }
   if (runtimeHealthy !== true) {

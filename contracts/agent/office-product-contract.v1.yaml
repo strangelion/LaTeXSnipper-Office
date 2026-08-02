@@ -1,0 +1,54 @@
+{
+  "contractVersion": 1,
+  "name": "Office product workflow contract",
+  "rules": [
+    {
+      "id": "OFFICE-UI-001",
+      "description": "The primary navigation exposes exactly five workflow workspaces and global settings is separate.",
+      "scope": ["desktop", "ui"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/office-product-contract.test.mjs"]
+      },
+      "failureMessage": "Workflow-first five-workspace UI contract failed."
+    },
+    {
+      "id": "OFFICE-AUTOINSERT-001",
+      "description": "Office obeys Core recommendedAction and separately checks user/session/document authority.",
+      "scope": ["recognition", "office"],
+      "severity": "blocking",
+      "suite": "recognition",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "tests/auto-insert-decision.test.mjs"]
+      },
+      "failureMessage": "Auto-insert authority diverged from the Core contract."
+    },
+    {
+      "id": "OFFICE-DRAWING-ROUTE-001",
+      "description": "Drawing insertion selects native shapes only for the complete subset and otherwise falls back to OLE, SVG or PNG truthfully.",
+      "scope": ["drawing", "office"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/drawing-office-routing.test.mjs"]
+      },
+      "failureMessage": "Drawing Office routing or readiness is invalid."
+    },
+    {
+      "id": "OFFICE-INT8-MATRIX-001",
+      "description": "INT8 Office comparison matrix records unsupported and unmeasured hardware without FP32 substitution.",
+      "scope": ["recognition", "office"],
+      "severity": "blocking",
+      "suite": "recognition",
+      "evidence": {
+        "kind": "truthfulMatrix",
+        "matrix": "tests/matrices/int8-office-matrix.v1.yaml"
+      },
+      "failureMessage": "INT8 Office matrix contains an unsupported success claim."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "f7f95c1fbcddfd9fd7da3768f029c98c0f9027ee",
+    "sourceCommitSha":  "1a0b40c69228ae54a5ee59e4b0572e06d15f7452",
     "packageVersion":  "1.6.0-rc.2",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
@@ -116,6 +116,6 @@
                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
                   },
     "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "A473E261E5DDF678E6FD70415C088CEE2E4653B8D3DA8252B3805BEF4607D18B"
+                               "LaTeXSnipper.NativeOffice.msi":  "68D9345FDD61458AD7B93465A2DCC38BC3A3AB59308E46BDF72D8B5D0EAE917F"
                            }
 }

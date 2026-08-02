@@ -426,6 +426,10 @@ a:hover {
   border-color: var(--accent);
 }
 
+#themeToggle {
+  margin-left: 0;
+}
+
 /* ═══════════════════════════════════════════
    Main Content
    ═══════════════════════════════════════════ */
@@ -1815,11 +1819,37 @@ a:hover {
    Responsive
    ═══════════════════════════════════════════ */
 @media (max-width: 768px) {
+  :root {
+    --nav-height: 104px;
+  }
+
   .top-nav .inner {
     padding: 0 1rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-rows: 52px 52px;
+    column-gap: 0.5rem;
   }
+
+  .top-nav .brand-link {
+    min-width: 0;
+  }
+
+  .settings-launcher,
+  #themeToggle {
+    margin-left: 0;
+  }
+
   .nav-tabs {
-    display: none;
+    display: flex;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    margin-left: 0;
+    overflow-x: auto;
+    justify-content: flex-start;
+    padding-bottom: 0.35rem;
+    scrollbar-width: thin;
   }
   .main {
     padding: 0.75rem;
@@ -2381,6 +2411,251 @@ body {
 .recognition-job-cancel {
   padding: 4px 10px;
   font-size: 0.7rem;
+}
+
+/* Workflow-first shell: five stable workspaces plus a global settings entry. */
+.settings-launcher {
+  margin-left: auto;
+  font-size: 1rem;
+}
+
+.workspace-command-bar,
+.editor-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.7rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.workspace-command-bar button,
+.editor-mode-tabs button,
+.editor-rail button,
+.workspace-actions button {
+  min-height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.workspace-command-bar button {
+  padding: 0 0.8rem;
+  white-space: nowrap;
+}
+
+.editor-mode-tabs button {
+  padding: 0 1.1rem;
+}
+
+.editor-mode-tabs button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--card-bg));
+  color: var(--accent);
+}
+
+.editor-layout {
+  display: grid;
+  grid-template-columns: minmax(168px, 0.62fr) minmax(0, 2.6fr) minmax(
+      210px,
+      0.82fr
+    );
+  align-items: start;
+  gap: 0.8rem;
+  height: auto;
+  min-width: 0;
+}
+
+.editor-main,
+.editor-rail,
+.editor-inspector {
+  min-width: 0;
+}
+
+.editor-rail,
+.editor-inspector {
+  position: sticky;
+  top: calc(var(--nav-height) + 12px);
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+.editor-rail button {
+  width: 100%;
+  text-align: left;
+  padding: 0 0.7rem;
+}
+
+.editor-inspector strong:not(:first-child),
+.drawing-task-map strong {
+  margin-top: 0.55rem;
+}
+
+.editor-inspector span,
+.drawing-task-map span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.drawing-task-map {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.workspace-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.workspace-heading h1 {
+  margin: 0.15rem 0 0;
+  font-size: clamp(1.45rem, 3vw, 2.2rem);
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.state-chip {
+  max-width: 45%;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.diagnostics-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workspace-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  background: var(--card-bg);
+}
+
+.workspace-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.workspace-card p {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-grid small {
+  display: block;
+  margin-top: 0.5rem;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.diagnostic-failure {
+  color: #b91c1c;
+}
+
+[data-theme="dark"] .diagnostic-failure {
+  color: #fca5a5;
+}
+
+.workspace-actions,
+.route-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.workspace-actions button,
+.route-list span {
+  padding: 0.45rem 0.65rem;
+}
+
+.route-list span {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+  font-size: 0.75rem;
+}
+
+@media (max-width: 1100px) {
+  .editor-layout,
+  .workspace-grid,
+  .diagnostics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-rail,
+  .editor-inspector {
+    position: static;
+  }
+
+  .editor-rail {
+    grid-template-columns: repeat(5, minmax(120px, 1fr));
+    overflow-x: auto;
+  }
+
+  .drawing-task-map {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .nav-tabs {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+
+  .nav-tab {
+    flex: 0 0 auto;
+  }
+
+  .editor-rail {
+    grid-template-columns: repeat(5, minmax(108px, 1fr));
+  }
+
+  .workspace-heading {
+    align-items: flex-start;
+  }
+}
+
+@media (forced-colors: active) {
+  .workspace-card,
+  .editor-rail,
+  .editor-inspector,
+  .workspace-command-bar button {
+    border: 1px solid CanvasText;
+  }
 }
 
 /* ═══════════════════════════════════════════

@@ -1,0 +1,25 @@
+name: Run Office agent contract
+description: Execute one Office contract suite and upload its machine-readable evidence.
+
+inputs:
+  suite:
+    description: Contract suite name
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 24
+    - name: Run ${{ inputs.suite }} contract
+      shell: bash
+      run: node scripts/run-agent-contracts.mjs --suite "${{ inputs.suite }}"
+    - name: Upload ${{ inputs.suite }} evidence
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: contract-${{ inputs.suite }}
+        path: artifacts/contracts/contract-${{ inputs.suite }}.*
+        if-no-files-found: error
+        retention-days: 30

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "coreCommit": "b1bd555617656738d1197c91d6ead826e2a377f1",
+  "ortVersion": "1.28",
+  "dimensions": {
+    "os": ["windows", "macos", "linux"],
+    "architecture": ["x64", "arm64"],
+    "provider": ["CPU", "DirectML", "CUDA", "TensorRT", "CoreML"],
+    "artifact": ["onnx", "ort", "onnx-external-data"],
+    "policy": ["probe", "session", "smoke", "benchmarkMeasured"],
+    "fallback": ["disabled", "allowed"]
+  },
+  "observations": [
+    {
+      "id": "windows-x64-cpu",
+      "status": "passed",
+      "evidence": ["Core CI provider CPU smoke / b1bd555"],
+      "effectiveProvider": "CPU"
+    },
+    {
+      "id": "windows-x64-directml",
+      "status": "notRun",
+      "reason": "No DirectML hardware runner evidence in this Office commit"
+    },
+    {
+      "id": "linux-x64-cuda",
+      "status": "notRun",
+      "reason": "No CUDA hardware runner evidence in this Office commit"
+    },
+    {
+      "id": "linux-x64-tensorrt",
+      "status": "notRun",
+      "reason": "No TensorRT hardware runner evidence in this Office commit"
+    },
+    {
+      "id": "macos-arm64-coreml",
+      "status": "notRun",
+      "reason": "No macOS arm64 Office host evidence in this Office commit"
+    }
+  ]
+}

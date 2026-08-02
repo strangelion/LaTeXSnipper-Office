@@ -372,7 +372,8 @@ namespace LaTeXSnipper.Excel.Host
                     using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => ole.Object,
                         payload,
-                        () => ole.Delete());
+                        () => ole.Delete(),
+                        OleRcwOwnership.OwnedTemporaryRcw);
                     if (!activation.Success)
                     {
                         return new InsertResult { Success = false, ErrorCode = activation.ErrorCode, Error = activation.Message };
