@@ -54,11 +54,11 @@ impl ScreenshotBackend for XcapScreenshotBackend {
     fn capability(&self) -> ScreenshotBackendCapability {
         #[cfg(target_os = "linux")]
         {
-            return linux_capability(
+            linux_capability(
                 std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
                 std::env::var_os("WAYLAND_DISPLAY").is_some(),
                 std::env::var_os("DISPLAY").is_some(),
-            );
+            )
         }
         #[cfg(not(target_os = "linux"))]
         ScreenshotBackendCapability {
