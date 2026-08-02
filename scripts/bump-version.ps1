@@ -26,6 +26,22 @@ param(
 $ErrorActionPreference = "Stop"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
+# Release gate: warns in dev mode, throws in -Tag mode.
+function Assert-Gate {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][bool]$Passed,
+        [Parameter(Mandatory = $true)][string]$FailureMessage
+    )
+    if ($Passed) {
+        Write-Host "  OK: $Label" -ForegroundColor Green
+    } elseif ($Tag) {
+        throw "$Label FAILED (release mode): $FailureMessage"
+    } else {
+        Write-Host "  WARNING: $Label — $FailureMessage" -ForegroundColor Yellow
+    }
+}
+
 # ── 1. Pre-flight validation ──
 
 if ($Version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z-.]+)?(\+[0-9A-Za-z-.]+)?$') {
@@ -133,7 +149,11 @@ if ($DryRun) {
         if (git tag --list $tagName) {
             Write-Host "  WARNING: tag $tagName already exists locally" -ForegroundColor Yellow
         }
-        if (git ls-remote --tags origin "refs/tags/$tagName" 2>$null) {
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $remoteTag = git ls-remote --tags origin "refs/tags/$tagName" 2>&1
+        $ErrorActionPreference = $prevEAP
+        if ($remoteTag) {
             Write-Host "  WARNING: tag $tagName already exists on remote" -ForegroundColor Yellow
         }
     }
@@ -146,22 +166,37 @@ if ($DryRun) {
 # ── 2. Real pre-flight checks ──
 
 Write-Host "=== Bumping version $currentVersion -> $Version ===" -ForegroundColor Green
+if ($Tag) { Write-Host "(release mode — gates are HARD BLOCKS)" -ForegroundColor Magenta }
 
+Write-Host "Pre-flight checks:" -ForegroundColor Yellow
+
+# Branch check.
 $branch = git branch --show-current
-if ($branch -ne "main") {
-    Write-Host "WARNING: not on 'main' branch (current: $branch)" -ForegroundColor Yellow
-    Write-Host "Press Ctrl+C to abort, or wait 3 seconds to continue..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 3
-}
+Assert-Gate "on branch 'main'" ($branch -eq "main") "current branch is '$branch'; switch to main first"
 
-$status = git status --porcelain
-if ($status) {
-    Write-Host "WARNING: workspace is not clean:" -ForegroundColor Yellow
-    Write-Host $status
-    Write-Host "Press Ctrl+C to abort, or wait 3 seconds to continue..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 3
-}
+# Workspace cleanliness.
+$dirty = git status --porcelain
+Assert-Gate "workspace is clean" (-not $dirty) "uncommitted changes present; commit or stash them first"
 
+# Remote sync check.
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$upstream = git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>&1
+$upstreamOk = ($LASTEXITCODE -eq 0)
+$behindOk = $true
+if ($upstreamOk -and $upstream) {
+    $behindStr = git rev-list --count 'HEAD..@{u}' 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $behindNum = [int](($behindStr -join '').Trim())
+        $behindOk = ($behindNum -eq 0)
+        Assert-Gate "up to date with remote" $behindOk "local is behind remote by $behindNum commits; pull first"
+    }
+} else {
+    Write-Host "  NOTE: no upstream tracking branch configured" -ForegroundColor Gray
+}
+$ErrorActionPreference = $prevEAP
+
+# Tag existence (always hard block — never overwrite a published tag).
 if ($Tag) {
     $tagName = "v$Version"
     $prevEAP = $ErrorActionPreference
@@ -172,7 +207,7 @@ if ($Tag) {
         throw "Tag $tagName already exists on remote. Aborting."
     }
     if (git tag --list $tagName) {
-        Write-Host "WARNING: local tag $tagName exists (but not on remote). Will replace." -ForegroundColor Yellow
+        Write-Host "  NOTE: local tag $tagName exists (not on remote). Will replace." -ForegroundColor Yellow
     }
 }
 
@@ -296,16 +331,33 @@ Write-Host "Building WPS plugin..." -ForegroundColor Gray
 & npm run build:wps
 if ($LASTEXITCODE -ne 0) { throw "Failed to build WPS plugin" }
 
-# Stage WPS resources (allow NativeOffice MSI to be absent).
+# Stage WPS + Office.js resources. NativeOffice MSI may be absent on dev machines.
 Write-Host "Staging WPS resources..." -ForegroundColor Gray
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-& node scripts/stage-resources.js 2>&1
+$stageOutput = & node scripts/stage-resources.js 2>&1
 $stageOk = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = $prevEAP
+
 if (-not $stageOk) {
-    Write-Host "WARNING: stage:resources failed (likely Native Office MSI not built). WPS files may need manual staging." -ForegroundColor Yellow
-    Write-Host "Run 'npm run build:native-office' if you need the MSI, then re-run stage:resources." -ForegroundColor Yellow
+    $stageText = ($stageOutput -join "`n")
+    # Detect which component failed from the output.
+    $wpsMissing = $stageText -match 'WPS.*missing'
+    $officeJsMissing = $stageText -match 'OfficeJS.*missing'
+    $msiMissing = $stageText -match 'MSI.*missing'
+
+    if ($wpsMissing -or $officeJsMissing) {
+        # WPS or Office.js staging failure is always a hard stop.
+        throw "stage:resources FAILED: WPS or Office.js resources could not be staged.`n$stageText"
+    } elseif ($msiMissing) {
+        # NativeOffice MSI is optional — hard block in release mode, soft in dev.
+        Assert-Gate "NativeOffice MSI staged" $false "MSI package missing; run 'npm run build:native-office' first"
+    } else {
+        # Unknown stage failure — hard block everywhere.
+        throw "stage:resources FAILED with unknown error:`n$stageText"
+    }
+} else {
+    Write-Host "  OK: WPS resources staged" -ForegroundColor Green
 }
 
 # ── 8. Update resource contract hash for WPS manifest.xml ──
@@ -438,29 +490,33 @@ try {
 
 # ── 10. Run drift checks ──
 
-# ecosystem-drift: compares staged resources against HEAD (only meaningful post-commit).
 # resource-drift: compares staged resources against build outputs.
-# Skip ecosystem-drift pre-commit (it compares against HEAD which still has the old version).
-Write-Host "Running resource drift checks..." -ForegroundColor Gray
+Write-Host "Drift checks:" -ForegroundColor Yellow
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & npm run check:resource-drift 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARNING: resource-drift found issues. Some plugin resources may need staging." -ForegroundColor Yellow
-    Write-Host "Run 'npm run stage:resources && npm run stage:ecosystem' to fix." -ForegroundColor Yellow
-}
+$driftOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEAP
+Assert-Gate "resource-drift" $driftOk "staged resources out of sync with build outputs; run 'npm run stage:resources && npm run stage:ecosystem'"
 
 # ── 11. Run tests ──
 
-Write-Host "Running frontend tests..." -ForegroundColor Gray
-& npm run test:frontend 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARNING: frontend tests had failures. Review before releasing." -ForegroundColor Yellow
-}
+Write-Host "Tests:" -ForegroundColor Yellow
 
-Write-Host "Running Rust tests..." -ForegroundColor Gray
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& npm run test:frontend 2>&1
+$frontendOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEAP
+Assert-Gate "test:frontend" $frontendOk "frontend tests had failures; review before releasing"
+
+Write-Host "Running cargo test..." -ForegroundColor Gray
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
 & cargo test --manifest-path "src-tauri/Cargo.toml" --locked 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARNING: Rust tests had failures. Review before releasing." -ForegroundColor Yellow
-}
+$cargoOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEAP
+Assert-Gate "cargo test" $cargoOk "Rust tests had failures; review before releasing"
 
 # ── 12. NoCommit: stop here ──
 
