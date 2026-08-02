@@ -4486,6 +4486,13 @@ class UIController {
         request.onerror = (e) => reject(e.target.error);
       });
     }
+    const history = JSON.parse(localStorage.getItem("formulaHistory") || "[]");
+    const record = history.find((h) => h.id === id);
+    if (record) {
+      record.favorite = !record.favorite;
+      localStorage.setItem("formulaHistory", JSON.stringify(history));
+      return record.favorite;
+    }
     return false;
   }
 
