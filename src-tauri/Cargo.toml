@@ -52,6 +52,7 @@ zip = "0.6"
 
 # LaTeXSnipper Core (via symlink)
 latexsnipper-conversion = { path = "latexsnipper-core/crates/conversion", default-features = false }
+latexsnipper-drawing = { path = "latexsnipper-core/crates/drawing" }
 latexsnipper-ast = { path = "latexsnipper-core/crates/ast", optional = true, default-features = false }
 latexsnipper-engine = { path = "latexsnipper-core/crates/engine", optional = true, default-features = false, features = ["native"] }
 latexsnipper-api-types = { path = "latexsnipper-core/crates/api-types", optional = true }

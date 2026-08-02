@@ -28,7 +28,7 @@
     },
     {
       "id": "OFFICE-DRAWING-ROUTE-001",
-      "description": "Drawing insertion selects native shapes only for the complete subset and otherwise falls back to OLE, SVG or PNG truthfully.",
+      "description": "Office directly consumes Core-owned DrawingOfficePayload and DrawingReadiness fixtures, selects native shapes only when officeShapeScene exists, and otherwise falls back truthfully.",
       "scope": ["drawing", "office"],
       "severity": "blocking",
       "suite": "ui",
@@ -37,6 +37,86 @@
         "command": ["node", "--test", "tests/drawing-office-routing.test.mjs"]
       },
       "failureMessage": "Drawing Office routing or readiness is invalid."
+    },
+    {
+      "id": "OFFICE-UI-DRAWING-MODE-001",
+      "description": "Formula and Drawing tabs update visible panels and aria-selected, while compile and insert clicks perform observable asynchronous state transitions.",
+      "scope": ["drawing", "office", "ui"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/drawing-workspace-interaction.test.mjs"
+        ]
+      },
+      "failureMessage": "Drawing workspace click and state-transition contract failed."
+    },
+    {
+      "id": "OFFICE-UI-COMMAND-BAR-001",
+      "description": "Every visible command-bar action is bound through the production interaction module and click dispatch preserves command order.",
+      "scope": ["office", "ui"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/workspace-interactions.test.mjs"]
+      },
+      "failureMessage": "Command-bar click contract failed."
+    },
+    {
+      "id": "OFFICE-UI-OFFICE-WORKFLOW-001",
+      "description": "Read, replace, and batch-convert controls dispatch their production Office workflow handlers on click.",
+      "scope": ["office", "ui"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/workspace-interactions.test.mjs"]
+      },
+      "failureMessage": "Office workspace click contract failed."
+    },
+    {
+      "id": "OFFICE-UI-DIAGNOSTICS-BINDING-001",
+      "description": "Quality-baseline deployment state is rendered from the Tauri diagnostics command rather than a static success label.",
+      "scope": ["office", "ui", "diagnostics"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": [
+          "node",
+          "--test",
+          "tests/quality-baseline-deployment.test.mjs"
+        ]
+      },
+      "failureMessage": "Diagnostics binding contract failed."
+    },
+    {
+      "id": "OFFICE-DRAWING-PAYLOAD-CROSSREPO-001",
+      "description": "Office route tests load the Core-owned DrawingOfficePayload fixture from the checked-out submodule.",
+      "scope": ["drawing", "office"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/drawing-office-routing.test.mjs"]
+      },
+      "failureMessage": "Core to Office DrawingOfficePayload contract drifted."
+    },
+    {
+      "id": "OFFICE-DRAWING-READINESS-CROSSREPO-001",
+      "description": "Office readiness mapping loads the Core-owned DrawingReadiness fixture without inventing alternate fields.",
+      "scope": ["drawing", "office"],
+      "severity": "blocking",
+      "suite": "ui",
+      "evidence": {
+        "kind": "command",
+        "command": ["node", "--test", "tests/drawing-office-routing.test.mjs"]
+      },
+      "failureMessage": "Core to Office DrawingReadiness contract drifted."
     },
     {
       "id": "OFFICE-INT8-MATRIX-001",

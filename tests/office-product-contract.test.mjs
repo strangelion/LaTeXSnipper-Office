@@ -55,8 +55,21 @@ assert.match(
   /MathfieldElement\.strings\s*=\s*{\s*"zh-CN": _MATHLIVE_I18N/,
 );
 assert.match(main, /MathfieldElement\.locale\s*=\s*"zh-CN"/);
-assert.match(main, /export:\s*"导出"/);
-assert.match(main, /palette:\s*"命令面板"/);
+for (const command of ["new", "open", "export", "undo", "redo", "palette"]) {
+  assert.match(main, new RegExp(`command === "${command}"`));
+}
+for (const control of [
+  "formulaModeTab",
+  "drawingModeTab",
+  "drawingCompileBtn",
+  "drawingInsertBtn",
+  "officeWorkspaceRead",
+  "officeWorkspaceReplace",
+  "officeWorkspaceBatch",
+  "officeWorkspaceInventory",
+]) {
+  assert.match(html, new RegExp(`id="${control}"`));
+}
 assert.doesNotMatch(main, /\$\{command \|\| "命令"\}/);
 assert.match(css, /grid-template-columns:\s*minmax\(168px/);
 assert.match(css, /@media \(max-width: 1100px\)/);

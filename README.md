@@ -8,7 +8,7 @@
 
 应用按任务划分为五个稳定工作区：**编辑**用于公式与绘图创作，**识别**管理截图、图片和 PDF 识别任务，**公式库**统一历史与收藏，**Office**展示当前宿主和可用插入路线，**诊断**集中呈现 Core、执行后端、Office 桥接、OLE 与截图权限证据。全局设置独立于工作区，并按设备、平台和宿主作用域保存。
 
-编辑工作区采用“资源—编辑/预览—插入与导出”三栏布局，支持浅色/深色主题和窄窗口导航。公式可导出为 LaTeX、MathML、Typst、SVG、PNG、PDF 或 OMML；绘图按宿主能力选择原生 shape、可编辑 OLE、SVG、PNG 或打印 PDF，并在能力不足时明确降级。
+编辑工作区采用“资源—编辑/预览—插入与导出”三栏布局，支持浅色/深色主题和窄窗口导航。公式可导出为 LaTeX、MathML、Typst、SVG、PNG、PDF 或 OMML；绘图工作区提供源码编辑、安全编译、预览和 Office 插入。当前生产插入路线是经过 Core 消毒的 SVG 经 Native Office VSTO 写入 Word、Excel 或 PowerPoint；Native Shapes、Drawing OLE、PNG 与打印 PDF 保留为版本化契约能力，在对应宿主实现和 readiness 证据齐备前不会宣称可用。
 
 ## 技术栈
 
@@ -42,7 +42,7 @@
 - **多种输出格式**: LaTeX、MathML、SVG、PNG、OMML
 - **Office OLE 公式对象**: 双击编辑，持久嵌入，原生 Word/Excel/PowerPoint 支持
 - **Office 宿主感知**: 运行时权限与真实宿主能力共同决定 OMML、OLE、SVG 或 PNG 路线
-- **绘图适配器**: TikZ、PGFPlots、Mermaid、Graphviz 与 PlantUML 分级支持
+- **绘图适配器**: SVG 可在进程内安全编译；TikZ/PGFPlots 与 Graphviz 仅在编译器路径、版本和文件 SHA-256 全部固定并验证后启用；其他适配器按 Core readiness 显示实验、禁用或需要设置
 - **诊断与质量证据**: Provider 验证、ORT/模型状态、质量基线和脱敏失败样本
 - **字体处理**: 自定义字体样式、颜色、缩放
 - **跨平台**: 一套代码多端运行

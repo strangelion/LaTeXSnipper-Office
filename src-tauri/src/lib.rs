@@ -357,6 +357,8 @@ pub fn run() {
             commands::formula::render_formula,
             commands::formula::apply_font_style,
             commands::formula::apply_color,
+            commands::drawing::compile_drawing_svg,
+            commands::drawing::get_drawing_readiness,
             commands::metadata::validate_metadata,
             commands::metadata::create_metadata,
             commands::export::export_formula,

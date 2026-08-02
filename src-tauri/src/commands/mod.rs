@@ -1,3 +1,4 @@
+pub mod drawing;
 pub mod export;
 pub mod formula;
 pub mod metadata;

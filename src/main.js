@@ -16,6 +16,11 @@ import {
   officeInsertModeIsDisplay,
 } from "./services/office-insert-mode.js";
 import { decideAutoInsert } from "./features/recognition/auto-insert-decision.js";
+import {
+  initDrawingWorkspace,
+  selectProductionDrawingRoute,
+} from "./features/drawing/workspace.js";
+import { bindWorkspaceInteractions } from "./features/workspace/interactions.js";
 import { createPlatformContext } from "./platform/platform-context.js";
 import {
   migrateLegacySetting,
@@ -1789,6 +1794,7 @@ class UIController {
 
     this.initCustomSelects();
     this.initEventListeners();
+    void this.initDrawingWorkspace();
     this.initLibrary();
     this.applySettings();
     this.themeManager.updateButton();
@@ -1848,6 +1854,61 @@ class UIController {
 
   getFormulaInsertMode() {
     return selectedFormulaInsertMode();
+  }
+
+  async initDrawingWorkspace() {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      this.drawingWorkspace = initDrawingWorkspace({
+        invoke,
+        insertDrawing: (result) => this.insertDrawingToOffice(result),
+      });
+    } catch (error) {
+      Logger.warn("Drawing workspace backend unavailable:", error);
+      document
+        .getElementById("drawingCompileStatus")
+        ?.replaceChildren(
+          document.createTextNode("绘图后端不可用，请在桌面应用中使用"),
+        );
+    }
+  }
+
+  async insertDrawingToOffice(result) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await this.updateOfficeHostSelector();
+    const session = this._sessions?.find(
+      (candidate) => candidate.session_id === this._selectedSessionId,
+    );
+    if (!session) throw new Error("请先选择已连接的 Office 宿主");
+    const route = selectProductionDrawingRoute({
+      payload: result.payload,
+      host: session.host_type,
+      os: navigator.userAgent.includes("Windows") ? "windows" : "other",
+    });
+    if (!route.route) throw new Error(route.code);
+    if (route.route !== "svg") {
+      throw new Error(`DRAWING_ROUTE_NOT_IMPLEMENTED: ${route.route}`);
+    }
+    await invoke("native_office_insert_formula", {
+      sessionId: session.session_id,
+      expectedDocumentId: session.document_id || null,
+      formulaId: result.payload.drawingId,
+      latex: result.payload.source,
+      omml: "",
+      display: "block",
+      mode: "display",
+      svg: result.svg,
+      png: null,
+      widthPt: result.payload.widthPoints,
+      heightPt: result.payload.heightPoints,
+      integrationMode: "vector",
+      requestedRoute: "drawing",
+      actualRoute: route.route,
+    });
+    this.showToast(
+      `绘图已通过 ${route.route.toUpperCase()} 路线发送到 ${session.host_type}`,
+    );
+    return route;
   }
 
   setFormulaInsertMode(value) {
@@ -2040,13 +2101,12 @@ class UIController {
       this.switchSection("settings");
     });
 
-    document
-      .querySelectorAll("[data-command]")
-      .forEach((button) =>
-        button.addEventListener("click", () =>
-          this.executeWorkspaceCommand(button.dataset.command),
-        ),
-      );
+    bindWorkspaceInteractions({
+      onCommand: (command) => this.executeWorkspaceCommand(command),
+      onOfficeRead: () => this.loadFromWord(),
+      onOfficeReplace: () => this.replaceLoadedOfficeFormula(),
+      onOfficeBatch: () => this.runOfficeBatchConversion(),
+    });
 
     const sidebarPanel = document.getElementById("sidebarPanel");
     const sidebarOverlay = document.getElementById("sidebarOverlay");
@@ -4928,18 +4988,161 @@ class UIController {
       insert: "insertToWord",
       copy: "copyLatex",
     }[command];
-    const labels = {
-      export: "导出",
-      undo: "撤销",
-      redo: "重做",
-      palette: "命令面板",
-    };
     if (command === "screenshot") this.switchSection("ocr");
     if (delegated) {
       document.getElementById(delegated)?.click();
       return;
     }
-    this.showStatus(`${labels[command] || "该命令"}暂不可用`);
+    if (command === "new") {
+      if (this.drawingWorkspace?.state.mode === "drawing") {
+        const source = document.getElementById("drawingSource");
+        if (source) source.value = "";
+        this.drawingWorkspace.state.lastResult = null;
+        const insert = document.getElementById("drawingInsertBtn");
+        if (insert) insert.disabled = true;
+      } else {
+        this.editor.setLatex("");
+      }
+      this.showStatus("已新建空白内容");
+      return;
+    }
+    if (command === "open") {
+      const picker = document.createElement("input");
+      picker.type = "file";
+      picker.accept = ".tex,.txt,.svg,.dot";
+      picker.addEventListener("change", async () => {
+        const file = picker.files?.[0];
+        if (!file) return;
+        const content = await file.text();
+        const drawing = /\.(svg|dot)$/i.test(file.name);
+        this.drawingWorkspace?.activateMode(drawing ? "drawing" : "formula");
+        if (drawing) {
+          const source = document.getElementById("drawingSource");
+          if (source) source.value = content;
+        } else {
+          this.editor.setLatex(content);
+        }
+        this.showStatus(`已打开 ${file.name}`);
+      });
+      picker.click();
+      return;
+    }
+    if (command === "export") {
+      const drawing = this.drawingWorkspace?.state.mode === "drawing";
+      const content = drawing
+        ? this.drawingWorkspace?.state.lastResult?.svg ||
+          document.getElementById("drawingSource")?.value
+        : this.editor.getLatex();
+      if (!content) {
+        this.showStatus("没有可导出的内容");
+        return;
+      }
+      const blob = new Blob([content], {
+        type: drawing ? "image/svg+xml" : "text/plain;charset=utf-8",
+      });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = drawing ? "drawing.svg" : "formula.tex";
+      link.click();
+      URL.revokeObjectURL(link.href);
+      this.showStatus("导出已开始");
+      return;
+    }
+    if (command === "undo" || command === "redo") {
+      const drawing = this.drawingWorkspace?.state.mode === "drawing";
+      if (drawing) {
+        document.getElementById("drawingSource")?.focus();
+        document.execCommand(command);
+      } else {
+        this.editor.mathfield?.executeCommand(command);
+      }
+      return;
+    }
+    if (command === "palette") {
+      this.openCommandPalette();
+      return;
+    }
+    this.showStatus("未知命令");
+  }
+
+  openCommandPalette() {
+    document.getElementById("workspaceCommandPalette")?.remove();
+    const palette = document.createElement("div");
+    palette.id = "workspaceCommandPalette";
+    palette.className = "command-palette";
+    palette.setAttribute("role", "dialog");
+    palette.setAttribute("aria-label", "命令面板");
+    for (const [command, label] of [
+      ["new", "新建"],
+      ["open", "打开"],
+      ["screenshot", "截图识别"],
+      ["insert", "插入 Office"],
+      ["copy", "复制"],
+      ["export", "导出"],
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        palette.remove();
+        this.executeWorkspaceCommand(command);
+      });
+      palette.appendChild(button);
+    }
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "关闭";
+    close.addEventListener("click", () => palette.remove());
+    palette.appendChild(close);
+    document.body.appendChild(palette);
+    palette.querySelector("button")?.focus();
+  }
+
+  async runOfficeBatchConversion() {
+    try {
+      await this.updateOfficeHostSelector();
+      const session = this._sessions?.find(
+        (candidate) => candidate.session_id === this._selectedSessionId,
+      );
+      if (!session) throw new Error("请先选择已连接的 Office 宿主");
+      if (!session.document_id)
+        throw new Error("当前 Office 会话没有稳定文档标识");
+      const { batchConvertLatex } =
+        await import("./services/office-insertion-service.js");
+      this.showStatus("正在扫描并批量转换文档…");
+      const result = await batchConvertLatex({
+        host: session.host_type,
+        sessionId: session.session_id,
+        documentContext: session.document_id,
+      });
+      this.showToast(
+        `批量转换完成：${result.converted || 0}/${result.total || 0}`,
+      );
+    } catch (error) {
+      this.showToast(`批量转换失败：${error?.message || error}`);
+    }
+  }
+
+  async replaceLoadedOfficeFormula() {
+    const loaded = this._lastNativeOfficeFormula;
+    if (!loaded?.formula?.formulaId || !loaded.sessionId) {
+      this.showToast("请先读取一个可编辑的 Office 公式");
+      return;
+    }
+    const session = this._sessions?.find(
+      (candidate) => candidate.session_id === loaded.sessionId,
+    );
+    this._selectedSessionId = loaded.sessionId;
+    this._pendingOfficeEditorRequest = {
+      sessionId: loaded.sessionId,
+      sourceHost: session?.host_type || loaded.formula.host || "word",
+      action: "edit",
+      requestedMode: normalizeOfficeInsertMode(loaded.formula.display),
+      formulaId: loaded.formula.formulaId,
+      revision: loaded.formula.revision ?? 0,
+      receivedAt: Date.now(),
+    };
+    await this.insertToWord();
   }
 
   openSettingsPage(pageId = null) {

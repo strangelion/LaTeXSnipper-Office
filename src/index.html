@@ -86,8 +86,8 @@
             role="toolbar"
             aria-label="编辑命令"
           >
-            <button type="button">新建</button
-            ><button type="button">打开</button>
+            <button type="button" data-command="new">新建</button
+            ><button type="button" data-command="open">打开</button>
             <button type="button" data-command="screenshot">截图</button>
             <button type="button" data-command="insert">插入</button>
             <button type="button" data-command="copy">复制</button>
@@ -98,16 +98,33 @@
           </div>
           <div class="editor-mode-tabs" role="tablist" aria-label="编辑类型">
             <button
+              id="formulaModeTab"
               type="button"
               class="active"
               role="tab"
               aria-selected="true"
+              aria-controls="formulaWorkspace"
+              data-editor-mode="formula"
             >
               公式
             </button>
-            <button type="button" role="tab" aria-selected="false">绘图</button>
+            <button
+              id="drawingModeTab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="drawingWorkspace"
+              data-editor-mode="drawing"
+            >
+              绘图
+            </button>
           </div>
-          <div class="editor-layout">
+          <div
+            id="formulaWorkspace"
+            class="editor-layout"
+            role="tabpanel"
+            aria-labelledby="formulaModeTab"
+          >
             <aside class="editor-rail" aria-label="公式资源">
               <strong>资源</strong>
               <button type="button">符号</button
@@ -476,6 +493,81 @@
               <strong>导出</strong><span>LaTeX · MathML · Typst · PDF</span>
             </aside>
           </div>
+          <section
+            id="drawingWorkspace"
+            class="drawing-workspace"
+            role="tabpanel"
+            aria-labelledby="drawingModeTab"
+            hidden
+          >
+            <aside class="drawing-language-panel" aria-label="绘图语言">
+              <strong>绘图语言</strong>
+              <button
+                type="button"
+                class="active"
+                data-drawing-language="svg_source"
+              >
+                SVG
+              </button>
+              <button type="button" data-drawing-language="tikz">TikZ</button>
+              <button
+                type="button"
+                data-drawing-language="tikz"
+                data-drawing-profile="pgf_plots"
+              >
+                PGFPlots
+              </button>
+              <button type="button" data-drawing-language="graphviz_dot">
+                Graphviz
+              </button>
+              <p>外部编译器只有在版本与文件 SHA-256 均验证后才会启用。</p>
+            </aside>
+            <div class="drawing-editor-panel">
+              <label for="drawingSource">绘图源码</label>
+              <textarea id="drawingSource" spellcheck="false">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect x="12" y="12" width="296" height="156" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="4"/><path d="M72 112 L140 52 L248 126" fill="none" stroke="#0f172a" stroke-width="6"/><circle cx="140" cy="52" r="9" fill="#4f46e5"/></svg></textarea
+              >
+              <div class="drawing-actions">
+                <button
+                  id="drawingCompileBtn"
+                  type="button"
+                  class="btn primary"
+                >
+                  安全编译
+                </button>
+                <button
+                  id="drawingInsertBtn"
+                  type="button"
+                  class="btn"
+                  disabled
+                >
+                  插入 Office
+                </button>
+              </div>
+              <p
+                id="drawingCompileStatus"
+                class="drawing-status"
+                role="status"
+                aria-live="polite"
+              >
+                等待编译
+              </p>
+            </div>
+            <aside class="drawing-preview-panel">
+              <strong>安全预览</strong>
+              <div
+                id="drawingPreview"
+                class="drawing-preview"
+                aria-label="绘图预览"
+              >
+                尚无预览
+              </div>
+              <strong>适配器状态</strong>
+              <div id="drawingReadiness" class="drawing-readiness">
+                正在读取核心就绪状态…
+              </div>
+            </aside>
+          </section>
         </section>
 
         <!-- ═══ History Section ═══ -->
@@ -658,8 +750,10 @@
               <h2>当前文档</h2>
               <p>连接后显示宿主、文档和选区状态。</p>
               <div class="workspace-actions">
-                <button type="button">读取选区</button
-                ><button type="button">替换选区</button>
+                <button id="officeWorkspaceRead" type="button">读取选区</button
+                ><button id="officeWorkspaceReplace" type="button">
+                  替换当前公式
+                </button>
               </div>
             </article>
             <article class="workspace-card">
@@ -673,8 +767,15 @@
             <article class="workspace-card">
               <h2>文档工作流</h2>
               <div class="workspace-actions">
-                <button type="button">批量转换</button
-                ><button type="button">文档公式清单</button>
+                <button id="officeWorkspaceBatch" type="button">批量转换</button
+                ><button
+                  id="officeWorkspaceInventory"
+                  type="button"
+                  disabled
+                  title="当前宿主协议尚未提供文档公式清单"
+                >
+                  文档公式清单
+                </button>
               </div>
             </article>
           </div>

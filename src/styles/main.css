@@ -2457,6 +2457,138 @@ body {
   color: var(--accent);
 }
 
+.drawing-workspace {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.62fr) minmax(280px, 2fr) minmax(
+      220px,
+      0.9fr
+    );
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.drawing-workspace[hidden],
+.editor-layout[hidden] {
+  display: none;
+}
+
+.drawing-language-panel,
+.drawing-editor-panel,
+.drawing-preview-panel {
+  min-width: 0;
+  padding: 0.9rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+
+.drawing-language-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+}
+
+.drawing-language-panel button {
+  min-height: 36px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawing-language-panel button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+}
+
+.drawing-language-panel p,
+.drawing-status,
+.drawing-readiness {
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.drawing-editor-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+#drawingSource {
+  width: 100%;
+  min-height: 300px;
+  resize: vertical;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  line-height: 1.55;
+}
+
+.drawing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.drawing-preview-panel {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+.drawing-preview {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 0.65rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  overflow: auto;
+  background: #fff;
+  color: #334155;
+}
+
+.drawing-preview svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+}
+
+.command-palette {
+  position: fixed;
+  z-index: 10000;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(360px, calc(100vw - 32px));
+  gap: 0.45rem;
+  padding: 0.8rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 28%);
+}
+
+.command-palette button {
+  min-height: 40px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
 .editor-layout {
   display: grid;
   grid-template-columns: minmax(168px, 0.62fr) minmax(0, 2.6fr) minmax(
@@ -2610,6 +2742,7 @@ body {
 
 @media (max-width: 1100px) {
   .editor-layout,
+  .drawing-workspace,
   .workspace-grid,
   .diagnostics-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2653,6 +2786,9 @@ body {
   .workspace-card,
   .editor-rail,
   .editor-inspector,
+  .drawing-language-panel,
+  .drawing-editor-panel,
+  .drawing-preview-panel,
   .workspace-command-bar button {
     border: 1px solid CanvasText;
   }

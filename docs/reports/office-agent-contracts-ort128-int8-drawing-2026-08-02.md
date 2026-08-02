@@ -110,11 +110,11 @@ Core 子模块提供 DrawingDocument、DrawingObject、adapter、compiler router
 
 ### E. SVG/Office 输出
 
-Office 路由支持 Native Shapes 兼容子集、Drawing OLE + EMF preview、SVG、PNG 和打印 PDF。Native Shapes 不完整时必须降级。
+版本化路由合同覆盖 Native Shapes 兼容子集、Drawing OLE、SVG、PNG 和打印 PDF。当前 Office 生产工作区只启用已贯通并验证的 sanitized SVG → Native Office VSTO 路线；其余能力在宿主实现与 readiness 证据齐备前保持关闭，不能由合同枚举推导为产品可用。
 
 ### F. Mermaid/Graphviz
 
-UI 作为绘图任务入口展示；真实引擎、资源和 smoke 未满足时 readiness 为 requiresSetup/experimental。
+UI 已接入绘图模式状态、源码编辑、安全编译、预览与 Office 插入；真实外部引擎、资源或 smoke 未满足时 readiness 为 requiresSetup/experimental，内置 SVG 消毒路线不需要外部编译器。
 
 ### G. TikZ package profiles
 

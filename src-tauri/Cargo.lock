@@ -3337,6 +3337,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "latexsnipper-drawing"
+version = "3.1.0"
+dependencies = [
+ "quick-xml 0.41.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "latexsnipper-engine"
 version = "3.1.0"
 dependencies = [
@@ -3452,6 +3464,7 @@ dependencies = [
  "latexsnipper-api-types",
  "latexsnipper-ast",
  "latexsnipper-conversion",
+ "latexsnipper-drawing",
  "latexsnipper-engine",
  "latexsnipper-image",
  "latexsnipper-model",
