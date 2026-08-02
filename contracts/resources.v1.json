@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "coreSubmoduleSha": "bc051e47f2565e42582b4e6fab69e37097e811bb",
+  "coreSubmoduleSha": "c6e5c35553d114341454fa5394af60a711fd432e",
   "files": {
     "src-tauri/resources/RecognitionQuality/baselines/index.json": "19e42c9990161564ed9bf5d336b8d0de44e1a17837b01ad858e19230253a2a9e",
     "src-tauri/latexsnipper-core/contracts/fixtures/provider-smoke-v1.json": "25c2b8d6e4a6d3637c06adf4407938d48d5dbd1c2e876c2e30c609c4d192c4f1",
