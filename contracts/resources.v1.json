@@ -3,8 +3,8 @@
   "coreSubmoduleSha": "bc051e47f2565e42582b4e6fab69e37097e811bb",
   "files": {
     "src-tauri/resources/RecognitionQuality/baselines/index.json": "19e42c9990161564ed9bf5d336b8d0de44e1a17837b01ad858e19230253a2a9e",
-    "src-tauri/latexsnipper-core/contracts/fixtures/provider-smoke-v1.json": "8083593e1672ab2acd8d42b28197d774ec91756b0c71efcbf96e2b0494c2a428",
-    "src-tauri/resources/OfficeJS/manifest/word.xml": "807b26c64f714758c7274464aeac85321871ec63c54daa91691bfcf8707e3f8b",
-    "src-tauri/resources/WPS/manifest.xml": "995ca31eab2662ee6a83dcaa7845701ee3f1ce0bbb4150c66836f30c2ab8791b"
+    "src-tauri/latexsnipper-core/contracts/fixtures/provider-smoke-v1.json": "25c2b8d6e4a6d3637c06adf4407938d48d5dbd1c2e876c2e30c609c4d192c4f1",
+    "src-tauri/resources/OfficeJS/manifest/word.xml": "845812a7531f2d6f38c8c4857bb61da2f0e7c114ab45e91375ab3c4c603cd1b2",
+    "src-tauri/resources/WPS/manifest.xml": "55a2a345118943bb3d639fc863c64a292e4251e2136c5f0f5ea0c7ab3e685f3e"
   }
 }
