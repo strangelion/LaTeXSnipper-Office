@@ -256,21 +256,19 @@ export class OfficeLiveEditBridge {
 
     const overlay = document.createElement("div");
     overlay.id = "liveEditConflictOverlay";
-    overlay.style.cssText =
-      "position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;";
+    overlay.className = "app-modal-backdrop";
 
     const dialog = document.createElement("div");
-    dialog.style.cssText =
-      "background:#fff;border-radius:8px;padding:24px;max-width:420px;box-shadow:0 4px 24px rgba(0,0,0,0.3);font-family:system-ui,sans-serif;";
+    dialog.className = "app-modal-card";
     dialog.innerHTML = `
-      <h3 style="margin:0 0 12px;font-size:16px">检测到 Office 中的公式已被修改</h3>
-      <p style="margin:0 0 20px;color:#666;font-size:13px;line-height:1.5">
+      <h3>检测到 Office 中的公式已被修改</h3>
+      <p class="app-modal-lead">
         另一个操作修改了此公式。请选择如何处理：
       </p>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button data-action="cancel" style="padding:8px 16px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;font-size:13px;">取消</button>
-        <button data-action="keep-local" style="padding:8px 16px;border:1px solid #4caf50;border-radius:4px;background:#fff;color:#4caf50;cursor:pointer;font-size:13px;">保留我的修改</button>
-        <button data-action="reload-remote" style="padding:8px 16px;border:none;border-radius:4px;background:#4caf50;color:#fff;cursor:pointer;font-size:13px;">加载 Office 版本</button>
+      <div class="app-modal-actions">
+        <button data-action="cancel" class="btn">取消</button>
+        <button data-action="keep-local" class="btn">保留我的修改</button>
+        <button data-action="reload-remote" class="btn primary">加载 Office 版本</button>
       </div>
     `;
 

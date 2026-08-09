@@ -1,3 +1,4 @@
+mod clipboard;
 mod commands;
 mod engine;
 mod math;
@@ -359,10 +360,15 @@ pub fn run() {
             commands::formula::apply_color,
             commands::drawing::compile_drawing_svg,
             commands::drawing::get_drawing_readiness,
+            commands::custom_symbols::build_custom_symbol_bundle,
             commands::metadata::validate_metadata,
             commands::metadata::create_metadata,
             commands::export::export_formula,
-            commands::export::copy_to_clipboard,
+            clipboard::copy_to_clipboard,
+            clipboard::copy_formula_bundle,
+            clipboard::copy_drawing_bundle,
+            clipboard::copy_symbol_bundle,
+            clipboard::inspect_clipboard_capabilities,
             commands::ocr::screenshot_capture,
             screenshot::backend::screenshot_backend_capability,
             screenshot::commands::screenshot_begin,

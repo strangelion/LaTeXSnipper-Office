@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 import { createDrawingWorkspaceController } from "../src/features/drawing/workspace.js";
+import { serializeVisualDrawing } from "../src/features/drawing/visual-editor.js";
 
 class FakeClassList {
   constructor() {
@@ -101,7 +102,7 @@ test("clicking compile transitions state and enables real insert", async () => {
     loadReadiness: async () => ({ adapters: [] }),
   });
   elements.languageButtons[1].click();
-  assert.match(elements.source.value, /\\draw/);
+  assert.match(elements.source.value, /\\addplot/);
   elements.compileButton.click();
   await settle();
   assert.equal(compileRequests[0].language, "tikz");
@@ -136,5 +137,49 @@ test("readiness fields remain truthful after UI mapping", async () => {
   });
   const adapters = await controller.refreshReadiness();
   assert.equal(adapters[0].requiresSetup, true);
-  assert.match(elements.readiness.textContent, /tikz: 需要设置/);
+  assert.match(elements.readiness.textContent, /tikz: 内置离线/);
+});
+
+test("local preview remains visible but insertion stays disabled without Core", async () => {
+  const elements = fixture();
+  const controller = createDrawingWorkspaceController({
+    elements,
+    renderLocal: async () => '<svg viewBox="0 0 20 10"/>',
+    compileDrawing: async () => {
+      throw new Error("__TAURI_INTERNALS__ unavailable");
+    },
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+  elements.languageButtons[1].click();
+  const result = await controller.compile();
+  assert.equal(result.localPreviewOnly, true);
+  assert.equal(elements.preview.innerHTML, '<svg viewBox="0 0 20 10"/>');
+  assert.equal(elements.insertButton.disabled, true);
+  assert.match(elements.status.textContent, /本地预览已生成/);
+  assert.match(elements.status.textContent, /尚未完成 Core 安全校验/);
+});
+
+test("visual-editor output excludes canvas grid and editing controls", () => {
+  const svg = serializeVisualDrawing([
+    {
+      id: "node-1",
+      type: "node",
+      x: 320,
+      y: 220,
+      width: 240,
+      height: 110,
+      rotation: 15,
+      color: "#2563EB",
+      fill: "#EFF6FF",
+      text: "节点",
+    },
+  ]);
+  assert.match(svg, /viewBox="0 0 800 520"/);
+  assert.match(svg, /data-drawing-object="node-1"/);
+  assert.doesNotMatch(
+    svg,
+    /drawing-object-controls|drawing-selection-frame|show-grid|background-image/,
+  );
+  assert.doesNotMatch(svg, /script|foreignObject|href=/i);
 });

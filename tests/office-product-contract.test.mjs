@@ -10,6 +10,14 @@ const css = readFileSync(
   "utf8",
 );
 const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+const localRenderers = readFileSync(
+  new URL("../src/features/drawing/local-renderers.js", import.meta.url),
+  "utf8",
+);
+const viteConfig = readFileSync(
+  new URL("../vite.config.js", import.meta.url),
+  "utf8",
+);
 
 const nav = html.match(/<div class="nav-tabs"[\s\S]*?<\/div>/)?.[0] || "";
 const workspaces = [...nav.matchAll(/id="(\w+)Btn"/g)].map((match) => match[1]);
@@ -32,6 +40,47 @@ for (const label of ["切换明暗主题", "关闭公式库", "打开公式库"]
 assert.match(html, /aria-label="编辑命令"/);
 assert.match(html, /Native OMML \/ OLE \/ SVG \/ PNG/);
 assert.match(html, /id="diagnosticsSection"/);
+const recognitionActions =
+  html.match(/<div class="recognition-actions">[\s\S]*?<\/div>/)?.[0] || "";
+assert.match(recognitionActions, /id="browserImportsButton"/);
+assert.match(recognitionActions, /id="browserImportsBadge"/);
+assert.doesNotMatch(
+  css,
+  /\.browser-imports-button\s*{[\s\S]*?position:\s*fixed/,
+);
+for (const control of [
+  "symbolFormulaSource",
+  "symbolCatalogSearch",
+  "symbolFreehandBtn",
+  "symbolLayerInspector",
+  "symbolLayerScaleX",
+  "symbolLayerScaleY",
+  "symbolCategoryPrev",
+  "symbolCategoryNext",
+  "officeInsertRouteSelector",
+  "refreshDiagnosticsBtn",
+  "diagnosticsOverallState",
+  "openOfficeWorkspaceBtn",
+]) {
+  assert.match(html, new RegExp(`id="${control}"`));
+}
+assert.doesNotMatch(html, /功能标签/);
+assert.match(localRenderers, /JSON\.stringify\(\{ pgfplots: "" \}\)/);
+assert.match(viteConfig, /runtime\/file\/\$\{A\}/);
+assert.ok(
+  html.indexOf("platform-capability-details") <
+    html.indexOf('id="platformList"'),
+  "compatibility details should be visible before the platform card grid",
+);
+for (const resource of [
+  "symbols",
+  "structures",
+  "templates",
+  "history",
+  "document",
+]) {
+  assert.match(html, new RegExp(`data-formula-resource="${resource}"`));
+}
 for (const label of [
   "宿主感知",
   "证据优先",
@@ -58,6 +107,17 @@ assert.match(main, /MathfieldElement\.locale\s*=\s*"zh-CN"/);
 for (const command of ["new", "open", "export", "undo", "redo", "palette"]) {
   assert.match(main, new RegExp(`command === "${command}"`));
 }
+assert.match(main, /className = "command-palette-layer"/);
+assert.match(main, /event\.target === layer/);
+assert.match(main, /event\.key === "Escape"/);
+for (const commandLabel of [
+  '["screenshot", "截图", "采集"]',
+  '["insert", "插入", "采集"]',
+  '["undo", "撤销", "历史"]',
+  '["redo", "重做", "历史"]',
+]) {
+  assert.match(main, new RegExp(commandLabel.replace(/[\[\]]/g, "\\$&")));
+}
 for (const control of [
   "formulaModeTab",
   "drawingModeTab",
@@ -72,8 +132,14 @@ for (const control of [
 }
 assert.doesNotMatch(main, /\$\{command \|\| "命令"\}/);
 assert.match(css, /grid-template-columns:\s*minmax\(168px/);
+assert.match(css, /\.editor-inspector\s*{[\s\S]*?top:\s*0/);
 assert.match(css, /@media \(max-width: 1100px\)/);
 assert.match(css, /@media \(forced-colors: active\)/);
+assert.match(
+  css,
+  /\.browser-imports-dialog\s*{[\s\S]*?background:\s*var\(--card-bg\)/,
+);
+assert.match(main, /async refreshDiagnostics\(\)/);
 const mobileStart = css.indexOf("@media (max-width: 768px)");
 const mobileEnd = css.indexOf(
   "/* ═══════════════════════════════════════════",

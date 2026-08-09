@@ -153,10 +153,36 @@ pub struct OfficeWebDiagnostics {
     pub blockers: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum OleOperationalState {
+    #[default]
+    NotInstalled,
+    RegisteredBroken,
+    BitnessMismatch,
+    Registered,
+    Activatable,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum OleProvenanceState {
+    #[default]
+    UnverifiedNoLedger,
+    VerifiedCurrentInstallation,
+    Mismatch,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OleStatus {
+    /// Backward-compatible alias of `insertion_available`.
     pub available: bool,
+    pub operational_state: OleOperationalState,
+    pub provenance_state: OleProvenanceState,
+    pub insertion_available: bool,
+    pub registration_healthy: bool,
+    pub activation_healthy: bool,
     pub bitness_mismatch: bool,
     pub x64_registered: bool,
     pub x86_registered: bool,
@@ -194,6 +220,36 @@ pub struct OleStatus {
     /// The active handler is the trusted release artifact whose ink-integrity
     /// fixtures passed, rather than an old or mismatched DLL.
     pub ink_integrity: bool,
+    pub ink_integrity_contract: bool,
+}
+
+fn classify_ole_states(
+    registration_healthy: bool,
+    bitness_mismatch: bool,
+    activation_healthy: bool,
+    matches_current_installation: Option<bool>,
+) -> (OleOperationalState, OleProvenanceState, bool) {
+    let operational = if !registration_healthy {
+        OleOperationalState::RegisteredBroken
+    } else if bitness_mismatch {
+        OleOperationalState::BitnessMismatch
+    } else if activation_healthy {
+        OleOperationalState::Activatable
+    } else {
+        OleOperationalState::Registered
+    };
+    let provenance = match matches_current_installation {
+        Some(true) => OleProvenanceState::VerifiedCurrentInstallation,
+        Some(false) => OleProvenanceState::Mismatch,
+        None => OleProvenanceState::UnverifiedNoLedger,
+    };
+    let insertion_available = operational == OleOperationalState::Activatable
+        && provenance != OleProvenanceState::Mismatch;
+    (operational, provenance, insertion_available)
+}
+
+fn ole_install_usable(status: &OleStatus) -> bool {
+    status.insertion_available && status.provenance_state != OleProvenanceState::Mismatch
 }
 
 impl PlatformIntegrationResult {
@@ -499,7 +555,7 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                 // Verify installation succeeded
                 let vsto_ok = check_native_office_vsto();
                 let ole_status = check_ole_status();
-                if vsto_ok && ole_status.available {
+                if vsto_ok && ole_install_usable(&ole_status) {
                     PlatformIntegrationResult {
                         success: true,
                         platform: "office".to_string(),
@@ -513,6 +569,10 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
                             "x64Dll": ole_status.x64_registry_path,
                             "x86Dll": ole_status.x86_registry_path,
                             "activationPassed": ole_status.activation_result,
+                            "operationalState": ole_status.operational_state,
+                            "provenanceState": ole_status.provenance_state,
+                            "provenanceWarning": (ole_status.provenance_state == OleProvenanceState::UnverifiedNoLedger)
+                                .then_some("OLE_PROVENANCE_UNVERIFIED_NO_LEDGER"),
                         })),
                     }
                 } else {
@@ -1090,7 +1150,7 @@ pub(crate) fn check_platform_integration_sync(platform_id: String) -> PlatformIn
             {
                 let vsto_ok = check_native_office_vsto();
                 let ole_status = check_ole_status();
-                if vsto_ok && ole_status.available {
+                if vsto_ok && ole_install_usable(&ole_status) {
                     PlatformIntegrationResult::ok(
                         "office-native",
                         "native-stack",
@@ -5311,10 +5371,22 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
     };
     let geometry_contract = activation_result;
     let ink_integrity = activation_result && matches_current_installation == Some(true);
-    let capability_available = final_available && geometry_contract && ink_integrity;
+    let registration_healthy = final_available;
+    let (operational_state, provenance_state, insertion_available) = classify_ole_states(
+        registration_healthy,
+        !matching_view_healthy,
+        activation_result,
+        matches_current_installation,
+    );
+    let capability_available = insertion_available;
 
     crate::commands::native_office::OleStatus {
         available: capability_available,
+        operational_state,
+        provenance_state,
+        insertion_available,
+        registration_healthy,
+        activation_healthy: activation_result,
         bitness_mismatch: !matching_view_healthy,
         x64_registered: registry_64,
         x86_registered: registry_32,
@@ -5346,6 +5418,7 @@ pub fn check_ole_status() -> crate::commands::native_office::OleStatus {
         loaded_module_version: None,
         geometry_contract,
         ink_integrity,
+        ink_integrity_contract: ink_integrity,
     }
 }
 

@@ -1,3 +1,4 @@
+pub mod custom_symbols;
 pub mod drawing;
 pub mod export;
 pub mod formula;

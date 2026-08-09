@@ -23,7 +23,6 @@ function simulateSettingsNavigation() {
     "settingsEditor",
     "settingsBridge",
     "settingsPlatforms",
-    "settingsTabs",
     "settingsOfficeIntegration",
     "settingsRecognition",
     "settingsAi",

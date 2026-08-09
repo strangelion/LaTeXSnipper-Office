@@ -50,6 +50,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 toml = "0.8"
 zip = "0.6"
 arboard = "3"
+latexsnipper-custom-symbols = { path = "latexsnipper-core/crates/custom-symbols" }
 
 # LaTeXSnipper Core (via symlink)
 latexsnipper-conversion = { path = "latexsnipper-core/crates/conversion", default-features = false }
@@ -67,6 +68,8 @@ latexsnipper-runtime = { path = "latexsnipper-core/crates/runtime", optional = t
 whoami = "1.5"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
     "Win32_Security",
     "Win32_Security_Authorization",
     "Win32_Security_Cryptography",

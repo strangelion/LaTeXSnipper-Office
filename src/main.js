@@ -20,6 +20,7 @@ import {
   initDrawingWorkspace,
   selectProductionDrawingRoute,
 } from "./features/drawing/workspace.js";
+import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
 import { bindWorkspaceInteractions } from "./features/workspace/interactions.js";
 import { createPlatformContext } from "./platform/platform-context.js";
 import {
@@ -1863,6 +1864,11 @@ class UIController {
         invoke,
         insertDrawing: (result) => this.insertDrawingToOffice(result),
       });
+      this.customSymbolComposer = initCustomSymbolComposer({
+        invoke,
+        formulaRenderer: this.formulaSvgRenderer,
+        notify: (message) => this.showToast(message),
+      });
     } catch (error) {
       Logger.warn("Drawing workspace backend unavailable:", error);
       document
@@ -2107,6 +2113,41 @@ class UIController {
       onOfficeReplace: () => this.replaceLoadedOfficeFormula(),
       onOfficeBatch: () => this.runOfficeBatchConversion(),
     });
+
+    for (const button of document.querySelectorAll("[data-formula-resource]")) {
+      button.addEventListener("click", () =>
+        this.openFormulaResource(button.dataset.formulaResource),
+      );
+    }
+    for (const button of document.querySelectorAll(
+      "[data-office-insert-route]",
+    )) {
+      button.addEventListener("click", () =>
+        this.selectOfficeInsertRoute(button.dataset.officeInsertRoute),
+      );
+    }
+    document
+      .getElementById("refreshPlatformStatusBtn")
+      ?.addEventListener("click", () =>
+        this.renderPlatformList({ refreshStatus: true }),
+      );
+    const capabilityDetails = document.querySelector(
+      ".platform-capability-details",
+    );
+    capabilityDetails?.addEventListener("toggle", () => {
+      const action = capabilityDetails.querySelector(
+        ".platform-capability-action",
+      );
+      if (action) action.textContent = capabilityDetails.open ? "收起" : "展开";
+    });
+    document
+      .getElementById("refreshDiagnosticsBtn")
+      ?.addEventListener("click", () => this.refreshDiagnostics());
+    document
+      .getElementById("openOfficeWorkspaceBtn")
+      ?.addEventListener("click", () =>
+        document.getElementById("officeBtn")?.click(),
+      );
 
     const sidebarPanel = document.getElementById("sidebarPanel");
     const sidebarOverlay = document.getElementById("sidebarOverlay");
@@ -2484,6 +2525,7 @@ class UIController {
         if (mode) {
           this.settingsManager.set("officeIntegrationMode", mode);
           this.updateOfficeIntegrationHint(mode);
+          this.refreshOfficeRouteSelector();
           Logger.info(`[Office] Integration mode set to ${mode}`);
         }
       });
@@ -2510,6 +2552,7 @@ class UIController {
       });
       this.updateOfficeIntegrationHint(savedMode);
     }
+    this.refreshOfficeRouteSelector();
 
     // OLE status check — displayed as read-only info, with conditional install/remove buttons
     this.checkOleStatus();
@@ -4331,6 +4374,108 @@ class UIController {
     Logger.debug(`Search results: ${results.length}`);
   }
 
+  openFormulaLibraryPanel() {
+    this.switchSection("editor");
+    this.drawingWorkspace?.activateMode("formula");
+    document.getElementById("sidebarPanel")?.classList.add("open");
+    document.getElementById("sidebarOverlay")?.classList.add("visible");
+    const trigger = document.getElementById("sidebarTrigger");
+    if (trigger) trigger.style.display = "none";
+  }
+
+  selectFormulaLibraryCategory(categoryId) {
+    const category = this.library
+      .getCategories()
+      .find((candidate) => candidate.id === categoryId);
+    if (!category) return false;
+    const categorySelect = document.getElementById("categorySelect");
+    const trigger = categorySelect?.querySelector(".custom-select-trigger");
+    if (trigger) {
+      trigger.dataset.value = category.id;
+      const label = trigger.querySelector("span");
+      if (label) label.textContent = category.name;
+    }
+    categorySelect
+      ?.querySelectorAll(".custom-select-option")
+      .forEach((option) =>
+        option.classList.toggle(
+          "selected",
+          option.dataset.value === category.id,
+        ),
+      );
+    this.renderFormulas(category.id);
+    return true;
+  }
+
+  renderFormulaTemplates() {
+    const templates = [
+      {
+        label: "分段函数",
+        latex: "f(x)=\\begin{cases}#?&x\\ge0\\\\#?&x<0\\end{cases}",
+      },
+      { label: "定积分", latex: "\\int_{#?}^{#?} #?\\,\\mathrm{d}x" },
+      { label: "极限", latex: "\\lim_{x\\to #?} #?" },
+      { label: "矩阵", latex: "\\begin{bmatrix}#?&#?\\\\#?&#?\\end{bmatrix}" },
+      { label: "方程组", latex: "\\begin{cases}#?=#?\\\\#?=#?\\end{cases}" },
+      {
+        label: "带编号对齐",
+        latex: "\\begin{aligned}#?&=#?\\\\#?&=#?\\end{aligned}",
+      },
+    ];
+    const grid = document.getElementById("libraryGrid");
+    if (!grid) return;
+    grid.replaceChildren(
+      ...templates.map((formula) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "formula-item";
+        item.title = formula.latex;
+        const label = document.createElement("span");
+        label.className = "formula-label";
+        label.textContent = formula.label;
+        const latex = document.createElement("span");
+        latex.className = "formula-latex";
+        latex.textContent = formula.latex;
+        item.append(label, latex);
+        item.addEventListener("click", () => this.insertFormula(formula.latex));
+        return item;
+      }),
+    );
+    const trigger = document.querySelector(
+      "#categorySelect .custom-select-trigger",
+    );
+    if (trigger) {
+      trigger.dataset.value = "templates";
+      const label = trigger.querySelector("span");
+      if (label) label.textContent = "常用模板";
+    }
+  }
+
+  openFormulaResource(resource) {
+    for (const button of document.querySelectorAll("[data-formula-resource]")) {
+      button.classList.toggle(
+        "active",
+        button.dataset.formulaResource === resource,
+      );
+    }
+    if (resource === "history") {
+      this.switchSection("history");
+      return;
+    }
+    if (resource === "document") {
+      void this.loadFromWord();
+      return;
+    }
+    this.openFormulaLibraryPanel();
+    if (resource === "templates") {
+      this.renderFormulaTemplates();
+      return;
+    }
+    this.selectFormulaLibraryCategory(
+      resource === "structures" ? "structures" : "greek",
+    );
+  }
+
   insertFormula(latex) {
     Logger.info(`insertFormula: ${latex}`);
 
@@ -4953,7 +5098,173 @@ class UIController {
     }
 
     if (section === "diagnostics") {
-      this.refreshQualityBaselineDeployment();
+      this.refreshDiagnostics();
+    }
+  }
+
+  async refreshDiagnostics() {
+    const button = document.getElementById("refreshDiagnosticsBtn");
+    const overall = document.getElementById("diagnosticsOverallState");
+    const setEvidence = (prefix, state, detail, failed = false) => {
+      const stateNode = document.getElementById(`${prefix}State`);
+      const detailNode = document.getElementById(`${prefix}Detail`);
+      if (stateNode) {
+        stateNode.textContent = state;
+        stateNode.classList.toggle("diagnostic-failure", failed);
+      }
+      if (detailNode) detailNode.textContent = detail;
+    };
+    if (button) {
+      button.disabled = true;
+      button.textContent = "检查中…";
+    }
+    if (overall) overall.textContent = "检查中";
+    await this.refreshQualityBaselineDeployment();
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const [readinessResult, diagnosticsResult, screenshotResult] =
+        await Promise.allSettled([
+          invoke("recognition_get_readiness"),
+          invoke("export_diagnostics"),
+          invoke("screenshot_backend_capability"),
+        ]);
+
+      const readinessValid =
+        readinessResult.status === "fulfilled" &&
+        Boolean(
+          readinessResult.value?.schemaVersion ||
+          readinessResult.value?.coreVersion ||
+          readinessResult.value?.modes,
+        );
+      if (readinessValid) {
+        const readiness = readinessResult.value || {};
+        const validations = (readiness.runtimes || []).flatMap(
+          (runtime) => runtime.providerValidations || [],
+        );
+        const strongest = validations.find(
+          (item) => item.validationLevel === "smokeInferencePassed",
+        );
+        setEvidence(
+          "diagnosticsRuntime",
+          strongest ? "真实推理已验证" : "Core 状态已读取",
+          `Core ${readiness.coreVersion || "未知版本"} · ${strongest?.provider || validations[0]?.provider || "未返回执行 Provider"}${validations.some((item) => item.stale) ? " · 含过期证据" : ""}`,
+          !strongest && validations.length === 0,
+        );
+      } else {
+        setEvidence(
+          "diagnosticsRuntime",
+          "桌面后端不可用",
+          "浏览器预览不会伪造 Core/ORT 证据；请在安装后的桌面应用中运行检查。",
+          true,
+        );
+      }
+
+      const diagnosticsValid =
+        diagnosticsResult.status === "fulfilled" &&
+        Boolean(
+          diagnosticsResult.value?.appVersion ||
+          diagnosticsResult.value?.os ||
+          diagnosticsResult.value?.timestamp,
+        );
+      if (diagnosticsValid) {
+        const report = diagnosticsResult.value || {};
+        const sessions = Object.values(report.sessions || {});
+        const bridgeConnected = report.bridge?.taskpaneConnected === true;
+        setEvidence(
+          "diagnosticsOffice",
+          sessions.length || bridgeConnected ? "已连接" : "未连接宿主",
+          sessions.length
+            ? `${sessions.length} 个活动文档会话；插入前仍会校验当前文档。`
+            : bridgeConnected
+              ? "Taskpane 已连接，尚无活动文档会话。"
+              : "未发现原生会话或 Taskpane；这不会阻止本地编辑与导出。",
+          false,
+        );
+        const native = report.nativeOffice;
+        setEvidence(
+          "diagnosticsOle",
+          !native
+            ? "当前系统不支持"
+            : native.activationPassed
+              ? "激活验证通过"
+              : native.oleX64Registered || native.oleX86Registered
+                ? "已注册，激活未通过"
+                : "未安装",
+          !native
+            ? "原生 OLE 仅在 Windows 桌面版提供。"
+            : `${native.oleHealth || "未知健康状态"} · x64 ${native.oleX64Registered ? "已注册" : "未注册"} · x86 ${native.oleX86Registered ? "已注册" : "未注册"}`,
+          Boolean(
+            native &&
+            !native.activationPassed &&
+            (native.oleX64Registered || native.oleX86Registered),
+          ),
+        );
+        const lines = String(report.logTail || "")
+          .split(/\r?\n/)
+          .filter(Boolean).length;
+        setEvidence(
+          "diagnosticsBundle",
+          "诊断证据已就绪",
+          `${report.os || "未知系统"} / ${report.arch || "未知架构"} · 日志尾部 ${lines} 行 · 导出时会继续脱敏。`,
+        );
+      } else {
+        setEvidence(
+          "diagnosticsOffice",
+          "桌面后端不可用",
+          "当前为浏览器验收环境，无法读取真实 Office 会话。",
+        );
+        setEvidence(
+          "diagnosticsOle",
+          "桌面后端不可用",
+          "当前为浏览器验收环境，未执行注册表或 OLE 激活检查。",
+        );
+        setEvidence(
+          "diagnosticsBundle",
+          "未生成真实证据",
+          "请在 Tauri 桌面应用中运行检查；浏览器测试结果不会冒充桌面诊断。",
+        );
+      }
+
+      const screenshotValid =
+        screenshotResult.status === "fulfilled" &&
+        typeof screenshotResult.value?.available === "boolean" &&
+        Boolean(screenshotResult.value?.backend);
+      if (screenshotValid) {
+        const capability = screenshotResult.value || {};
+        setEvidence(
+          "diagnosticsScreenshot",
+          capability.available === false ? "不可用" : "后端可用",
+          `${capability.backend || "未知后端"}${capability.implementation ? ` · ${capability.implementation}` : ""}`,
+          capability.available === false,
+        );
+      } else {
+        setEvidence(
+          "diagnosticsScreenshot",
+          "桌面后端不可用",
+          "浏览器环境不能验证系统截图权限或多屏租约。",
+        );
+      }
+      const realEvidence = [
+        readinessValid,
+        diagnosticsValid,
+        screenshotValid,
+      ].filter(Boolean).length;
+      if (overall) {
+        overall.textContent =
+          realEvidence === 3
+            ? "检查完成"
+            : realEvidence > 0
+              ? "部分完成"
+              : "需要桌面版";
+      }
+    } catch (error) {
+      Logger.warn("Diagnostics refresh unavailable", error);
+      if (overall) overall.textContent = "检查失败";
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = "重新检查";
+      }
     }
   }
 
@@ -5074,35 +5385,93 @@ class UIController {
 
   openCommandPalette() {
     document.getElementById("workspaceCommandPalette")?.remove();
-    const palette = document.createElement("div");
-    palette.id = "workspaceCommandPalette";
+    const launcher = document.querySelector(".command-palette-launcher");
+    const layer = document.createElement("div");
+    layer.id = "workspaceCommandPalette";
+    layer.className = "command-palette-layer";
+
+    const palette = document.createElement("section");
     palette.className = "command-palette";
     palette.setAttribute("role", "dialog");
-    palette.setAttribute("aria-label", "命令面板");
-    for (const [command, label] of [
-      ["new", "新建"],
-      ["open", "打开"],
-      ["screenshot", "截图识别"],
-      ["insert", "插入 Office"],
-      ["copy", "复制"],
-      ["export", "导出"],
-    ]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        palette.remove();
-        this.executeWorkspaceCommand(command);
-      });
-      palette.appendChild(button);
-    }
+    palette.setAttribute("aria-modal", "true");
+    palette.setAttribute("aria-labelledby", "commandPaletteTitle");
+
+    const header = document.createElement("header");
+    header.className = "command-palette-header";
+    const heading = document.createElement("div");
+    const eyebrow = document.createElement("span");
+    eyebrow.textContent = "快速操作";
+    const title = document.createElement("strong");
+    title.id = "commandPaletteTitle";
+    title.textContent = "命令面板";
+    heading.append(eyebrow, title);
     const close = document.createElement("button");
     close.type = "button";
-    close.textContent = "关闭";
-    close.addEventListener("click", () => palette.remove());
-    palette.appendChild(close);
-    document.body.appendChild(palette);
-    palette.querySelector("button")?.focus();
+    close.className = "command-palette-close";
+    close.setAttribute("aria-label", "关闭命令面板");
+    close.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    header.append(heading, close);
+
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "command-palette-search";
+    search.placeholder = "搜索命令";
+    search.setAttribute("aria-label", "搜索命令");
+
+    const commandList = document.createElement("div");
+    commandList.className = "command-palette-list";
+    const commands = [
+      ["new", "新建", "文件"],
+      ["open", "打开", "文件"],
+      ["screenshot", "截图", "采集"],
+      ["insert", "插入", "采集"],
+      ["copy", "复制", "输出"],
+      ["export", "导出", "输出"],
+      ["undo", "撤销", "历史"],
+      ["redo", "重做", "历史"],
+    ];
+    for (const [command, label, group] of commands) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.commandName = `${label} ${group}`;
+      const labelNode = document.createElement("strong");
+      labelNode.textContent = label;
+      const groupNode = document.createElement("span");
+      groupNode.textContent = group;
+      button.append(labelNode, groupNode);
+      button.addEventListener("click", () => {
+        dismiss();
+        this.executeWorkspaceCommand(command);
+      });
+      commandList.appendChild(button);
+    }
+
+    const dismiss = () => {
+      document.removeEventListener("keydown", onKeyDown);
+      layer.remove();
+      launcher?.focus();
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") dismiss();
+    };
+    close.addEventListener("click", dismiss);
+    layer.addEventListener("pointerdown", (event) => {
+      if (event.target === layer) dismiss();
+    });
+    search.addEventListener("input", () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      for (const button of commandList.querySelectorAll("button")) {
+        button.hidden = !button.dataset.commandName
+          .toLocaleLowerCase()
+          .includes(query);
+      }
+    });
+    document.addEventListener("keydown", onKeyDown);
+    palette.append(header, search, commandList);
+    layer.appendChild(palette);
+    document.body.appendChild(layer);
+    search.focus();
   }
 
   async runOfficeBatchConversion() {
@@ -6047,13 +6416,99 @@ class UIController {
     const ecoBtn = document.getElementById("insertToEcosystem");
     if (ecoSelector) ecoSelector.style.display = hasEcoPlatform ? "" : "none";
     if (ecoBtn) ecoBtn.style.display = hasEcoPlatform ? "" : "none";
+    this.refreshOfficeRouteSelector();
+  }
+
+  selectOfficeInsertRoute(route) {
+    const allowed = new Set(["auto", "native", "ole", "vector", "image"]);
+    if (!allowed.has(route)) return;
+    const button = document.querySelector(
+      `[data-office-insert-route="${route}"]`,
+    );
+    if (button?.disabled) {
+      this.showToast(button.title || "当前宿主不支持这条插入路线");
+      return;
+    }
+    this.settingsManager.set("officeIntegrationMode", route);
+    const selector = document.getElementById("officeIntegrationMode");
+    const trigger = selector?.querySelector(".custom-select-trigger");
+    const option = selector?.querySelector(
+      `.custom-select-option[data-value="${route}"]`,
+    );
+    if (trigger) {
+      trigger.dataset.value = route;
+      const label = trigger.querySelector("span");
+      if (label && option) label.textContent = option.textContent;
+    }
+    selector
+      ?.querySelectorAll(".custom-select-option")
+      .forEach((candidate) =>
+        candidate.classList.toggle("selected", candidate === option),
+      );
+    this.updateOfficeIntegrationHint(route);
+    this.refreshOfficeRouteSelector();
+    this.showToast(
+      `首选插入路线已设为 ${button?.querySelector("strong")?.textContent || route}`,
+    );
+  }
+
+  refreshOfficeRouteSelector() {
+    const current =
+      this.settingsManager?.get("officeIntegrationMode") || "auto";
+    const session = this._sessions?.find(
+      (candidate) => candidate.session_id === this._selectedSessionId,
+    );
+    const host = String(session?.host_type || "").toLowerCase();
+    const routeAvailability = {
+      auto: true,
+      native: !session || host === "word" || host === "writer",
+      ole: !session || this._oleStatus?.available === true,
+      vector: true,
+      image: true,
+    };
+    const reasons = {
+      native: "原生 OMML 仅由 Word 类宿主提供",
+      ole: "当前 OLE 处理器尚未安装、激活或位数不匹配",
+    };
+    for (const button of document.querySelectorAll(
+      "[data-office-insert-route]",
+    )) {
+      const route = button.dataset.officeInsertRoute;
+      const available = routeAvailability[route] !== false;
+      button.disabled = !available;
+      button.classList.toggle("active", route === current);
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(route === current));
+      button.title = available ? "" : reasons[route] || "当前宿主不支持";
+    }
+    const hint = document.getElementById("officeRouteHint");
+    if (!hint) return;
+    if (!session) {
+      hint.textContent = "尚未连接宿主；选择会保存为首选路线，连接后自动校验。";
+      return;
+    }
+    const labels = {
+      word: "Word",
+      excel: "Excel",
+      powerpoint: "PowerPoint",
+      writer: "WPS Writer",
+    };
+    hint.textContent = `${labels[host] || session.host_type} 已连接；不可用路线已禁用。`;
   }
 
   updateOfficeIntegrationHint(mode) {
     const hint = document.getElementById("officeIntegrationModeHint");
     if (!hint) return;
     const key = `officeIntegration.hint.${mode}`;
-    hint.textContent = t(key);
+    const translated = t(key);
+    const fallback = {
+      auto: "按当前宿主能力自动选择最合适的插入方式。",
+      native: "优先使用 Word 原生 OMML；不支持时会明确提示。",
+      image: "插入兼容性最高的 PNG 图片。",
+      ole: "插入可双击编辑的 OLE 公式对象，需要已安装且位数匹配。",
+      vector: "插入清晰的 SVG 矢量图，适合缩放与演示文稿。",
+    };
+    hint.textContent = translated === key ? fallback[mode] : translated;
   }
 
   async checkOleStatus() {
@@ -6660,20 +7115,23 @@ class UIController {
       .map((p) => {
         const busy = this.platformOperations.has(p.id);
         return `
-      <div class="platform-item ${busy ? "is-busy" : ""}">
-        <div class="platform-icon" style="background:${p.color}15;">
-          <img src="${p.icon}" alt="${p.name}" style="width:18px;height:18px;">
-        </div>
-        <div class="platform-info">
-          <div class="platform-name">${p.name}</div>
-          <div class="platform-desc">${busy ? "处理中..." : p.desc}${p.enabled ? " · 已启用" : ""}</div>
-          ${busy ? "" : this.officeWebDiagnosticsMarkup(p)}
-        </div>
-        <label class="custom-toggle ${busy ? "is-busy" : ""}">
-          <input type="checkbox" class="platform-toggle" data-platform="${p.id}" ${p.enabled ? "checked" : ""} ${busy ? "disabled" : ""}>
-          <span class="toggle-track"></span>
-        </label>
-      </div>
+      <article class="platform-quick-card ${p.enabled ? "is-enabled" : ""} ${busy ? "is-busy" : ""}">
+        <header>
+          <div class="platform-icon" style="--platform-color:${p.color};">
+            <img src="${p.icon}" alt="" aria-hidden="true">
+          </div>
+          <div class="platform-info">
+            <strong>${this._escapeHtml(p.name)}</strong>
+            <span>${p.enabled ? "已启用" : "未启用"}</span>
+          </div>
+          <label class="custom-toggle ${busy ? "is-busy" : ""}" aria-label="${p.enabled ? "关闭" : "开启"}${this._escapeHtml(p.name)}">
+            <input type="checkbox" class="platform-toggle" data-platform="${p.id}" ${p.enabled ? "checked" : ""} ${busy ? "disabled" : ""}>
+            <span class="toggle-track"></span>
+          </label>
+        </header>
+        <p>${this._escapeHtml(busy ? "正在应用设置…" : p.desc)}</p>
+        ${busy ? "" : this.officeWebDiagnosticsMarkup(p)}
+      </article>
     `;
       })
       .join("");
@@ -6722,6 +7180,12 @@ class UIController {
       cuda: "CUDA",
       officeJs: "Office.js",
     };
+    const levels = {
+      available: "可用",
+      requiresSetup: "需要设置",
+      experimental: "实验性",
+      unsupported: "不支持",
+    };
     const rows = contexts
       .map(([hostLabel, host]) => {
         const context = createPlatformContext({
@@ -6734,14 +7198,18 @@ class UIController {
           .map(([key, label]) => {
             const feature = context.features[key];
             if (!feature || feature.level === "unsupported") return null;
-            return `${label}: ${feature.level}`;
+            return `${label}：${levels[feature.level] || feature.level}`;
           })
           .filter(Boolean);
         if (features.length === 0) return null;
         return `<div class="settings-row"><span class="settings-label">${this._escapeHtml(hostLabel)}</span><span class="settings-value">${this._escapeHtml(features.join(" · "))}</span></div>`;
       })
       .filter(Boolean);
-    element.innerHTML = `<div class="settings-row"><span class="settings-label">当前系统</span><span class="settings-value">${this._escapeHtml(`${this.platformContext.os} / ${this.platformContext.architecture}`)}</span></div>${rows.join("")}`;
+    const architecture =
+      this.platformContext.architecture === "unknown"
+        ? "未知架构"
+        : this.platformContext.architecture;
+    element.innerHTML = `<div class="settings-row"><span class="settings-label">当前系统</span><span class="settings-value">${this._escapeHtml(`${this.platformContext.os} / ${architecture}`)}</span></div>${rows.join("")}`;
   }
 
   async repairOfficeWebIntegration() {
@@ -7167,21 +7635,21 @@ class UIController {
       const overlay = document.createElement("div");
       overlay.id = "obsidianVaultOverlay";
       overlay.innerHTML = `
-<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
-  <div style="background:var(--card-bg,#fff);border-radius:12px;padding:24px;max-width:520px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);font-family:system-ui,-apple-system,sans-serif;">
-    <h2 style="margin:0 0 4px;font-size:1.1rem;font-weight:600;color:var(--text,#1a1a1a);">安装 Obsidian 插件</h2>
-    <p style="margin:0 0 16px;font-size:0.85rem;color:var(--muted,#888);">输入 Obsidian <strong>插件目录</strong>或 <strong>Vault 目录</strong></p>
-    <div style="margin-bottom:12px;">
-      <label style="font-size:0.8rem;font-weight:500;color:var(--muted,#888);display:block;margin-bottom:4px;">插件目录路径</label>
-      <input id="obsidianVaultInput" type="text" style="width:100%;padding:8px 12px;border:1px solid var(--border-color,#ddd);border-radius:6px;font-size:0.85rem;background:var(--card-bg,#fff);color:var(--text,#1a1a1a);box-sizing:border-box;" placeholder="C:\\Users\\...\\.obsidian\\plugins" />
+<div class="app-modal-backdrop">
+  <div class="app-modal-card">
+    <h2>安装 Obsidian 插件</h2>
+    <p class="app-modal-lead">输入 Obsidian <strong>插件目录</strong>或 <strong>Vault 目录</strong></p>
+    <div class="app-modal-field">
+      <label for="obsidianVaultInput">插件目录路径</label>
+      <input id="obsidianVaultInput" type="text" placeholder="C:\\Users\\...\\.obsidian\\plugins" />
     </div>
-    <p style="font-size:0.78rem;color:var(--muted,#999);margin:0 0 16px;line-height:1.6;">
+    <p class="app-modal-help">
       如何找到插件目录：打开 Obsidian → 设置 → 社区插件 → 在"已安装插件"右侧点击文件夹图标
       <br>也支持直接输入 Vault 目录（包含 .obsidian 的文件夹）
     </p>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button id="obsidianCancelBtn" style="padding:8px 20px;border:1px solid var(--border-color,#ddd);border-radius:6px;background:transparent;cursor:pointer;font-size:0.85rem;">取消</button>
-      <button id="obsidianConfirmBtn" style="padding:8px 20px;border:none;border-radius:6px;background:var(--accent,#4a6cf7);color:#fff;cursor:pointer;font-size:0.85rem;font-weight:500;">确认安装</button>
+    <div class="app-modal-actions">
+      <button id="obsidianCancelBtn" class="btn">取消</button>
+      <button id="obsidianConfirmBtn" class="btn primary">确认安装</button>
     </div>
   </div>
 </div>`;
@@ -7631,7 +8099,19 @@ async function setupBrowserImportInbox(controller) {
     .getElementById("browserImportsClose")
     .addEventListener("click", () => {
       modal.hidden = true;
+      button.focus();
     });
+  modal.addEventListener("click", (event) => {
+    if (event.target !== modal) return;
+    modal.hidden = true;
+    button.focus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || modal.hidden) return;
+    event.preventDefault();
+    modal.hidden = true;
+    button.focus();
+  });
   await listen("browser-import-received", async () => {
     modal.hidden = false;
     await refresh();

@@ -7,6 +7,7 @@
     <title>LaTeXSnipper Office</title>
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="stylesheet" href="./styles/main.css" />
+    <link rel="stylesheet" href="./vendor/tikzjax/fonts.min.css" />
     <link rel="stylesheet" href="./styles/liquid-glass.css" />
     <link rel="stylesheet" href="/fonts/katex-fonts.css" />
   </head>
@@ -81,43 +82,95 @@
       <main class="main">
         <!-- ═══ Editor Section ═══ -->
         <section id="editorSection" class="section active">
-          <div
-            class="workspace-command-bar"
-            role="toolbar"
-            aria-label="编辑命令"
-          >
-            <button type="button" data-command="new">新建</button
-            ><button type="button" data-command="open">打开</button>
-            <button type="button" data-command="screenshot">截图</button>
-            <button type="button" data-command="insert">插入</button>
-            <button type="button" data-command="copy">复制</button>
-            <button type="button" data-command="export">导出</button>
-            <button type="button" data-command="undo">撤销</button>
-            <button type="button" data-command="redo">重做</button>
-            <button type="button" data-command="palette">命令面板</button>
-          </div>
-          <div class="editor-mode-tabs" role="tablist" aria-label="编辑类型">
-            <button
-              id="formulaModeTab"
-              type="button"
-              class="active"
-              role="tab"
-              aria-selected="true"
-              aria-controls="formulaWorkspace"
-              data-editor-mode="formula"
+          <div class="editor-chrome">
+            <div
+              class="workspace-command-bar"
+              role="toolbar"
+              aria-label="编辑命令"
             >
-              公式
-            </button>
-            <button
-              id="drawingModeTab"
-              type="button"
-              role="tab"
-              aria-selected="false"
-              aria-controls="drawingWorkspace"
-              data-editor-mode="drawing"
-            >
-              绘图
-            </button>
+              <div class="workspace-command-cluster" aria-label="文件命令">
+                <span>文件</span>
+                <div>
+                  <button
+                    class="command-primary"
+                    type="button"
+                    data-command="new"
+                  >
+                    新建
+                  </button>
+                  <button type="button" data-command="open">打开</button>
+                </div>
+              </div>
+              <div class="workspace-command-cluster" aria-label="采集与插入">
+                <span>采集</span>
+                <div>
+                  <button type="button" data-command="screenshot">截图</button>
+                  <button type="button" data-command="insert">插入</button>
+                </div>
+              </div>
+              <div class="workspace-command-cluster" aria-label="输出命令">
+                <span>输出</span>
+                <div>
+                  <button type="button" data-command="copy">复制</button>
+                  <button type="button" data-command="export">导出</button>
+                </div>
+              </div>
+              <div class="workspace-command-cluster" aria-label="历史命令">
+                <span>历史</span>
+                <div>
+                  <button type="button" data-command="undo">撤销</button>
+                  <button type="button" data-command="redo">重做</button>
+                </div>
+              </div>
+              <button
+                class="command-palette-launcher"
+                type="button"
+                data-command="palette"
+              >
+                命令面板
+              </button>
+            </div>
+            <div class="editor-mode-row">
+              <span class="editor-mode-label">创作类型</span>
+              <div
+                class="editor-mode-tabs"
+                role="tablist"
+                aria-label="编辑类型"
+              >
+                <button
+                  id="formulaModeTab"
+                  type="button"
+                  class="active"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="formulaWorkspace"
+                  data-editor-mode="formula"
+                >
+                  公式
+                </button>
+                <button
+                  id="drawingModeTab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="drawingWorkspace"
+                  data-editor-mode="drawing"
+                >
+                  绘图
+                </button>
+                <button
+                  id="symbolComposerModeTab"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="symbolComposerWorkspace"
+                  data-editor-mode="symbol-composer"
+                >
+                  自定义符号
+                </button>
+              </div>
+              <span class="editor-mode-note">本地预览 · Core 安全输出</span>
+            </div>
           </div>
           <div
             id="formulaWorkspace"
@@ -127,11 +180,21 @@
           >
             <aside class="editor-rail" aria-label="公式资源">
               <strong>资源</strong>
-              <button type="button">符号</button
-              ><button type="button">结构</button>
-              <button type="button">模板</button
-              ><button type="button">历史</button>
-              <button type="button">文档公式</button>
+              <button type="button" data-formula-resource="symbols">
+                符号
+              </button>
+              <button type="button" data-formula-resource="structures">
+                结构
+              </button>
+              <button type="button" data-formula-resource="templates">
+                模板
+              </button>
+              <button type="button" data-formula-resource="history">
+                历史
+              </button>
+              <button type="button" data-formula-resource="document">
+                读取文档公式
+              </button>
               <div class="drawing-task-map" aria-label="绘图类型">
                 <strong>绘图</strong>
                 <span>数学科研图 · TikZ</span><span>数据图 · PGFPlots</span>
@@ -520,13 +583,103 @@
               <button type="button" data-drawing-language="graphviz_dot">
                 Graphviz
               </button>
-              <p>外部编译器只有在版本与文件 SHA-256 均验证后才会启用。</p>
+              <button type="button" data-drawing-language="mermaid">
+                Mermaid
+              </button>
+              <p>五种运行时均随应用离线提供；最终 SVG 仍经过 Core 安全净化。</p>
             </aside>
             <div class="drawing-editor-panel">
-              <label for="drawingSource">绘图源码</label>
-              <textarea id="drawingSource" spellcheck="false">
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect x="12" y="12" width="296" height="156" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="4"/><path d="M72 112 L140 52 L248 126" fill="none" stroke="#0f172a" stroke-width="6"/><circle cx="140" cy="52" r="9" fill="#4f46e5"/></svg></textarea
+              <div class="drawing-editor-heading">
+                <strong>绘图编辑器</strong>
+                <label class="control-switch">
+                  <input id="drawingAutoPreview" type="checkbox" checked />
+                  <span>实时预览</span>
+                </label>
+              </div>
+              <div
+                class="drawing-editor-mode-tabs"
+                role="tablist"
+                aria-label="绘图编辑模式"
               >
+                <button
+                  id="drawingVisualModeBtn"
+                  type="button"
+                  class="active"
+                  role="tab"
+                  aria-selected="true"
+                >
+                  可视化编辑
+                </button>
+                <button
+                  id="drawingSourceModeBtn"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  源码编辑
+                </button>
+              </div>
+              <div
+                class="drawing-toolbox"
+                role="toolbar"
+                aria-label="高级绘图工具"
+              >
+                <button type="button" data-drawing-tool="line">线段</button>
+                <button type="button" data-drawing-tool="arrow">箭头</button>
+                <button type="button" data-drawing-tool="connector">
+                  连接线
+                </button>
+                <button type="button" data-drawing-tool="node">节点</button>
+                <button type="button" data-drawing-tool="rectangle">
+                  矩形
+                </button>
+                <button type="button" data-drawing-tool="ellipse">椭圆</button>
+                <button type="button" data-drawing-tool="diamond">菱形</button>
+                <button type="button" data-drawing-tool="axes">坐标轴</button>
+                <button type="button" data-drawing-tool="plot">函数图</button>
+                <button type="button" data-drawing-tool="label">标签</button>
+              </div>
+              <div
+                id="drawingVisualEditor"
+                class="drawing-visual-editor"
+                role="tabpanel"
+                aria-labelledby="drawingVisualModeBtn"
+              >
+                <div
+                  id="drawingVisualCanvas"
+                  class="drawing-visual-canvas show-grid"
+                  tabindex="0"
+                  aria-label="绘图可视化编辑画布"
+                ></div>
+                <p>
+                  选中对象后直接拖动；四角自由缩放，边中点单独调整宽高，Shift
+                  等比缩放，上方圆柄旋转，Delete 删除。
+                </p>
+              </div>
+              <div
+                id="drawingSourceEditor"
+                class="drawing-source-editor"
+                role="tabpanel"
+                aria-labelledby="drawingSourceModeBtn"
+                hidden
+              >
+                <label for="drawingSource">绘图源码</label>
+                <textarea id="drawingSource" spellcheck="false">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect x="12" y="12" width="296" height="156" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="4"/><path d="M72 112 L140 52 L248 126" fill="none" stroke="#0f172a" stroke-width="6"/><circle cx="140" cy="52" r="9" fill="#4f46e5"/></svg></textarea
+                >
+              </div>
+              <div class="drawing-runtime-options">
+                <label for="drawingGraphvizEngine">图布局引擎</label>
+                <div class="select-shell">
+                  <select id="drawingGraphvizEngine">
+                    <option value="dot">Dot（层次）</option>
+                    <option value="neato">Neato（弹簧）</option>
+                    <option value="fdp">FDP（力导向）</option>
+                    <option value="circo">Circo（环形）</option>
+                    <option value="twopi">Twopi（径向）</option>
+                  </select>
+                </div>
+              </div>
               <div class="drawing-actions">
                 <button
                   id="drawingCompileBtn"
@@ -543,6 +696,9 @@
                 >
                   插入 Office
                 </button>
+                <button id="drawingCopyBtn" type="button" class="btn">
+                  多格式复制
+                </button>
               </div>
               <p
                 id="drawingCompileStatus"
@@ -554,7 +710,13 @@
               </p>
             </div>
             <aside class="drawing-preview-panel">
-              <strong>安全预览</strong>
+              <div class="drawing-preview-heading">
+                <strong>安全预览</strong>
+                <label class="control-switch compact">
+                  <input id="drawingGridToggle" type="checkbox" />
+                  <span>网格</span>
+                </label>
+              </div>
               <div
                 id="drawingPreview"
                 class="drawing-preview"
@@ -562,11 +724,349 @@
               >
                 尚无预览
               </div>
+              <label class="range-control" for="drawingZoom">
+                <span>缩放</span>
+                <input
+                  id="drawingZoom"
+                  type="range"
+                  min="25"
+                  max="300"
+                  value="100"
+                />
+                <output id="drawingZoomValue">100%</output>
+              </label>
               <strong>适配器状态</strong>
               <div id="drawingReadiness" class="drawing-readiness">
                 正在读取核心就绪状态…
               </div>
             </aside>
+          </section>
+          <section
+            id="symbolComposerWorkspace"
+            class="symbol-composer-workspace"
+            role="tabpanel"
+            aria-labelledby="symbolComposerModeTab"
+            hidden
+          >
+            <aside class="symbol-palette-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="eyebrow">素材</span
+                  ><strong>符号与矢量工具</strong>
+                </div>
+                <span class="state-chip">本地渲染</span>
+              </div>
+              <section
+                class="symbol-formula-source"
+                aria-labelledby="symbolFormulaHeading"
+              >
+                <div class="symbol-section-heading">
+                  <strong id="symbolFormulaHeading">添加 LaTeX 图层</strong>
+                  <span>支持完整公式或单个命令</span>
+                </div>
+                <div
+                  id="symbolFormulaPreview"
+                  class="symbol-formula-preview"
+                  aria-label="LaTeX 图层预览"
+                >
+                  输入 LaTeX 后实时预览
+                </div>
+                <div class="symbol-formula-entry">
+                  <input
+                    id="symbolFormulaSource"
+                    value="\overset{\star}{\longrightarrow}"
+                    maxlength="4096"
+                    spellcheck="false"
+                    aria-label="LaTeX 图层源码"
+                  />
+                  <button
+                    id="symbolFormulaAddBtn"
+                    type="button"
+                    class="btn primary"
+                  >
+                    添加
+                  </button>
+                </div>
+                <small id="symbolFormulaStatus" role="status" aria-live="polite"
+                  >由内置 MathJax 离线渲染</small
+                >
+              </section>
+              <div class="symbol-catalog-controls">
+                <input
+                  id="symbolCatalogSearch"
+                  type="search"
+                  placeholder="搜索符号或 LaTeX 命令"
+                  aria-label="搜索数学符号"
+                />
+                <div class="symbol-category-nav">
+                  <button
+                    id="symbolCategoryPrev"
+                    type="button"
+                    aria-label="向前浏览符号分类"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m15 18-6-6 6-6" />
+                    </svg>
+                  </button>
+                  <div
+                    id="symbolCatalogCategories"
+                    class="symbol-catalog-categories"
+                    role="tablist"
+                    aria-label="符号分类"
+                  ></div>
+                  <button
+                    id="symbolCategoryNext"
+                    type="button"
+                    aria-label="向后浏览符号分类"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                  </button>
+                </div>
+                <small id="symbolCategoryStatus" aria-live="polite"></small>
+              </div>
+              <div
+                id="symbolComposerPalette"
+                class="symbol-composer-palette"
+                aria-label="可组合的数学符号"
+              ></div>
+              <div class="symbol-section-heading">
+                <strong>矢量工具</strong><span>图形、标注与自由手绘</span>
+              </div>
+              <div
+                class="symbol-primitive-tools"
+                role="toolbar"
+                aria-label="符号绘图工具"
+              >
+                <button type="button" data-symbol-primitive="line">线</button>
+                <button type="button" data-symbol-primitive="arrow">
+                  箭头
+                </button>
+                <button type="button" data-symbol-primitive="double-arrow">
+                  双箭头
+                </button>
+                <button type="button" data-symbol-primitive="rectangle">
+                  矩形
+                </button>
+                <button type="button" data-symbol-primitive="rounded-rectangle">
+                  圆角矩形
+                </button>
+                <button type="button" data-symbol-primitive="ellipse">
+                  椭圆
+                </button>
+                <button type="button" data-symbol-primitive="triangle">
+                  三角形
+                </button>
+                <button type="button" data-symbol-primitive="diamond">
+                  菱形
+                </button>
+                <button type="button" data-symbol-primitive="hexagon">
+                  六边形
+                </button>
+                <button type="button" data-symbol-primitive="star">星形</button>
+                <button type="button" data-symbol-primitive="arc">圆弧</button>
+                <button type="button" data-symbol-primitive="wave">
+                  波浪线
+                </button>
+                <button type="button" data-symbol-primitive="brace">
+                  花括号
+                </button>
+                <button type="button" data-symbol-primitive="bracket">
+                  方括号
+                </button>
+                <button type="button" data-symbol-primitive="check">
+                  对勾
+                </button>
+                <button
+                  id="symbolFreehandBtn"
+                  type="button"
+                  data-symbol-tool="freehand"
+                >
+                  自由画笔
+                </button>
+              </div>
+            </aside>
+            <div class="symbol-workbench">
+              <div
+                class="symbol-canvas-toolbar"
+                role="toolbar"
+                aria-label="画布工具"
+              >
+                <div class="symbol-toolbar-cluster" aria-label="历史操作">
+                  <span>历史</span>
+                  <div>
+                    <button id="symbolUndoBtn" type="button">撤销</button>
+                    <button id="symbolRedoBtn" type="button">重做</button>
+                  </div>
+                </div>
+                <div class="symbol-toolbar-cluster" aria-label="图层操作">
+                  <span>图层</span>
+                  <div>
+                    <button id="symbolDuplicateBtn" type="button">复制</button>
+                    <button id="symbolDeleteBtn" class="danger" type="button">
+                      删除
+                    </button>
+                    <button type="button" data-symbol-action="forward">
+                      上移
+                    </button>
+                    <button type="button" data-symbol-action="backward">
+                      下移
+                    </button>
+                  </div>
+                </div>
+                <div class="symbol-toolbar-cluster" aria-label="对齐操作">
+                  <span>对齐</span>
+                  <div>
+                    <button type="button" data-symbol-action="align-x">
+                      水平
+                    </button>
+                    <button type="button" data-symbol-action="align-y">
+                      垂直
+                    </button>
+                  </div>
+                </div>
+                <div class="symbol-toolbar-canvas-options">
+                  <span>画布</span>
+                  <label class="control-switch compact">
+                    <input id="symbolSnapToggle" type="checkbox" checked />
+                    <span>吸附网格</span>
+                  </label>
+                </div>
+              </div>
+              <div
+                id="symbolComposerCanvas"
+                class="symbol-composer-canvas show-grid"
+                tabindex="0"
+                aria-label="自定义符号实时预览画布"
+              ></div>
+              <p
+                id="symbolComposerStatus"
+                class="drawing-status"
+                role="status"
+                aria-live="polite"
+              >
+                从左侧添加符号或图元
+              </p>
+              <section class="symbol-layer-dock" aria-label="图层与属性">
+                <div class="symbol-layer-rail">
+                  <div class="symbol-section-heading">
+                    <strong>图层</strong><span>点击选择，画布中可拖动</span>
+                  </div>
+                  <div
+                    id="symbolLayerList"
+                    class="symbol-layer-list"
+                    aria-label="符号图层"
+                  ></div>
+                </div>
+                <fieldset
+                  id="symbolLayerInspector"
+                  class="symbol-layer-inspector"
+                  disabled
+                >
+                  <legend>选中图层</legend>
+                  <label
+                    >X<input id="symbolLayerX" type="number" step="5"
+                  /></label>
+                  <label
+                    >Y<input id="symbolLayerY" type="number" step="5"
+                  /></label>
+                  <label
+                    >宽度<input
+                      id="symbolLayerScaleX"
+                      type="number"
+                      min="0.05"
+                      max="20"
+                      step="0.05"
+                  /></label>
+                  <label
+                    >高度<input
+                      id="symbolLayerScaleY"
+                      type="number"
+                      min="0.05"
+                      max="20"
+                      step="0.05"
+                  /></label>
+                  <label
+                    >旋转<input
+                      id="symbolLayerRotation"
+                      type="number"
+                      min="-360"
+                      max="360"
+                      step="1"
+                  /></label>
+                  <label
+                    >透明度<input
+                      id="symbolLayerOpacity"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                  /></label>
+                  <label class="symbol-color-field"
+                    >颜色<span class="symbol-color-control"
+                      ><span
+                        id="symbolLayerColorSwatch"
+                        aria-hidden="true"
+                      ></span
+                      ><input
+                        id="symbolLayerColor"
+                        value="#18212F"
+                        maxlength="7"
+                        pattern="#[0-9A-Fa-f]{6}"
+                        spellcheck="false"
+                        aria-label="图层十六进制颜色" /></span
+                  ></label>
+                  <label class="control-switch"
+                    ><input id="symbolFlipX" type="checkbox" /><span
+                      >水平翻转</span
+                    ></label
+                  >
+                  <label class="control-switch"
+                    ><input id="symbolFlipY" type="checkbox" /><span
+                      >垂直翻转</span
+                    ></label
+                  >
+                </fieldset>
+              </section>
+              <footer class="symbol-export-dock">
+                <div class="symbol-meta-grid">
+                  <label
+                    >名称<input
+                      id="symbolNameInput"
+                      value="我的符号"
+                      maxlength="80"
+                  /></label>
+                  <label
+                    >LaTeX 命令<input
+                      id="symbolLatexInput"
+                      value="\mysymbol"
+                      maxlength="80"
+                  /></label>
+                  <label
+                    >数学类别<span class="select-shell"
+                      ><select id="symbolMathClassSelect">
+                        <option value="ordinary">普通</option>
+                        <option value="operator">算子</option>
+                        <option value="binary">二元</option>
+                        <option value="relation">关系</option>
+                        <option value="large_operator">大型算子</option>
+                        <option value="delimiter">定界符</option>
+                        <option value="accent">重音</option>
+                      </select></span
+                    ></label
+                  >
+                </div>
+                <div class="symbol-actions">
+                  <button id="symbolSaveBtn" type="button" class="btn">
+                    保存到符号库
+                  </button>
+                  <button id="symbolCopyBtn" type="button" class="btn primary">
+                    验证并多格式复制
+                  </button>
+                </div>
+              </footer>
+            </div>
           </section>
         </section>
 
@@ -696,6 +1196,34 @@
                 </svg>
                 <span style="font-size: 0.72rem">PDF</span>
               </button>
+              <button
+                id="browserImportsButton"
+                class="recognition-action glass-control"
+                type="button"
+                aria-label="打开浏览器导入"
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path
+                    d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"
+                  />
+                </svg>
+                <span style="font-size: 0.72rem">浏览器</span>
+                <span
+                  id="browserImportsBadge"
+                  class="recognition-action-badge"
+                  aria-label="待导入数量"
+                  >0</span
+                >
+              </button>
             </div>
             <div
               id="ocrBridgeStatus"
@@ -758,10 +1286,28 @@
             </article>
             <article class="workspace-card">
               <h2>插入公式</h2>
-              <p>路线由宿主能力与真实探测结果共同决定。</p>
-              <div class="route-list">
-                <span>原生 OMML</span><span>可编辑 OLE</span><span>SVG</span
-                ><span>PNG</span>
+              <p id="officeRouteHint">选择首选路线；不可用路线会明确禁用。</p>
+              <div
+                id="officeInsertRouteSelector"
+                class="office-route-selector"
+                role="radiogroup"
+                aria-label="Office 插入路线"
+              >
+                <button type="button" data-office-insert-route="auto">
+                  <strong>自动选择</strong><span>按宿主能力路由</span>
+                </button>
+                <button type="button" data-office-insert-route="native">
+                  <strong>原生 OMML</strong><span>Word 可编辑公式</span>
+                </button>
+                <button type="button" data-office-insert-route="ole">
+                  <strong>可编辑 OLE</strong><span>双击继续编辑</span>
+                </button>
+                <button type="button" data-office-insert-route="vector">
+                  <strong>SVG</strong><span>矢量图形</span>
+                </button>
+                <button type="button" data-office-insert-route="image">
+                  <strong>PNG</strong><span>兼容图片</span>
+                </button>
               </div>
             </article>
             <article class="workspace-card">
@@ -788,7 +1334,12 @@
               <span class="eyebrow">证据优先</span>
               <h1>诊断</h1>
             </div>
-            <span class="state-chip">未探测</span>
+            <div class="diagnostics-heading-actions">
+              <span class="state-chip" id="diagnosticsOverallState">未探测</span>
+              <button id="refreshDiagnosticsBtn" type="button" class="btn secondary">
+                运行检查
+              </button>
+            </div>
           </header>
           <div class="workspace-grid diagnostics-grid">
             <article class="workspace-card">
@@ -800,22 +1351,32 @@
             <article class="workspace-card">
               <h2>执行后端验证</h2>
               <p>实际执行后端、当前进程、跨启动可信与过期证据。</p>
+              <strong id="diagnosticsRuntimeState">等待检查</strong>
+              <small id="diagnosticsRuntimeDetail">运行检查后显示 Core 返回的实际状态。</small>
             </article>
             <article class="workspace-card">
               <h2>Office 桥接</h2>
               <p>宿主、会话、插入路线和回读结果。</p>
+              <strong id="diagnosticsOfficeState">等待检查</strong>
+              <small id="diagnosticsOfficeDetail">未连接宿主也会显示明确原因。</small>
             </article>
             <article class="workspace-card">
               <h2>OLE</h2>
               <p>DLL 路径、版本、SHA、几何与笔迹契约。</p>
+              <strong id="diagnosticsOleState">等待检查</strong>
+              <small id="diagnosticsOleDetail">仅 Windows 桌面版支持原生 OLE。</small>
             </article>
             <article class="workspace-card">
               <h2>截图权限</h2>
               <p>后端、权限、租约和清理状态。</p>
+              <strong id="diagnosticsScreenshotState">等待检查</strong>
+              <small id="diagnosticsScreenshotDetail">检查当前系统的截图实现与可用性。</small>
             </article>
             <article class="workspace-card">
               <h2>诊断包</h2>
               <p>日志与脱敏后的失败候选证据。</p>
+              <strong id="diagnosticsBundleState">尚未生成</strong>
+              <small id="diagnosticsBundleDetail">运行检查只读取状态，不修改 Office 文档。</small>
             </article>
           </div>
         </section>
@@ -905,31 +1466,6 @@
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </div>
-            <div class="settings-item" data-page="settingsTabs">
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <line x1="3" y1="9" x2="21" y2="9" />
-              </svg>
-              <span class="settings-item-label">功能标签</span>
-              <svg
-                class="settings-item-arrow"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-              >
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </div>
             <div class="settings-item" data-page="settingsOfficeIntegration">
               <svg
                 width="18"
@@ -949,7 +1485,8 @@
               <span
                 class="settings-item-label"
                 data-i18n="settings.officeIntegration"
-              ></span>
+                >Office</span
+              >
               <svg
                 class="settings-item-arrow"
                 width="16"
@@ -1182,21 +1719,27 @@
               </button>
               <span>平台插件</span>
             </div>
-            <div
-              class="settings-card"
-              id="platformCapabilitySummary"
-              aria-live="polite"
-            ></div>
-            <div class="settings-card" id="platformList"></div>
-            <p
-              style="
-                font-size: 0.7rem;
-                color: var(--muted);
-                margin: 0.5rem 1rem 0;
-              "
-            >
-              启用后可通过快捷键快速插入公式到对应平台
-            </p>
+            <div class="platform-settings-intro">
+              <div>
+                <strong>快速开关</strong>
+                <span>启用后即可向对应平台发送或插入内容</span>
+              </div>
+              <button id="refreshPlatformStatusBtn" type="button">
+                刷新状态
+              </button>
+            </div>
+            <details class="platform-capability-details">
+              <summary>
+                <span><strong>查看兼容性</strong><small>系统、宿主与运行时能力</small></span>
+                <span class="platform-capability-action">展开</span>
+              </summary>
+              <div
+                id="platformCapabilitySummary"
+                class="platform-capability-summary"
+                aria-live="polite"
+              ></div>
+            </details>
+            <div id="platformList" class="platform-quick-grid"></div>
 
             <!-- Ecosystem clients -->
             <div class="settings-card">
@@ -1223,51 +1766,6 @@
             </div>
           </div>
 
-          <div id="settingsTabs" class="settings-subpage">
-            <div class="settings-subpage-header">
-              <button class="settings-back" id="settingsTabsBack">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <line x1="19" y1="12" x2="5" y2="12" />
-                  <polyline points="12 19 5 12 12 5" />
-                </svg>
-              </button>
-              <span>功能标签</span>
-            </div>
-            <div class="settings-card">
-              <p
-                style="
-                  font-size: 0.8rem;
-                  color: var(--muted);
-                  padding: 0.7rem 1rem 0;
-                  margin: 0;
-                "
-              >
-                启用后在顶部导航栏显示对应功能标签
-              </p>
-              <div class="settings-row">
-                <span class="settings-label">Office 集成</span>
-                <label class="custom-toggle">
-                  <input type="checkbox" id="officeEnabledToggle" checked />
-                  <span class="toggle-track"></span>
-                </label>
-              </div>
-              <div class="settings-row">
-                <span class="settings-label">OCR 截图识别</span>
-                <label class="custom-toggle">
-                  <input type="checkbox" id="ocrEnabledToggle" checked />
-                  <span class="toggle-track"></span>
-                </label>
-              </div>
-            </div>
-          </div>
-
           <div id="settingsOfficeIntegration" class="settings-subpage">
             <div class="settings-subpage-header">
               <button
@@ -1287,7 +1785,17 @@
                   <polyline points="12 19 5 12 12 5" />
                 </svg>
               </button>
-              <span data-i18n="officeIntegration.title"></span>
+              <span>Office 插入与连接</span>
+            </div>
+
+            <div class="office-settings-summary">
+              <div>
+                <strong>首选插入方式</strong>
+                <span>与编辑页和 Office 工作区保持同步；连接宿主后会自动禁用不支持的方式。</span>
+              </div>
+              <button id="openOfficeWorkspaceBtn" type="button" class="btn secondary">
+                打开 Office 工作区
+              </button>
             </div>
 
             <div class="settings-card">
@@ -1295,37 +1803,43 @@
                 <span
                   class="settings-label"
                   data-i18n="officeIntegration.mode.label"
-                ></span>
+                  >新公式默认插入方式</span
+                >
                 <div class="custom-select" id="officeIntegrationMode">
                   <div class="custom-select-trigger" data-value="auto">
-                    <span data-i18n="officeIntegration.mode.auto"></span>
+                    <span data-i18n="officeIntegration.mode.auto">自动选择</span>
                   </div>
                   <div class="custom-select-dropdown">
                     <div
                       class="custom-select-option selected"
                       data-value="auto"
                       data-i18n="officeIntegration.mode.auto"
-                    ></div>
+                      >自动选择</div
+                    >
                     <div
                       class="custom-select-option"
                       data-value="native"
                       data-i18n="officeIntegration.mode.native"
-                    ></div>
+                      >原生 OMML</div
+                    >
                     <div
                       class="custom-select-option"
                       data-value="image"
                       data-i18n="officeIntegration.mode.image"
-                    ></div>
+                      >PNG 图片</div
+                    >
                     <div
                       class="custom-select-option"
                       data-value="ole"
                       data-i18n="officeIntegration.mode.ole"
-                    ></div>
+                      >可编辑 OLE</div
+                    >
                     <div
                       class="custom-select-option"
                       data-value="vector"
                       data-i18n="officeIntegration.mode.vector"
-                    ></div>
+                      >SVG 矢量</div
+                    >
                   </div>
                 </div>
                 <p id="officeIntegrationModeHint" class="settings-hint"></p>
@@ -1337,7 +1851,8 @@
                 <span
                   class="settings-label"
                   data-i18n="officeIntegration.oleStatus"
-                ></span>
+                  >OLE 组件状态</span
+                >
                 <span id="officeOleStatus" class="settings-hint"></span>
               </div>
               <div
@@ -1361,6 +1876,9 @@
                 </button>
               </div>
             </div>
+            <p class="office-settings-footnote">
+              普通使用建议保留“自动选择”。OLE 安装、修复与移除只影响可编辑公式对象，不会改变 SVG、PNG 或原生 OMML 的插入内容。
+            </p>
           </div>
 
           <div id="settingsRecognition" class="settings-subpage">
@@ -1379,6 +1897,18 @@
                 </svg>
               </button>
               <span>识别与模型</span>
+            </div>
+            <div class="settings-card">
+              <div class="settings-row">
+                <div class="settings-copy">
+                  <strong>启用识别工作区</strong>
+                  <span>截图、图片与 PDF 识别入口</span>
+                </div>
+                <label class="custom-toggle">
+                  <input type="checkbox" id="ocrEnabledToggle" checked />
+                  <span class="toggle-track"></span>
+                </label>
+              </div>
             </div>
 
             <div class="settings-card">
@@ -1751,13 +2281,6 @@
       </svg>
     </button>
 
-    <button
-      id="browserImportsButton"
-      class="browser-imports-button"
-      type="button"
-    >
-      浏览器导入 <span id="browserImportsBadge">0</span>
-    </button>
     <div id="browserImportsModal" class="browser-imports-modal" hidden>
       <section
         class="browser-imports-dialog"
