@@ -223,6 +223,7 @@ pub struct OleStatus {
     pub ink_integrity_contract: bool,
 }
 
+#[cfg(target_os = "windows")]
 fn classify_ole_states(
     registration_healthy: bool,
     bitness_mismatch: bool,
@@ -248,6 +249,7 @@ fn classify_ole_states(
     (operational, provenance, insertion_available)
 }
 
+#[cfg(target_os = "windows")]
 fn ole_install_usable(status: &OleStatus) -> bool {
     status.insertion_available && status.provenance_state != OleProvenanceState::Mismatch
 }
