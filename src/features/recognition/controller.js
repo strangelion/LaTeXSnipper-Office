@@ -9,6 +9,7 @@ import * as store from "./store.js";
  * The backend emits `recognition://job-updated` with a RecognitionJobSnapshot payload.
  */
 export function registerJobUpdateListener() {
+  if (!globalThis.window?.__TAURI_INTERNALS__) return Promise.resolve(() => {});
   listen("recognition://job-updated", async (event) => {
     const snapshot = event.payload;
     console.log("[Recognition] Job update:", snapshot.id, snapshot.status);
@@ -21,7 +22,11 @@ export function registerJobUpdateListener() {
           format: "latex",
         });
         if (output.success && output.content) {
-          renderRecognitionResult(output.content, output.acceptance);
+          renderRecognitionResult(
+            snapshot.id,
+            output.content,
+            output.acceptance,
+          );
         }
       } catch (err) {
         console.error("[Recognition] Failed to fetch output:", err);
@@ -30,7 +35,7 @@ export function registerJobUpdateListener() {
   });
 }
 
-function renderRecognitionResult(latex, acceptance) {
+function renderRecognitionResult(jobId, latex, acceptance) {
   const resultEl = document.getElementById("ocrResult");
   if (resultEl) resultEl.textContent = latex;
   const insertBtn = document.getElementById("ocrInsertBtn");
@@ -40,7 +45,7 @@ function renderRecognitionResult(latex, acceptance) {
   // Dispatch so UIController.ocrLatex is updated (insert/copy use this)
   window.dispatchEvent(
     new CustomEvent("recognition:result-ready", {
-      detail: { latex, acceptance },
+      detail: { jobId, latex, acceptance },
     }),
   );
 }

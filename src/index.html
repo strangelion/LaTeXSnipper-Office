@@ -283,44 +283,85 @@
                   ></div>
 
                   <div id="numberingOptions" class="numbering-options" hidden>
-                    <strong>编号方案</strong>
-                    <label
-                      ><input
-                        type="radio"
-                        name="equationNumberingScheme"
-                        value="global"
-                        checked
-                      />
-                      全局 `(1)`</label
+                    <section class="numbering-section">
+                      <span class="numbering-section-label">编号范围</span>
+                      <div
+                        class="numbering-scheme-grid"
+                        role="radiogroup"
+                        aria-label="编号范围"
+                      >
+                        <label class="numbering-scheme-option"
+                          ><input
+                            type="radio"
+                            name="equationNumberingScheme"
+                            value="global"
+                            checked
+                          /><span
+                            ><b>全局序号</b><code>(1)</code></span
+                          ></label
+                        >
+                        <label class="numbering-scheme-option"
+                          ><input
+                            type="radio"
+                            name="equationNumberingScheme"
+                            value="chapter-dot"
+                          /><span
+                            ><b>按章节编号</b><code>(2.1)</code></span
+                          ></label
+                        >
+                        <label class="numbering-scheme-option"
+                          ><input
+                            type="radio"
+                            name="equationNumberingScheme"
+                            value="chapter-hyphen"
+                          /><span
+                            ><b>章节连字符</b><code>(2-1)</code></span
+                          ></label
+                        >
+                      </div>
+                    </section>
+                    <section class="numbering-section numbering-format-section">
+                      <span class="numbering-section-label">数字与外观</span>
+                      <div class="numbering-format-grid">
+                        <label class="numbering-format-control"
+                          ><span>编号风格</span
+                          ><select id="equationNumberingPreset">
+                            <option value="parenthesized">圆括号 (1)</option>
+                            <option value="bracketed">方括号 [1]</option>
+                            <option value="dotted">数字加点 1.</option>
+                            <option value="equation">中文 式 1</option>
+                            <option value="roman">罗马数字 (I)</option>
+                            <option value="alphabetic">大写字母 (A)</option>
+                            <option value="custom">自定义模板</option>
+                          </select></label
+                        >
+                        <label
+                          id="equationNumberingTemplateField"
+                          class="numbering-format-control"
+                          hidden
+                          ><span>自定义模板</span
+                          ><input
+                            id="equationNumberingTemplate"
+                            type="text"
+                            value="({n})"
+                            maxlength="32"
+                            placeholder="例如：公式（{n}）"
+                            spellcheck="false" /></label
+                        >
+                      </div>
+                    </section>
+                    <output
+                      id="equationNumberingPreview"
+                      class="numbering-preview"
+                      aria-live="polite"
+                      ><span>编号预览</span
+                      ><strong id="equationNumberingPreviewValue"
+                        >(1)</strong
+                      ></output
                     >
-                    <label title="原生 Word 当前仅支持全局序列"
-                      ><input
-                        type="radio"
-                        name="equationNumberingScheme"
-                        value="chapter-dot"
-                        disabled
-                      />
-                      章节点号 `(2.1)`</label
-                    >
-                    <label title="原生 Word 当前仅支持全局序列"
-                      ><input
-                        type="radio"
-                        name="equationNumberingScheme"
-                        value="chapter-hyphen"
-                        disabled
-                      />
-                      章节连字符 `(2-1)`</label
-                    >
-                    <input
-                      id="equationNumberingLabel"
-                      class="numbering-disabled-option"
-                      type="text"
-                      placeholder="标签/书签（当前原生 Word 暂不支持）"
-                      disabled
-                    />
-                    <small
-                      >原生 Word
-                      当前仅支持全局编号；章节方案会在协议实现后开放。</small
+                    <small id="equationNumberingHint"
+                      >章节编号读取 Word“标题 1”的当前章节号；自定义模板使用
+                      {n} 作为完整序号占位符。</small
                     >
                   </div>
 
@@ -946,7 +987,7 @@
                 role="status"
                 aria-live="polite"
               >
-                从左侧添加符号或图元
+                从左侧添加符号或图元；旋转可自由拖动，按住 Shift 吸附 15°
               </p>
               <section class="symbol-layer-dock" aria-label="图层与属性">
                 <div class="symbol-layer-rail">
@@ -1005,17 +1046,105 @@
                   /></label>
                   <label class="symbol-color-field"
                     >颜色<span class="symbol-color-control"
-                      ><span
+                      ><button
                         id="symbolLayerColorSwatch"
-                        aria-hidden="true"
-                      ></span
+                        type="button"
+                        aria-label="打开图层颜色面板"
+                        aria-haspopup="dialog"
+                        aria-expanded="false"
+                      ></button
                       ><input
                         id="symbolLayerColor"
                         value="#18212F"
                         maxlength="7"
                         pattern="#[0-9A-Fa-f]{6}"
                         spellcheck="false"
-                        aria-label="图层十六进制颜色" /></span
+                        aria-label="图层十六进制颜色"
+                    /></span>
+                    <section
+                      id="symbolColorPopover"
+                      class="symbol-color-popover"
+                      role="dialog"
+                      aria-label="图层颜色"
+                      hidden
+                    >
+                      <div
+                        id="symbolColorSpectrum"
+                        class="symbol-color-spectrum"
+                        role="slider"
+                        tabindex="0"
+                        aria-label="饱和度与亮度"
+                      >
+                        <span id="symbolColorSpectrumCursor"></span>
+                      </div>
+                      <label
+                        >色相
+                        <input
+                          id="symbolColorHue"
+                          class="symbol-color-hue"
+                          type="range"
+                          min="0"
+                          max="359"
+                          value="214"
+                        />
+                      </label>
+                      <label
+                        >透明度
+                        <span class="symbol-color-range-row"
+                          ><input
+                            id="symbolColorOpacity"
+                            class="symbol-color-opacity"
+                            type="range"
+                            min="0"
+                            max="100"
+                            value="100"
+                          /><output id="symbolColorOpacityValue"
+                            >100%</output
+                          ></span
+                        >
+                      </label>
+                      <div class="symbol-color-presets" aria-label="常用颜色">
+                        <button
+                          type="button"
+                          data-symbol-color="#18212F"
+                          aria-label="墨黑"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#2563EB"
+                          aria-label="蓝色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#7C3AED"
+                          aria-label="紫色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#DC2626"
+                          aria-label="红色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#EA580C"
+                          aria-label="橙色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#16A34A"
+                          aria-label="绿色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#0891B2"
+                          aria-label="青色"
+                        ></button>
+                        <button
+                          type="button"
+                          data-symbol-color="#F8FAFC"
+                          aria-label="白色"
+                        ></button>
+                      </div></section
                   ></label>
                   <label class="control-switch"
                     ><input id="symbolFlipX" type="checkbox" /><span
@@ -1335,8 +1464,14 @@
               <h1>诊断</h1>
             </div>
             <div class="diagnostics-heading-actions">
-              <span class="state-chip" id="diagnosticsOverallState">未探测</span>
-              <button id="refreshDiagnosticsBtn" type="button" class="btn secondary">
+              <span class="state-chip" id="diagnosticsOverallState"
+                >未探测</span
+              >
+              <button
+                id="refreshDiagnosticsBtn"
+                type="button"
+                class="btn secondary"
+              >
                 运行检查
               </button>
             </div>
@@ -1352,31 +1487,41 @@
               <h2>执行后端验证</h2>
               <p>实际执行后端、当前进程、跨启动可信与过期证据。</p>
               <strong id="diagnosticsRuntimeState">等待检查</strong>
-              <small id="diagnosticsRuntimeDetail">运行检查后显示 Core 返回的实际状态。</small>
+              <small id="diagnosticsRuntimeDetail"
+                >运行检查后显示 Core 返回的实际状态。</small
+              >
             </article>
             <article class="workspace-card">
               <h2>Office 桥接</h2>
               <p>宿主、会话、插入路线和回读结果。</p>
               <strong id="diagnosticsOfficeState">等待检查</strong>
-              <small id="diagnosticsOfficeDetail">未连接宿主也会显示明确原因。</small>
+              <small id="diagnosticsOfficeDetail"
+                >未连接宿主也会显示明确原因。</small
+              >
             </article>
             <article class="workspace-card">
               <h2>OLE</h2>
               <p>DLL 路径、版本、SHA、几何与笔迹契约。</p>
               <strong id="diagnosticsOleState">等待检查</strong>
-              <small id="diagnosticsOleDetail">仅 Windows 桌面版支持原生 OLE。</small>
+              <small id="diagnosticsOleDetail"
+                >仅 Windows 桌面版支持原生 OLE。</small
+              >
             </article>
             <article class="workspace-card">
               <h2>截图权限</h2>
               <p>后端、权限、租约和清理状态。</p>
               <strong id="diagnosticsScreenshotState">等待检查</strong>
-              <small id="diagnosticsScreenshotDetail">检查当前系统的截图实现与可用性。</small>
+              <small id="diagnosticsScreenshotDetail"
+                >检查当前系统的截图实现与可用性。</small
+              >
             </article>
             <article class="workspace-card">
               <h2>诊断包</h2>
               <p>日志与脱敏后的失败候选证据。</p>
               <strong id="diagnosticsBundleState">尚未生成</strong>
-              <small id="diagnosticsBundleDetail">运行检查只读取状态，不修改 Office 文档。</small>
+              <small id="diagnosticsBundleDetail"
+                >运行检查只读取状态，不修改 Office 文档。</small
+              >
             </article>
           </div>
         </section>
@@ -1730,7 +1875,10 @@
             </div>
             <details class="platform-capability-details">
               <summary>
-                <span><strong>查看兼容性</strong><small>系统、宿主与运行时能力</small></span>
+                <span
+                  ><strong>查看兼容性</strong
+                  ><small>系统、宿主与运行时能力</small></span
+                >
                 <span class="platform-capability-action">展开</span>
               </summary>
               <div
@@ -1791,9 +1939,16 @@
             <div class="office-settings-summary">
               <div>
                 <strong>首选插入方式</strong>
-                <span>与编辑页和 Office 工作区保持同步；连接宿主后会自动禁用不支持的方式。</span>
+                <span
+                  >与编辑页和 Office
+                  工作区保持同步；连接宿主后会自动禁用不支持的方式。</span
+                >
               </div>
-              <button id="openOfficeWorkspaceBtn" type="button" class="btn secondary">
+              <button
+                id="openOfficeWorkspaceBtn"
+                type="button"
+                class="btn secondary"
+              >
                 打开 Office 工作区
               </button>
             </div>
@@ -1807,39 +1962,46 @@
                 >
                 <div class="custom-select" id="officeIntegrationMode">
                   <div class="custom-select-trigger" data-value="auto">
-                    <span data-i18n="officeIntegration.mode.auto">自动选择</span>
+                    <span data-i18n="officeIntegration.mode.auto"
+                      >自动选择</span
+                    >
                   </div>
                   <div class="custom-select-dropdown">
                     <div
                       class="custom-select-option selected"
                       data-value="auto"
                       data-i18n="officeIntegration.mode.auto"
-                      >自动选择</div
                     >
+                      自动选择
+                    </div>
                     <div
                       class="custom-select-option"
                       data-value="native"
                       data-i18n="officeIntegration.mode.native"
-                      >原生 OMML</div
                     >
+                      原生 OMML
+                    </div>
                     <div
                       class="custom-select-option"
                       data-value="image"
                       data-i18n="officeIntegration.mode.image"
-                      >PNG 图片</div
                     >
+                      PNG 图片
+                    </div>
                     <div
                       class="custom-select-option"
                       data-value="ole"
                       data-i18n="officeIntegration.mode.ole"
-                      >可编辑 OLE</div
                     >
+                      可编辑 OLE
+                    </div>
                     <div
                       class="custom-select-option"
                       data-value="vector"
                       data-i18n="officeIntegration.mode.vector"
-                      >SVG 矢量</div
                     >
+                      SVG 矢量
+                    </div>
                   </div>
                 </div>
                 <p id="officeIntegrationModeHint" class="settings-hint"></p>
@@ -1877,7 +2039,9 @@
               </div>
             </div>
             <p class="office-settings-footnote">
-              普通使用建议保留“自动选择”。OLE 安装、修复与移除只影响可编辑公式对象，不会改变 SVG、PNG 或原生 OMML 的插入内容。
+              普通使用建议保留“自动选择”。OLE
+              安装、修复与移除只影响可编辑公式对象，不会改变 SVG、PNG 或原生
+              OMML 的插入内容。
             </p>
           </div>
 
@@ -2259,6 +2423,19 @@
             <span>选择分类...</span>
           </div>
           <div class="custom-select-dropdown" id="categoryDropdown"></div>
+        </div>
+        <div
+          class="formula-library-filters"
+          role="toolbar"
+          aria-label="公式显示筛选"
+        >
+          <button type="button" class="active" data-formula-filter="all">
+            常用
+          </button>
+          <button type="button" data-formula-filter="favorites">收藏</button>
+          <button type="button" data-formula-filter="pinned">置顶</button>
+          <button type="button" data-formula-filter="disabled">已停用</button>
+          <button type="button" data-formula-filter="hidden">已隐藏</button>
         </div>
         <div class="library-grid" id="libraryGrid"></div>
       </div>

@@ -1,6 +1,10 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
-import { createDrawingWorkspaceController } from "../src/features/drawing/workspace.js";
+import {
+  computeFittedViewBox,
+  createDrawingWorkspaceController,
+} from "../src/features/drawing/workspace.js";
+import { normalizeMermaidRenderId } from "../src/features/drawing/local-renderers.js";
 import { serializeVisualDrawing } from "../src/features/drawing/visual-editor.js";
 
 class FakeClassList {
@@ -15,6 +19,25 @@ class FakeClassList {
     return this.values.has(name);
   }
 }
+
+test("drawing previews fit actual ink bounds with stable padding", () => {
+  assert.equal(
+    computeFittedViewBox({ x: 100, y: 50, width: 200, height: 100 }),
+    "84 34 232 132",
+  );
+  assert.equal(
+    computeFittedViewBox({ x: 0, y: 0, width: 0, height: 10 }),
+    null,
+  );
+});
+
+test("Mermaid render ids always form valid CSS id selectors", () => {
+  assert.equal(
+    normalizeMermaidRenderId("6fc1da09-03be-4cd8"),
+    "mermaid-6fc1da09-03be-4cd8",
+  );
+  assert.equal(normalizeMermaidRenderId("a/b"), "mermaid-a-b");
+});
 
 class FakeElement extends EventTarget {
   constructor(dataset = {}) {

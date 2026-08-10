@@ -200,6 +200,17 @@ const screenshotBackendSource = readFileSync(
   new URL("../src-tauri/src/screenshot/backend.rs", import.meta.url),
   "utf8",
 );
+const screenshotCommandsSource = readFileSync(
+  new URL("../src-tauri/src/screenshot/commands.rs", import.meta.url),
+  "utf8",
+);
+const screenshotStateSource = readFileSync(
+  new URL("../src-tauri/src/screenshot/state.rs", import.meta.url),
+  "utf8",
+);
+assert.match(screenshotCommandsSource, /overlay_ready_timeout/);
+assert.match(screenshotCommandsSource, /ready=\{\}\/\{\} missing=\{\}/);
+assert.match(screenshotStateSource, /pub fn ready_progress/);
 assert.match(screenshotBackendSource, /XDG_SESSION_TYPE/);
 assert.match(screenshotBackendSource, /WAYLAND_DISPLAY/);
 assert.match(screenshotBackendSource, /DISPLAY/);

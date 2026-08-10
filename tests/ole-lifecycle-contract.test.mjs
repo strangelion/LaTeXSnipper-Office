@@ -22,6 +22,13 @@ const sampleHostTests = readFileSync(
   ),
   "utf8",
 );
+const svgToEmf = readFileSync(
+  new URL(
+    "../apps/native-office/LaTeXSnipper.OleFormulaObjectNative/src/SvgToEmf.cpp",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const adapterSources = ["Word", "Excel", "PowerPoint"].map((host) =>
   readFileSync(
     new URL(
@@ -60,5 +67,9 @@ assert.match(sampleHostTests, /msoEmbeddedOLEObject/);
 assert.match(sampleHostTests, /msoPicture/);
 assert.match(sampleHostTests, /ValidatePowerPoint/);
 assert.match(sampleHostTests, /ValidateExcel/);
+assert.match(svgToEmf, /frameMarginClear/);
+assert.match(svgToEmf, /OLE_INK_FRAME_MARGIN_MISSING/);
+assert.match(svgToEmf, /expectedRaster->inkBounds\.left > 0/);
+assert.match(svgToEmf, /kMinimumRetainedInkCoverage/);
 
 console.log("OLE RCW ownership and host evidence contract passed OK");

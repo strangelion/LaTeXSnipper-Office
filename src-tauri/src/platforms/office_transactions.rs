@@ -79,6 +79,8 @@ pub struct EquationNumberingOptions {
     pub chapter_level: Option<u8>,
     pub separator: Option<String>,
     pub label: Option<String>,
+    pub template: Option<String>,
+    pub number_style: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -676,6 +678,21 @@ fn validate_numbering(
         {
             return Err("numbering options exceed size limits".to_string());
         }
+        if let Some(template) = numbering.template.as_deref() {
+            if template.chars().count() > 32
+                || template.matches("{n}").count() != 1
+                || template.chars().any(char::is_control)
+            {
+                return Err("invalid numbering template".to_string());
+            }
+        }
+        if numbering
+            .number_style
+            .as_deref()
+            .is_some_and(|style| !matches!(style, "arabic" | "roman-upper" | "alpha-upper"))
+        {
+            return Err("invalid numbering style".to_string());
+        }
     }
     Ok(())
 }
@@ -856,15 +873,24 @@ mod tests {
         let root = test_root("numbered");
         let transaction = {
             let store = OfficeEditTransactionStore::new_at(root.clone()).unwrap();
-            store
-                .begin(begin_request(FormulaInsertMode::Numbered))
-                .await
-                .unwrap()
+            let mut request = begin_request(FormulaInsertMode::Numbered);
+            request.numbering = Some(EquationNumberingOptions {
+                scheme: EquationNumberingScheme::Global,
+                chapter_level: None,
+                separator: None,
+                label: None,
+                template: Some("公式〔{n}〕".into()),
+                number_style: Some("roman-upper".into()),
+            });
+            store.begin(request).await.unwrap()
         };
         let reopened = OfficeEditTransactionStore::new_at(root.clone()).unwrap();
         let recovered = reopened.get(&transaction.transaction_id).await.unwrap();
         assert_eq!(recovered.requested_mode, FormulaInsertMode::Numbered);
         assert_eq!(recovered.source_document_id.as_deref(), Some("document-1"));
+        let numbering = recovered.numbering.expect("numbering options");
+        assert_eq!(numbering.template.as_deref(), Some("公式〔{n}〕"));
+        assert_eq!(numbering.number_style.as_deref(), Some("roman-upper"));
         let _ = fs::remove_dir_all(root);
     }
 

@@ -469,6 +469,21 @@ public class FormulaPayload
     [JsonPropertyName("latex")] public string Latex { get; set; } = "";
     [JsonPropertyName("omml")] public string Omml { get; set; } = "";
     [JsonPropertyName("display")] public string Display { get; set; } = "block";
+    [JsonPropertyName("numberingTemplate")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NumberingTemplate { get; set; }
+    [JsonPropertyName("numberingStyle")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NumberingStyle { get; set; }
+    [JsonPropertyName("numberingScheme")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NumberingScheme { get; set; }
+    [JsonPropertyName("numberingChapterLevel")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public byte? NumberingChapterLevel { get; set; }
+    [JsonPropertyName("numberingSeparator")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NumberingSeparator { get; set; }
     [JsonPropertyName("presentation")] public PresentationData? Presentation { get; set; }
     [JsonPropertyName("render")] public RenderData? Render { get; set; }
     [JsonPropertyName("source")] public SourceInfo? Source { get; set; }

@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# These files are signed by a byte-level SHA-256 trust index. Keep checkout
+# bytes deterministic on Windows so Git autocrlf cannot invalidate the bundle.
+src-tauri/resources/RecognitionQuality/**/*.json text eol=lf

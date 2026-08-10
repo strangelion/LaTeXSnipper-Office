@@ -126,7 +126,13 @@ export class WordOoxmlHelper {
         : profile.numberingScheme === "chapter-dot"
           ? "2.1"
           : "2-1";
-    const numberContent = this.buildNumberFields(profile, visible);
+    const numberContent = this.buildNumberFields(
+      profile,
+      visible,
+      payload.numbering?.numberStyle,
+    );
+    const template = this.numberingTemplate(payload, profile);
+    const [numberPrefix, numberSuffix] = template.split("{n}");
     const nilBorders = ["top", "left", "bottom", "right", "insideH", "insideV"]
       .map((edge) => `<w:${edge} w:val="nil"/>`)
       .join("");
@@ -142,17 +148,24 @@ export class WordOoxmlHelper {
       `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblLayout w:type="fixed"/><w:tblBorders>${nilBorders}</w:tblBorders>${cellMargins}</w:tblPr>` +
       `<w:tblGrid><w:gridCol w:w="${sideWidthPct}"/><w:gridCol w:w="${centerWidthPct}"/><w:gridCol w:w="${sideWidthPct}"/></w:tblGrid>` +
       `<w:tr><w:trPr><w:cantSplit/></w:trPr>${cell(sideWidthPct, "left", "")}${cell(centerWidthPct, "center", math)}` +
-      `${cell(sideWidthPct, "right", `<w:bookmarkStart w:id="${bookmarkId}" w:name="${bookmark}"/><w:r><w:t>(</w:t></w:r>${numberContent}<w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id="${bookmarkId}"/>`)}</w:tr></w:tbl>`;
+      `${cell(sideWidthPct, "right", `<w:bookmarkStart w:id="${bookmarkId}" w:name="${bookmark}"/><w:r><w:t xml:space="preserve">${this.escapeXml(numberPrefix)}</w:t></w:r>${numberContent}<w:r><w:t xml:space="preserve">${this.escapeXml(numberSuffix)}</w:t></w:r><w:bookmarkEnd w:id="${bookmarkId}"/>`)}</w:tr></w:tbl>`;
     return this.wrapInSdt(table, payload, "block");
   }
 
   private buildNumberFields(
     profile: EquationLayoutProfile,
     visible: string,
+    numberStyle: "arabic" | "roman-upper" | "alpha-upper" = "arabic",
   ): string {
+    const fieldSwitch =
+      numberStyle === "roman-upper"
+        ? "ROMAN"
+        : numberStyle === "alpha-upper"
+          ? "ALPHABETIC"
+          : "ARABIC";
     if (profile.numberingScheme === "global") {
       return this.complexField(
-        " SEQ LaTeXSnipperEquation \\* ARABIC ",
+        ` SEQ LaTeXSnipperEquation \\* ${fieldSwitch} `,
         visible,
       );
     }
@@ -162,10 +175,26 @@ export class WordOoxmlHelper {
     );
     const chapter = this.complexField(` STYLEREF "${heading}" \\s `, "2");
     const sequence = this.complexField(
-      ` SEQ LaTeXSnipperEquation \\s ${profile.chapterLevel ?? 1} \\* ARABIC `,
+      ` SEQ LaTeXSnipperEquation \\s ${profile.chapterLevel ?? 1} \\* ${fieldSwitch} `,
       "1",
     );
     return `${chapter}<w:r><w:t>${separator}</w:t></w:r>${sequence}`;
+  }
+
+  private numberingTemplate(
+    payload: OfficeFormulaPayload,
+    profile: EquationLayoutProfile,
+  ): string {
+    const template = payload.numbering?.template;
+    if (
+      typeof template === "string" &&
+      template.length <= 32 &&
+      (template.match(/\{n\}/g) || []).length === 1 &&
+      !/[\u0000-\u001f\u007f]/.test(template)
+    ) {
+      return template;
+    }
+    return profile.numberFormat === "plain" ? "{n}" : "({n})";
   }
 
   private complexField(instruction: string, visibleResult: string): string {

@@ -12,6 +12,11 @@ const recognitionCommand = readFileSync(
 );
 const html = readFileSync("src/index.html", "utf8");
 const frontend = readFileSync("src/main.js", "utf8");
+const attributes = readFileSync(".gitattributes", "utf8");
+const packageVerification = readFileSync(
+  "scripts/verify-package-contents.ps1",
+  "utf8",
+);
 
 assert.match(rust, /pub struct BaselineDeploymentState/);
 assert.match(rust, /pub auto_accept_blocked: bool/);
@@ -32,5 +37,23 @@ assert.match(frontend, /质量基线部署失败/);
 assert.match(frontend, /report\.error/);
 assert.match(frontend, /无法读取本地状态，请在桌面应用中重试/);
 assert.doesNotMatch(frontend, /detailNode\.textContent = String\(error\)/);
+assert.match(
+  attributes,
+  /src-tauri\/resources\/RecognitionQuality\/\*\*\/\*\.json text eol=lf/,
+);
+assert.match(packageVerification, /Assert-RecognitionQualityTrustIndex/);
+assert.match(
+  packageVerification,
+  /RecognitionQuality final package HASH_MISMATCH/,
+);
+assert.match(
+  packageVerification,
+  /"OfficeJS", "WPS", "Obsidian", "Ecosystem", "RecognitionQuality"/,
+);
+assert.match(packageVerification, /\[System\.IO\.Path\]::GetRelativePath/);
+assert.doesNotMatch(
+  packageVerification,
+  /\.FullName\.Substring\(\$sourceRoot\.Length\)/,
+);
 
 console.log("Quality baseline deployment visibility contract passed OK");

@@ -130,6 +130,19 @@ impl ScreenshotState {
         })
     }
 
+    pub fn ready_progress(&self, session_id: &str) -> Result<(usize, usize, Vec<String>), String> {
+        self.with_session(session_id, |session| {
+            let mut missing = session
+                .frames
+                .values()
+                .filter(|frame| !session.ready_windows.contains(&frame.window_label))
+                .map(|frame| frame.window_label.clone())
+                .collect::<Vec<_>>();
+            missing.sort();
+            Ok((session.ready_windows.len(), session.frames.len(), missing))
+        })
+    }
+
     pub fn remove(&self, session_id: &str) -> Result<Option<ScreenshotSession>, String> {
         let removed = {
             let mut sessions = self

@@ -157,6 +157,7 @@ test("Word image storage honors inline, display, and numbered insertion modes", 
     /mode == InsertMode\.Display[\s\S]*wdAlignParagraphCenter/,
   );
   assert.match(wordAdapter, /SEQ LaTeXSnipperEquation/);
-  assert.match(wordAdapter, /closingRange\.Text = "\)"/);
+  assert.match(wordAdapter, /closingRange\.Text = numbering\.Suffix/);
+  assert.match(wordAdapter, /ResolveNumberingFormat\(payload\)/);
   assert.match(wordAdapter, /IMAGE_NUMBERING_FAILED/);
 });

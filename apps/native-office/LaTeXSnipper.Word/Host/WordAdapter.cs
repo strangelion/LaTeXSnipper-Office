@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
@@ -752,7 +753,7 @@ namespace LaTeXSnipper.Word.Host
                 range.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
 
                 var body = mode == InsertMode.DisplayNumbered
-                    ? BuildNumberedEquationBody(cleanOmml, payload.FormulaId, GetContainerWidthTwips(range))
+                    ? BuildNumberedEquationBody(doc, cleanOmml, payload, GetContainerWidthTwips(range))
                     : BuildFormulaBody(cleanOmml, payload.FormulaId, mode);
                 var flatOpc = BuildFlatOpc(body);
 
@@ -1469,30 +1470,11 @@ namespace LaTeXSnipper.Word.Host
                         var numberedRange = cc?.Range ?? oleShape.Range;
                         numberedRange = numberedRange.Duplicate;
                         numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-                        numberedRange.Text = "\t(";
-                        numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-
-                        // Insert SEQ field for automatic number
-                        var field = doc.Fields.Add(
-                            numberedRange,
-                            Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
-                            " SEQ LaTeXSnipperEquation \\* ARABIC ",
-                            true);
-                        field.Update();
-                        // Result.End is immediately before the field-end marker. Text
-                        // inserted there becomes part of the field result and disappears
-                        // on the next update/save. Move one character past that marker.
-                        int closingPosition = field.Result.End + 1;
-                        var closingRange = doc.Range(closingPosition, closingPosition);
-                        closingRange.Text = ")";
-                        if (!string.Equals(closingRange.Text, ")", StringComparison.Ordinal))
-                        {
-                            throw new InvalidOperationException(
-                                "The numbered formula closing delimiter was not inserted.");
-                        }
+                        var numberInsertion = InsertEquationNumberFields(doc, numberedRange, payload);
+                        var closingRange = numberInsertion.ClosingRange;
                         var bookmarkName = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(payload.FormulaId, "[^A-Za-z0-9_]", "_");
                         if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
-                        var bookmarkRange = doc.Range(field.Code.Start, closingRange.End);
+                        var bookmarkRange = doc.Range(numberInsertion.BookmarkStart, closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
 
                         // The dedicated paragraph is the ownership boundary. Its
@@ -1896,29 +1878,8 @@ namespace LaTeXSnipper.Word.Host
                         var numberedRange = cc.Range.Duplicate;
                         numberedRange.Collapse(
                             Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-                        numberedRange.Text = "\t(";
-                        numberedRange.Collapse(
-                            Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-
-                        var field = doc.Fields.Add(
-                            numberedRange,
-                            Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
-                            " SEQ LaTeXSnipperEquation \\* ARABIC ",
-                            true);
-                        field.Update();
-                        int closingPosition = field.Result.End + 1;
-                        var closingRange = doc.Range(
-                            closingPosition,
-                            closingPosition);
-                        closingRange.Text = ")";
-                        if (!string.Equals(
-                            closingRange.Text,
-                            ")",
-                            StringComparison.Ordinal))
-                        {
-                            throw new InvalidOperationException(
-                                "The numbered image closing delimiter was not inserted.");
-                        }
+                        var numberInsertion = InsertEquationNumberFields(doc, numberedRange, payload);
+                        var closingRange = numberInsertion.ClosingRange;
 
                         var bookmarkName =
                             "LSNEq_" +
@@ -1931,7 +1892,7 @@ namespace LaTeXSnipper.Word.Host
                             bookmarkName = bookmarkName.Substring(0, 40);
                         }
                         var bookmarkRange = doc.Range(
-                            field.Code.Start,
+                            numberInsertion.BookmarkStart,
                             closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
 
@@ -2313,8 +2274,153 @@ namespace LaTeXSnipper.Word.Host
             return (int)(0x40000000u | (hash & 0x3fffffffu));
         }
 
-        private static string BuildNumberedEquationBody(string omml, string formulaId, int totalWidthTwips)
+        private sealed class EquationNumberingFormat
         {
+            public string Prefix { get; set; } = "(";
+            public string Suffix { get; set; } = ")";
+            public string FieldSwitch { get; set; } = "ARABIC";
+            public bool IsChapterScoped { get; set; }
+            public int ChapterLevel { get; set; } = 1;
+            public string Separator { get; set; } = ".";
+
+            public string SequenceInstruction => IsChapterScoped
+                ? $" SEQ LaTeXSnipperEquation \\s {ChapterLevel} \\* {FieldSwitch} "
+                : $" SEQ LaTeXSnipperEquation \\* {FieldSwitch} ";
+        }
+
+        private sealed class EquationNumberInsertion
+        {
+            public int BookmarkStart { get; set; }
+            public Microsoft.Office.Interop.Word.Range ClosingRange { get; set; } = null!;
+        }
+
+        private static EquationNumberingFormat ResolveNumberingFormat(FormulaPayload payload)
+        {
+            var template = payload.NumberingTemplate ?? "";
+            if (string.IsNullOrWhiteSpace(template) ||
+                template.Length > 32 ||
+                template.Split(new[] { "{n}" }, StringSplitOptions.None).Length != 2 ||
+                template.Any(char.IsControl))
+            {
+                template = "({n})";
+            }
+            var pieces = template.Split(new[] { "{n}" }, StringSplitOptions.None);
+            var fieldSwitch = string.Equals(payload.NumberingStyle, "roman-upper", StringComparison.Ordinal)
+                ? "ROMAN"
+                : string.Equals(payload.NumberingStyle, "alpha-upper", StringComparison.Ordinal)
+                    ? "ALPHABETIC"
+                    : "ARABIC";
+            var scheme = payload.NumberingScheme ?? "global";
+            var isChapterScoped = string.Equals(scheme, "chapter-dot", StringComparison.Ordinal) ||
+                string.Equals(scheme, "chapter-hyphen", StringComparison.Ordinal);
+            var chapterLevel = payload.NumberingChapterLevel.GetValueOrDefault(1);
+            if (chapterLevel < 1 || chapterLevel > 9) chapterLevel = 1;
+            var separator = string.Equals(scheme, "chapter-hyphen", StringComparison.Ordinal)
+                ? "-"
+                : ".";
+            return new EquationNumberingFormat
+            {
+                Prefix = pieces[0],
+                Suffix = pieces[1],
+                FieldSwitch = fieldSwitch,
+                IsChapterScoped = isChapterScoped,
+                ChapterLevel = chapterLevel,
+                Separator = separator
+            };
+        }
+
+        private static EquationNumberInsertion InsertEquationNumberFields(
+            Microsoft.Office.Interop.Word.Document doc,
+            Microsoft.Office.Interop.Word.Range target,
+            FormulaPayload payload)
+        {
+            var numbering = ResolveNumberingFormat(payload);
+            target.Text = "\t" + numbering.Prefix;
+            var bookmarkStart = target.Start + 1;
+            target.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
+
+            if (numbering.IsChapterScoped)
+            {
+                var headingStyleName = ResolveHeadingStyleName(doc, numbering.ChapterLevel)
+                    .Replace("\"", "\"\"");
+                var chapterField = doc.Fields.Add(
+                    target,
+                    Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                    $" STYLEREF \"{headingStyleName}\" \\s ",
+                    true);
+                chapterField.Update();
+                var separatorPosition = chapterField.Result.End + 1;
+                var separatorRange = doc.Range(separatorPosition, separatorPosition);
+                separatorRange.Text = numbering.Separator;
+                target = doc.Range(separatorRange.End, separatorRange.End);
+            }
+
+            var sequenceField = doc.Fields.Add(
+                target,
+                Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                numbering.SequenceInstruction,
+                true);
+            sequenceField.Update();
+            // Result.End is immediately before the field-end marker. Text
+            // inserted there becomes part of the result and disappears on the
+            // next update/save, so move one character past that marker.
+            var closingPosition = sequenceField.Result.End + 1;
+            var closingRange = doc.Range(closingPosition, closingPosition);
+            closingRange.Text = numbering.Suffix;
+            if (!string.Equals(closingRange.Text, numbering.Suffix, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The numbered formula closing delimiter was not inserted.");
+            }
+            return new EquationNumberInsertion
+            {
+                BookmarkStart = bookmarkStart,
+                ClosingRange = closingRange
+            };
+        }
+
+        private static string ResolveHeadingStyleName(
+            Microsoft.Office.Interop.Word.Document doc,
+            int chapterLevel)
+        {
+            Microsoft.Office.Interop.Word.Style? style = null;
+            try
+            {
+                // Word localizes built-in style names (for example, Heading 1 is
+                // "标题 1" in zh-CN). STYLEREF requires the localized name.
+                var builtInStyle = (Microsoft.Office.Interop.Word.WdBuiltinStyle)(-1 - chapterLevel);
+                style = doc.Styles[builtInStyle];
+                return string.IsNullOrWhiteSpace(style.NameLocal)
+                    ? $"Heading {chapterLevel}"
+                    : style.NameLocal;
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                return $"Heading {chapterLevel}";
+            }
+            finally
+            {
+                if (style != null)
+                    System.Runtime.InteropServices.Marshal.FinalReleaseComObject(style);
+            }
+        }
+
+        private static string BuildNumberedEquationBody(
+            Microsoft.Office.Interop.Word.Document doc,
+            string omml,
+            FormulaPayload payload,
+            int totalWidthTwips)
+        {
+            var formulaId = payload.FormulaId;
+            var numbering = ResolveNumberingFormat(payload);
+            var prefix = System.Security.SecurityElement.Escape(numbering.Prefix) ?? "";
+            var suffix = System.Security.SecurityElement.Escape(numbering.Suffix) ?? "";
+            var separator = System.Security.SecurityElement.Escape(numbering.Separator) ?? "";
+            var headingStyleName = System.Security.SecurityElement.Escape(
+                ResolveHeadingStyleName(doc, numbering.ChapterLevel)) ?? $"Heading {numbering.ChapterLevel}";
+            var chapterField = numbering.IsChapterScoped
+                ? $@"<w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> STYLEREF &quot;{headingStyleName}&quot; \s </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>2</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t xml:space=""preserve"">{separator}</w:t></w:r>"
+                : "";
             var bookmark = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(formulaId, "[^A-Za-z0-9_]", "_");
             if (bookmark.Length > 40) bookmark = bookmark.Substring(0, 40);
             var sideWidth = Math.Max(720, Math.Min(totalWidthTwips / 4, (int)Math.Round(totalWidthTwips * 0.115)));
@@ -2332,7 +2438,7 @@ namespace LaTeXSnipper.Word.Host
       <w:tr><w:trPr><w:cantSplit/></w:trPr>
         <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p/></w:tc>
         <w:tc><w:tcPr><w:tcW w:w=""{centerWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""center""/><w:keepLines/><w:keepNext/></w:pPr>{omml}</w:p></w:tc>
-        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""{bookmarkId}"" w:name=""{bookmark}""/><w:r><w:t>(</w:t></w:r><w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve""> SEQ LaTeXSnipperEquation \* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t>)</w:t></w:r><w:bookmarkEnd w:id=""{bookmarkId}""/></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w=""{sideWidth}"" w:type=""dxa""/><w:vAlign w:val=""center""/></w:tcPr><w:p><w:pPr><w:jc w:val=""right""/><w:keepLines/><w:keepNext/></w:pPr><w:bookmarkStart w:id=""{bookmarkId}"" w:name=""{bookmark}""/><w:r><w:t xml:space=""preserve"">{prefix}</w:t></w:r>{chapterField}<w:r><w:fldChar w:fldCharType=""begin""/></w:r><w:r><w:instrText xml:space=""preserve"">{numbering.SequenceInstruction}</w:instrText></w:r><w:r><w:fldChar w:fldCharType=""separate""/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType=""end""/></w:r><w:r><w:t xml:space=""preserve"">{suffix}</w:t></w:r><w:bookmarkEnd w:id=""{bookmarkId}""/></w:p></w:tc>
       </w:tr>
     </w:tbl>
   </w:sdtContent>

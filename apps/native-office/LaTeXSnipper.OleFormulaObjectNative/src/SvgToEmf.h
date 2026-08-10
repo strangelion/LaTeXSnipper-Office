@@ -11,6 +11,7 @@
 struct EmfInkIntegrity
 {
     bool valid = false;
+    bool frameMarginClear = false;
     DWORD recordCount = 0;
     DWORD drawingRecordCount = 0;
     RECT frameHimetric{};
@@ -33,6 +34,8 @@ struct SvgGeometryBounds
 struct SvgRasterOracle
 {
     bool valid = false;
+    int width = 0;
+    int height = 0;
     RECT inkBounds{};
     double coverageRatio = 0.0;
 };

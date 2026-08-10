@@ -1,16 +1,16 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "7cc73a44554a82941c6aeb29b369ac7bbfb0cd9c",
-    "packageVersion":  "1.6.0-rc.2",
+    "sourceCommitSha":  "e077cc115e89c68d27bf106e424ed7f17825a1c3",
+    "packageVersion":  "1.6.0",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
     "officeJsSha256":  null,
     "officeJsTypingsVersion":  "1.0.598",
-    "officeJsBundleSha256":  "059ED193F594EFAF22D2E4F438B431F3C2DF4EB8BBED35B4836F178DC3D5D207",
+    "officeJsBundleSha256":  "91469A4B05B19E7A2B9B3C1A6AF8045C3EEBD3C6DAC4826F00455A654D202E66",
     "mathJaxVersion":  "3.2.2",
     "buildPlatform":  "Microsoft Windows 10.0.26200 ",
-    "manifestVersion":  "1.6.0-rc.2.0",
+    "manifestVersion":  "1.6.0.0",
     "sources":  {
                     "officeJs":  {
                                      "name":  "local-build",
@@ -18,7 +18,7 @@
                                  },
                     "wps":  {
                                 "name":  "local-build-fallback",
-                                "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\wps\\dist\\latexsnipper-wps_1.6.0-rc.2"
+                                "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\apps\\wps\\dist\\latexsnipper-wps_1.6.0"
                             },
                     "nativeOffice":  {
                                          "name":  "msi-installer",
@@ -38,8 +38,8 @@
                                             "site/assets/icon-16.png":  "E09901BFEFBD4DDE91B0A937BCFC77AD986A4DD9A6B8660D0EBD8E46B54E202B",
                                             "site/assets/icon-32.png":  "947D0EAFFC435BBBE57EA9A67EDE44B3A4D560A6A1A32419B9384699F0F39AE7",
                                             "site/assets/icon-80.png":  "888CB1724E8ABDC9DB4C30F9CAFA9A2DA806E3E3743DF0FF73EB74278E7E0E3E",
-                                            "site/assets/taskpane-Dy5M3ctt.js":  "059ED193F594EFAF22D2E4F438B431F3C2DF4EB8BBED35B4836F178DC3D5D207",
-                                            "site/taskpane.html":  "D5FE6767EA9D12486D6967C0877EE9D1481B361D8D1F57D1E6096E57269E90CE"
+                                            "site/assets/taskpane-8D8QwSYy.js":  "91469A4B05B19E7A2B9B3C1A6AF8045C3EEBD3C6DAC4826F00455A654D202E66",
+                                            "site/taskpane.html":  "BEEF068032A5DD726A83523B3E3C0EB42FB824DC2E5348470E3C0B4227FEB3D1"
                                         },
                            "WPS":  {
                                        "images/auto_number.svg":  "3A47BCD18AE2C3D2241DD5F0E354C54C5FABB350DD00818B8F1EDE9D401FD011",
@@ -61,8 +61,8 @@
                                        "js/ribbon.js":  "839A67D2993F7DE1971F6465937183995F5019AB4368F45C818B349FB2623A14",
                                        "js/util.js":  "41C954DB30165F709D723157405725E28666313B013BF2AFF4E9F5265932BECD",
                                        "main.js":  "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
-                                       "manifest.json":  "6BABF378B01478866FDABD79C166418AC80DBD1265A29D34998F810BF260BB02",
-                                       "manifest.xml":  "995CA31EAB2662EE6A83DCAA7845701EE3F1CE0BBB4150C66836F30C2AB8791B",
+                                       "manifest.json":  "F53F1C695C5902961D369BFB4FC76F4A93F6185CA71A1D9A9B52C7233E0D97DF",
+                                       "manifest.xml":  "2F8CAB27B9E54006A2B9ED1F9C44339F0BC7A7700E7C216CDC56791591828FE2",
                                        "ribbon.xml":  "BD58BB1D98B460C0B081FBCC3C3B3BE10238581496C5AD2BAA6937E0FFCA2BBD",
                                        "ui/taskpane.html":  "7FCE136CA2CB7237E22ECFB92B4FE20090CB17BAAFF7E80A0C5CFCFF68D22D6A",
                                        "ui/taskpane.js":  "7FCAA250973CF7C806404FE62D10FB0D395C68FE6C1F92860ED22B9A65736F29"
@@ -79,12 +79,12 @@
                                              "browser/chrome/background.js":  "D530060201EB5ADFACFF4B6E22C60D731AC6705536D9C2AE3D106EA69DE11ECE",
                                              "browser/chrome/chunks/i18n-DVwQDXQx.js":  "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
                                              "browser/chrome/content.js":  "3044DA3E501131656BFF69AF3E43A3E31EC2AB368C4D1FB30AC17A61DA1F17D8",
-                                             "browser/chrome/manifest.json":  "572EB1A07C0D94CE5B0D1D550622DBB087D7268AEEA5E3D64432EF33D53C0BAD",
+                                             "browser/chrome/manifest.json":  "3002F5F8D44C1787639D86F79179EB72283663D772E71754A152BD853E9F9B52",
                                              "browser/chrome/options.html":  "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
                                              "browser/chrome/options.js":  "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
                                              "browser/chrome/popup.html":  "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
                                              "browser/chrome/popup.js":  "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
-                                             "browser/chrome/provenance.json":  "E59EF97071CE603537C6695FAA6D964919FCCCDF7EFB6827E108C51B3789DE1D",
+                                             "browser/chrome/provenance.json":  "9B9A730BB7EC001CF35B0EA4A5FAF90D69758FE23C94D0E4345EEF7548840A83",
                                              "browser/chrome/sidepanel.html":  "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
                                              "browser/chrome/sidepanel.js":  "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
                                              "browser/chrome/THIRD_PARTY_LICENSES.txt":  "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
@@ -94,12 +94,12 @@
                                              "browser/firefox/background.js":  "B782F0511BFD6A9DC98AA7F5DE877A897074369EEE484DFD5EC617848A5287DD",
                                              "browser/firefox/chunks/i18n-DVwQDXQx.js":  "A16056C0F5FA1F3F2A250F0253FC0CC7860F4A84F01456C63B8E090DB8DE0069",
                                              "browser/firefox/content.js":  "A9A841080673BFAC61F388D3BC865C85997CC990387B041EAC0B6C1DFCC3CC26",
-                                             "browser/firefox/manifest.json":  "BF1FF74E7D832A884A446911F115D6E4B7547F3D816893A7612D043DE19599E3",
+                                             "browser/firefox/manifest.json":  "C0653653401E3F5636D9AE9CBC39D2F538BEE24EB2E1AD5A8C4F86AA0A2CA24A",
                                              "browser/firefox/options.html":  "D0E02E6C0742ADEF2D2DE75A33339EDB5F48EBDE84C4083B6268DBF2730F643C",
                                              "browser/firefox/options.js":  "BF61BCE67077D6EB3BB80D29FCB028561DF19E5FCDB1627AF00E7A0E171F4B38",
                                              "browser/firefox/popup.html":  "0C5FE2AC710AA04FE398CB794DF7BD72F27DC262012BF8B7D2F45C9F3A32E5CB",
                                              "browser/firefox/popup.js":  "F7E207A0C56D4ED07633A0AC7176BF25EBD697373EC8EFFAB7350518AF7A3778",
-                                             "browser/firefox/provenance.json":  "660ED6541C3775FEE260DB1428F76F88B67472F55957BDC07C536F98E7CCB78B",
+                                             "browser/firefox/provenance.json":  "8F3BE62713E5B33B86D8B5D8D36F3D076D9408A8B6DE7AD552AC707864442006",
                                              "browser/firefox/sidepanel.html":  "14FDA62987FEC2FC1B950F88EAC07DE5B68DFADB1F4A6DFAA0DA739472A2D9A0",
                                              "browser/firefox/sidepanel.js":  "146F489FE87DA805408A56753B713E4186CF011AAFCFD217A23F72049F989B26",
                                              "browser/firefox/THIRD_PARTY_LICENSES.txt":  "D93A4F59A1B5FE4660580619EA8DEF6C20CE68943DFD5A1110B013F5A7BCB464",
@@ -111,11 +111,11 @@
                                          }
                        },
     "wpsHashes":  {
-                      "manifest.xml":  "995CA31EAB2662EE6A83DCAA7845701EE3F1CE0BBB4150C66836F30C2AB8791B",
+                      "manifest.xml":  "2F8CAB27B9E54006A2B9ED1F9C44339F0BC7A7700E7C216CDC56791591828FE2",
                       "main.js":  "736D6B4C59FE350538790D4CD661D12C07ECB13181A6381DFF2C72B2A0E0FBFB",
                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
                   },
     "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "AC7E04BA77D7F92E434FEDA9847B5C2F36BE8B532E73259B22FEA9534BEFD842"
+                               "LaTeXSnipper.NativeOffice.msi":  "162B77D1E186206E6BD376B8CEEAC95B1CBB5EE6996C201F8DB4E7E8EEFBDBC8"
                            }
 }

@@ -7,6 +7,103 @@ use std::sync::Arc;
 use tauri::Manager;
 use tauri::State;
 
+fn validate_numbering_format(
+    template: Option<&str>,
+    style: Option<&str>,
+    scheme: Option<&str>,
+    chapter_level: Option<u8>,
+    separator: Option<&str>,
+) -> Result<(), String> {
+    if let Some(template) = template {
+        if template.chars().count() > 32
+            || template.matches("{n}").count() != 1
+            || template.chars().any(char::is_control)
+        {
+            return Err("INVALID_NUMBERING_TEMPLATE".to_string());
+        }
+    }
+    if style.is_some_and(|value| !matches!(value, "arabic" | "roman-upper" | "alpha-upper")) {
+        return Err("INVALID_NUMBERING_STYLE".to_string());
+    }
+    let scheme = scheme.unwrap_or("global");
+    if !matches!(scheme, "global" | "chapter-dot" | "chapter-hyphen") {
+        return Err("INVALID_NUMBERING_SCHEME".to_string());
+    }
+    if scheme == "global" {
+        if chapter_level.is_some() || separator.is_some() {
+            return Err("CONFLICTING_NUMBERING_SCOPE".to_string());
+        }
+    } else {
+        if !matches!(chapter_level, Some(1..=9)) {
+            return Err("INVALID_NUMBERING_CHAPTER_LEVEL".to_string());
+        }
+        let expected = if scheme == "chapter-dot" { "." } else { "-" };
+        if separator != Some(expected) {
+            return Err("INVALID_NUMBERING_SEPARATOR".to_string());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod numbering_format_tests {
+    use super::validate_numbering_format;
+
+    #[test]
+    fn accepts_supported_custom_numbering() {
+        assert!(validate_numbering_format(
+            Some("公式〔{n}〕"),
+            Some("roman-upper"),
+            Some("chapter-dot"),
+            Some(1),
+            Some(".")
+        )
+        .is_ok());
+        assert!(validate_numbering_format(
+            Some("[{n}]"),
+            Some("alpha-upper"),
+            Some("global"),
+            None,
+            None
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_unsupported_numbering() {
+        assert_eq!(
+            validate_numbering_format(
+                Some("({n})-{n}"),
+                Some("arabic"),
+                Some("global"),
+                None,
+                None
+            ),
+            Err("INVALID_NUMBERING_TEMPLATE".to_string())
+        );
+        assert_eq!(
+            validate_numbering_format(
+                Some("({n})"),
+                Some("roman-lower"),
+                Some("global"),
+                None,
+                None
+            ),
+            Err("INVALID_NUMBERING_STYLE".to_string())
+        );
+        assert_eq!(
+            validate_numbering_format(
+                Some("({n})"),
+                Some("arabic"),
+                Some("chapter-hyphen"),
+                Some(1),
+                Some(".")
+            ),
+            Err("INVALID_NUMBERING_SEPARATOR".to_string())
+        );
+    }
+}
+
 use crate::platforms::pipe_protocol::*;
 use crate::platforms::session::{SessionInfo, SessionManager};
 
@@ -40,7 +137,19 @@ pub async fn native_office_insert_formula(
     integration_mode: Option<String>,
     requested_route: Option<String>,
     actual_route: Option<String>,
+    numbering_template: Option<String>,
+    numbering_style: Option<String>,
+    numbering_scheme: Option<String>,
+    numbering_chapter_level: Option<u8>,
+    numbering_separator: Option<String>,
 ) -> Result<String, String> {
+    validate_numbering_format(
+        numbering_template.as_deref(),
+        numbering_style.as_deref(),
+        numbering_scheme.as_deref(),
+        numbering_chapter_level,
+        numbering_separator.as_deref(),
+    )?;
     // Validate session still exists and document hasn't changed
     let session = session_mgr
         .list_sessions()
@@ -71,6 +180,11 @@ pub async fn native_office_insert_formula(
         latex,
         omml,
         display,
+        numbering_template,
+        numbering_style,
+        numbering_scheme,
+        numbering_chapter_level,
+        numbering_separator,
         presentation: None,
         render: svg
             .map(|s| RenderData {
@@ -157,7 +271,19 @@ pub async fn native_office_replace_formula(
     storage_mode: Option<String>,
     expected_revision: Option<u64>,
     expected_document_id: Option<String>,
+    numbering_template: Option<String>,
+    numbering_style: Option<String>,
+    numbering_scheme: Option<String>,
+    numbering_chapter_level: Option<u8>,
+    numbering_separator: Option<String>,
 ) -> Result<ReplaceResult, String> {
+    validate_numbering_format(
+        numbering_template.as_deref(),
+        numbering_style.as_deref(),
+        numbering_scheme.as_deref(),
+        numbering_chapter_level,
+        numbering_separator.as_deref(),
+    )?;
     let revision = expected_revision
         .map(i32::try_from)
         .transpose()
@@ -169,6 +295,11 @@ pub async fn native_office_replace_formula(
         latex,
         omml,
         display,
+        numbering_template,
+        numbering_style,
+        numbering_scheme,
+        numbering_chapter_level,
+        numbering_separator,
         presentation: None,
         render: svg
             .map(|s| RenderData {
@@ -944,6 +1075,11 @@ pub async fn native_office_generate_and_insert(
         latex: latex.clone(),
         omml: omml.clone(),
         display: display.clone(),
+        numbering_template: None,
+        numbering_style: None,
+        numbering_scheme: None,
+        numbering_chapter_level: None,
+        numbering_separator: None,
         presentation: None,
         render: None,
         source: None,

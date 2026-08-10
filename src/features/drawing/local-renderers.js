@@ -5,6 +5,11 @@ let graphvizPromise;
 let mermaidPromise;
 let tikzPromise;
 
+export function normalizeMermaidRenderId(id) {
+  const safe = String(id || "drawing").replace(/[^a-z0-9_-]/gi, "-");
+  return `mermaid-${safe}`;
+}
+
 function assertSafeSource(source) {
   const text = String(source || "");
   if (!text.trim()) throw new Error("绘图源码不能为空");
@@ -46,7 +51,7 @@ export async function renderMermaid(source, id = `mermaid-${Date.now()}`) {
   });
   const mermaid = await mermaidPromise;
   const result = await withTimeout(
-    mermaid.render(id.replace(/[^a-z0-9_-]/gi, "-"), text),
+    mermaid.render(normalizeMermaidRenderId(id), text),
     15_000,
   );
   return result.svg;

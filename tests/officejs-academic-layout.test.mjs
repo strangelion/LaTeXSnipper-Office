@@ -131,6 +131,46 @@ test("display OOXML centers locally without changing fonts or global styles", ()
   assert.equal(document.getElementsByTagName("w:keepLines").length, 1);
 });
 
+test("numbered OOXML applies custom delimiters and field numeral styles", () => {
+  const helper = new office.WordOoxmlHelper();
+  const value = payload({
+    numbering: {
+      scheme: "global",
+      template: "式〔{n}〕",
+      numberStyle: "roman-upper",
+    },
+  });
+  const xml = helper.buildFormulaOoxml(
+    value,
+    "<m:oMath><m:r><m:t>x</m:t></m:r></m:oMath>",
+  );
+  const document = parse(xml);
+  assert.match(
+    [...document.getElementsByTagName("w:instrText")]
+      .map((node) => node.textContent)
+      .join(" "),
+    /\\\* ROMAN/,
+  );
+  assert.match(
+    [...document.getElementsByTagName("w:t")]
+      .map((node) => node.textContent)
+      .join(""),
+    /式〔1〕/,
+  );
+  assert.deepEqual(
+    office.decodeFormulaMetadata(office.encodeFormulaMetadata(value)),
+    value,
+  );
+  assert.throws(
+    () =>
+      office.validateFormulaPayload({
+        ...value,
+        numbering: { ...value.numbering, template: "无占位符" },
+      }),
+    /template/,
+  );
+});
+
 for (const [profileId, visible] of [
   ["document-default", "1"],
   ["chapter-dot", "2.1"],

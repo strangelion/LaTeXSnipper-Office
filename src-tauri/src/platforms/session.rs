@@ -183,6 +183,7 @@ impl SessionManager {
                     .write()
                     .await
                     .insert(sessionId.clone(), session);
+                super::office::invalidate_office_cache_now();
 
                 let _ = self.app_handle.emit(
                     "native-office-session-added",
@@ -876,6 +877,8 @@ impl SessionManager {
                                 chapter_level: None,
                                 separator: None,
                                 label: None,
+                                template: None,
+                                number_style: None,
                             });
                         let transaction_store = self
                             .app_handle
@@ -1179,6 +1182,7 @@ impl SessionManager {
     #[allow(dead_code)]
     pub async fn remove_session(&self, session_id: &str) {
         self.sessions.write().await.remove(session_id);
+        super::office::invalidate_office_cache_now();
         let _ = self.app_handle.emit(
             "native-office-session-removed",
             serde_json::json!({
@@ -1195,6 +1199,7 @@ impl SessionManager {
         if let Some(session) = sessions.get(session_id) {
             if session.connection_id == connection_id {
                 sessions.remove(session_id);
+                super::office::invalidate_office_cache_now();
                 let _ = self.app_handle.emit(
                     "native-office-session-removed",
                     serde_json::json!({

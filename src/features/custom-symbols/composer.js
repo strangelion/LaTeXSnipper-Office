@@ -1,3 +1,10 @@
+import {
+  hexToHsv,
+  hsvToHex,
+  normalizeHexColor,
+  spectrumPointInside,
+} from "./color-picker.js";
+
 const SYMBOL_GROUPS = Object.freeze([
   [
     "常用",
@@ -144,6 +151,64 @@ const SYMBOL_GLYPHS = new Map(
   BUILTIN_SYMBOLS.map(({ id, glyph }) => [id, glyph]),
 );
 const MAX_HISTORY = 50;
+
+export function buildSmoothFreehandPath(points) {
+  if (!Array.isArray(points) || points.length === 0) return "";
+  const coordinate = (point) =>
+    `${Number(point.x).toFixed(1)},${Number(point.y).toFixed(1)}`;
+  if (points.length === 1) return `M${coordinate(points[0])}`;
+  if (points.length === 2)
+    return `M${coordinate(points[0])} L${coordinate(points[1])}`;
+  let path = `M${coordinate(points[0])}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midpoint = {
+      x: (current.x + next.x) / 2,
+      y: (current.y + next.y) / 2,
+    };
+    path += ` Q${coordinate(current)} ${coordinate(midpoint)}`;
+  }
+  path += ` T${coordinate(points.at(-1))}`;
+  return path;
+}
+
+export function projectComposerPoint(clientX, clientY, bounds) {
+  const x = ((clientX - bounds.left) * 1000) / Math.max(1, bounds.width);
+  const y = ((clientY - bounds.top) * 1000) / Math.max(1, bounds.height);
+  return {
+    x: Math.max(0, Math.min(1000, x)),
+    y: Math.max(0, Math.min(1000, y)),
+  };
+}
+
+export function resolveComposerViewportBounds(bounds, viewBox) {
+  const result = {
+    left: bounds.left,
+    top: bounds.top,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  const viewWidth = Number(viewBox?.width) || 1000;
+  const viewHeight = Number(viewBox?.height) || 1000;
+  const boxRatio = result.width / Math.max(1, result.height);
+  const viewRatio = viewWidth / Math.max(1, viewHeight);
+  if (boxRatio > viewRatio) {
+    const contentWidth = result.height * viewRatio;
+    result.left += (result.width - contentWidth) / 2;
+    result.width = contentWidth;
+  } else if (boxRatio < viewRatio) {
+    const contentHeight = result.width / viewRatio;
+    result.top += (result.height - contentHeight) / 2;
+    result.height = contentHeight;
+  }
+  return result;
+}
+
+export function coalescedPointerSamples(event) {
+  const coalesced = event.getCoalescedEvents?.();
+  return coalesced?.length ? coalesced : [event];
+}
 
 const PATH_PRESETS = Object.freeze({
   arrow: ["箭头", "M-210,0 L150,0 M75,-75 L150,0 L75,75", [-220, -85, 165, 85]],
@@ -430,14 +495,44 @@ function transformControls(layer) {
   </g>`;
 }
 
+export function rotationFromPointer(
+  startRotation,
+  startAngle,
+  currentAngle,
+  snapToStep = false,
+) {
+  let angleDelta = currentAngle - startAngle;
+  if (angleDelta > Math.PI) angleDelta -= Math.PI * 2;
+  if (angleDelta < -Math.PI) angleDelta += Math.PI * 2;
+  let degrees = startRotation + (angleDelta * 180) / Math.PI;
+  if (snapToStep) degrees = Math.round(degrees / 15) * 15;
+  return Math.round(degrees * 10) / 10;
+}
+
+export function pointerInsideViewport(clientX, clientY, width, height) {
+  return (
+    Number.isFinite(clientX) &&
+    Number.isFinite(clientY) &&
+    clientX > 0 &&
+    clientY > 0 &&
+    clientX < width &&
+    clientY < height
+  );
+}
+
 export function compositionSvg(layers, selectedId = null) {
+  let controls = "";
   const content = [...layers]
     .sort((left, right) => left.zIndex - right.zIndex)
-    .filter((layer) => layer.visible && layer.opacity > 0)
+    .filter(
+      (layer) =>
+        layer.visible && (layer.opacity > 0 || layer.layerId === selectedId),
+    )
     .map((layer) => {
       const transform = layer.transform;
       const scaleX = transform.scaleX * (transform.flipHorizontal ? -1 : 1);
       const scaleY = transform.scaleY * (transform.flipVertical ? -1 : 1);
+      const transformAttribute = `translate(${transform.translateX} ${transform.translateY}) rotate(${transform.rotationDegrees}) scale(${scaleX} ${scaleY})`;
       let body;
       if (layer.source.kind === "symbol") {
         body = `<text x="0" y="115" text-anchor="middle" font-size="540" font-family="Cambria Math, STIX Two Math, serif" fill="currentColor">${escapeXml(SYMBOL_GLYPHS.get(layer.source.symbolId) || "?")}</text>`;
@@ -450,12 +545,13 @@ export function compositionSvg(layers, selectedId = null) {
       }
       const selected =
         layer.layerId === selectedId ? " symbol-layer-selected" : "";
-      const controls =
-        layer.layerId === selectedId ? transformControls(layer) : "";
-      return `<g class="symbol-layer${selected}" data-layer-id="${escapeXml(layer.layerId)}" color="${escapeXml(layer.color || "#18212F")}" opacity="${layer.opacity}" transform="translate(${transform.translateX} ${transform.translateY}) rotate(${transform.rotationDegrees}) scale(${scaleX} ${scaleY})">${body}${controls}</g>`;
+      if (layer.layerId === selectedId) {
+        controls = `<g class="symbol-editor-overlay" data-layer-id="${escapeXml(layer.layerId)}" transform="${transformAttribute}">${transformControls(layer)}</g>`;
+      }
+      return `<g class="symbol-layer${selected}" data-layer-id="${escapeXml(layer.layerId)}" color="${escapeXml(layer.color || "#18212F")}" opacity="${layer.opacity}" transform="${transformAttribute}">${body}</g>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-label="自定义符号预览"><g color="#18212f">${content}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" role="img" aria-label="自定义符号预览"><g color="#18212f">${content}</g>${controls}</svg>`;
 }
 
 export function createCompositionPayload(layers, snapToGrid = true) {
@@ -507,6 +603,13 @@ function elements(root) {
     opacity: id("symbolLayerOpacity"),
     color: id("symbolLayerColor"),
     colorSwatch: id("symbolLayerColorSwatch"),
+    colorPopover: id("symbolColorPopover"),
+    colorSpectrum: id("symbolColorSpectrum"),
+    colorSpectrumCursor: id("symbolColorSpectrumCursor"),
+    colorHue: id("symbolColorHue"),
+    colorOpacity: id("symbolColorOpacity"),
+    colorOpacityValue: id("symbolColorOpacityValue"),
+    colorPresets: [...root.querySelectorAll("[data-symbol-color]")],
     flipX: id("symbolFlipX"),
     flipY: id("symbolFlipY"),
     freehand: id("symbolFreehandBtn"),
@@ -531,6 +634,7 @@ export function initCustomSymbolComposer({
     renderFrame: null,
     category: "常用",
     activeTool: null,
+    colorEditActive: false,
   };
   const selected = () =>
     state.layers.find((layer) => layer.layerId === state.selectedId) || null;
@@ -556,6 +660,20 @@ export function initCustomSymbolComposer({
     el.color.value = layer.color || "#18212F";
     el.colorSwatch.style.setProperty(
       "--symbol-layer-color",
+      layer.color || "#18212F",
+    );
+    const hsv = hexToHsv(layer.color);
+    el.colorHue.value = String(Math.round(hsv.hue));
+    el.colorSpectrum.style.setProperty(
+      "--symbol-picker-hue",
+      String(Math.round(hsv.hue)),
+    );
+    el.colorSpectrumCursor.style.left = `${hsv.saturation * 100}%`;
+    el.colorSpectrumCursor.style.top = `${(1 - hsv.value) * 100}%`;
+    el.colorOpacity.value = String(Math.round(layer.opacity * 100));
+    el.colorOpacityValue.textContent = `${Math.round(layer.opacity * 100)}%`;
+    el.colorPopover.style.setProperty(
+      "--symbol-picker-color",
       layer.color || "#18212F",
     );
     el.flipX.checked = layer.transform.flipHorizontal;
@@ -799,13 +917,17 @@ export function initCustomSymbolComposer({
     state.selectedId = row.dataset.layerId;
     render();
   });
-  const canvasPoint = (event) => {
-    const box = el.canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - box.left) * 1000) / box.width,
-      y: ((event.clientY - box.top) * 1000) / box.height,
-    };
+  const drawingSurface = () =>
+    el.canvas.querySelector(":scope > svg") || el.canvas;
+  const drawingBounds = () => {
+    const surface = drawingSurface();
+    const bounds = surface.getBoundingClientRect();
+    return surface === el.canvas
+      ? bounds
+      : resolveComposerViewportBounds(bounds, surface.viewBox?.baseVal);
   };
+  const canvasPoint = (event) =>
+    projectComposerPoint(event.clientX, event.clientY, drawingBounds());
   el.canvas.addEventListener("pointerdown", (event) => {
     const layerNode = event.target.closest("[data-layer-id]");
     const transformHandle = event.target.closest("[data-symbol-handle]");
@@ -839,6 +961,7 @@ export function initCustomSymbolComposer({
         minY: local.y,
         maxX: local.x,
         maxY: local.y,
+        drawFrame: null,
       };
       el.canvas.setPointerCapture?.(event.pointerId);
       render();
@@ -852,7 +975,7 @@ export function initCustomSymbolComposer({
     state.selectedId = layerNode.dataset.layerId;
     snapshot();
     const layer = selected();
-    const box = el.canvas.getBoundingClientRect();
+    const box = drawingBounds();
     const centerX = box.left + (layer.transform.translateX * box.width) / 1000;
     const centerY = box.top + (layer.transform.translateY * box.height) / 1000;
     const pointerDx = event.clientX - centerX;
@@ -886,28 +1009,50 @@ export function initCustomSymbolComposer({
     el.canvas.setPointerCapture?.(event.pointerId);
     render();
   });
+  const flushFreehand = () => {
+    if (state.drag?.kind !== "freehand") return;
+    state.drag.drawFrame = null;
+    const layer = selected();
+    if (!layer) return;
+    const primitive = layer.source.primitive;
+    primitive.pathData = buildSmoothFreehandPath(state.drag.points);
+    primitive.bounds = {
+      minX: state.drag.minX - 10,
+      minY: state.drag.minY - 10,
+      maxX: state.drag.maxX + 10,
+      maxY: state.drag.maxY + 10,
+    };
+    el.canvas
+      .querySelector(`[data-layer-id="${layer.layerId}"] > path`)
+      ?.setAttribute("d", primitive.pathData);
+  };
   el.canvas.addEventListener("pointermove", (event) => {
     if (!state.drag || event.pointerId !== state.drag.pointerId) return;
+    if (
+      !pointerInsideViewport(
+        event.clientX,
+        event.clientY,
+        window.innerWidth,
+        window.innerHeight,
+      )
+    )
+      return;
     const layer = selected();
     if (state.drag.kind === "freehand") {
-      const point = canvasPoint(event);
-      const local = { x: point.x - 500, y: point.y - 500 };
-      const previous = state.drag.points.at(-1);
-      if (Math.hypot(local.x - previous.x, local.y - previous.y) < 3) return;
-      state.drag.points.push(local);
-      state.drag.minX = Math.min(state.drag.minX, local.x);
-      state.drag.minY = Math.min(state.drag.minY, local.y);
-      state.drag.maxX = Math.max(state.drag.maxX, local.x);
-      state.drag.maxY = Math.max(state.drag.maxY, local.y);
-      const primitive = layer.source.primitive;
-      primitive.pathData += ` L${local.x.toFixed(1)},${local.y.toFixed(1)}`;
-      primitive.bounds = {
-        minX: state.drag.minX - 10,
-        minY: state.drag.minY - 10,
-        maxX: state.drag.maxX + 10,
-        maxY: state.drag.maxY + 10,
-      };
-      scheduleCanvasRender();
+      for (const sample of coalescedPointerSamples(event)) {
+        const point = canvasPoint(sample);
+        const local = { x: point.x - 500, y: point.y - 500 };
+        const previous = state.drag.points.at(-1);
+        if (Math.hypot(local.x - previous.x, local.y - previous.y) < 2)
+          continue;
+        state.drag.points.push(local);
+        state.drag.minX = Math.min(state.drag.minX, local.x);
+        state.drag.minY = Math.min(state.drag.minY, local.y);
+        state.drag.maxX = Math.max(state.drag.maxX, local.x);
+        state.drag.maxY = Math.max(state.drag.maxY, local.y);
+      }
+      if (state.drag.drawFrame === null)
+        state.drag.drawFrame = requestAnimationFrame(flushFreehand);
       return;
     }
     if (
@@ -966,14 +1111,16 @@ export function initCustomSymbolComposer({
         event.clientY - state.drag.centerY,
         event.clientX - state.drag.centerX,
       );
-      let degrees =
-        state.drag.rotation + ((angle - state.drag.startAngle) * 180) / Math.PI;
-      if (el.snap.checked) degrees = Math.round(degrees / 15) * 15;
-      layer.transform.rotationDegrees = Math.round(degrees * 10) / 10;
+      layer.transform.rotationDegrees = rotationFromPointer(
+        state.drag.rotation,
+        state.drag.startAngle,
+        angle,
+        event.shiftKey,
+      );
       scheduleCanvasRender();
       return;
     }
-    const box = el.canvas.getBoundingClientRect();
+    const box = drawingBounds();
     let x =
       state.drag.x + ((event.clientX - state.drag.startX) * 1000) / box.width;
     let y =
@@ -988,6 +1135,11 @@ export function initCustomSymbolComposer({
   });
   const endDrag = () => {
     if (!state.drag) return;
+    if (state.drag.kind === "freehand") {
+      if (state.drag.drawFrame !== null)
+        cancelAnimationFrame(state.drag.drawFrame);
+      flushFreehand();
+    }
     const messages = {
       freehand: "自由路径已添加",
       move: "图层位置已更新",
@@ -1072,7 +1224,7 @@ export function initCustomSymbolComposer({
   ])
     input.addEventListener("change", () => updateSelected(mutate));
   el.color.addEventListener("change", () => {
-    const value = el.color.value.trim().toUpperCase();
+    const value = normalizeHexColor(el.color.value, "");
     if (!/^#[0-9A-F]{6}$/.test(value)) {
       syncInspector();
       message("颜色格式无效，请输入 #RRGGBB");
@@ -1081,6 +1233,103 @@ export function initCustomSymbolComposer({
     updateSelected((layer) => {
       layer.color = value;
     });
+  });
+
+  const closeColorPicker = () => {
+    el.colorPopover.hidden = true;
+    el.colorSwatch.setAttribute("aria-expanded", "false");
+    state.colorEditActive = false;
+  };
+  const openColorPicker = () => {
+    if (!selected()) return;
+    el.colorPopover.hidden = false;
+    el.colorSwatch.setAttribute("aria-expanded", "true");
+    syncInspector();
+  };
+  const applyPickerValue = ({ color, opacity } = {}) => {
+    const layer = selected();
+    if (!layer) return;
+    if (!state.colorEditActive) {
+      snapshot();
+      state.colorEditActive = true;
+    }
+    if (color) layer.color = normalizeHexColor(color, layer.color);
+    if (opacity !== undefined)
+      layer.opacity = Math.max(0, Math.min(1, Number(opacity)));
+    scheduleCanvasRender();
+    syncInspector();
+    message(opacity === undefined ? "图层颜色已更新" : "图层透明度已更新");
+  };
+  const updateSpectrum = (event) => {
+    const hsv = hexToHsv(selected()?.color);
+    const point = spectrumPointInside(
+      event.clientX,
+      event.clientY,
+      el.colorSpectrum.getBoundingClientRect(),
+    );
+    if (!point) return;
+    applyPickerValue({
+      color: hsvToHex({
+        hue: Number(el.colorHue.value) || hsv.hue,
+        ...point,
+      }),
+    });
+  };
+  let spectrumPointer = null;
+  el.colorSwatch.addEventListener("click", () => {
+    if (el.colorPopover.hidden) openColorPicker();
+    else closeColorPicker();
+  });
+  el.colorSpectrum.addEventListener("pointerdown", (event) => {
+    spectrumPointer = event.pointerId;
+    el.colorSpectrum.setPointerCapture?.(event.pointerId);
+    updateSpectrum(event);
+  });
+  el.colorSpectrum.addEventListener("pointermove", (event) => {
+    if (spectrumPointer !== event.pointerId) return;
+    updateSpectrum(event);
+  });
+  el.colorSpectrum.addEventListener("keydown", (event) => {
+    if (
+      !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+    )
+      return;
+    event.preventDefault();
+    const hsv = hexToHsv(selected()?.color);
+    const step = event.shiftKey ? 0.1 : 0.02;
+    if (event.key === "ArrowLeft") hsv.saturation -= step;
+    if (event.key === "ArrowRight") hsv.saturation += step;
+    if (event.key === "ArrowUp") hsv.value += step;
+    if (event.key === "ArrowDown") hsv.value -= step;
+    applyPickerValue({ color: hsvToHex(hsv) });
+  });
+  const endSpectrum = () => {
+    spectrumPointer = null;
+  };
+  el.colorSpectrum.addEventListener("pointerup", endSpectrum);
+  el.colorSpectrum.addEventListener("pointercancel", endSpectrum);
+  el.colorHue.addEventListener("input", () => {
+    const hsv = hexToHsv(selected()?.color);
+    applyPickerValue({
+      color: hsvToHex({ ...hsv, hue: Number(el.colorHue.value) }),
+    });
+  });
+  el.colorOpacity.addEventListener("input", () => {
+    applyPickerValue({ opacity: Number(el.colorOpacity.value) / 100 });
+  });
+  for (const preset of el.colorPresets) {
+    preset.style.setProperty("--preset-color", preset.dataset.symbolColor);
+    preset.addEventListener("click", () =>
+      applyPickerValue({ color: preset.dataset.symbolColor }),
+    );
+  }
+  root.addEventListener("pointerdown", (event) => {
+    if (el.colorPopover.hidden || event.target.closest(".symbol-color-field"))
+      return;
+    closeColorPicker();
+  });
+  root.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el.colorPopover.hidden) closeColorPicker();
   });
 
   el.undo.addEventListener("click", () => {

@@ -29,6 +29,8 @@ export interface OfficeFormulaPayload {
     restartPerChapter?: boolean;
     chapterStyle?: string;
     chapterLevel?: number;
+    template?: string;
+    numberStyle?: "arabic" | "roman-upper" | "alpha-upper";
   };
 }
 
@@ -187,6 +189,24 @@ export function validateFormulaPayload(
       throw new Error(
         "Numbering metadata conflicts with chapter-hyphen scheme",
       );
+    }
+    if (numbering.template !== undefined) {
+      if (
+        typeof numbering.template !== "string" ||
+        numbering.template.length > 32 ||
+        (numbering.template.match(/\{n\}/g) || []).length !== 1 ||
+        /[\u0000-\u001f\u007f]/.test(numbering.template)
+      ) {
+        throw new Error("Invalid numbering template");
+      }
+    }
+    if (
+      numbering.numberStyle !== undefined &&
+      numbering.numberStyle !== "arabic" &&
+      numbering.numberStyle !== "roman-upper" &&
+      numbering.numberStyle !== "alpha-upper"
+    ) {
+      throw new Error("Invalid numbering style");
     }
   }
   return input as unknown as OfficeFormulaPayload;

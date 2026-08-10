@@ -7,7 +7,7 @@ param(
     [string[]]$WpsPackageRoots = @(),
     [string]$ResourceStagingRoot = "",
     [string[]]$ResourcePackageRoots = @(),
-    [string[]]$ResourceNames = @("OfficeJS", "WPS", "Obsidian", "Ecosystem"),
+    [string[]]$ResourceNames = @("OfficeJS", "WPS", "Obsidian", "Ecosystem", "RecognitionQuality"),
     [string]$ExpectedVersion = ""
 )
 
@@ -62,6 +62,44 @@ function Get-PackagedResourceDirectories([string]$PackageRoot, [string]$Name) {
                 $_.Parent.Name.Equals("resources", [System.StringComparison]::OrdinalIgnoreCase)
             }
     )
+}
+
+function Assert-RecognitionQualityTrustIndex([string]$RecognitionQualityRoot) {
+    $baselineRoot = Join-Path $RecognitionQualityRoot "baselines"
+    $indexPath = Join-Path $baselineRoot "index.json"
+    if (-not (Test-Path -LiteralPath $indexPath -PathType Leaf)) {
+        throw "RecognitionQuality trust index is missing: $indexPath"
+    }
+    $index = Get-Content -Raw -LiteralPath $indexPath | ConvertFrom-Json
+    if ($index.schemaVersion -ne 1 -or $null -eq $index.files) {
+        throw "RecognitionQuality trust index is invalid: $indexPath"
+    }
+    $entries = @($index.files.PSObject.Properties)
+    $actualJson = @(
+        Get-ChildItem -LiteralPath $baselineRoot -Recurse -File -Filter "*.json" |
+            Where-Object { $_.FullName -ne $indexPath }
+    )
+    if ($entries.Count -ne $actualJson.Count) {
+        throw "RecognitionQuality trust index file count mismatch: expected=$($entries.Count) actual=$($actualJson.Count) root=$RecognitionQualityRoot"
+    }
+    foreach ($entry in $entries) {
+        $relative = [string]$entry.Name
+        if ($relative -notmatch '^[^\\/:*?"<>|]+(?:/[^\\/:*?"<>|]+)*$' -or $relative -match '(^|/)\.\.?(?:/|$)') {
+            throw "RecognitionQuality trust index contains unsafe path: $relative"
+        }
+        $expectedHash = ([string]$entry.Value).ToLowerInvariant()
+        if ($expectedHash -notmatch '^[0-9a-f]{64}$') {
+            throw "RecognitionQuality trust index contains invalid SHA-256: $relative"
+        }
+        $filePath = Join-Path $baselineRoot ($relative -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            throw "RecognitionQuality indexed file is missing: $relative"
+        }
+        $actualHash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "RecognitionQuality final package HASH_MISMATCH: relative=$relative expected=$expectedHash actual=$actualHash path=$filePath"
+        }
+    }
 }
 
 if ($WindowsPackageRoots.Count -gt 0) {
@@ -208,7 +246,11 @@ function Assert-ResourcePayload([string]$PackageRoot) {
             throw "Resource file count mismatch: resource=$name package=$PackageRoot staging=$($sourceFiles.Count) packaged=$($packageFiles.Count)"
         }
         foreach ($sourceFile in $sourceFiles) {
-            $relative = $sourceFile.FullName.Substring($sourceRoot.Length).TrimStart([char[]]@('\', '/'))
+            # TEMP and package roots can be reported through different long/8.3
+            # spellings on Windows. Prefix substring arithmetic then produces a
+            # corrupt path (for example, `ity\\baselines`). Let the runtime
+            # normalize both operands before computing the relative path.
+            $relative = [System.IO.Path]::GetRelativePath($sourceRoot, $sourceFile.FullName)
             $packageFile = Join-Path $packageResourceRoot $relative
             if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
                 throw "Packaged resource file missing: resource=$name relative=$relative package=$PackageRoot"
@@ -218,6 +260,11 @@ function Assert-ResourcePayload([string]$PackageRoot) {
             if ($sourceHash -ne $packageHash) {
                 throw "Resource hash mismatch: resource=$name relative=$relative staging=$sourceHash package=$packageHash path=$packageFile"
             }
+        }
+        if ($name -eq "RecognitionQuality") {
+            # Validate the bytes as the installed application validates them,
+            # after MSI/NSIS extraction rather than only in the source tree.
+            Assert-RecognitionQualityTrustIndex $packageResourceRoot
         }
     }
 
@@ -242,7 +289,7 @@ function Assert-ResourcePayload([string]$PackageRoot) {
 foreach ($rootValue in $WindowsPackageRoots) {
     $root = (Resolve-Path -LiteralPath $rootValue).Path
     $forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
-        $relativePath = $_.FullName.Substring($root.Length).TrimStart([char[]]@('\', '/'))
+        $relativePath = [System.IO.Path]::GetRelativePath($root, $_.FullName)
         $_.Extension -match '^\.(pfx|p12|pem|key|pdb|emf)$' -or
         $_.Name -match '(?i)(NativeVectorTests|OleActivationProbe|PendingPayloadTests).*\.exe$' -or
         ($_.Extension -eq '.svg' -and $relativePath -match '(?i)(^|[\\/])(temp|tmp|fixtures?|tests?)([\\/]|$)|(^|[\\/])(temp|tmp)[^\\/]*\.svg$')

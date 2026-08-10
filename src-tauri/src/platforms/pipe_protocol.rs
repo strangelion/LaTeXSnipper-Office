@@ -468,6 +468,19 @@ pub struct FormulaPayload {
     pub omml: String,
     /// "block" | "inline"
     pub display: String,
+    #[serde(rename = "numberingTemplate", skip_serializing_if = "Option::is_none")]
+    pub numbering_template: Option<String>,
+    #[serde(rename = "numberingStyle", skip_serializing_if = "Option::is_none")]
+    pub numbering_style: Option<String>,
+    #[serde(rename = "numberingScheme", skip_serializing_if = "Option::is_none")]
+    pub numbering_scheme: Option<String>,
+    #[serde(
+        rename = "numberingChapterLevel",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub numbering_chapter_level: Option<u8>,
+    #[serde(rename = "numberingSeparator", skip_serializing_if = "Option::is_none")]
+    pub numbering_separator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presentation: Option<Presentation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -742,6 +755,36 @@ pub struct LatexCandidateWire {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_hash: Option<String>,
     pub confidence: f64,
+}
+
+#[cfg(test)]
+mod numbering_scope_wire_tests {
+    use super::FormulaPayload;
+
+    #[test]
+    fn chapter_numbering_metadata_round_trips_with_exact_wire_names() {
+        let payload: FormulaPayload = serde_json::from_value(serde_json::json!({
+            "formulaId": "chapter-equation",
+            "latex": "x^2",
+            "omml": "<m:oMath/>",
+            "display": "block",
+            "numberingTemplate": "({n})",
+            "numberingStyle": "roman-upper",
+            "numberingScheme": "chapter-hyphen",
+            "numberingChapterLevel": 1,
+            "numberingSeparator": "-",
+            "revision": 0
+        }))
+        .expect("chapter numbering payload must deserialize");
+
+        assert_eq!(payload.numbering_scheme.as_deref(), Some("chapter-hyphen"));
+        assert_eq!(payload.numbering_chapter_level, Some(1));
+        assert_eq!(payload.numbering_separator.as_deref(), Some("-"));
+        let wire = serde_json::to_value(payload).expect("payload must serialize");
+        assert_eq!(wire["numberingScheme"], "chapter-hyphen");
+        assert_eq!(wire["numberingChapterLevel"], 1);
+        assert_eq!(wire["numberingSeparator"], "-");
+    }
 }
 
 /// Wire-format batch failure, reported by VSTO after execution.

@@ -74,13 +74,15 @@ namespace LaTeXSnipper.Word.HostTests
         {
             bool oleMode = args.Length == 4 &&
                 string.Equals(args[2], "--ole", StringComparison.OrdinalIgnoreCase);
+            bool caseMode = args.Length == 4 &&
+                string.Equals(args[2], "--case", StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
-                (args.Length > 2 && !oleMode) ||
+                (args.Length > 2 && !oleMode && !caseMode) ||
                 (oleMode && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
-                    "[--ole <mathjax-svg-dir>]");
+                    "[--ole <mathjax-svg-dir> | --case <fixture-name>]");
                 return 2;
             }
 
@@ -94,6 +96,19 @@ namespace LaTeXSnipper.Word.HostTests
                 contract.Cases == null || contract.Modes == null)
             {
                 Console.Error.WriteLine("Acceptance fixture contract is invalid.");
+                return 2;
+            }
+            IReadOnlyList<AcceptanceCase> activeCases = caseMode
+                ? contract.Cases.Where(item => string.Equals(
+                    item.Name,
+                    args[3],
+                    StringComparison.OrdinalIgnoreCase)).ToList()
+                : contract.Cases;
+            if (activeCases.Count == 0)
+            {
+                Console.Error.WriteLine(caseMode
+                    ? $"Acceptance fixture was not found: {args[3]}"
+                    : "Acceptance fixture contract has no cases.");
                 return 2;
             }
 
@@ -112,19 +127,19 @@ namespace LaTeXSnipper.Word.HostTests
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 var adapter = new WordAdapter(application, oleServerProcessId);
-                if (!oleMode)
+                if (!oleMode && !caseMode)
                 {
                     ValidateNativeInlineRoundTrip(
                         document,
                         adapter,
-                        contract.Cases.First());
+                        activeCases.First());
                     ValidateInlineScratchLifecycle(
                         document,
                         adapter,
-                        contract.Cases.First());
+                        activeCases.First());
                 }
 
-                foreach (AcceptanceCase fixture in contract.Cases)
+                foreach (AcceptanceCase fixture in activeCases)
                 {
                     foreach (string modeName in contract.Modes)
                     {
@@ -148,6 +163,11 @@ namespace LaTeXSnipper.Word.HostTests
 
                 document.Fields.Update();
                 ValidateAutomaticNumberSequence(document, evidence);
+                if (!oleMode)
+                    ValidateChapterNumbering(
+                        document,
+                        adapter,
+                        activeCases.First());
                 string documentPath = Path.Combine(
                     evidenceDirectory,
                     oleMode ? "word-ole-acceptance.docx" : "word-nary-acceptance.docx");
@@ -211,6 +231,97 @@ namespace LaTeXSnipper.Word.HostTests
                         $"expected {expected}, observed '{observed}'.");
                 }
             }
+        }
+
+        private static void ValidateChapterNumbering(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            InteropWord.Range heading = document.Range(
+                document.Content.End - 1,
+                document.Content.End - 1);
+            heading.InsertParagraphAfter();
+            heading.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            heading.Text = "Chapter numbering acceptance";
+            heading.set_Style(InteropWord.WdBuiltinStyle.wdStyleHeading1);
+            InteropWord.ListTemplate outline = document.Application
+                .ListGalleries[InteropWord.WdListGalleryType.wdOutlineNumberGallery]
+                .ListTemplates[1];
+            heading.ListFormat.ApplyListTemplateWithLevel(
+                outline,
+                false,
+                InteropWord.WdListApplyTo.wdListApplyToWholeList,
+                InteropWord.WdDefaultListBehavior.wdWord10ListBehavior,
+                1);
+
+            InteropWord.Range anchor = document.Range(
+                document.Content.End - 1,
+                document.Content.End - 1);
+            anchor.InsertParagraphAfter();
+            anchor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            anchor.Select();
+
+            string formulaId = FormulaIdHelper.NewId();
+            InsertResult inserted = adapter.InsertFormula(
+                new FormulaPayload
+                {
+                    FormulaId = formulaId,
+                    Latex = fixture.Latex,
+                    Omml = fixture.Omml,
+                    Display = "block",
+                    StorageMode = "native-omml",
+                    NumberingTemplate = "({n})",
+                    NumberingStyle = "arabic",
+                    NumberingScheme = "chapter-dot",
+                    NumberingChapterLevel = 1,
+                    NumberingSeparator = "."
+                },
+                InsertMode.DisplayNumbered);
+            if (!inserted.Success)
+                throw new InvalidOperationException(
+                    $"chapter numbering insert failed: {inserted.ErrorCode} {inserted.Error}");
+
+            InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+            if (candidate == null)
+                throw new InvalidOperationException(
+                    "chapter numbering content control is missing.");
+            InteropWord.Field chapterField = null;
+            InteropWord.Field sequenceField = null;
+            foreach (InteropWord.Field field in candidate.Range.Fields)
+            {
+                string code = field.Code?.Text ?? string.Empty;
+                if (code.IndexOf("STYLEREF", StringComparison.OrdinalIgnoreCase) >= 0)
+                    chapterField = field;
+                if (code.IndexOf(
+                        "SEQ LaTeXSnipperEquation",
+                        StringComparison.OrdinalIgnoreCase) >= 0)
+                    sequenceField = field;
+            }
+            if (chapterField == null || sequenceField == null)
+                throw new InvalidOperationException(
+                    "chapter numbering fields were not emitted into Word.");
+            chapterField.Update();
+            sequenceField.Update();
+            InteropWord.Style headingStyle = document.Styles[
+                InteropWord.WdBuiltinStyle.wdStyleHeading1];
+            string headingStyleName = headingStyle.NameLocal;
+            Marshal.FinalReleaseComObject(headingStyle);
+            if ((chapterField.Code?.Text ?? string.Empty).IndexOf(
+                    headingStyleName,
+                    StringComparison.OrdinalIgnoreCase) < 0 ||
+                (sequenceField.Code?.Text ?? string.Empty).IndexOf(
+                    "\\s 1",
+                    StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                throw new InvalidOperationException(
+                    $"chapter numbering fields do not reference {headingStyleName} and reset level 1.");
+            }
+            string rendered = candidate.Range.Text
+                .Trim('\r', '\a', ' ', '\t');
+            if (rendered.IndexOf("1.1", StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException(
+                    $"chapter numbering rendered value is not 1.1: '{rendered}'");
         }
 
         private static int GetOfficeProcessId(InteropWord.Application application)

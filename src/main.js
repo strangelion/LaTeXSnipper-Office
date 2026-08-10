@@ -16,12 +16,31 @@ import {
   officeInsertModeIsDisplay,
 } from "./services/office-insert-mode.js";
 import { decideAutoInsert } from "./features/recognition/auto-insert-decision.js";
+import { shouldPresentRecognitionResult } from "./features/recognition/result-selection.js";
 import {
   initDrawingWorkspace,
   selectProductionDrawingRoute,
 } from "./features/drawing/workspace.js";
 import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
 import { bindWorkspaceInteractions } from "./features/workspace/interactions.js";
+import {
+  formulaCopyPlan,
+  shouldPreserveNativeCopy,
+} from "./features/clipboard/formula-copy.js";
+import {
+  compareFormulaPreferences,
+  createFormulaRecord,
+  hydrateFormulaItems,
+  loadFormulaPreferences,
+  matchesFormulaPreferenceFilter,
+  normalizeFormulaPreference,
+  saveFormulaPreferences,
+} from "./features/formula-library/preferences.js";
+import {
+  numberingPreview,
+  resolveNumberingPreference,
+  validateNumberingTemplate,
+} from "./features/formula-numbering.js";
 import { createPlatformContext } from "./platform/platform-context.js";
 import {
   migrateLegacySetting,
@@ -435,7 +454,12 @@ class FormulaLibrary {
     Logger.info("FormulaLibrary initializing...");
     this.categories = [];
     this.formulas = {};
+    this.preferences = loadFormulaPreferences();
     this.loaded = false;
+  }
+
+  _formula(categoryId, label, latex) {
+    return createFormulaRecord(categoryId, label, latex, this.preferences);
   }
 
   async load() {
@@ -455,12 +479,11 @@ class FormulaLibrary {
             name: this._getCategoryName(categoryId),
           });
 
-          this.formulas[categoryId] = (data.items || [])
-            .filter((item) => Array.isArray(item))
-            .map((item) => ({
-              label: item[0],
-              latex: item[1],
-            }));
+          this.formulas[categoryId] = hydrateFormulaItems(
+            categoryId,
+            data.items,
+            this.preferences,
+          );
 
           Logger.debug(
             `Loaded ${this.formulas[categoryId].length} formulas for ${categoryId}`,
@@ -554,6 +577,11 @@ class FormulaLibrary {
         { latex: "\\angle", label: "∠" },
       ],
     };
+    for (const [categoryId, formulas] of Object.entries(this.formulas)) {
+      this.formulas[categoryId] = formulas.map((formula) =>
+        this._formula(categoryId, formula.label, formula.latex),
+      );
+    }
     this.loaded = true;
     Logger.info("Fallback data loaded");
   }
@@ -561,8 +589,29 @@ class FormulaLibrary {
   getCategories() {
     return this.categories;
   }
-  getFormulas(category) {
-    return this.formulas[category] || [];
+  getFormulas(category, filter = "all") {
+    return (this.formulas[category] || [])
+      .filter((formula) =>
+        matchesFormulaPreferenceFilter(formula.preference, filter),
+      )
+      .sort(compareFormulaPreferences);
+  }
+
+  updatePreference(formula, patch) {
+    formula.preference = normalizeFormulaPreference({
+      ...formula.preference,
+      ...patch,
+    });
+    this.preferences[formula.id] = formula.preference;
+    saveFormulaPreferences(this.preferences);
+    return formula.preference;
+  }
+
+  recordUse(formula) {
+    return this.updatePreference(formula, {
+      usageCount: (formula.preference?.usageCount || 0) + 1,
+      lastUsedAt: Date.now(),
+    });
   }
 
   search(query) {
@@ -572,7 +621,7 @@ class FormulaLibrary {
     if (!q) return results;
 
     for (const category of this.categories) {
-      for (const formula of this.getFormulas(category.id)) {
+      for (const formula of this.getFormulas(category.id, "all")) {
         if (this._smartMatch(q, formula)) {
           results.push({ formula, category: category.name });
         }
@@ -1807,6 +1856,16 @@ class UIController {
 
     // Listen for recognition results from new workspace
     window.addEventListener("recognition:result-ready", async (event) => {
+      const jobId = event.detail.jobId;
+      if (
+        !shouldPresentRecognitionResult(this._activeRecognitionJobId, jobId)
+      ) {
+        Logger.info(
+          `Recognition result retained in job history without replacing active result: completed=${jobId} active=${this._activeRecognitionJobId}`,
+        );
+        return;
+      }
+      this._activeRecognitionJobId = jobId;
       const latex = event.detail.latex;
       const acceptance = event.detail.acceptance;
       this.ocrLatex = latex;
@@ -1959,12 +2018,98 @@ class UIController {
     if (normalizeOfficeInsertMode(mode) !== FORMULA_INSERT_MODES.NUMBERED) {
       return null;
     }
+    const preset =
+      document.getElementById("equationNumberingPreset")?.value ||
+      this.settingsManager?.get("equationNumberingPreset") ||
+      "parenthesized";
+    const template =
+      document.getElementById("equationNumberingTemplate")?.value ||
+      this.settingsManager?.get("equationNumberingTemplate") ||
+      "({n})";
+    if (preset === "custom") {
+      const error = validateNumberingTemplate(template);
+      if (error) throw new Error(error);
+    }
+    const preference = resolveNumberingPreference({ preset, template });
+    const requestedScheme =
+      document.querySelector('input[name="equationNumberingScheme"]:checked')
+        ?.value ||
+      this.settingsManager?.get("equationNumberingScheme") ||
+      "global";
+    const scheme = ["global", "chapter-dot", "chapter-hyphen"].includes(
+      requestedScheme,
+    )
+      ? requestedScheme
+      : "global";
     return {
-      scheme: "global",
-      chapterLevel: null,
-      separator: null,
+      scheme,
+      chapterLevel: scheme === "global" ? null : 1,
+      separator:
+        scheme === "chapter-dot"
+          ? "."
+          : scheme === "chapter-hyphen"
+            ? "-"
+            : null,
       label: null,
+      template: preference.template,
+      numberStyle: preference.style,
     };
+  }
+
+  getEquationNumberingPreference() {
+    const preset =
+      document.getElementById("equationNumberingPreset")?.value ||
+      this.settingsManager?.get("equationNumberingPreset") ||
+      "parenthesized";
+    const template =
+      document.getElementById("equationNumberingTemplate")?.value ||
+      this.settingsManager?.get("equationNumberingTemplate") ||
+      "({n})";
+    return resolveNumberingPreference({ preset, template });
+  }
+
+  updateEquationNumberingUi({ persist = true } = {}) {
+    const preset = document.getElementById("equationNumberingPreset");
+    const template = document.getElementById("equationNumberingTemplate");
+    const field = document.getElementById("equationNumberingTemplateField");
+    const preview = document.getElementById("equationNumberingPreview");
+    const previewValue = document.getElementById(
+      "equationNumberingPreviewValue",
+    );
+    const hint = document.getElementById("equationNumberingHint");
+    if (!preset || !template || !field || !preview || !previewValue || !hint)
+      return;
+    field.hidden = preset.value !== "custom";
+    const error =
+      preset.value === "custom"
+        ? validateNumberingTemplate(template.value)
+        : "";
+    hint.classList.toggle("numbering-error", Boolean(error));
+    const scheme =
+      document.querySelector('input[name="equationNumberingScheme"]:checked')
+        ?.value || "global";
+    hint.textContent = error
+      ? error
+      : scheme === "global"
+        ? "编号在当前文档内连续递增；自定义模板使用 {n} 作为完整序号占位符。"
+        : "章节号读取 Word“标题 1”，公式序号在每章重新开始；自定义模板使用 {n} 作为完整编号占位符。";
+    if (error) {
+      previewValue.textContent = "不可用";
+      return;
+    }
+    const preference = resolveNumberingPreference({
+      preset: preset.value,
+      template: template.value,
+    });
+    previewValue.textContent = numberingPreview(preference, 1, {
+      scheme,
+      chapter: 2,
+    });
+    if (persist) {
+      this.settingsManager?.set("equationNumberingPreset", preset.value);
+      this.settingsManager?.set("equationNumberingTemplate", template.value);
+      this.settingsManager?.set("equationNumberingScheme", scheme);
+    }
   }
 
   officeHostKind(hostType) {
@@ -2318,10 +2463,9 @@ class UIController {
     document.getElementById("quickCopy")?.addEventListener("click", () => {
       const enabledPlatform = this.platforms.find((p) => p.enabled);
       if (enabledPlatform) {
-        this.copyFormula(enabledPlatform.format);
-        this.showToast(`已复制 ${enabledPlatform.name} 格式`);
+        void this.copyFormula(enabledPlatform.format);
       } else {
-        this.copyFormula("latex");
+        void this.copyFormula("smart");
       }
     });
 
@@ -2371,6 +2515,39 @@ class UIController {
         });
       });
 
+    document
+      .getElementById("equationNumberingPreset")
+      ?.addEventListener("change", () => this.updateEquationNumberingUi());
+    document
+      .getElementById("equationNumberingTemplate")
+      ?.addEventListener("input", () => this.updateEquationNumberingUi());
+    document
+      .querySelectorAll('input[name="equationNumberingScheme"]')
+      .forEach((input) =>
+        input.addEventListener("change", () =>
+          this.updateEquationNumberingUi(),
+        ),
+      );
+    const numberingPreset = document.getElementById("equationNumberingPreset");
+    const numberingTemplate = document.getElementById(
+      "equationNumberingTemplate",
+    );
+    if (numberingPreset) {
+      numberingPreset.value =
+        this.settingsManager?.get("equationNumberingPreset") || "parenthesized";
+    }
+    if (numberingTemplate) {
+      numberingTemplate.value =
+        this.settingsManager?.get("equationNumberingTemplate") || "({n})";
+    }
+    const numberingScheme =
+      this.settingsManager?.get("equationNumberingScheme") || "global";
+    const schemeInput = document.querySelector(
+      `input[name="equationNumberingScheme"][value="${numberingScheme}"]`,
+    );
+    if (schemeInput) schemeInput.checked = true;
+    this.updateEquationNumberingUi({ persist: false });
+
     document.getElementById("latexSource")?.addEventListener("input", (e) => {
       let latex = e.target.value;
 
@@ -2382,6 +2559,11 @@ class UIController {
     });
 
     document.addEventListener("keydown", (e) => {
+      if (!shouldPreserveNativeCopy(e)) {
+        e.preventDefault();
+        void this.copyFormula("smart");
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
         this.copyFormula("latex");
@@ -2407,6 +2589,20 @@ class UIController {
 
     document.getElementById("librarySearch")?.addEventListener("input", (e) => {
       this.searchLibrary(e.target.value);
+    });
+    document.querySelectorAll("[data-formula-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        this._libraryFilter = button.dataset.formulaFilter || "all";
+        document
+          .querySelectorAll("[data-formula-filter]")
+          .forEach((candidate) =>
+            candidate.classList.toggle("active", candidate === button),
+          );
+        const categoryId = document.querySelector(
+          "#categorySelect .custom-select-trigger",
+        )?.dataset.value;
+        if (categoryId) this.renderFormulas(categoryId);
+      });
     });
 
     document.getElementById("screenshotBtn")?.addEventListener("click", () => {
@@ -2796,6 +2992,7 @@ class UIController {
 
     // Update host selector dropdown
     this.updateOfficeHostSelector = async () => {
+      if (!window.__TAURI_INTERNALS__) return;
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         const sessions = await invoke("native_office_sessions");
@@ -3082,6 +3279,15 @@ class UIController {
             storageMode: integrationMode,
             expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
             expectedDocumentId: officeTransaction.sourceDocumentId || null,
+            numberingTemplate:
+              this.officeNumberingOptions(mode)?.template ?? null,
+            numberingStyle:
+              this.officeNumberingOptions(mode)?.numberStyle ?? null,
+            numberingScheme: this.officeNumberingOptions(mode)?.scheme ?? null,
+            numberingChapterLevel:
+              this.officeNumberingOptions(mode)?.chapterLevel ?? null,
+            numberingSeparator:
+              this.officeNumberingOptions(mode)?.separator ?? null,
           });
           this._pendingOfficeEditorRequest.commitRequestId = requestId;
         } else {
@@ -3096,6 +3302,15 @@ class UIController {
             png: pngBase64,
             widthPt: widthPt,
             heightPt: heightPt,
+            numberingTemplate:
+              this.officeNumberingOptions(mode)?.template ?? null,
+            numberingStyle:
+              this.officeNumberingOptions(mode)?.numberStyle ?? null,
+            numberingScheme: this.officeNumberingOptions(mode)?.scheme ?? null,
+            numberingChapterLevel:
+              this.officeNumberingOptions(mode)?.chapterLevel ?? null,
+            numberingSeparator:
+              this.officeNumberingOptions(mode)?.separator ?? null,
             integrationMode: integrationMode,
           });
         }
@@ -3148,6 +3363,7 @@ class UIController {
   }
 
   async initNativeOfficeEvents() {
+    if (!window.__TAURI_INTERNALS__) return;
     try {
       const { listen } = await import("@tauri-apps/api/event");
 
@@ -3551,6 +3767,8 @@ class UIController {
             },
           );
 
+          this._activeRecognitionJobId = response.jobId;
+
           this.showToast(`截图识别任务已提交：${response.jobId}`);
         } catch (error) {
           this.showToast(`截图识别启动失败：${error.message || error}`);
@@ -3579,16 +3797,16 @@ class UIController {
         this.switchSection("settings");
       });
 
-      // Session added/updated/removed - refresh selector
-      listen("native-office-session-added", async () => {
+      // A live VSTO session is the strongest Office-detection evidence. Clear
+      // the independent settings-card cache whenever that evidence changes.
+      const refreshOfficeSessionEvidence = async () => {
+        this.clearOfficeStatusCache();
         await this.updateOfficeHostSelector();
-      });
-      listen("native-office-session-updated", async () => {
-        await this.updateOfficeHostSelector();
-      });
-      listen("native-office-session-removed", async () => {
-        await this.updateOfficeHostSelector();
-      });
+        await this.renderPlatformList({ refreshStatus: true });
+      };
+      listen("native-office-session-added", refreshOfficeSessionEvidence);
+      listen("native-office-session-updated", refreshOfficeSessionEvidence);
+      listen("native-office-session-removed", refreshOfficeSessionEvidence);
 
       // Context changed
       listen("native-office-context-changed", async (event) => {
@@ -4309,26 +4527,91 @@ class UIController {
       return;
     }
 
-    const formulas = this.library.getFormulas(categoryId);
+    const formulas = this.library.getFormulas(
+      categoryId,
+      this._libraryFilter || "all",
+    );
     Logger.debug(`Found ${formulas.length} formulas for ${categoryId}`);
 
     grid.innerHTML = "";
 
     if (formulas.length === 0) {
-      grid.innerHTML =
-        '<div style="color: var(--muted); text-align: center; padding: 1rem; grid-column: 1/-1;">暂无公式</div>';
+      const empty = document.createElement("section");
+      empty.className = "formula-library-empty";
+      const title = document.createElement("strong");
+      const detail = document.createElement("p");
+      const action = document.createElement("button");
+      action.type = "button";
+      if ((this.library.formulas[categoryId] || []).length > 0) {
+        title.textContent = "此筛选下没有公式";
+        detail.textContent = "可以切回常用公式，或选择其他分类。";
+        action.textContent = "显示常用公式";
+        action.addEventListener("click", () => {
+          this._libraryFilter = "all";
+          document
+            .querySelectorAll("[data-formula-filter]")
+            .forEach((button) =>
+              button.classList.toggle(
+                "active",
+                button.dataset.formulaFilter === "all",
+              ),
+            );
+          this.renderFormulas(categoryId);
+        });
+      } else {
+        title.textContent = "公式资源暂未加载";
+        detail.textContent =
+          "仍可在编辑器新建公式；重新打开应用会再次加载本地公式包。";
+        action.textContent = "新建公式";
+        action.addEventListener("click", () => {
+          document.getElementById("sidebarClose")?.click();
+          this.createNew();
+        });
+      }
+      empty.append(title, detail, action);
+      grid.append(empty);
       return;
     }
 
     formulas.forEach((formula) => {
-      const item = document.createElement("div");
+      const item = document.createElement("article");
       item.className = "formula-item";
       item.title = formula.latex;
-      item.innerHTML = `
-        <div class="formula-label">${formula.label}</div>
-        <div class="formula-latex">${formula.latex}</div>
-      `;
-      item.addEventListener("click", () => this.insertFormula(formula.latex));
+      const label = document.createElement("div");
+      label.className = "formula-label";
+      label.textContent = formula.label;
+      const latex = document.createElement("div");
+      latex.className = "formula-latex";
+      latex.textContent = formula.latex;
+      const actions = document.createElement("div");
+      actions.className = "formula-item-actions";
+      const actionSpecs = [
+        ["favorite", formula.preference.favorite, "☆", "取消收藏", "收藏"],
+        ["pinned", formula.preference.pinned, "⌃", "取消置顶", "置顶"],
+        ["enabled", !formula.preference.enabled, "◌", "启用", "停用"],
+        ["hidden", formula.preference.hidden, "×", "恢复", "隐藏"],
+      ];
+      for (const [key, active, glyph, activeLabel, idleLabel] of actionSpecs) {
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = active ? "active" : "";
+        action.textContent = glyph;
+        action.title = active ? activeLabel : idleLabel;
+        action.setAttribute("aria-label", action.title);
+        action.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.library.updatePreference(formula, {
+            [key]: !formula.preference[key],
+          });
+          this.renderFormulas(categoryId);
+        });
+        actions.append(action);
+      }
+      item.append(label, latex, actions);
+      item.addEventListener("click", () => {
+        this.library.recordUse(formula);
+        this.insertFormula(formula.latex);
+      });
       grid.appendChild(item);
     });
 
@@ -5590,49 +5873,61 @@ class UIController {
       return;
     }
 
-    let textToCopy = latex;
-
     try {
-      if (format === "mathml") {
-        textToCopy = `<math xmlns="http://www.w3.org/1998/Math/MathML">${this.latexToMathML(latex)}</math>`;
-      } else if (format === "svg") {
-        const result = await this._renderLatexSvg(latex, false);
-        textToCopy = result.svg || latex;
-      } else if (format === "md") {
-        const isDisplay = officeInsertModeIsDisplay(
-          this.getFormulaInsertMode(),
-        );
-        textToCopy = isDisplay ? `$$\n${latex}\n$$` : `$${latex}$`;
+      const plan = formulaCopyPlan(format);
+      const display = officeInsertModeIsDisplay(this.getFormulaInsertMode());
+      let svg = null;
+      let pngBase64 = null;
+      if (plan.renderSvg || plan.renderPng) {
+        try {
+          const rendered = await this._renderLatexSvg(latex, display);
+          svg = rendered.svg;
+          if (plan.renderPng && svg) {
+            pngBase64 = await this._svgToPngBase64(
+              svg,
+              rendered.widthPt,
+              rendered.heightPt,
+            );
+          }
+        } catch (renderError) {
+          // Smart copy remains useful when one optional render format fails;
+          // the backend reports the omitted format alongside successful ones.
+          Logger.warn("Formula clipboard render omitted:", renderError);
+        }
       }
 
-      const textarea = document.createElement("textarea");
-      textarea.value = textToCopy;
-      textarea.style.position = "fixed";
-      textarea.style.left = "-9999px";
-      textarea.style.top = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      const ok = document.execCommand("copy");
-      document.body.removeChild(textarea);
+      const { invoke } = await import("@tauri-apps/api/core");
+      const report = await invoke("copy_formula_bundle", {
+        request: {
+          latex,
+          display,
+          profile: plan.profile,
+          markdown: display ? `$$\n${latex}\n$$` : `$${latex}$`,
+          html: null,
+          mathml: null,
+          omml: null,
+          svg,
+          pngBase64,
+          protocolJson: null,
+          requestedFormats: plan.requestedFormats,
+        },
+      });
 
-      const labelMap = {
-        latex: "LaTeX",
-        mathml: "MathML",
-        svg: "SVG",
-        md: "Markdown",
-      };
-      if (ok) {
-        this.showToast(`已复制 ${labelMap[format] || format.toUpperCase()}`);
+      if (report.success) {
+        const count = report.writtenFormats?.length || 0;
+        this.showToast(`已复制${plan.label} · ${count} 种系统格式`);
         this.addHistoryItem(latex);
-        Logger.info(`Copy successful: ${format}`);
+        Logger.info("Formula clipboard write successful", report);
+        return true;
       } else {
-        this.showToast("复制失败");
+        const detail = report.failedFormats?.[0]?.message || "没有可写入的格式";
+        this.showToast(`复制失败：${detail}`);
       }
     } catch (e) {
       Logger.error("Copy failed:", e);
-      this.showToast("复制失败");
+      this.showToast(`复制失败：${e?.message || e}`);
     }
+    return false;
   }
 
   async insertToWord() {
@@ -5779,6 +6074,15 @@ class UIController {
             storageMode: integrationMode,
             expectedRevision: this._pendingOfficeEditorRequest.revision ?? null,
             expectedDocumentId: officeTransaction.sourceDocumentId || null,
+            numberingTemplate:
+              this.officeNumberingOptions(mode)?.template ?? null,
+            numberingStyle:
+              this.officeNumberingOptions(mode)?.numberStyle ?? null,
+            numberingScheme: this.officeNumberingOptions(mode)?.scheme ?? null,
+            numberingChapterLevel:
+              this.officeNumberingOptions(mode)?.chapterLevel ?? null,
+            numberingSeparator:
+              this.officeNumberingOptions(mode)?.separator ?? null,
           });
 
           if (!replaceResult.success) {
@@ -5800,6 +6104,15 @@ class UIController {
           png: pngBase64,
           widthPt: widthPt,
           heightPt: heightPt,
+          numberingTemplate:
+            this.officeNumberingOptions(mode)?.template ?? null,
+          numberingStyle:
+            this.officeNumberingOptions(mode)?.numberStyle ?? null,
+          numberingScheme: this.officeNumberingOptions(mode)?.scheme ?? null,
+          numberingChapterLevel:
+            this.officeNumberingOptions(mode)?.chapterLevel ?? null,
+          numberingSeparator:
+            this.officeNumberingOptions(mode)?.separator ?? null,
           integrationMode: integrationMode,
         });
       }
@@ -7114,8 +7427,15 @@ class UIController {
     listEl.innerHTML = this.platforms
       .map((p) => {
         const busy = this.platformOperations.has(p.id);
+        const windowsNative =
+          p.id === "office" && this.platformContext.os === "windows";
+        const nativeBadges = windowsNative
+          ? `<div class="platform-native-badges" aria-label="Windows 原生能力">
+              <span>VSTO 会话</span><span>OMML</span><span>OLE</span><span>DirectML</span>
+            </div>`
+          : "";
         return `
-      <article class="platform-quick-card ${p.enabled ? "is-enabled" : ""} ${busy ? "is-busy" : ""}">
+      <article class="platform-quick-card ${p.enabled ? "is-enabled" : ""} ${busy ? "is-busy" : ""} ${windowsNative ? "is-windows-native" : ""}">
         <header>
           <div class="platform-icon" style="--platform-color:${p.color};">
             <img src="${p.icon}" alt="" aria-hidden="true">
@@ -7130,6 +7450,7 @@ class UIController {
           </label>
         </header>
         <p>${this._escapeHtml(busy ? "正在应用设置…" : p.desc)}</p>
+        ${nativeBadges}
         ${busy ? "" : this.officeWebDiagnosticsMarkup(p)}
       </article>
     `;
@@ -7523,9 +7844,13 @@ class UIController {
       trigger.dataset.clientId || this._selectedEcosystemClientId || "";
 
     const freshClients = (clients || []).filter((client) => {
+      const target = this.ecosystemTargetFromClient(client);
       return (
         this.ecosystemClientIsFresh(client) &&
-        this.ecosystemTargetFromClient(client)
+        target &&
+        this.platforms.some(
+          (platform) => platform.id === target && platform.enabled,
+        )
       );
     });
 
@@ -7565,12 +7890,21 @@ class UIController {
       trigger.dataset.clientId = clientId;
       this._selectedEcosystemTarget = target;
       this._selectedEcosystemClientId = clientId;
+      if (container) container.style.display = "";
+      const insertButton = document.getElementById("insertToEcosystem");
+      if (insertButton) insertButton.style.display = "";
     } else {
       trigger.dataset.value = "";
       trigger.dataset.clientId = "";
       this._selectedEcosystemTarget = "";
       this._selectedEcosystemClientId = "";
       trigger.querySelector("span").textContent = "暂无在线插件";
+      // Offline state belongs in platform settings/diagnostics, not in the
+      // editor's primary action row. Restore it automatically when a client
+      // sends a fresh heartbeat.
+      if (container) container.style.display = "none";
+      const insertButton = document.getElementById("insertToEcosystem");
+      if (insertButton) insertButton.style.display = "none";
     }
   }
 
@@ -7818,14 +8152,12 @@ class UIController {
         ],
       });
       if (!selected) return;
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke("recognition_start", {
-        request: {
-          path: selected,
-          mode: "auto",
-          inputKind: "page-image",
-        },
+      const { controller } = await import("./features/recognition/index.js");
+      const result = await controller.startJob(selected, "auto", {
+        inputKind: "page-image",
+        executionPolicy: "async",
       });
+      this._activeRecognitionJobId = result.jobId;
       Logger.info("Recognition job started:", result.jobId);
       this.showStatus(`识别任务已提交: ${result.jobId}`);
     } catch (error) {
@@ -7842,14 +8174,12 @@ class UIController {
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (!selected) return;
-      const { invoke } = await import("@tauri-apps/api/core");
-      const result = await invoke("recognition_start", {
-        request: {
-          path: selected,
-          mode: "full-document",
-          inputKind: "document-image",
-        },
+      const { controller } = await import("./features/recognition/index.js");
+      const result = await controller.startJob(selected, "full-document", {
+        inputKind: "document-image",
+        executionPolicy: "async",
       });
+      this._activeRecognitionJobId = result.jobId;
       Logger.info("PDF recognition job started:", result.jobId);
       this.showStatus(`PDF 识别任务已提交: ${result.jobId}`);
     } catch (error) {
@@ -7889,6 +8219,10 @@ class UIController {
 
 // ═══════════════════════════════════════════
 async function setupBrowserImportInbox(controller) {
+  if (!window.__TAURI_INTERNALS__) {
+    document.getElementById("browserImportsButton")?.setAttribute("hidden", "");
+    return;
+  }
   const { invoke } = await import("@tauri-apps/api/core");
   const { listen } = await import("@tauri-apps/api/event");
   const modal = document.getElementById("browserImportsModal");

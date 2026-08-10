@@ -990,6 +990,8 @@ bool RenderSvgRasterOracle(
         return false;
     }
     oracle->valid = true;
+    oracle->width = width;
+    oracle->height = height;
     oracle->inkBounds = inkBounds;
     oracle->coverageRatio =
         static_cast<double>(inkPixels) /
@@ -1455,6 +1457,24 @@ bool AnalyzeEmfInkIntegrity(
     }
     if (expectedRaster != nullptr && expectedRaster->valid)
     {
+        // PlayEnhMetaFile maps an EMF's declared frame onto the entire target
+        // rectangle, so its output bounds cannot prove that the source frame
+        // contains transparent padding. The independently rendered SVG oracle
+        // retains the actual padded canvas and is the correct place to enforce
+        // a clear pixel on every side. Aspect and retained-coverage checks below
+        // then prove that the recorded EMF preserved that source geometry.
+        integrity->frameMarginClear =
+            expectedRaster->width > 0 && expectedRaster->height > 0 &&
+            expectedRaster->inkBounds.left > 0 &&
+            expectedRaster->inkBounds.top > 0 &&
+            expectedRaster->inkBounds.right < expectedRaster->width &&
+            expectedRaster->inkBounds.bottom < expectedRaster->height;
+        if (!integrity->frameMarginClear)
+        {
+            integrity->reason =
+                L"OLE_INK_FRAME_MARGIN_MISSING: SVG ink touches the padded EMF canvas";
+            return false;
+        }
         const double expectedWidth =
             expectedRaster->inkBounds.right - expectedRaster->inkBounds.left;
         const double expectedHeight =

@@ -77,6 +77,42 @@ const TOOL_SNIPPETS = Object.freeze({
   },
 });
 
+export function computeFittedViewBox(bounds, paddingRatio = 0.08) {
+  const x = Number(bounds?.x);
+  const y = Number(bounds?.y);
+  const width = Number(bounds?.width);
+  const height = Number(bounds?.height);
+  if (
+    ![x, y, width, height].every(Number.isFinite) ||
+    width <= 0 ||
+    height <= 0
+  )
+    return null;
+  const padding = Math.max(4, Math.max(width, height) * paddingRatio);
+  return [x - padding, y - padding, width + padding * 2, height + padding * 2]
+    .map((value) => Math.round(value * 100) / 100)
+    .join(" ");
+}
+
+export function fitDrawingPreview(preview) {
+  const svg =
+    preview?.querySelector?.(":scope > svg") || preview?.querySelector?.("svg");
+  if (!svg || typeof svg.getBBox !== "function") return false;
+  let bounds;
+  try {
+    bounds = svg.getBBox({ fill: true, stroke: true, markers: true });
+  } catch {
+    bounds = svg.getBBox();
+  }
+  const viewBox = computeFittedViewBox(bounds);
+  if (!viewBox) return false;
+  svg.setAttribute("viewBox", viewBox);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  return true;
+}
+
 function setSelected(element, selected) {
   element?.classList?.toggle("active", selected);
   element?.setAttribute?.("aria-selected", String(selected));
@@ -178,6 +214,7 @@ export function createDrawingWorkspaceController({
       if (revision !== state.revision) return null;
       if (renderedSvg && elements.preview) {
         elements.preview.innerHTML = renderedSvg;
+        fitDrawingPreview(elements.preview);
         status("本地预览已生成，正在由 Core 执行安全校验…");
       }
       let result;
@@ -221,7 +258,10 @@ export function createDrawingWorkspaceController({
       result.originalSource = originalSource;
       result.originalLanguage = state.language;
       state.lastResult = result;
-      if (elements.preview) elements.preview.innerHTML = result.svg;
+      if (elements.preview) {
+        elements.preview.innerHTML = result.svg;
+        fitDrawingPreview(elements.preview);
+      }
       if (elements.insertButton) elements.insertButton.disabled = false;
       status(
         `${automatic ? "实时预览" : "编译完成"} · ${result.payload.widthPoints} × ${result.payload.heightPoints} pt · 本地离线`,

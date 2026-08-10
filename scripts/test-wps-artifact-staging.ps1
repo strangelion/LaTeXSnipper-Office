@@ -57,6 +57,21 @@ try {
             Copy-Item -LiteralPath $sourceFile -Destination (Join-Path $target "payload.txt")
         }
     }
+    $qualityBaselineRoot = Join-Path $resourceStaging "RecognitionQuality\baselines"
+    $qualityBaseline = Join-Path $qualityBaselineRoot "ci-contract.json"
+    New-Item -ItemType Directory -Force $qualityBaselineRoot | Out-Null
+    Set-Content -LiteralPath $qualityBaseline -Value '{"profile":"ci-contract"}' -Encoding UTF8
+    $qualityHash = (Get-FileHash -LiteralPath $qualityBaseline -Algorithm SHA256).Hash.ToLowerInvariant()
+    $qualityIndex = @{
+        schemaVersion = 1
+        files = @{ "ci-contract.json" = $qualityHash }
+    } | ConvertTo-Json -Depth 4
+    Set-Content -LiteralPath (Join-Path $qualityBaselineRoot "index.json") -Value $qualityIndex -Encoding UTF8
+    foreach ($packageRoot in $packageRoots) {
+        $target = Join-Path $packageRoot "app\resources\RecognitionQuality"
+        New-Item -ItemType Directory -Force $target | Out-Null
+        Copy-Item -LiteralPath $qualityBaselineRoot -Destination $target -Recurse
+    }
     $nestedWps = Join-Path $resourceStaging "Ecosystem\wps\plugin.txt"
     New-Item -ItemType Directory -Force (Split-Path -Parent $nestedWps) | Out-Null
     Set-Content -LiteralPath $nestedWps -Value "ecosystem-wps" -Encoding UTF8

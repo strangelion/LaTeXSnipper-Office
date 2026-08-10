@@ -322,6 +322,10 @@ void TestMathJaxGoldenFixtures(const std::filesystem::path& directory)
         Expect(
             result.inkIntegrity.aspectRatioError <= 0.02,
             L"golden fixture EMF ink aspect ratio exceeded the contract");
+        Expect(
+            result.inkIntegrity.frameMarginClear,
+            L"golden fixture ink touches the padded EMF frame: " +
+                entry.path().filename().wstring());
         ++count;
     }
         Expect(count >= 10, L"real MathJax golden fixture set is incomplete");
@@ -706,7 +710,7 @@ int wmain(int argc, wchar_t** argv)
     TestVectorFixture(L"matrix", L"<rect x='10' y='5' width='90' height='30' fill='none' stroke='black'/><line x1='55' y1='5' x2='55' y2='35' stroke='black'/>");
     TestVectorFixture(L"cases", L"<polyline points='20,5 10,5 10,35 20,35' fill='none' stroke='black'/><polygon points='40,5 70,20 40,35' fill='#336699'/>");
     TestVectorFixture(L"ellipse and arc", L"<circle cx='20' cy='20' r='10'/><ellipse cx='60' cy='20' rx='15' ry='8'/><path d='M80 30 A15 10 20 1 1 110 10' fill='none' stroke='black'/>");
-    TestVectorFixture(L"defs and use", L"<defs><path id='glyph' d='M0 0 L8 0 L4 8 Z'/></defs><g transform='translate(10 10) scale(2,-2)'><use href='#glyph'/><use href='#glyph' x='12' color='#ff0000' fill='currentColor'/></g>");
+    TestVectorFixture(L"defs and use", L"<defs><path id='glyph' d='M0 0 L8 0 L4 8 Z'/></defs><g transform='translate(10 20) scale(2,-2)'><use href='#glyph'/><use href='#glyph' x='12' color='#ff0000' fill='currentColor'/></g>");
     TestVectorFixture(L"transform order", L"<g transform='translate(20 10) rotate(15 10 10) skewX(5) matrix(1 0 0 1 2 3)'><path d='M0 0 h20 v20 h-20 z'/></g>");
     {
         SvgToEmfResult none = ConvertMathJaxSvgToVectorEmf(

@@ -1,9 +1,15 @@
 use serde::{Deserialize, Serialize};
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use std::path::PathBuf;
-use std::sync::Mutex;
 #[cfg(target_os = "windows")]
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+#[cfg(target_os = "windows")]
+use tauri::Manager;
+
+#[cfg(target_os = "windows")]
+use super::session::{HostType, SessionInfo, SessionManager};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfficeStatus {
@@ -56,36 +62,75 @@ pub struct RegisterResult {
 // Cached Office status — computed once, can be invalidated after install/uninstall.
 // Using Mutex instead of OnceLock so the cache can be cleared when Office integration
 // is toggled, preventing stale status from persisting across toggle cycles.
-static CACHED_STATUS: Mutex<Option<OfficeStatus>> = Mutex::new(None);
+const OFFICE_STATUS_CACHE_TTL: Duration = Duration::from_secs(30);
+static CACHED_STATUS: Mutex<Option<(Instant, OfficeStatus)>> = Mutex::new(None);
 
 #[tauri::command]
-pub async fn detect_office() -> OfficeStatus {
-    tauri::async_runtime::spawn_blocking(detect_office_cached)
+pub async fn detect_office(app: tauri::AppHandle) -> OfficeStatus {
+    let mut status = tauri::async_runtime::spawn_blocking(detect_office_cached)
         .await
-        .unwrap_or_else(|_| OfficeStatus::unavailable())
+        .unwrap_or_else(|_| OfficeStatus::unavailable());
+
+    // A live VSTO named-pipe session is stronger evidence than registry or
+    // filesystem discovery. In particular, it must override a stale negative
+    // installation cache so Settings cannot say "Office not detected" while
+    // the editor is actively connected to Word/Excel/PowerPoint/Visio.
+    #[cfg(target_os = "windows")]
+    if let Some(session_manager) = app.try_state::<Arc<SessionManager>>() {
+        apply_live_session_evidence(&mut status, &session_manager.list_sessions().await);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+
+    status
 }
 
 /// Clear the cached Office status so the next `detect_office()` call re-detects.
 /// Called from the frontend after enable/disable Office integration.
 #[tauri::command]
 pub async fn invalidate_office_cache() {
+    invalidate_office_cache_now();
+    log::info!("[Office] Cache invalidated");
+}
+
+pub(crate) fn invalidate_office_cache_now() {
     if let Ok(mut cache) = CACHED_STATUS.lock() {
         *cache = None;
     }
-    log::info!("[Office] Cache invalidated");
 }
 
 pub(crate) fn detect_office_cached() -> OfficeStatus {
     if let Ok(mut cache) = CACHED_STATUS.lock() {
-        if let Some(ref cached) = *cache {
-            return cached.clone();
+        if let Some((detected_at, cached)) = cache.as_ref() {
+            if detected_at.elapsed() < OFFICE_STATUS_CACHE_TTL {
+                return cached.clone();
+            }
         }
         let detected = detect_office_impl();
-        *cache = Some(detected.clone());
+        *cache = Some((Instant::now(), detected.clone()));
         detected
     } else {
         // Mutex poisoned — fall back to uncached detection
         detect_office_impl()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn apply_live_session_evidence(status: &mut OfficeStatus, sessions: &[SessionInfo]) {
+    for session in sessions {
+        let app = match session.host_type {
+            HostType::Word => &mut status.word,
+            HostType::Excel => &mut status.excel,
+            HostType::PowerPoint => &mut status.powerpoint,
+            HostType::Visio => &mut status.visio,
+        };
+        app.available = true;
+        app.plugin_installed = true;
+        if !session.host_version.trim().is_empty() {
+            app.version = Some(session.host_version.clone());
+        }
+        status.installed = true;
     }
 }
 
@@ -436,5 +481,53 @@ pub fn write_pending_formula(
             success: false,
             message: format!("Failed: {}", e),
         },
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    fn session(host_type: HostType, version: &str) -> SessionInfo {
+        SessionInfo {
+            session_id: format!("{host_type:?}-session"),
+            host_type,
+            host_version: version.to_string(),
+            document_id: Some("document-1".to_string()),
+            document_title: Some("Document 1".to_string()),
+            connected_at: chrono::Utc::now(),
+            capabilities: vec!["insert_formula".to_string()],
+        }
+    }
+
+    #[test]
+    fn live_session_overrides_negative_office_detection() {
+        let mut status = OfficeStatus::unavailable();
+        apply_live_session_evidence(&mut status, &[session(HostType::Word, "16.0")]);
+
+        assert!(status.installed);
+        assert!(status.word.available);
+        assert!(status.word.plugin_installed);
+        assert_eq!(status.word.version.as_deref(), Some("16.0"));
+        assert!(!status.excel.available);
+    }
+
+    #[test]
+    fn live_session_evidence_is_merged_per_host() {
+        let mut status = OfficeStatus::unavailable();
+        apply_live_session_evidence(
+            &mut status,
+            &[
+                session(HostType::Excel, "2407"),
+                session(HostType::PowerPoint, "2407"),
+                session(HostType::Visio, ""),
+            ],
+        );
+
+        assert!(status.excel.available && status.excel.plugin_installed);
+        assert!(status.powerpoint.available && status.powerpoint.plugin_installed);
+        assert!(status.visio.available && status.visio.plugin_installed);
+        assert_eq!(status.excel.version.as_deref(), Some("2407"));
+        assert_eq!(status.visio.version, None);
     }
 }

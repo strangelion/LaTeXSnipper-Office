@@ -254,9 +254,13 @@ async fn screenshot_begin_transaction(
     let deadline = Instant::now() + ready_timeout;
     while !state.all_ready(session_id)? {
         if Instant::now() >= deadline {
+            let (ready, expected, missing) = state.ready_progress(session_id)?;
             return Err(format!(
-                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within {}ms",
-                ready_timeout.as_millis()
+                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within {}ms; ready={}/{} missing={}",
+                ready_timeout.as_millis(),
+                ready,
+                expected,
+                missing.join(",")
             ));
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
