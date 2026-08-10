@@ -67,9 +67,12 @@ static CACHED_STATUS: Mutex<Option<(Instant, OfficeStatus)>> = Mutex::new(None);
 
 #[tauri::command]
 pub async fn detect_office(app: tauri::AppHandle) -> OfficeStatus {
-    let mut status = tauri::async_runtime::spawn_blocking(detect_office_cached)
+    let status = tauri::async_runtime::spawn_blocking(detect_office_cached)
         .await
         .unwrap_or_else(|_| OfficeStatus::unavailable());
+
+    #[cfg(target_os = "windows")]
+    let mut status = status;
 
     // A live VSTO named-pipe session is stronger evidence than registry or
     // filesystem discovery. In particular, it must override a stale negative
