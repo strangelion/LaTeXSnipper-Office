@@ -5949,8 +5949,7 @@ class UIController {
       return true;
     }
 
-    const detail =
-      report?.failedFormats?.[0]?.message || "没有可写入的格式";
+    const detail = report?.failedFormats?.[0]?.message || "没有可写入的格式";
     this.showToast(`复制失败：${detail}`);
     return false;
   }
@@ -6010,7 +6009,10 @@ class UIController {
 
   async _writeWebClipboard(items, fallback) {
     const text = fallback.preferMarkdown ? fallback.markdown : fallback.latex;
-    if (navigator.clipboard?.write && typeof globalThis.ClipboardItem === "function") {
+    if (
+      navigator.clipboard?.write &&
+      typeof globalThis.ClipboardItem === "function"
+    ) {
       try {
         await navigator.clipboard.write([new ClipboardItem(items)]);
         return true;
