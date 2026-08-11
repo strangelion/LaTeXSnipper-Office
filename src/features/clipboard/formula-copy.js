@@ -24,16 +24,19 @@ const FORMAT_PLANS = Object.freeze({
     profile: "markdown",
     requestedFormats: ["text/markdown"],
     label: "Markdown",
+    preferMarkdown: true,
   },
   markdown: {
     profile: "markdown",
     requestedFormats: ["text/markdown"],
     label: "Markdown",
+    preferMarkdown: true,
   },
   markdown_inline: {
     profile: "markdown",
     requestedFormats: ["text/markdown"],
     label: "Markdown",
+    preferMarkdown: true,
   },
 });
 

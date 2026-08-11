@@ -129,11 +129,14 @@ fn conversion(latex: &str, format: OutputFormat) -> Option<String> {
 
 fn formula_formats_for_profile(profile: ClipboardProfile) -> HashSet<&'static str> {
     match profile {
+        // Smart mirrors what Ctrl/Cmd+C should offer: everything the
+        // editor can reproduce, including OMML for Office hosts.
         ClipboardProfile::Smart => [
             FORMAT_TEXT,
             FORMAT_MARKDOWN,
             FORMAT_HTML,
             FORMAT_MATHML,
+            FORMAT_OMML,
             FORMAT_SVG,
             FORMAT_PNG,
             FORMAT_FORMULA_JSON,
@@ -250,7 +253,7 @@ fn write_payloads(
     let mut report = windows::write_payloads(&payloads);
 
     #[cfg(not(target_os = "windows"))]
-    let mut report = write_portable_text(&payloads);
+    let mut report = write_portable_bundle(&payloads);
 
     report.failed_formats.splice(0..0, failures);
     report.omitted_formats.append(&mut omissions);
@@ -259,29 +262,153 @@ fn write_payloads(
     report
 }
 
-#[cfg(not(target_os = "windows"))]
-fn write_portable_text(payloads: &[ClipboardPayload]) -> ClipboardWriteReport {
+/// Non-Windows backends (arboard) write a single clipboard set per
+/// operation. This plan picks the most broadly useful representation:
+/// HTML with a plain-text alternative, plain text, or PNG decoded into
+/// an image. Formats outside that set are reported as unsupported so
+/// callers can fall back to the browser clipboard API.
+#[cfg(any(not(target_os = "windows"), test))]
+#[derive(Debug, Default)]
+struct PortableWritePlan {
+    text: Option<Vec<u8>>,
+    html: Option<Vec<u8>>,
+    png: Option<Vec<u8>>,
+    unsupported: Vec<String>,
+}
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn plan_portable_write(payloads: &[ClipboardPayload]) -> PortableWritePlan {
+    let mut plan = PortableWritePlan::default();
+    for payload in payloads {
+        if payload.format == FORMAT_TEXT {
+            plan.text.get_or_insert_with(|| payload.bytes.clone());
+        } else if payload.format == FORMAT_HTML {
+            plan.html.get_or_insert_with(|| payload.bytes.clone());
+        } else if payload.format == FORMAT_PNG {
+            plan.png.get_or_insert_with(|| payload.bytes.clone());
+        } else {
+            plan.unsupported.push(payload.format.to_string());
+        }
+    }
+    plan
+}
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn write_portable_bundle(payloads: &[ClipboardPayload]) -> ClipboardWriteReport {
     let mut report = ClipboardWriteReport {
         backend: backend_name().to_string(),
         ..Default::default()
     };
-    let Some(text) = payloads
-        .iter()
-        .find(|payload| payload.format == FORMAT_TEXT)
-    else {
+    let plan = plan_portable_write(payloads);
+
+    let mut clipboard = match arboard::Clipboard::new() {
+        Ok(clipboard) => clipboard,
+        Err(error) => {
+            report.failed_formats.push(ClipboardFormatFailure {
+                format: "*".to_string(),
+                code: "CLIPBOARD_WRITE_FAILED".to_string(),
+                message: error.to_string(),
+            });
+            report
+                .omitted_formats
+                .extend(
+                    plan.unsupported
+                        .iter()
+                        .map(|format| ClipboardFormatOmission {
+                            format: format.clone(),
+                            reason: "CLIPBOARD_FORMAT_UNSUPPORTED".to_string(),
+                        }),
+                );
+            return report;
+        }
+    };
+
+    if let Some(html) = plan.html {
+        let html_bytes = html.len() as u64;
+        let html_text = String::from_utf8_lossy(&html).into_owned();
+        let text = plan.text;
+        let text_bytes = text.as_ref().map_or(0, |bytes| bytes.len() as u64);
+        let alt = text
+            .as_ref()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned());
+        match clipboard.set_html(html_text, alt) {
+            Ok(()) => {
+                report.written_formats.push(ClipboardFormatEvidence {
+                    format: FORMAT_HTML.to_string(),
+                    bytes: html_bytes,
+                    native_format: native_html_name().to_string(),
+                });
+                if text.is_some() {
+                    report.written_formats.push(ClipboardFormatEvidence {
+                        format: FORMAT_TEXT.to_string(),
+                        bytes: text_bytes,
+                        native_format: FORMAT_TEXT.to_string(),
+                    });
+                }
+            }
+            Err(error) => {
+                report.failed_formats.push(ClipboardFormatFailure {
+                    format: FORMAT_HTML.to_string(),
+                    code: "CLIPBOARD_WRITE_FAILED".to_string(),
+                    message: error.to_string(),
+                });
+                if let Some(text) = text {
+                    set_portable_text(&mut report, &mut clipboard, text);
+                }
+            }
+        }
+    } else if let Some(text) = plan.text {
+        set_portable_text(&mut report, &mut clipboard, text);
+    } else if let Some(png) = plan.png {
+        match png_to_image_data(&png) {
+            Some(image) => match clipboard.set_image(image) {
+                Ok(()) => report.written_formats.push(ClipboardFormatEvidence {
+                    format: FORMAT_PNG.to_string(),
+                    bytes: png.len() as u64,
+                    native_format: FORMAT_PNG.to_string(),
+                }),
+                Err(error) => report.failed_formats.push(ClipboardFormatFailure {
+                    format: FORMAT_PNG.to_string(),
+                    code: "CLIPBOARD_WRITE_FAILED".to_string(),
+                    message: error.to_string(),
+                }),
+            },
+            None => report.failed_formats.push(ClipboardFormatFailure {
+                format: FORMAT_PNG.to_string(),
+                code: "PNG_DECODE_FAILED".to_string(),
+                message: "clipboard PNG payload could not be decoded".to_string(),
+            }),
+        }
+    } else {
         report.failed_formats.push(ClipboardFormatFailure {
             format: "*".to_string(),
             code: "CLIPBOARD_FORMAT_UNSUPPORTED".to_string(),
-            message: "this platform backend currently requires text/plain".to_string(),
+            message: "this platform clipboard backend cannot write any of the requested formats"
+                .to_string(),
         });
-        return report;
-    };
-    match arboard::Clipboard::new()
-        .and_then(|mut clipboard| clipboard.set_text(String::from_utf8_lossy(&text.bytes)))
-    {
+    }
+
+    report.omitted_formats.extend(
+        plan.unsupported
+            .iter()
+            .map(|format| ClipboardFormatOmission {
+                format: format.clone(),
+                reason: "CLIPBOARD_FORMAT_UNSUPPORTED".to_string(),
+            }),
+    );
+    report
+}
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn set_portable_text(
+    report: &mut ClipboardWriteReport,
+    clipboard: &mut arboard::Clipboard,
+    text: Vec<u8>,
+) {
+    match clipboard.set_text(String::from_utf8_lossy(&text)) {
         Ok(()) => report.written_formats.push(ClipboardFormatEvidence {
             format: FORMAT_TEXT.to_string(),
-            bytes: text.bytes.len() as u64,
+            bytes: text.len() as u64,
             native_format: FORMAT_TEXT.to_string(),
         }),
         Err(error) => report.failed_formats.push(ClipboardFormatFailure {
@@ -290,16 +417,32 @@ fn write_portable_text(payloads: &[ClipboardPayload]) -> ClipboardWriteReport {
             message: error.to_string(),
         }),
     }
-    for payload in payloads
-        .iter()
-        .filter(|payload| payload.format != FORMAT_TEXT)
-    {
-        report.omitted_formats.push(ClipboardFormatOmission {
-            format: payload.format.to_string(),
-            reason: "CLIPBOARD_FORMAT_UNSUPPORTED".to_string(),
-        });
+}
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn png_to_image_data(png: &[u8]) -> Option<arboard::ImageData<'static>> {
+    use std::borrow::Cow;
+
+    let image = image::load_from_memory(png).ok()?;
+    let rgba = image.to_rgba8();
+    let (width, height) = (rgba.width() as usize, rgba.height() as usize);
+    if width == 0 || height == 0 {
+        return None;
     }
-    report
+    Some(arboard::ImageData {
+        width,
+        height,
+        bytes: Cow::Owned(rgba.into_raw()),
+    })
+}
+
+#[cfg(any(not(target_os = "windows"), test))]
+fn native_html_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "public.html"
+    } else {
+        "text/html"
+    }
 }
 
 fn backend_name() -> &'static str {
@@ -309,11 +452,11 @@ fn backend_name() -> &'static str {
     }
     #[cfg(target_os = "macos")]
     {
-        "macos-arboard-text"
+        "macos-arboard"
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        "linux-arboard-text"
+        "linux-arboard"
     }
 }
 
@@ -332,8 +475,10 @@ pub fn inspect_clipboard_capabilities() -> ClipboardCapabilities {
         FORMAT_SYMBOL_JSON,
         FORMAT_OMML,
     ];
+    // arboard on macOS/Linux writes a single set per operation, so the
+    // browser clipboard API remains the multi-format path on those hosts.
     #[cfg(not(target_os = "windows"))]
-    let supported = vec![FORMAT_TEXT];
+    let supported = vec![FORMAT_TEXT, FORMAT_HTML, FORMAT_PNG];
 
     ClipboardCapabilities {
         backend: backend_name().to_string(),
@@ -576,9 +721,65 @@ mod tests {
     fn profile_selection_is_explicit() {
         let smart = formula_formats_for_profile(ClipboardProfile::Smart);
         assert!(smart.contains(FORMAT_FORMULA_JSON));
-        assert!(!smart.contains(FORMAT_OMML));
+        assert!(smart.contains(FORMAT_OMML));
         let office = formula_formats_for_profile(ClipboardProfile::Office);
         assert!(office.contains(FORMAT_OMML));
+    }
+
+    #[test]
+    fn portable_plan_prefers_html_with_text_alt() {
+        let plan = plan_portable_write(&[
+            ClipboardPayload {
+                format: FORMAT_PNG,
+                bytes: vec![1],
+            },
+            ClipboardPayload {
+                format: FORMAT_TEXT,
+                bytes: b"x".to_vec(),
+            },
+            ClipboardPayload {
+                format: FORMAT_HTML,
+                bytes: b"<b>y</b>".to_vec(),
+            },
+            ClipboardPayload {
+                format: FORMAT_OMML,
+                bytes: b"<m:oMath/>".to_vec(),
+            },
+        ]);
+        assert_eq!(plan.text.as_deref(), Some(&b"x"[..]));
+        assert_eq!(plan.html.as_deref(), Some(&b"<b>y</b>"[..]));
+        assert_eq!(plan.png.as_deref(), Some(&[1][..]));
+        assert_eq!(plan.unsupported, vec![FORMAT_OMML.to_string()]);
+    }
+
+    #[test]
+    fn portable_plan_marks_every_unwritable_format() {
+        let plan = plan_portable_write(&[
+            ClipboardPayload {
+                format: FORMAT_SVG,
+                bytes: b"<svg/>".to_vec(),
+            },
+            ClipboardPayload {
+                format: FORMAT_MATHML,
+                bytes: b"<math/>".to_vec(),
+            },
+        ]);
+        assert!(plan.text.is_none());
+        assert!(plan.html.is_none());
+        assert!(plan.png.is_none());
+        assert_eq!(plan.unsupported.len(), 2);
+    }
+
+    #[test]
+    fn portable_plan_takes_first_text_only() {
+        let plan = plan_portable_write(&[ClipboardPayload {
+            format: FORMAT_TEXT,
+            bytes: b"a".to_vec(),
+        }]);
+        assert_eq!(plan.text.as_deref(), Some(&b"a"[..]));
+        assert!(plan.html.is_none());
+        assert!(plan.png.is_none());
+        assert!(plan.unsupported.is_empty());
     }
 
     #[test]

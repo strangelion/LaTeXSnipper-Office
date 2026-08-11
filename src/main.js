@@ -2435,6 +2435,9 @@ class UIController {
       .getElementById("copyMathml")
       ?.addEventListener("click", () => this.copyFormula("mathml"));
     document
+      .getElementById("copyOmmL")
+      ?.addEventListener("click", () => this.copyFormula("omml"));
+    document
       .getElementById("copySvg")
       ?.addEventListener("click", () => this.copyFormula("svg"));
     document
@@ -5584,10 +5587,14 @@ class UIController {
   }
 
   executeWorkspaceCommand(command) {
+    if (command === "copy") {
+      // Toolbar 复制 matches Ctrl/Cmd+C: smart multi-format bundle.
+      void this.copyFormula("smart");
+      return;
+    }
     const delegated = {
       screenshot: "screenshotBtn",
       insert: "insertToWord",
-      copy: "copyLatex",
     }[command];
     if (command === "screenshot") this.switchSection("ocr");
     if (delegated) {
@@ -5873,36 +5880,46 @@ class UIController {
       return;
     }
 
-    try {
-      const plan = formulaCopyPlan(format);
-      const display = officeInsertModeIsDisplay(this.getFormulaInsertMode());
-      let svg = null;
-      let pngBase64 = null;
-      if (plan.renderSvg || plan.renderPng) {
-        try {
-          const rendered = await this._renderLatexSvg(latex, display);
-          svg = rendered.svg;
-          if (plan.renderPng && svg) {
-            pngBase64 = await this._svgToPngBase64(
-              svg,
-              rendered.widthPt,
-              rendered.heightPt,
-            );
-          }
-        } catch (renderError) {
-          // Smart copy remains useful when one optional render format fails;
-          // the backend reports the omitted format alongside successful ones.
-          Logger.warn("Formula clipboard render omitted:", renderError);
+    const plan = formulaCopyPlan(format);
+    const display = officeInsertModeIsDisplay(this.getFormulaInsertMode());
+    const markdown = display ? `$$\n${latex}\n$$` : `$${latex}$`;
+    let svg = null;
+    let pngBase64 = null;
+    if (plan.renderSvg || plan.renderPng) {
+      try {
+        const rendered = await this._renderLatexSvg(latex, display);
+        svg = rendered.svg;
+        if (plan.renderPng && svg) {
+          pngBase64 = await this._svgToPngBase64(
+            svg,
+            rendered.widthPt,
+            rendered.heightPt,
+          );
         }
+      } catch (renderError) {
+        // Smart copy remains useful when one optional render format fails;
+        // the backend reports the omitted format alongside successful ones.
+        Logger.warn("Formula clipboard render omitted:", renderError);
       }
+    }
 
+    const fallback = {
+      latex,
+      markdown,
+      svg,
+      pngBase64,
+      preferMarkdown: plan.preferMarkdown,
+    };
+
+    let report = null;
+    try {
       const { invoke } = await import("@tauri-apps/api/core");
-      const report = await invoke("copy_formula_bundle", {
+      report = await invoke("copy_formula_bundle", {
         request: {
           latex,
           display,
           profile: plan.profile,
-          markdown: display ? `$$\n${latex}\n$$` : `$${latex}$`,
+          markdown,
           html: null,
           mathml: null,
           omml: null,
@@ -5912,22 +5929,111 @@ class UIController {
           requestedFormats: plan.requestedFormats,
         },
       });
-
-      if (report.success) {
-        const count = report.writtenFormats?.length || 0;
-        this.showToast(`已复制${plan.label} · ${count} 种系统格式`);
-        this.addHistoryItem(latex);
-        Logger.info("Formula clipboard write successful", report);
-        return true;
-      } else {
-        const detail = report.failedFormats?.[0]?.message || "没有可写入的格式";
-        this.showToast(`复制失败：${detail}`);
-      }
-    } catch (e) {
-      Logger.error("Copy failed:", e);
-      this.showToast(`复制失败：${e?.message || e}`);
+    } catch (error) {
+      Logger.error("Formula clipboard invoke failed:", error);
     }
+
+    if (report?.success) {
+      const written = report.writtenFormats || [];
+      const enriched = await this._enrichNonWindowsClipboard(written, fallback);
+      const count = enriched || written.length;
+      this.showToast(`已复制${plan.label} · ${count} 种系统格式`);
+      this.addHistoryItem(latex);
+      Logger.info("Formula clipboard write successful", report);
+      return true;
+    }
+
+    if (await this._webClipboardFallback(fallback)) {
+      this.showToast(`已通过浏览器剪贴板复制${plan.label}`);
+      this.addHistoryItem(latex);
+      return true;
+    }
+
+    const detail =
+      report?.failedFormats?.[0]?.message || "没有可写入的格式";
+    this.showToast(`复制失败：${detail}`);
     return false;
+  }
+
+  /**
+   * Browser clipboard enrichment for macOS/Linux: the native arboard
+   * backend can only hold one set per operation, so when rendered image
+   * formats are available we re-write them together with the text through
+   * the web clipboard API in a single multi-type set. Best effort: any
+   * failure keeps the native result unchanged.
+   */
+  async _enrichNonWindowsClipboard(written, fallback) {
+    if (this.platformContext?.os === "windows") return 0;
+    const hasImage = written.some(
+      (item) => item.format === "image/png" || item.format === "image/svg+xml",
+    );
+    if (hasImage || !(fallback.svg || fallback.pngBase64)) return 0;
+    const items = this._webClipboardItems(fallback, {
+      includeHtml: Boolean(fallback.pngBase64),
+    });
+    const ok = await this._writeWebClipboard(items, fallback);
+    return ok ? Object.keys(items).length : 0;
+  }
+
+  /**
+   * Browser clipboard fallback when the native backend cannot write any
+   * requested format (macOS/Linux explicit MathML/SVG/Markdown/OMML
+   * copies). Restores the pre-backend behavior instead of failing hard.
+   */
+  async _webClipboardFallback(fallback) {
+    const items = this._webClipboardItems(fallback, {
+      includeHtml: Boolean(fallback.pngBase64),
+    });
+    return this._writeWebClipboard(items, fallback);
+  }
+
+  _webClipboardItems(fallback, { includeHtml = false } = {}) {
+    const items = {};
+    const text = fallback.preferMarkdown ? fallback.markdown : fallback.latex;
+    items["text/plain"] = new Blob([text], { type: "text/plain" });
+    if (fallback.svg) {
+      items["image/svg+xml"] = new Blob([fallback.svg], {
+        type: "image/svg+xml",
+      });
+    }
+    if (fallback.pngBase64) {
+      items["image/png"] = this._base64ToBlob(fallback.pngBase64, "image/png");
+      if (includeHtml) {
+        items["text/html"] = new Blob(
+          [`<img src="data:image/png;base64,${fallback.pngBase64}" alt="">`],
+          { type: "text/html" },
+        );
+      }
+    }
+    return items;
+  }
+
+  async _writeWebClipboard(items, fallback) {
+    const text = fallback.preferMarkdown ? fallback.markdown : fallback.latex;
+    if (navigator.clipboard?.write && typeof globalThis.ClipboardItem === "function") {
+      try {
+        await navigator.clipboard.write([new ClipboardItem(items)]);
+        return true;
+      } catch (error) {
+        Logger.warn("ClipboardItem write failed; retrying text only:", error);
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      Logger.warn("Browser clipboard write failed:", error);
+      return false;
+    }
+  }
+
+  _base64ToBlob(base64, type) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type });
   }
 
   async insertToWord() {
