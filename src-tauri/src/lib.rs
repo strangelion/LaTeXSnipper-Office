@@ -502,6 +502,7 @@ pub fn run() {
             commands::native_office::native_office_generate_and_import,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_ai_test_connection,
+            #[cfg(target_os = "windows")]
             commands::native_office::ai_generate_latex,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,

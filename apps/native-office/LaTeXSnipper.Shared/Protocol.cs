@@ -243,8 +243,8 @@ public class NumberingIssueDto
 public class VstoNumberingCheckResult : VstoMessage
 {
     [JsonPropertyName("total")] public int Total { get; set; }
-    [JsonPropertyName("issues")] public List<NumberingIssueDto> Issues { get; set; } = new();
-    [JsonPropertyName("entries")] public List<NumberingEntryDto> Entries { get; set; } = new();
+    [JsonPropertyName("issues")] public List<NumberingIssueDto> Issues { get; set; } = new List<NumberingIssueDto>();
+    [JsonPropertyName("entries")] public List<NumberingEntryDto> Entries { get; set; } = new List<NumberingEntryDto>();
 }
 
 public class VstoReplaceResult : VstoMessage

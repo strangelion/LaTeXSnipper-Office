@@ -844,8 +844,8 @@ namespace LaTeXSnipper.Word.Host
                     {
                         continue;
                     }
-                    if (!code.Contains("SEQ", StringComparison.OrdinalIgnoreCase) ||
-                        !code.Contains("LaTeXSnipperEquation", StringComparison.Ordinal))
+                    if (code.IndexOf("SEQ", StringComparison.OrdinalIgnoreCase) < 0 ||
+                        code.IndexOf("LaTeXSnipperEquation", StringComparison.Ordinal) < 0)
                     {
                         continue;
                     }
@@ -863,11 +863,11 @@ namespace LaTeXSnipper.Word.Host
 
                 // Number analysis: parse the trailing integer of each value
                 // (handles "(1)", "(2.3)", "式 4", "[I]" → fallback to raw).
-                var numeric = new List<(uint Index, long? Number, string Raw)>();
+                var numeric = new List<NumberingValue>();
                 foreach (var entry in entries)
                 {
                     long? parsed = TryParseTrailingNumber(entry.Value);
-                    numeric.Add((entry.Index, parsed, entry.Value));
+                    numeric.Add(new NumberingValue(entry.Index, parsed, entry.Value));
                 }
 
                 var seen = new HashSet<long>();
@@ -924,6 +924,23 @@ namespace LaTeXSnipper.Word.Host
                 };
             }
             return result;
+        }
+
+        /// <summary>
+        /// Parsed equation number used by CheckNumbering analysis.
+        /// </summary>
+        private sealed class NumberingValue
+        {
+            public NumberingValue(uint index, long? number, string raw)
+            {
+                Index = index;
+                Number = number;
+                Raw = raw;
+            }
+
+            public uint Index { get; }
+            public long? Number { get; }
+            public string Raw { get; }
         }
 
         private static long? TryParseTrailingNumber(string value)
