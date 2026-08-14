@@ -59,6 +59,7 @@
     "mermaid": "^11.16.1",
     "temml": "^0.13.3"
   },
+  "prettier": {},
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "esbuild": "^0.28.1",
