@@ -1072,6 +1072,27 @@ a:hover {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
+.ai-generate-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.6rem;
+}
+
+.ai-generate-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-generate-row .btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+#crossRefPicker {
+  min-width: 240px;
+}
+
 .options-row {
   display: flex;
   flex-wrap: wrap;
