@@ -825,6 +825,42 @@ impl SessionManager {
                 }
             }
 
+            VstoMessage::NumberingCheckResult {
+                requestId,
+                sessionId,
+                total,
+                issues,
+                entries,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!(
+                    "[Session] NUMBERING_CHECK_RESULT total={} issues={}",
+                    total,
+                    issues.len()
+                );
+                let _ = self.app_handle.emit(
+                    "native-office-numbering-check-result",
+                    serde_json::json!({
+                        "total": total,
+                        "issues": issues,
+                        "entries": entries,
+                        "sessionId": sid,
+                    }),
+                );
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
             VstoMessage::HostError {
                 requestId,
                 sessionId,

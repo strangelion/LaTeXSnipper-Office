@@ -411,6 +411,14 @@ namespace LaTeXSnipper.Word
                     });
                     break;
                 }
+                case DesktopCheckNumbering checkCmd:
+                {
+                    var checkResult = _adapter.CheckNumbering();
+                    checkResult.RequestId = checkCmd.RequestId;
+                    checkResult.SessionId = checkCmd.SessionId;
+                    _pipeClient.SendOnlyAsync(checkResult);
+                    break;
+                }
                 case DesktopScanLatex scanCmd:
                 {
                     var scanner = new WordBatchLatexScanner(Application);

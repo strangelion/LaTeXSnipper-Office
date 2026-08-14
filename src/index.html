@@ -206,6 +206,20 @@
             <div class="editor-main">
               <div class="card">
                 <div class="card-title">公式编辑器</div>
+                <div class="ai-generate-row">
+                  <input
+                    id="aiPromptInput"
+                    type="text"
+                    placeholder="用文字描述公式，例如：质能方程 E=mc² 的积分形式"
+                  />
+                  <button
+                    id="aiGenerateBtn"
+                    class="btn"
+                    title="AI 生成 LaTeX（需在设置中配置 AI 服务）"
+                  >
+                    AI 生成
+                  </button>
+                </div>
                 <div id="mathfieldHost" class="mathfield-host"></div>
                 <textarea
                   id="latexSource"
@@ -504,6 +518,14 @@
                   style="display: none"
                 >
                   公式目录
+                </button>
+                <button
+                  id="checkNumberingBtn"
+                  class="btn office-insert-btn"
+                  title="检查文档中编号公式的重复/跳号问题"
+                  style="display: none"
+                >
+                  检查编号
                 </button>
                 <div
                   id="crossRefPicker"

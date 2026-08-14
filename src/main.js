@@ -2472,6 +2472,20 @@ class UIController {
       .getElementById("insertEquationListBtn")
       ?.addEventListener("click", () => this.insertEquationList());
     document
+      .getElementById("checkNumberingBtn")
+      ?.addEventListener("click", () => this.checkNumbering());
+    document
+      .getElementById("aiGenerateBtn")
+      ?.addEventListener("click", () => void this.aiGenerateFormula());
+    document
+      .getElementById("aiPromptInput")
+      ?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          void this.aiGenerateFormula();
+        }
+      });
+    document
       .getElementById("insertToEcosystem")
       ?.addEventListener("click", () => this.insertToEcosystem());
     document
@@ -3583,6 +3597,23 @@ class UIController {
             error,
           });
         }
+      });
+
+      listen("native-office-numbering-check-result", async (event) => {
+        const { total, issues } = event.payload;
+        const list = Array.isArray(issues) ? issues : [];
+        if (!list.length) {
+          this.showToast(`编号检查通过：共 ${total} 个编号公式，无重复或跳号`);
+          Logger.info("Numbering check passed", { total });
+          return;
+        }
+        const summary = list
+          .slice(0, 3)
+          .map((issue) => issue.detail || issue.issueType)
+          .join("；");
+        const more = list.length > 3 ? `，另 ${list.length - 3} 条` : "";
+        this.showToast(`编号检查发现 ${list.length} 个问题：${summary}${more}`);
+        Logger.warn("Numbering check issues", { total, issues: list });
       });
 
       listen("native-office-replace-result", async (event) => {
@@ -6286,6 +6317,80 @@ class UIController {
     }
   }
 
+  /**
+   * Ask Word to scan numbered formulas and report duplicates / gaps.
+   * The result arrives asynchronously via native-office-numbering-check-result.
+   */
+  async checkNumbering() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast("请先选择目标 Word 宿主");
+      return;
+    }
+    const session = this._sessions.find((s) => s.session_id === sessionId);
+    if (session && session.host_type !== "word") {
+      this.showToast("编号检查仅支持 Word 宿主");
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("native_office_check_numbering", { sessionId });
+      this.showToast("正在检查公式编号...");
+    } catch (error) {
+      Logger.error("Numbering check dispatch failed:", error);
+      this.showToast(`编号检查失败：${error?.message || error}`);
+    }
+  }
+
+  /**
+   * AI 生成：把自然语言描述转成 LaTeX 并填入编辑器，用户确认后再复制/插入。
+   * 需要先在设置中配置 AI 服务（endpoint/apiKey/model）。
+   */
+  async aiGenerateFormula() {
+    const input = document.getElementById("aiPromptInput");
+    const prompt = (input?.value || "").trim();
+    if (!prompt) {
+      this.showToast("请先描述你想生成的公式");
+      return;
+    }
+    const apiKey = this.settingsManager.get("aiApiKey");
+    if (!apiKey) {
+      this.showToast("请先在设置中配置 AI API Key（AI 服务）");
+      return;
+    }
+    const btn = document.getElementById("aiGenerateBtn");
+    const original = btn?.textContent;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "生成中...";
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const latex = await invoke("ai_generate_latex", {
+        prompt,
+        endpoint: this.settingsManager.get("aiEndpoint"),
+        apiKey,
+        model: this.settingsManager.get("aiModel"),
+      });
+      const clean = String(latex || "").trim();
+      if (!clean) {
+        this.showToast("AI 返回了空公式，请重试");
+        return;
+      }
+      this.editor.setLatex(clean);
+      this.showToast("AI 已生成公式，请预览确认后再插入/复制");
+      Logger.info("AI generated LaTeX:", clean);
+    } catch (error) {
+      Logger.error("AI generation failed:", error);
+      this.showToast(`AI 生成失败：${error?.message || error}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+  }
+
   async insertToWord() {
     const latex = this.editor.getLatex();
     console.log("[Insert] latex:", latex);
@@ -7071,6 +7176,9 @@ class UIController {
     if (refBtn) refBtn.style.display = enabled ? "" : "none";
     const listBtn = document.getElementById("insertEquationListBtn");
     if (listBtn) listBtn.style.display = enabled ? "" : "none";
+    // Numbering check buttons only exist for native Word sessions.
+    const checkBtn = document.getElementById("checkNumberingBtn");
+    if (checkBtn) checkBtn.style.display = enabled ? "" : "none";
     const refPicker = document.getElementById("crossRefPicker");
     if (refPicker && !enabled) refPicker.style.display = "none";
 

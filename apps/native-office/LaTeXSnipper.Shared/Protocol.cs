@@ -75,6 +75,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoScanLatexResult), "SCAN_LATEX_RESULT")]
 [JsonDerivedType(typeof(VstoBatchConvertResult), "BATCH_CONVERT_RESULT")]
 [JsonDerivedType(typeof(VstoReferenceResult), "REFERENCE_RESULT")]
+[JsonDerivedType(typeof(VstoNumberingCheckResult), "NUMBERING_CHECK_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -225,6 +226,27 @@ public class VstoReferenceResult : VstoMessage
     public string? Error { get; set; }
 }
 
+public class NumberingEntryDto
+{
+    [JsonPropertyName("value")] public string Value { get; set; } = "";
+    [JsonPropertyName("page")] public uint Page { get; set; }
+    [JsonPropertyName("index")] public uint Index { get; set; }
+}
+
+public class NumberingIssueDto
+{
+    [JsonPropertyName("issueType")] public string IssueType { get; set; } = "";
+    [JsonPropertyName("index")] public uint Index { get; set; }
+    [JsonPropertyName("detail")] public string Detail { get; set; } = "";
+}
+
+public class VstoNumberingCheckResult : VstoMessage
+{
+    [JsonPropertyName("total")] public int Total { get; set; }
+    [JsonPropertyName("issues")] public List<NumberingIssueDto> Issues { get; set; } = new();
+    [JsonPropertyName("entries")] public List<NumberingEntryDto> Entries { get; set; } = new();
+}
+
 public class VstoReplaceResult : VstoMessage
 {
     [JsonPropertyName("success")] public bool Success { get; set; }
@@ -346,6 +368,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopRenumberWord), "RENUMBER_WORD")]
 [JsonDerivedType(typeof(DesktopInsertWordReference), "INSERT_WORD_REFERENCE")]
 [JsonDerivedType(typeof(DesktopInsertEquationList), "INSERT_EQUATION_LIST")]
+[JsonDerivedType(typeof(DesktopCheckNumbering), "CHECK_NUMBERING")]
 [JsonDerivedType(typeof(DesktopConvertFormula), "CONVERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopScanLatex), "SCAN_LATEX")]
 [JsonDerivedType(typeof(DesktopBatchConvert), "BATCH_CONVERT")]
@@ -442,6 +465,9 @@ public class DesktopInsertWordReference : DesktopMessage
 
 [JsonDerivedType(typeof(DesktopInsertEquationList), "INSERT_EQUATION_LIST")]
 public class DesktopInsertEquationList : DesktopMessage { }
+
+[JsonDerivedType(typeof(DesktopCheckNumbering), "CHECK_NUMBERING")]
+public class DesktopCheckNumbering : DesktopMessage { }
 
 public class DesktopRequestReadSelection : DesktopMessage { }
 

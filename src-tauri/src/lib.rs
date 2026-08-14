@@ -489,6 +489,8 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_equation_list,
             #[cfg(target_os = "windows")]
+            commands::native_office::native_office_check_numbering,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_selection,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_table,
@@ -500,6 +502,7 @@ pub fn run() {
             commands::native_office::native_office_generate_and_import,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_ai_test_connection,
+            commands::native_office::ai_generate_latex,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_status,
             #[cfg(target_os = "windows")]

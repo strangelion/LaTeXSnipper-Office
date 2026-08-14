@@ -235,6 +235,15 @@ pub enum VstoMessage {
         error: Option<String>,
     },
 
+    #[serde(rename = "NUMBERING_CHECK_RESULT")]
+    NumberingCheckResult {
+        requestId: String,
+        sessionId: String,
+        total: usize,
+        issues: Vec<NumberingIssue>,
+        entries: Vec<NumberingEntryDto>,
+    },
+
     #[serde(rename = "HOST_ERROR")]
     HostError {
         requestId: String,
@@ -414,6 +423,12 @@ pub enum DesktopMessage {
 
     #[serde(rename = "INSERT_EQUATION_LIST")]
     InsertEquationList {
+        requestId: String,
+        sessionId: String,
+    },
+
+    #[serde(rename = "CHECK_NUMBERING")]
+    CheckNumbering {
         requestId: String,
         sessionId: String,
     },
@@ -649,6 +664,31 @@ pub struct FormatOptions {
     pub font_size: Option<f32>,
     #[serde(rename = "fontColor", skip_serializing_if = "Option::is_none")]
     pub font_color: Option<String>,
+}
+
+/// A single numbered equation found by scanning the document's SEQ fields.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NumberingEntryDto {
+    /// Displayed equation number, e.g. "(1)", "(2.3)" or "式 4".
+    pub value: String,
+    /// Page where the field result renders.
+    pub page: u32,
+    /// Field index in document order (1-based).
+    pub index: u32,
+}
+
+/// A numbering problem detected by the host (duplicate / gap / unnumbered).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NumberingIssue {
+    /// "duplicate" | "gap" | "unnumbered" | "parse"
+    #[serde(rename = "issueType")]
+    pub issue_type: String,
+    /// Where the issue occurred (field index).
+    pub index: u32,
+    /// Human-readable detail (localized by host).
+    pub detail: String,
 }
 
 // ---------------------------------------------------------------------------

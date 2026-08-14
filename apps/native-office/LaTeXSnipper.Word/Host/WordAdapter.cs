@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
@@ -805,6 +806,135 @@ namespace LaTeXSnipper.Word.Host
             if (bookmarkName.Length > 40)
                 bookmarkName = bookmarkName.Substring(0, 40);
             return bookmarkName;
+        }
+
+        /// <summary>
+        /// Scan the document for every SEQ LaTeXSnipperEquation field and
+        /// report numbering health: duplicates, gaps and unparseable values.
+        /// </summary>
+        public VstoNumberingCheckResult CheckNumbering()
+        {
+            var result = new VstoNumberingCheckResult();
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                {
+                    result.Total = 0;
+                    return result;
+                }
+
+                var entries = new List<NumberingEntryDto>();
+                uint index = 0;
+                foreach (Microsoft.Office.Interop.Word.Field field in doc.Fields)
+                {
+                    string code;
+                    string value;
+                    uint page;
+                    try
+                    {
+                        code = field.Code?.Text ?? "";
+                        value = field.Result?.Text?.Trim() ?? "";
+                        page = field.Result != null
+                            ? (uint)field.Result.Information[
+                                Microsoft.Office.Interop.Word.WdInformation.wdActiveEndPageNumber]
+                            : 0u;
+                    }
+                    catch (System.Runtime.InteropServices.COMException)
+                    {
+                        continue;
+                    }
+                    if (!code.Contains("SEQ", StringComparison.OrdinalIgnoreCase) ||
+                        !code.Contains("LaTeXSnipperEquation", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    index += 1;
+                    entries.Add(new NumberingEntryDto
+                    {
+                        Index = index,
+                        Value = string.IsNullOrEmpty(value) ? "<empty>" : value,
+                        Page = page
+                    });
+                }
+
+                result.Total = entries.Count;
+                result.Entries = entries;
+
+                // Number analysis: parse the trailing integer of each value
+                // (handles "(1)", "(2.3)", "式 4", "[I]" → fallback to raw).
+                var numeric = new List<(uint Index, long? Number, string Raw)>();
+                foreach (var entry in entries)
+                {
+                    long? parsed = TryParseTrailingNumber(entry.Value);
+                    numeric.Add((entry.Index, parsed, entry.Value));
+                }
+
+                var seen = new HashSet<long>();
+                var issues = new List<NumberingIssueDto>();
+                long? previous = null;
+                foreach (var item in numeric)
+                {
+                    if (item.Number == null)
+                    {
+                        issues.Add(new NumberingIssueDto
+                        {
+                            IssueType = "parse",
+                            Index = item.Index,
+                            Detail = $"第 {item.Index} 个公式编号无法解析：\"{item.Raw}\""
+                        });
+                        previous = null;
+                        continue;
+                    }
+                    var num = item.Number.Value;
+                    if (!seen.Add(num))
+                    {
+                        issues.Add(new NumberingIssueDto
+                        {
+                            IssueType = "duplicate",
+                            Index = item.Index,
+                            Detail = $"编号 {item.Raw} 重复出现（第 {item.Index} 个公式）"
+                        });
+                    }
+                    else if (previous.HasValue && num != previous.Value + 1)
+                    {
+                        issues.Add(new NumberingIssueDto
+                        {
+                            IssueType = "gap",
+                            Index = item.Index,
+                            Detail = num > previous.Value + 1
+                                ? $"编号 {item.Raw} 前跳号：缺少 {previous.Value + 1}..{num - 1}"
+                                : $"编号 {item.Raw} 乱序或回退（上一编号 {previous.Value}）"
+                        });
+                    }
+                    previous = num;
+                }
+                result.Issues = issues;
+            }
+            catch (Exception ex)
+            {
+                result.Issues = new List<NumberingIssueDto>
+                {
+                    new NumberingIssueDto
+                    {
+                        IssueType = "error",
+                        Index = 0,
+                        Detail = $"编号检查失败：{ex.Message}"
+                    }
+                };
+            }
+            return result;
+        }
+
+        private static long? TryParseTrailingNumber(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return null;
+            var match = System.Text.RegularExpressions.Regex.Match(value, @"(\d+)\s*[)）\]]?\s*$");
+            if (match.Success && long.TryParse(match.Groups[1].Value, out var number))
+            {
+                return number;
+            }
+            return null;
         }
 
         public string GetCurrentContextId()

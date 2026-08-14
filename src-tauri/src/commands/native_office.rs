@@ -585,6 +585,21 @@ pub async fn native_office_insert_equation_list(
     Ok("Equation list insertion sent".to_string())
 }
 
+/// Scan the active Word document for LaTeXSnipperEquation SEQ fields and
+/// report numbering issues. The host responds asynchronously with a
+/// NUMBERING_CHECK_RESULT forwarded to the frontend.
+#[tauri::command]
+pub async fn native_office_check_numbering(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+) -> Result<String, String> {
+    crate::platforms::pipe_server::send_check_numbering(&session_mgr, &session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Numbering check sent".to_string())
+}
+
 /// Convert a formula between storage modes (image ↔ ole, native ↔ ole).
 #[tauri::command]
 #[allow(
@@ -1174,6 +1189,27 @@ pub struct GenerateInsertResult {
     pub latex: String,
     pub omml: String,
     pub display: String,
+}
+
+/// Generate LaTeX from a natural-language prompt without touching Office.
+/// The frontend fills the editor with the result so the user can review and
+/// edit it before copying or inserting. Reuses the same AI pipeline as
+/// native_office_generate_and_insert.
+#[tauri::command]
+pub async fn ai_generate_latex(
+    prompt: String,
+    endpoint: Option<String>,
+    api_key: Option<String>,
+    model: Option<String>,
+) -> Result<String, String> {
+    let endpoint = endpoint.unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+    let api_key = api_key.ok_or("AI API key is required")?;
+    let model = model.unwrap_or_else(|| "gpt-4o".to_string());
+    let latex = call_ai_for_formula(&endpoint, &api_key, &model, &prompt).await?;
+    if latex.trim().is_empty() {
+        return Err("AI returned an empty formula".to_string());
+    }
+    Ok(latex)
 }
 
 /// Call an OpenAI-compatible API to generate a LaTeX formula from a natural language prompt.

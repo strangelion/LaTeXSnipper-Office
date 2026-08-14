@@ -482,6 +482,19 @@ pub async fn send_insert_equation_list(
     session_mgr.send_to_session(session_id, msg).await
 }
 
+/// Ask the Word host to scan every SEQ LaTeXSnipperEquation field and report
+/// numbering issues (duplicates, gaps, unnumbered entries).
+pub async fn send_check_numbering(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+) -> Result<(), super::session::SendError> {
+    let msg = DesktopMessage::CheckNumbering {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.to_string(),
+    };
+    session_mgr.send_to_session(session_id, msg).await
+}
+
 /// Generate a simple unique ID (no UUID crate dependency).
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
