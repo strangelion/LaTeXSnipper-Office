@@ -487,6 +487,32 @@
                   </svg>
                   插入
                 </button>
+                <button
+                  id="insertCrossRefBtn"
+                  class="btn office-insert-btn"
+                  title="插入对已编号公式的交叉引用，如「见公式 (2.3)」"
+                  style="display: none"
+                >
+                  交叉引用
+                </button>
+                <button
+                  id="insertEquationListBtn"
+                  class="btn office-insert-btn"
+                  title="插入公式目录（收集全部编号公式，Word 中按 F9 刷新）"
+                  style="display: none"
+                >
+                  公式目录
+                </button>
+                <div
+                  id="crossRefPicker"
+                  class="custom-select dropup"
+                  style="display: none"
+                >
+                  <div
+                    id="crossRefOptions"
+                    class="custom-select-dropdown"
+                  ></div>
+                </div>
                 <div
                   id="ecosystemHostSelector"
                   class="custom-select dropup"

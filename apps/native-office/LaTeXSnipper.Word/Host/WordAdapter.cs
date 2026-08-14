@@ -701,6 +701,112 @@ namespace LaTeXSnipper.Word.Host
             _application.Selection.TypeText(value);
         }
 
+        /// <summary>
+        /// Insert a cross-reference field at the cursor that points at the
+        /// equation bookmark (LSNEq_...) created by numbered inserts.
+        /// referenceType: "ref" shows the equation number, "pageref" shows
+        /// the page where the equation lives.
+        /// </summary>
+        public InsertResult InsertCrossReference(string formulaId, string referenceType)
+        {
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                    return new InsertResult { Success = false, Error = "No active document" };
+                var bookmarkName = BuildEquationBookmarkName(formulaId);
+                if (doc.Bookmarks.Exists(bookmarkName) == false)
+                {
+                    return new InsertResult
+                    {
+                        Success = false,
+                        Error = $"No numbered formula bookmark found for {formulaId} (bookmark {bookmarkName}). " +
+                                 "Only numbered equations inserted with 编号模式 create references.",
+                        ErrorCode = "BOOKMARK_NOT_FOUND"
+                    };
+                }
+
+                var selection = _application.Selection;
+                var fieldInstruction = string.Equals(referenceType, "pageref", StringComparison.OrdinalIgnoreCase)
+                    ? $" PAGEREF {bookmarkName} \\h "
+                    : $" REF {bookmarkName} \\h ";
+                var field = doc.Fields.Add(
+                    selection.Range,
+                    Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                    fieldInstruction,
+                    true);
+                field.Update();
+                return new InsertResult { Success = true, FormulaId = formulaId };
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = ex.Message,
+                    ErrorCode = "WORD_COM_FAILURE"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = ex.Message,
+                    ErrorCode = "WORD_INSERT_REFERENCE_FAILED"
+                };
+            }
+        }
+
+        /// <summary>
+        /// Insert a "List of Equations" TOC field collecting the
+        /// LaTeXSnipperEquation SEQ sequence used by numbered formulas.
+        /// </summary>
+        public InsertResult InsertEquationList()
+        {
+            try
+            {
+                var doc = _application.ActiveDocument;
+                if (doc == null)
+                    return new InsertResult { Success = false, Error = "No active document" };
+                var selection = _application.Selection;
+                var field = doc.Fields.Add(
+                    selection.Range,
+                    Microsoft.Office.Interop.Word.WdFieldType.wdFieldEmpty,
+                    " TOC \\c \"SEQ LaTeXSnipperEquation\" \\z ",
+                    true);
+                field.Update();
+                return new InsertResult { Success = true };
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = ex.Message,
+                    ErrorCode = "WORD_COM_FAILURE"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new InsertResult
+                {
+                    Success = false,
+                    Error = ex.Message,
+                    ErrorCode = "WORD_INSERT_EQUATION_LIST_FAILED"
+                };
+            }
+        }
+
+        private static string BuildEquationBookmarkName(string formulaId)
+        {
+            var bookmarkName = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(
+                formulaId, "[^A-Za-z0-9_]", "_");
+            if (bookmarkName.Length > 40)
+                bookmarkName = bookmarkName.Substring(0, 40);
+            return bookmarkName;
+        }
+
         public string GetCurrentContextId()
         {
             var document = _application.ActiveDocument;

@@ -782,6 +782,49 @@ impl SessionManager {
                 }
             }
 
+            VstoMessage::ReferenceResult {
+                requestId,
+                sessionId,
+                kind,
+                success,
+                formulaId,
+                errorCode,
+                error,
+            } => {
+                let rid = requestId.clone();
+                let sid = sessionId.clone();
+                log::info!(
+                    "[Session] REFERENCE_RESULT kind={} success={} formulaId={:?} errorCode={:?} error={:?}",
+                    kind,
+                    success,
+                    formulaId,
+                    errorCode,
+                    error
+                );
+                let _ = self.app_handle.emit(
+                    "native-office-reference-result",
+                    serde_json::json!({
+                        "kind": kind,
+                        "success": success,
+                        "formulaId": formulaId,
+                        "errorCode": errorCode,
+                        "error": error,
+                        "sessionId": sid,
+                    }),
+                );
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: rid.clone(),
+                        sessionId: sid.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId: rid,
+                            sessionId: sid,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
             VstoMessage::HostError {
                 requestId,
                 sessionId,

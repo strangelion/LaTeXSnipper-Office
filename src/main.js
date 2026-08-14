@@ -627,6 +627,24 @@ class FormulaLibrary {
         }
       }
     }
+    // Rank matches: pinned > favorite > usage count > last used > label.
+    results.sort((a, b) => {
+      const pa = a.formula.preference || {};
+      const pb = b.formula.preference || {};
+      if (Boolean(pa.pinned) !== Boolean(pb.pinned)) return pa.pinned ? -1 : 1;
+      if (Boolean(pa.favorite) !== Boolean(pb.favorite)) {
+        return pa.favorite ? -1 : 1;
+      }
+      const ua = pa.usageCount || 0;
+      const ub = pb.usageCount || 0;
+      if (ua !== ub) return ub - ua;
+      const la = pa.lastUsedAt || 0;
+      const lb = pb.lastUsedAt || 0;
+      if (la !== lb) return lb - la;
+      return String(a.formula.label || "").localeCompare(
+        String(b.formula.label || ""),
+      );
+    });
     Logger.debug(`search: ${results.length} results`);
     return results;
   }
@@ -2448,6 +2466,12 @@ class UIController {
       .getElementById("insertToWord")
       ?.addEventListener("click", () => this.insertToWord());
     document
+      .getElementById("insertCrossRefBtn")
+      ?.addEventListener("click", () => this.toggleCrossRefPicker());
+    document
+      .getElementById("insertEquationListBtn")
+      ?.addEventListener("click", () => this.insertEquationList());
+    document
       .getElementById("insertToEcosystem")
       ?.addEventListener("click", () => this.insertToEcosystem());
     document
@@ -2992,6 +3016,8 @@ class UIController {
     this._selectedHostType = "";
     this._selectedEcosystemTarget = "";
     this._sessions = [];
+    // Formulas inserted in 编号 mode this session, for cross-references.
+    this._recentNumberedFormulas = [];
 
     // Update host selector dropdown
     this.updateOfficeHostSelector = async () => {
@@ -3316,6 +3342,8 @@ class UIController {
               this.officeNumberingOptions(mode)?.separator ?? null,
             integrationMode: integrationMode,
           });
+          // Track numbered inserts so cross-references can point at them.
+          this._trackNumberedFormula(formulaId, latex, mode);
         }
         this.showToast("正在发送到 Office，等待确认...");
         this.addHistoryItem(latex);
@@ -3530,6 +3558,30 @@ class UIController {
             status.title = error || "";
           }
           this.showToast(`${friendlyMsg}${error ? ` 详情：${error}` : ""}`);
+        }
+      });
+
+      listen("native-office-reference-result", async (event) => {
+        const { kind, success, formulaId, error, errorCode } = event.payload;
+        if (success) {
+          const label = kind === "equation-list" ? "公式目录" : "交叉引用";
+          this.showToast(
+            `${label}已插入，请在 Word 中按 F9 刷新域以显示最新内容`,
+          );
+          Logger.info(
+            `Native Office: ${label} inserted (formulaId=${formulaId || "-"})`,
+          );
+        } else {
+          const label = kind === "equation-list" ? "公式目录" : "交叉引用";
+          const friendly =
+            errorCode === "BOOKMARK_NOT_FOUND"
+              ? "未找到对应编号公式。交叉引用仅支持通过本工具以「编号」模式插入的公式。"
+              : `${label}插入失败`;
+          this.showToast(`${friendly}${error ? ` 详情：${error}` : ""}`);
+          Logger.error(`Native Office: ${label} failed`, {
+            errorCode,
+            error,
+          });
         }
       });
 
@@ -6119,6 +6171,121 @@ class UIController {
     return new Blob([bytes], { type });
   }
 
+  /**
+   * Record a formula that was just inserted in 编号 (numbered) mode so the
+   * cross-reference picker can point at its LSNEq_* bookmark. Session-scoped.
+   */
+  _trackNumberedFormula(formulaId, latex, mode) {
+    if (!formulaId || mode !== FORMULA_INSERT_MODES.NUMBERED) return;
+    const list = this._recentNumberedFormulas || [];
+    const existing = list.find((item) => item.formulaId === formulaId);
+    if (existing) {
+      existing.latex = latex;
+      existing.at = Date.now();
+    } else {
+      list.unshift({ formulaId, latex, at: Date.now() });
+      if (list.length > 20) list.pop();
+    }
+    this._recentNumberedFormulas = list;
+  }
+
+  /**
+   * Toggle the picker that lists formulas inserted in numbered mode in this
+   * session. Selecting one inserts a REF field at the cursor in Word.
+   */
+  toggleCrossRefPicker() {
+    const picker = document.getElementById("crossRefPicker");
+    const optionsEl = document.getElementById("crossRefOptions");
+    if (!picker || !optionsEl) return;
+    const visible = picker.style.display !== "none";
+    if (visible) {
+      picker.style.display = "none";
+      return;
+    }
+
+    const list = this._recentNumberedFormulas || [];
+    optionsEl.innerHTML = "";
+    if (list.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "custom-select-option";
+      empty.style.color = "var(--muted)";
+      empty.style.cursor = "default";
+      empty.textContent = "本会话还没有编号公式，请先以「编号」模式插入";
+      optionsEl.appendChild(empty);
+      picker.style.display = "block";
+      return;
+    }
+    list.forEach(({ formulaId, latex }) => {
+      const option = document.createElement("div");
+      option.className = "custom-select-option";
+      const label = document.createElement("div");
+      label.className = "formula-latex";
+      label.textContent =
+        latex && latex.length > 60 ? `${latex.slice(0, 60)}…` : latex;
+      option.appendChild(label);
+      option.addEventListener("click", () => {
+        picker.style.display = "none";
+        void this.insertCrossReference(formulaId);
+      });
+      optionsEl.appendChild(option);
+    });
+    picker.style.display = "block";
+  }
+
+  /**
+   * Insert a REF field at the Word cursor pointing at the numbered formula's
+   * bookmark. Word renders it as the equation number, e.g. (2.3).
+   */
+  async insertCrossReference(formulaId) {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast("请先选择目标 Word 宿主");
+      return;
+    }
+    const session = this._sessions.find((s) => s.session_id === sessionId);
+    if (session && session.host_type !== "word") {
+      this.showToast("交叉引用仅支持 Word 宿主");
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("native_office_insert_reference", {
+        sessionId,
+        formulaId,
+        referenceType: "ref",
+      });
+      this.showToast("正在插入交叉引用...");
+    } catch (error) {
+      Logger.error("Cross-reference insertion failed:", error);
+      this.showToast(`交叉引用插入失败：${error?.message || error}`);
+    }
+  }
+
+  /**
+   * Insert a "List of Equations" TOC field at the Word cursor. It collects
+   * every LaTeXSnipperEquation SEQ field; user presses F9 in Word to refresh.
+   */
+  async insertEquationList() {
+    const sessionId = this._selectedSessionId;
+    if (!sessionId) {
+      this.showToast("请先选择目标 Word 宿主");
+      return;
+    }
+    const session = this._sessions.find((s) => s.session_id === sessionId);
+    if (session && session.host_type !== "word") {
+      this.showToast("公式目录仅支持 Word 宿主");
+      return;
+    }
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("native_office_insert_equation_list", { sessionId });
+      this.showToast("正在插入公式目录...");
+    } catch (error) {
+      Logger.error("Equation list insertion failed:", error);
+      this.showToast(`公式目录插入失败：${error?.message || error}`);
+    }
+  }
+
   async insertToWord() {
     const latex = this.editor.getLatex();
     console.log("[Insert] latex:", latex);
@@ -6899,6 +7066,13 @@ class UIController {
     if (btn) btn.style.display = enabled ? "" : "none";
     const loadBtn = document.getElementById("loadFromWord");
     if (loadBtn) loadBtn.style.display = enabled ? "" : "none";
+    // Cross-reference / equation list only exist for native Word sessions.
+    const refBtn = document.getElementById("insertCrossRefBtn");
+    if (refBtn) refBtn.style.display = enabled ? "" : "none";
+    const listBtn = document.getElementById("insertEquationListBtn");
+    if (listBtn) listBtn.style.display = enabled ? "" : "none";
+    const refPicker = document.getElementById("crossRefPicker");
+    if (refPicker && !enabled) refPicker.style.display = "none";
 
     // Table buttons: use capability check (Word supports tables, Excel/PPT do not)
     const canInsertTable =

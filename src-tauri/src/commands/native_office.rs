@@ -570,6 +570,21 @@ pub async fn native_office_insert_reference(
     Ok("Reference insertion sent".to_string())
 }
 
+/// Insert a "List of Equations" TOC field at the cursor in the active Word
+/// document. The field collects the LaTeXSnipperEquation SEQ sequence used
+/// by numbered formulas and must be refreshed (F9) by the user.
+#[tauri::command]
+pub async fn native_office_insert_equation_list(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    session_id: String,
+) -> Result<String, String> {
+    crate::platforms::pipe_server::send_insert_equation_list(&session_mgr, &session_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok("Equation list insertion sent".to_string())
+}
+
 /// Convert a formula between storage modes (image ↔ ole, native ↔ ole).
 #[tauri::command]
 #[allow(

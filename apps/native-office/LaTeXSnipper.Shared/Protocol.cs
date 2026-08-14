@@ -74,6 +74,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoConversationImportResult), "CONVERSATION_IMPORT_RESULT")]
 [JsonDerivedType(typeof(VstoScanLatexResult), "SCAN_LATEX_RESULT")]
 [JsonDerivedType(typeof(VstoBatchConvertResult), "BATCH_CONVERT_RESULT")]
+[JsonDerivedType(typeof(VstoReferenceResult), "REFERENCE_RESULT")]
 [JsonDerivedType(typeof(VstoHostError), "HOST_ERROR")]
 public abstract class VstoMessage
 {
@@ -211,6 +212,19 @@ public class VstoInsertResult : VstoMessage
     public string? ErrorCode { get; set; }
 }
 
+public class VstoReferenceResult : VstoMessage
+{
+    [JsonPropertyName("kind")] public string Kind { get; set; } = "reference";
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("formulaId")] public string? FormulaId { get; set; }
+    [JsonPropertyName("errorCode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+    [JsonPropertyName("error")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; set; }
+}
+
 public class VstoReplaceResult : VstoMessage
 {
     [JsonPropertyName("success")] public bool Success { get; set; }
@@ -331,6 +345,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopFormatAll), "FORMAT_ALL")]
 [JsonDerivedType(typeof(DesktopRenumberWord), "RENUMBER_WORD")]
 [JsonDerivedType(typeof(DesktopInsertWordReference), "INSERT_WORD_REFERENCE")]
+[JsonDerivedType(typeof(DesktopInsertEquationList), "INSERT_EQUATION_LIST")]
 [JsonDerivedType(typeof(DesktopConvertFormula), "CONVERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopScanLatex), "SCAN_LATEX")]
 [JsonDerivedType(typeof(DesktopBatchConvert), "BATCH_CONVERT")]
@@ -424,6 +439,9 @@ public class DesktopInsertWordReference : DesktopMessage
     [JsonPropertyName("formulaId")] public string FormulaId { get; set; } = "";
     [JsonPropertyName("referenceType")] public string ReferenceType { get; set; } = "";
 }
+
+[JsonDerivedType(typeof(DesktopInsertEquationList), "INSERT_EQUATION_LIST")]
+public class DesktopInsertEquationList : DesktopMessage { }
 
 public class DesktopRequestReadSelection : DesktopMessage { }
 

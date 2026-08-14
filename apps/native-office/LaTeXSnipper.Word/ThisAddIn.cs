@@ -382,6 +382,35 @@ namespace LaTeXSnipper.Word
                     });
                     break;
                 }
+                case DesktopInsertWordReference refCmd:
+                {
+                    var refResult = _adapter.InsertCrossReference(refCmd.FormulaId, refCmd.ReferenceType);
+                    _pipeClient.SendOnlyAsync(new VstoReferenceResult
+                    {
+                        RequestId = refCmd.RequestId,
+                        SessionId = refCmd.SessionId,
+                        Kind = "reference",
+                        Success = refResult.Success,
+                        FormulaId = refResult.Success ? refCmd.FormulaId : null,
+                        ErrorCode = refResult.ErrorCode,
+                        Error = string.IsNullOrEmpty(refResult.Error) ? null : refResult.Error
+                    });
+                    break;
+                }
+                case DesktopInsertEquationList listCmd:
+                {
+                    var listResult = _adapter.InsertEquationList();
+                    _pipeClient.SendOnlyAsync(new VstoReferenceResult
+                    {
+                        RequestId = listCmd.RequestId,
+                        SessionId = listCmd.SessionId,
+                        Kind = "equation-list",
+                        Success = listResult.Success,
+                        ErrorCode = listResult.ErrorCode,
+                        Error = string.IsNullOrEmpty(listResult.Error) ? null : listResult.Error
+                    });
+                    break;
+                }
                 case DesktopScanLatex scanCmd:
                 {
                     var scanner = new WordBatchLatexScanner(Application);

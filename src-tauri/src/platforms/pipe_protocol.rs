@@ -220,6 +220,21 @@ pub enum VstoMessage {
         error: Option<String>,
     },
 
+    #[serde(rename = "REFERENCE_RESULT")]
+    ReferenceResult {
+        requestId: String,
+        sessionId: String,
+        /// "reference" for cross-references, "equation-list" for TOC fields.
+        kind: String,
+        success: bool,
+        #[serde(rename = "formulaId", skip_serializing_if = "Option::is_none")]
+        formulaId: Option<String>,
+        #[serde(rename = "errorCode", skip_serializing_if = "Option::is_none")]
+        errorCode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
     #[serde(rename = "HOST_ERROR")]
     HostError {
         requestId: String,
@@ -395,6 +410,12 @@ pub enum DesktopMessage {
         formulaId: String,
         #[serde(rename = "referenceType")]
         referenceType: String,
+    },
+
+    #[serde(rename = "INSERT_EQUATION_LIST")]
+    InsertEquationList {
+        requestId: String,
+        sessionId: String,
     },
 
     #[serde(rename = "CONVERT_FORMULA")]

@@ -469,6 +469,19 @@ pub async fn send_insert_word_reference(
     session_mgr.send_to_session(session_id, msg).await
 }
 
+/// Ask the Word host to insert a "List of Equations" TOC field that
+/// collects the LaTeXSnipperEquation SEQ sequence used by numbered formulas.
+pub async fn send_insert_equation_list(
+    session_mgr: &Arc<SessionManager>,
+    session_id: &str,
+) -> Result<(), super::session::SendError> {
+    let msg = DesktopMessage::InsertEquationList {
+        requestId: format!("cmd-{}", uuid_simple()),
+        sessionId: session_id.to_string(),
+    };
+    session_mgr.send_to_session(session_id, msg).await
+}
+
 /// Generate a simple unique ID (no UUID crate dependency).
 fn uuid_simple() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};

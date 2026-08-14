@@ -487,6 +487,8 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_reference,
             #[cfg(target_os = "windows")]
+            commands::native_office::native_office_insert_equation_list,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_selection,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_request_read_table,
