@@ -19,6 +19,9 @@ const FORMAT_PLANS = Object.freeze({
     requestedFormats: ["image/svg+xml"],
     label: "SVG",
     renderSvg: true,
+    // Render PNG too: single-set backends (arboard on macOS/Linux) can
+    // write a real bitmap image, and Windows then also serves CF_DIBV5.
+    renderPng: true,
   },
   md: {
     profile: "markdown",

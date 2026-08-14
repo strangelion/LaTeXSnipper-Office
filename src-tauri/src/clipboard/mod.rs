@@ -293,7 +293,7 @@ fn plan_portable_write(payloads: &[ClipboardPayload]) -> PortableWritePlan {
     plan
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
+#[cfg(not(target_os = "windows"))]
 fn write_portable_bundle(payloads: &[ClipboardPayload]) -> ClipboardWriteReport {
     let mut report = ClipboardWriteReport {
         backend: backend_name().to_string(),
@@ -399,7 +399,7 @@ fn write_portable_bundle(payloads: &[ClipboardPayload]) -> ClipboardWriteReport 
     report
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
+#[cfg(not(target_os = "windows"))]
 fn set_portable_text(
     report: &mut ClipboardWriteReport,
     clipboard: &mut arboard::Clipboard,
@@ -419,7 +419,7 @@ fn set_portable_text(
     }
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
+#[cfg(not(target_os = "windows"))]
 fn png_to_image_data(png: &[u8]) -> Option<arboard::ImageData<'static>> {
     use std::borrow::Cow;
 
@@ -436,7 +436,7 @@ fn png_to_image_data(png: &[u8]) -> Option<arboard::ImageData<'static>> {
     })
 }
 
-#[cfg(any(not(target_os = "windows"), test))]
+#[cfg(not(target_os = "windows"))]
 fn native_html_name() -> &'static str {
     if cfg!(target_os = "macos") {
         "public.html"

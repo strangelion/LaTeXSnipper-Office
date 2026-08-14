@@ -5903,11 +5903,50 @@ class UIController {
       }
     }
 
+    // Explicit MathML/OMML copies on macOS/Linux cannot be written by the
+    // native arboard backend (single set, no such MIME), so the web
+    // clipboard fallback must carry the actual converted content — the
+    // old textarea copy path did — instead of degrading to LaTeX. Smart
+    // copies also carry MathML/OMML as custom web-clipboard types so
+    // Ctrl/Cmd+C parity holds on every platform.
+    let mathml = null;
+    let omml = null;
+    let markupType = null;
+    if (this.platformContext?.os !== "windows") {
+      const explicitMathml = plan.requestedFormats?.includes(
+        "application/mathml+xml",
+      );
+      const explicitOmml = plan.requestedFormats?.includes(
+        "application/vnd.latexsnipper.omml+xml",
+      );
+      const smartBundle = !plan.requestedFormats;
+      if (explicitMathml || smartBundle) {
+        try {
+          mathml = this.latexToMathML(latex);
+          if (explicitMathml) markupType = "mathml";
+        } catch (mathmlError) {
+          Logger.warn("MathML fallback conversion failed:", mathmlError);
+        }
+      }
+      if (explicitOmml || smartBundle) {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          omml = await invoke("latex_to_omml", { latex });
+          if (explicitOmml) markupType = "omml";
+        } catch (ommlError) {
+          Logger.warn("OMML fallback conversion failed:", ommlError);
+        }
+      }
+    }
+
     const fallback = {
       latex,
       markdown,
       svg,
       pngBase64,
+      mathml,
+      omml,
+      markupType,
       preferMarkdown: plan.preferMarkdown,
     };
 
@@ -5956,19 +5995,20 @@ class UIController {
 
   /**
    * Browser clipboard enrichment for macOS/Linux: the native arboard
-   * backend can only hold one set per operation, so when rendered image
-   * formats are available we re-write them together with the text through
-   * the web clipboard API in a single multi-type set. Best effort: any
-   * failure keeps the native result unchanged.
+   * backend can only hold one set per operation, so rendered image formats
+   * that the native write skipped are re-written together with the text
+   * through the web clipboard API in a single multi-type set. Best effort:
+   * any failure keeps the native result unchanged.
    */
   async _enrichNonWindowsClipboard(written, fallback) {
     if (this.platformContext?.os === "windows") return 0;
-    const hasImage = written.some(
-      (item) => item.format === "image/png" || item.format === "image/svg+xml",
-    );
-    if (hasImage || !(fallback.svg || fallback.pngBase64)) return 0;
+    const hasSvg = written.some((item) => item.format === "image/svg+xml");
+    const hasPng = written.some((item) => item.format === "image/png");
+    if ((!fallback.svg || hasSvg) && (!fallback.pngBase64 || hasPng)) {
+      return 0;
+    }
     const items = this._webClipboardItems(fallback, {
-      includeHtml: Boolean(fallback.pngBase64),
+      includeHtml: Boolean(fallback.pngBase64 && !hasPng),
     });
     const ok = await this._writeWebClipboard(items, fallback);
     return ok ? Object.keys(items).length : 0;
@@ -5986,10 +6026,33 @@ class UIController {
     return this._writeWebClipboard(items, fallback);
   }
 
+  /**
+   * What the browser clipboard should carry as its plain-text member:
+   * the actual requested markup (MathML/OMML) for explicit copies, then
+   * markdown for markdown copies, then LaTeX.
+   */
+  _fallbackText(fallback) {
+    if (fallback.markupType === "mathml") return fallback.mathml;
+    if (fallback.markupType === "omml") return fallback.omml;
+    return fallback.preferMarkdown ? fallback.markdown : fallback.latex;
+  }
+
   _webClipboardItems(fallback, { includeHtml = false } = {}) {
     const items = {};
-    const text = fallback.preferMarkdown ? fallback.markdown : fallback.latex;
-    items["text/plain"] = new Blob([text], { type: "text/plain" });
+    items["text/plain"] = new Blob([this._fallbackText(fallback)], {
+      type: "text/plain",
+    });
+    if (fallback.mathml) {
+      items["application/mathml+xml"] = new Blob([fallback.mathml], {
+        type: "application/mathml+xml",
+      });
+    }
+    if (fallback.omml) {
+      items["application/vnd.latexsnipper.omml+xml"] = new Blob(
+        [fallback.omml],
+        { type: "application/vnd.latexsnipper.omml+xml" },
+      );
+    }
     if (fallback.svg) {
       items["image/svg+xml"] = new Blob([fallback.svg], {
         type: "image/svg+xml",
@@ -6008,7 +6071,7 @@ class UIController {
   }
 
   async _writeWebClipboard(items, fallback) {
-    const text = fallback.preferMarkdown ? fallback.markdown : fallback.latex;
+    const text = this._fallbackText(fallback);
     if (
       navigator.clipboard?.write &&
       typeof globalThis.ClipboardItem === "function"
@@ -6024,7 +6087,25 @@ class UIController {
       await navigator.clipboard.writeText(text);
       return true;
     } catch (error) {
-      Logger.warn("Browser clipboard write failed:", error);
+      Logger.warn("navigator.clipboard write failed:", error);
+    }
+    // WKWebView / WebKitGTK do not always expose a working async
+    // clipboard, so restore the pre-backend textarea+execCommand path
+    // as a last resort so explicit copies never silently lose content.
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      return Boolean(ok);
+    } catch (error) {
+      Logger.warn("execCommand clipboard copy failed:", error);
       return false;
     }
   }
