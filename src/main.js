@@ -494,6 +494,9 @@ class FormulaLibrary {
       }
 
       this.loaded = true;
+      // Persist any legacy (LaTeX-keyed) preference records migrated to the
+      // stable label-based IDs during hydration.
+      saveFormulaPreferences(this.preferences);
       Logger.info(`Loaded ${this.categories.length} categories`);
     } catch (e) {
       Logger.error("Failed to load formula data:", e);

@@ -50,5 +50,14 @@ export async function initRecognitionWorkspace() {
     });
   }
 
+  // Engine readiness drives the status badge (core / models / quality).
+  try {
+    const readiness = await api.getReadiness();
+    store.setReadiness(readiness);
+  } catch (err) {
+    console.warn("[Recognition] Readiness unavailable:", err);
+    store.setReadiness(null);
+  }
+
   console.log("[Recognition] Workspace initialized.");
 }

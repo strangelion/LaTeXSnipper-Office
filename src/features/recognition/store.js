@@ -4,6 +4,7 @@
  * Store shape:
  * {
  *   capabilities: { available: bool, modes: string[], outputFormats: string[] },
+ *   readiness: { coreVersion, models: [], quality: [], modes: [] } | null,
  *   jobs: Map<string, JobSnapshot>,
  *   selectedJobId: string | null,
  *   pendingJobIds: Set<string>,
@@ -17,6 +18,9 @@ let capabilities = {
   maxResolution: null,
   activeJobs: 0,
 };
+
+/** EngineReadiness from the backend (null until fetched or on failure). */
+let readiness = null;
 
 /** @type {Map<string, object>} */
 const jobs = new Map();
@@ -43,6 +47,7 @@ function notify() {
 export function getState() {
   return {
     capabilities: { ...capabilities },
+    readiness,
     jobs: Array.from(jobs.values()),
     selectedJobId,
     pendingJobIds: new Set(pendingJobIds),
@@ -65,6 +70,11 @@ export function initJobStore() {
 
 export function setCapabilities(caps) {
   capabilities = { ...caps };
+  notify();
+}
+
+export function setReadiness(value) {
+  readiness = value;
   notify();
 }
 

@@ -51,17 +51,56 @@ function renderStatus(state) {
   );
   const failed = jobs.some((j) => j.status === "Failed");
 
-  badge.classList.remove("is-ready", "is-busy", "is-error");
+  badge.classList.remove("is-ready", "is-busy", "is-error", "is-warning");
   if (running.length > 0) {
     badge.textContent = `处理中 ${running.length}`;
     badge.classList.add("is-busy");
-  } else if (failed) {
+    return;
+  }
+  if (failed) {
     badge.textContent = "部分失败";
     badge.classList.add("is-error");
-  } else {
-    badge.textContent = "就绪";
-    badge.classList.add("is-ready");
+    return;
   }
+
+  // No active/failed jobs: the badge must still reflect whether the
+  // backend can actually run — capabilities gate first, then engine
+  // readiness (core / models / quality baseline).
+  if (state.capabilities?.available === false) {
+    badge.textContent = "不可用";
+    badge.classList.add("is-error");
+    return;
+  }
+  const readiness = state.readiness;
+  if (!readiness) {
+    badge.textContent = "检查中";
+    return;
+  }
+  const technicalReady = (readiness.modes || []).some(
+    (mode) => mode.technicalReady === true,
+  );
+  if (!technicalReady) {
+    badge.textContent = "引擎不可用";
+    badge.classList.add("is-error");
+    return;
+  }
+  const models = readiness.models || [];
+  if (models.length === 0) {
+    badge.textContent = "模型缺失";
+    badge.classList.add("is-error");
+    return;
+  }
+  const quality = readiness.quality || [];
+  const anyValidated = quality.some(
+    (entry) => entry.status === "Validated" || entry.status === "Experimental",
+  );
+  if (quality.length > 0 && !anyValidated) {
+    badge.textContent = "基线未验证";
+    badge.classList.add("is-warning");
+    return;
+  }
+  badge.textContent = "就绪";
+  badge.classList.add("is-ready");
 }
 
 function renderJobList(jobs, selectedJobId) {
@@ -73,11 +112,18 @@ function renderJobList(jobs, selectedJobId) {
   if (count) count.textContent = String(ordered.length);
 
   if (ordered.length === 0) {
-    root.innerHTML = '<div class="recognition-job-empty">暂无识别任务</div>';
+    const empty = document.createElement("div");
+    empty.className = "recognition-job-empty";
+    empty.textContent = "暂无识别任务";
+    root.replaceChildren(empty);
     return;
   }
 
-  root.innerHTML = ordered.map((job) => renderJob(job, selectedJobId)).join("");
+  const fragment = document.createDocumentFragment();
+  for (const job of ordered) {
+    fragment.append(renderJob(job, selectedJobId));
+  }
+  root.replaceChildren(fragment);
 }
 
 function renderJob(job, selectedJobId) {
@@ -85,29 +131,55 @@ function renderJob(job, selectedJobId) {
   const status = String(job.status || "Unknown");
   const cancellable = ["Queued", "Running"].includes(status);
   const progress = normalizeProgress(job.progress);
-  const message = esc(String(job.message || ""));
+  const message = String(job.message || "");
 
-  return `<div class="recognition-job-item ${sel ? "selected" : ""}" data-job-id="${esc(job.id)}">
-    <div class="recognition-job-main">
-      <div class="recognition-job-title">
-        <span>${esc(job.id)}</span>
-        <span class="recognition-job-status status-${status.toLowerCase()}">${esc(status)}</span>
-      </div>
-      <div class="recognition-job-progress"><div style="width:${progress}%"></div></div>
-      ${message ? `<div class="recognition-job-message">${message}</div>` : ""}
-    </div>
-    ${cancellable ? `<button class="btn recognition-job-cancel" data-cancel-job="${esc(job.id)}">取消</button>` : ""}
-  </div>`;
+  const item = document.createElement("div");
+  item.className = `recognition-job-item${sel ? " selected" : ""}`;
+  item.dataset.jobId = job.id;
+
+  const main = document.createElement("div");
+  main.className = "recognition-job-main";
+
+  const title = document.createElement("div");
+  title.className = "recognition-job-title";
+  const idSpan = document.createElement("span");
+  idSpan.textContent = job.id;
+  const statusSpan = document.createElement("span");
+  statusSpan.className = `recognition-job-status status-${status
+    .toLowerCase()
+    .replace(/[^a-z]/g, "")}`;
+  statusSpan.textContent = status;
+  title.append(idSpan);
+  title.append(statusSpan);
+
+  const progressWrap = document.createElement("div");
+  progressWrap.className = "recognition-job-progress";
+  const bar = document.createElement("div");
+  bar.style.width = `${progress}%`;
+  progressWrap.append(bar);
+
+  main.append(title);
+  main.append(progressWrap);
+  if (message) {
+    const messageEl = document.createElement("div");
+    messageEl.className = "recognition-job-message";
+    messageEl.textContent = message;
+    main.append(messageEl);
+  }
+  item.append(main);
+
+  if (cancellable) {
+    const cancel = document.createElement("button");
+    cancel.className = "btn recognition-job-cancel";
+    cancel.dataset.cancelJob = job.id;
+    cancel.textContent = "取消";
+    item.append(cancel);
+  }
+  return item;
 }
 
 function normalizeProgress(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n <= 1 ? n * 100 : n)));
-}
-
-function esc(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
 }

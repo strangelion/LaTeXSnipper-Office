@@ -39,7 +39,11 @@ constexpr DWORD kMaxEmfRecordBytes = 64 * 1024 * 1024;
 constexpr int kInkOracleMaxEdge = 1024;
 constexpr int kInkOracleExtremeMaxEdge = 4096;
 constexpr int kInkOracleMinEdge = 32;
-constexpr double kMinimumRetainedInkCoverage = 0.85;
+constexpr double kMinimumRetainedInkCoverage = 0.95;
+// Extremely wide, sparse formulas (width/height > 10 and coverage < 10%)
+// lose boundary pixels to sub-pixel rasterization quantization; measured
+// retained ~0.91 for the 32-term fixture. Ordinary formulas must clear 0.95.
+constexpr double kMinimumRetainedInkCoverageSparseWide = 0.90;
 constexpr double kMaxCoordinateMagnitude = 1.0e9;
 constexpr double kHimetricPerInch = 2540.0;
 constexpr double kPointsPerInch = 72.0;
@@ -1506,18 +1510,38 @@ bool AnalyzeEmfInkIntegrity(
                 L" oracleAspect=" + std::to_wstring(oracleInkAspect);
             return false;
         }
-        if (expectedRaster->coverageRatio > 0.0 &&
-            integrity->coverageRatio / expectedRaster->coverageRatio <
-                kMinimumRetainedInkCoverage)
+        if (expectedRaster->coverageRatio > 0.0)
         {
-            integrity->reason =
-                L"OLE_INK_COVERAGE_REGRESSION: actual=" +
-                std::to_wstring(integrity->coverageRatio) +
-                L" expected=" + std::to_wstring(expectedRaster->coverageRatio) +
-                L" retained=" +
-                std::to_wstring(
-                    integrity->coverageRatio / expectedRaster->coverageRatio);
-            return false;
+            const double retained =
+                integrity->coverageRatio / expectedRaster->coverageRatio;
+            double floor = kMinimumRetainedInkCoverage;
+            // Extremely wide formulas (e.g. a 1200pt-wide, few-pt-tall
+            // 32-term fixture) rasterize at sub-pixel scale where boundary
+            // quantization dominates and legitimately lands around 0.91,
+            // well below the strict 0.95 floor for ordinary formulas.
+            const LONG inkWidth = integrity->rasterOracleInkBounds.right -
+                                  integrity->rasterOracleInkBounds.left;
+            const LONG inkHeight = integrity->rasterOracleInkBounds.bottom -
+                                   integrity->rasterOracleInkBounds.top;
+            const bool sparseWide =
+                expectedRaster->coverageRatio < 0.10 &&
+                inkHeight > 0 &&
+                static_cast<double>(inkWidth) / static_cast<double>(inkHeight) >
+                    10.0;
+            if (sparseWide)
+            {
+                floor = kMinimumRetainedInkCoverageSparseWide;
+            }
+            if (retained < floor)
+            {
+                integrity->reason =
+                    L"OLE_INK_COVERAGE_REGRESSION: actual=" +
+                    std::to_wstring(integrity->coverageRatio) +
+                    L" expected=" +
+                    std::to_wstring(expectedRaster->coverageRatio) +
+                    L" retained=" + std::to_wstring(retained);
+                return false;
+            }
         }
     }
     integrity->valid = true;

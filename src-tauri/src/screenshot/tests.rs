@@ -73,13 +73,20 @@ fn preview_is_downsampled_without_changing_aspect_ratio() {
 }
 
 #[test]
-fn overlay_timeout_scales_and_is_capped() {
+fn overlay_timeout_scales_with_monitors_and_pixels() {
     let single = overlay_ready_timeout(1, &[(1920, 1080)]);
     let mixed = overlay_ready_timeout(3, &[(3840, 2160), (2560, 1440), (1920, 1080)]);
     let extreme = overlay_ready_timeout(12, &[(7680, 4320); 12]);
-    assert!(single >= Duration::from_secs(3));
+    // Base budget is 8s; a single 1080p display must never fall below it
+    // (the old formula clamped to 3000ms, which cold WebView2 could exceed).
+    assert!(single >= Duration::from_secs(8));
     assert!(mixed > single);
-    assert_eq!(extreme, Duration::from_secs(8));
+    // 12×8K must scale past the old 8s ceiling.
+    assert!(extreme > Duration::from_secs(30));
+    // A 4K display gets a visibly larger budget than 1080p.
+    let fhd = overlay_ready_timeout(1, &[(1920, 1080)]);
+    let uhd = overlay_ready_timeout(1, &[(3840, 2160)]);
+    assert!(uhd > fhd);
 }
 
 #[test]

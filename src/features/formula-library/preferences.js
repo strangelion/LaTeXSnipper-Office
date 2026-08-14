@@ -1,6 +1,24 @@
 export const FORMULA_PREFERENCES_KEY = "latexsnipper.formula-preferences.v1";
 
-export function formulaPreferenceId(categoryId, latex) {
+/**
+ * Stable identity of a built-in formula: the category plus its semantic
+ * label, NOT its LaTeX body — so editing the LaTeX (e.g. \frac → \dfrac)
+ * does not silently orphan the user's favorite/pin/hide/usage state.
+ * Duplicate labels inside one category get a 1-based occurrence suffix.
+ */
+export function formulaStableId(categoryId, label, occurrenceIndex = 0) {
+  const safeLabel = String(label || "")
+    .replace(/:/g, "·")
+    .trim();
+  const base = `${categoryId}:${safeLabel}`;
+  return occurrenceIndex > 0 ? `${base}#${occurrenceIndex}` : base;
+}
+
+/**
+ * Legacy (v1) identity keyed by the raw LaTeX body. Kept only to migrate
+ * preferences recorded before stable IDs existed.
+ */
+export function legacyFormulaId(categoryId, latex) {
   return `${categoryId}:${latex}`;
 }
 
@@ -47,18 +65,28 @@ export function createFormulaRecord(
   label,
   latex,
   preferences = {},
+  occurrenceIndex = 0,
 ) {
-  const id = formulaPreferenceId(categoryId, latex);
+  const id = formulaStableId(categoryId, label, occurrenceIndex);
+  const legacyId = legacyFormulaId(categoryId, latex);
+  const stored = preferences[id] ?? preferences[legacyId];
+  if (stored && preferences[legacyId] && !preferences[id]) {
+    // One-time migration: promote the legacy (LaTeX-keyed) record to the
+    // stable label key so existing favorites survive the ID change.
+    preferences[id] = stored;
+    delete preferences[legacyId];
+  }
   return {
     id,
     categoryId,
     label,
     latex,
-    preference: normalizeFormulaPreference(preferences[id]),
+    preference: normalizeFormulaPreference(stored),
   };
 }
 
 export function hydrateFormulaItems(categoryId, items, preferences = {}) {
+  const seen = new Map();
   return (Array.isArray(items) ? items : [])
     .filter(
       (item) =>
@@ -66,9 +94,18 @@ export function hydrateFormulaItems(categoryId, items, preferences = {}) {
         typeof item[0] === "string" &&
         typeof item[1] === "string",
     )
-    .map((item) =>
-      createFormulaRecord(categoryId, item[0], item[1], preferences),
-    );
+    .map((item) => {
+      const label = item[0];
+      const occurrence = seen.get(label) || 0;
+      seen.set(label, occurrence + 1);
+      return createFormulaRecord(
+        categoryId,
+        label,
+        item[1],
+        preferences,
+        occurrence,
+      );
+    });
 }
 
 export function matchesFormulaPreferenceFilter(preference, filter) {

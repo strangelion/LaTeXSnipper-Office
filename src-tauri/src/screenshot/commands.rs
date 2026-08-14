@@ -251,17 +251,37 @@ async fn screenshot_begin_transaction(
             .as_slice(),
     );
     let ready_started = Instant::now();
-    let deadline = Instant::now() + ready_timeout;
+    // Soft deadline that keeps extending while overlays report progress (each
+    // newly-ready window resets the countdown); the hard cap only stops a
+    // genuinely stalled WebView from blocking forever.
+    let hard_deadline = Instant::now() + Duration::from_millis(OVERLAY_READY_HARD_CAP_MS);
+    let mut progress_deadline = Instant::now() + ready_timeout;
+    let mut last_ready = 0usize;
     while !state.all_ready(session_id)? {
-        if Instant::now() >= deadline {
+        let now = Instant::now();
+        if now >= hard_deadline {
             let (ready, expected, missing) = state.ready_progress(session_id)?;
             return Err(format!(
-                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within {}ms; ready={}/{} missing={}",
-                ready_timeout.as_millis(),
+                "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays did not initialize within {}ms (hard cap); ready={}/{} missing={}",
+                hard_deadline.elapsed().as_millis(),
                 ready,
                 expected,
                 missing.join(",")
             ));
+        }
+        if now >= progress_deadline {
+            let (ready, expected, missing) = state.ready_progress(session_id)?;
+            if ready <= last_ready {
+                return Err(format!(
+                    "SCREENSHOT_OVERLAY_READY_TIMEOUT: overlays stalled without progress within {}ms; ready={}/{} missing={}",
+                    ready_timeout.as_millis(),
+                    ready,
+                    expected,
+                    missing.join(",")
+                ));
+            }
+            last_ready = ready;
+            progress_deadline = now + Duration::from_millis(OVERLAY_READY_PROGRESS_GRACE_MS);
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
@@ -526,12 +546,22 @@ pub(crate) fn overlay_ready_timeout(
         total.saturating_add(u64::from(*width).saturating_mul(u64::from(*height)))
     });
     let megapixels = pixels.div_ceil(1_000_000);
-    let millis = 2_000u64
-        .saturating_add((monitor_count as u64).saturating_mul(500))
-        .saturating_add(megapixels.saturating_mul(75))
-        .clamp(3_000, 8_000);
+    // Cold WebView2 startup on a single 1080p display can already exceed 3s,
+    // so the base budget is 8s; each extra overlay adds 2s and every million
+    // physical pixels (4K ≈ 8.3 MP) adds 50ms. No low-end clamp below 8s.
+    let millis = 8_000u64
+        .saturating_add((monitor_count as u64).saturating_mul(2_000))
+        .saturating_add(megapixels.saturating_mul(50));
     Duration::from_millis(millis)
 }
+
+/// Absolute ceiling for overlay readiness. The soft deadline below keeps
+/// extending while overlays make progress, so this only guards against a
+/// pathological stall (e.g. a WebView that never fires the ready handshake).
+const OVERLAY_READY_HARD_CAP_MS: u64 = 45_000;
+
+/// Extra budget granted each time another overlay reports ready.
+const OVERLAY_READY_PROGRESS_GRACE_MS: u64 = 2_500;
 
 fn rollback_capture(
     app: &AppHandle,
