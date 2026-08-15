@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   compareFormulaPreferences,
+  createFormulaRecord,
+  formulaStableId,
   hydrateFormulaItems,
-  formulaPreferenceId,
+  legacyFormulaId,
   loadFormulaPreferences,
   matchesFormulaPreferenceFilter,
   saveFormulaPreferences,
@@ -17,10 +19,47 @@ function memoryStorage() {
   };
 }
 
-test("formula preference ids remain stable across reloads", () => {
+test("formula ids are stable across LaTeX edits", () => {
+  // The stable id is the category + semantic label, NOT the LaTeX body:
+  // changing \frac to \dfrac must not orphan the preference record.
   assert.equal(
-    formulaPreferenceId("analysis", "\\int_0^1 x\\,dx"),
+    formulaStableId("structures", "分数"),
+    "structures:分数",
+  );
+  assert.equal(formulaStableId("structures", "分数", 1), "structures:分数#1");
+});
+
+test("legacy latex-keyed ids migrate to stable ids", () => {
+  assert.equal(
+    legacyFormulaId("analysis", "\\int_0^1 x\\,dx"),
     "analysis:\\int_0^1 x\\,dx",
+  );
+  const preferences = {
+    "analysis:\\int_0^1 x\\,dx": { favorite: true, usageCount: 7 },
+  };
+  const record = createFormulaRecord(
+    "analysis",
+    "定积分",
+    "\\int_0^1 x\\,dx",
+    preferences,
+  );
+  assert.equal(record.id, "analysis:定积分");
+  assert.deepEqual(record.preference, {
+    enabled: true,
+    favorite: true,
+    pinned: false,
+    hidden: false,
+    usageCount: 7,
+    lastUsedAt: 0,
+  });
+  // Migration promoted the legacy key and removed it.
+  assert.deepEqual(preferences["analysis:定积分"], {
+    favorite: true,
+    usageCount: 7,
+  });
+  assert.equal(
+    preferences["analysis:\\int_0^1 x\\,dx"],
+    undefined,
   );
 });
 
