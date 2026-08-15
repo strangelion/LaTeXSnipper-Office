@@ -22,10 +22,7 @@ function memoryStorage() {
 test("formula ids are stable across LaTeX edits", () => {
   // The stable id is the category + semantic label, NOT the LaTeX body:
   // changing \frac to \dfrac must not orphan the preference record.
-  assert.equal(
-    formulaStableId("structures", "分数"),
-    "structures:分数",
-  );
+  assert.equal(formulaStableId("structures", "分数"), "structures:分数");
   assert.equal(formulaStableId("structures", "分数", 1), "structures:分数#1");
 });
 
@@ -53,14 +50,11 @@ test("legacy latex-keyed ids migrate to stable ids", () => {
     lastUsedAt: 0,
   });
   // Migration promoted the legacy key and removed it.
-  assert.deepEqual(preferences["analysis:定积分"], {
+  assert.equal(preferences["analysis:定积分"], {
     favorite: true,
     usageCount: 7,
   });
-  assert.equal(
-    preferences["analysis:\\int_0^1 x\\,dx"],
-    undefined,
-  );
+  assert.equal(preferences["analysis:\\int_0^1 x\\,dx"], undefined);
 });
 
 test("formula catalog rows hydrate into visible enabled records", () => {
