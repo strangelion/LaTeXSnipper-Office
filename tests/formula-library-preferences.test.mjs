@@ -50,7 +50,7 @@ test("legacy latex-keyed ids migrate to stable ids", () => {
     lastUsedAt: 0,
   });
   // Migration promoted the legacy key and removed it.
-  assert.equal(preferences["analysis:定积分"], {
+  assert.deepEqual(preferences["analysis:定积分"], {
     favorite: true,
     usageCount: 7,
   });
