@@ -1,7 +1,7 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "c5edd5ffcabd064ed48fe2ced05110f21ca07d1c",
+    "sourceCommitSha":  "d58ad902137899b1bb54407bdfe75bc7aad265e5",
     "packageVersion":  "1.7.0",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
