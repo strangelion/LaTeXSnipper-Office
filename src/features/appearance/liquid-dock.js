@@ -114,6 +114,10 @@ export function computeDropletTarget(
   const magneticStrength = opts.magneticStrength ?? 0.3;
   const paddingX = opts.paddingX ?? 4;
   const paddingY = opts.paddingY ?? 2;
+  // Minimum droplet footprint: the glass must read as a volume of liquid
+  // even around short labels like “识别”, not a tight outline.
+  const minW = opts.minW ?? 0;
+  const minH = opts.minH ?? 0;
 
   let nearest = null;
   let bestDist = Infinity;
@@ -140,8 +144,8 @@ export function computeDropletTarget(
 
   const attraction = 1 - clamp(bestDist / magneticRadius, 0, 1);
   const pull = attraction * magneticStrength;
-  const targetW = nearest.box.w + paddingX * 2;
-  const targetH = nearest.box.h + paddingY * 2;
+  const targetW = Math.max(nearest.box.w + paddingX * 2, minW);
+  const targetH = Math.max(nearest.box.h + paddingY * 2, minH);
   const cx = lerp(pointer.x, nearest.cx, pull);
   const cy = lerp(pointer.y, nearest.cy, pull);
   const w = lerp(fallbackSize.w, targetW, attraction);
@@ -189,8 +193,8 @@ const PREVIEW_HIDE_MS = 80;
 // fluid-pointer droplet dynamics
 const DROPLET_FOLLOW = 0.16;
 const DROPLET_RETURN = 0.075;
-const DROPLET_DEFAULT_W = 46;
-const DROPLET_DEFAULT_H = 32;
+const DROPLET_DEFAULT_W = 52;
+const DROPLET_DEFAULT_H = 34;
 const VELOCITY_DAMPING = 0.78;
 
 const DEFAULT_ITEM_QUERY = "[data-liquid-item]";
@@ -219,6 +223,10 @@ export class LiquidDockController {
     this.magneticRadius = options.magneticRadius ?? 64;
     this.magneticStrength = options.magneticStrength ?? 0.3;
     this.velocityStretch = options.velocityStretch ?? 0.08;
+    // Minimum droplet footprint around any item (keeps the glass a visible
+    // volume even under a two-character label like “识别”).
+    this.minDropletWidth = options.minDropletWidth ?? 0;
+    this.minDropletHeight = options.minDropletHeight ?? 0;
     this.onSelect = options.onSelect ?? null;
 
     this.activeItem = null;
@@ -500,10 +508,17 @@ export class LiquidDockController {
     if (snap || this.quality === "static") {
       // Initial placement OR static quality (no RAF animation): place the
       // droplet directly on the item so selection and glass never desync.
-      this.droplet.x = cx - this.droplet.w / 2;
-      this.droplet.y = cy - this.droplet.h / 2;
-      this.droplet.targetX = this.droplet.x;
-      this.droplet.targetY = this.droplet.y;
+      // Use the shared geometry so the minimum footprint applies even on
+      // the very first paint.
+      const target = this.computeDropletGeometry({ x: cx, y: cy });
+      this.droplet.x = target.x;
+      this.droplet.y = target.y;
+      this.droplet.w = target.w;
+      this.droplet.h = target.h;
+      this.droplet.targetX = target.x;
+      this.droplet.targetY = target.y;
+      this.droplet.targetW = target.w;
+      this.droplet.targetH = target.h;
       this.root.dataset.lensVisible = "true";
     }
     // aria-selected on the nav items (visual accent is CSS-driven).
@@ -519,6 +534,44 @@ export class LiquidDockController {
       // static: position is already synced; no RAF needed.
       return;
     }
+    this.scheduleFrame();
+  }
+
+  /**
+   * fluid-pointer: re-place the droplet onto the selected item using its
+   * CURRENT geometry. Called after the first layout stabilises (fonts,
+   * resize, theme/DPI change, language change) so the glass follows the
+   * button that actually moved — the DOMContentLoaded coordinate is stale.
+   * Does not touch selection state or fire onSelect.
+   */
+  reanchorSelectedItem({ snap = true } = {}) {
+    if (!this.selectedItem || this._destroyed) return;
+    if (this.droplet.inside) {
+      // Pointer is actively tracking; don't yank the droplet mid-follow.
+      this.applyCssState();
+      return;
+    }
+    const dockRect = this.root.getBoundingClientRect();
+    if (dockRect.width === 0) return;
+    const ar = this.selectedItem.getBoundingClientRect();
+    const cx = ar.left - dockRect.left + ar.width / 2;
+    const cy = ar.top - dockRect.top + ar.height / 2;
+    if (snap || this.quality === "static") {
+      const target = this.computeDropletGeometry({ x: cx, y: cy });
+      this.droplet.x = target.x;
+      this.droplet.y = target.y;
+      this.droplet.w = target.w;
+      this.droplet.h = target.h;
+      this.droplet.targetX = target.x;
+      this.droplet.targetY = target.y;
+      this.droplet.targetW = target.w;
+      this.droplet.targetH = target.h;
+      this.root.dataset.lensVisible = "true";
+    } else {
+      this.droplet.targetX = cx - this.droplet.w / 2;
+      this.droplet.targetY = cy - this.droplet.h / 2;
+    }
+    this.applyCssState();
     this.scheduleFrame();
   }
 
@@ -703,8 +756,18 @@ export class LiquidDockController {
   // ── animation loop ─────────────────────────────────────────────────
 
   scheduleFrame() {
-    if (this.quality === "static" || this.quality === "off") return;
-    if (this._rafId || this._destroyed) return;
+    if (this.quality === "off") return;
+    if (this._destroyed) return;
+    if (this.quality === "static") {
+      // static: no RAF animation, but the droplet must still respond to
+      // the pointer — it snaps to the current magnet target in place of
+      // a RAF-driven lerp. Doing it here (rather than returning) keeps
+      // pointer events working when animations are disabled.
+      this.animateDroplet();
+      this.applyCssState();
+      return;
+    }
+    if (this._rafId) return;
     this._rafId = requestAnimationFrame(this.animate);
   }
 
@@ -766,15 +829,15 @@ export class LiquidDockController {
    */
   animateDroplet() {
     const d = this.droplet;
-    const dockRect = this.root.getBoundingClientRect();
-    if (dockRect.width === 0) return;
-
-    // static quality: no motion animation, but the position must sync
-    // immediately so selection never desyncs from the glass.
     if (this.quality === "static") {
+      // static: no motion animation, but the droplet must still track the
+      // pointer — it snaps straight to the current magnet target in place
+      // of a RAF-driven lerp (scheduleFrame calls this synchronously).
       this.snapDropletToTarget();
       return;
     }
+    const dockRect = this.root.getBoundingClientRect();
+    if (dockRect.width === 0) return;
 
     let pointer = { x: d.pointerX, y: d.pointerY };
     let viscosity = d.inside ? this.dropletFollow : this.dropletReturn;
@@ -791,36 +854,7 @@ export class LiquidDockController {
       }
     }
 
-    // Magnetic attraction toward the nearest item box.
-    const boxes = this.items
-      .map((item) => {
-        const r = item.getBoundingClientRect();
-        return {
-          x: r.left - dockRect.left,
-          y: r.top - dockRect.top,
-          w: r.width,
-          h: r.height,
-        };
-      })
-      .filter((b) => b.w > 0 && b.h > 0);
-
-    const fallback = {
-      x: pointer.x - d.w / 2,
-      y: pointer.y - d.h / 2,
-      w: DROPLET_DEFAULT_W,
-      h: DROPLET_DEFAULT_H,
-    };
-    const target = computeDropletTarget(
-      pointer,
-      boxes,
-      {
-        magneticRadius: this.magneticRadius,
-        magneticStrength: this.magneticStrength,
-        paddingX: this.lensPaddingX,
-        paddingY: this.lensPaddingY,
-      },
-      fallback,
-    );
+    const target = this.computeDropletGeometry(pointer);
 
     // Persist the target so needsAnotherFrame() can check position error.
     d.targetX = target.x;
@@ -907,6 +941,47 @@ export class LiquidDockController {
   }
 
   /**
+   * Shared droplet target resolution (used by the RAF lerp AND the static
+   * snap): magnetic pull toward the nearest item box with a minimum
+   * footprint so the glass never collapses to a tight outline.
+   */
+  computeDropletGeometry(pointer) {
+    const dockRect = this.root.getBoundingClientRect();
+    const d = this.droplet;
+    const boxes = this.items
+      .map((item) => {
+        const r = item.getBoundingClientRect();
+        return {
+          x: r.left - dockRect.left,
+          y: r.top - dockRect.top,
+          w: r.width,
+          h: r.height,
+        };
+      })
+      .filter((b) => b.w > 0 && b.h > 0);
+
+    const fallback = {
+      x: pointer.x - d.w / 2,
+      y: pointer.y - d.h / 2,
+      w: DROPLET_DEFAULT_W,
+      h: DROPLET_DEFAULT_H,
+    };
+    return computeDropletTarget(
+      pointer,
+      boxes,
+      {
+        magneticRadius: this.magneticRadius,
+        magneticStrength: this.magneticStrength,
+        paddingX: this.lensPaddingX,
+        paddingY: this.lensPaddingY,
+        minW: this.minDropletWidth,
+        minH: this.minDropletHeight,
+      },
+      fallback,
+    );
+  }
+
+  /**
    * static quality: no animation, but the droplet must land exactly on
    * the current target so selection and glass never desync.
    */
@@ -914,23 +989,32 @@ export class LiquidDockController {
     const d = this.droplet;
     const dockRect = this.root.getBoundingClientRect();
     if (dockRect.width === 0) return;
-    const anchor = this.selectedItem;
-    if (anchor) {
-      const ar = anchor.getBoundingClientRect();
-      const cx = ar.left - dockRect.left + ar.width / 2;
-      const cy = ar.top - dockRect.top + ar.height / 2;
-      d.x = cx - d.w / 2;
-      d.y = cy - d.h / 2;
-      d.targetX = d.x;
-      d.targetY = d.y;
-    } else {
-      d.x = d.pointerX - d.w / 2;
-      d.y = d.pointerY - d.h / 2;
-      d.targetX = d.x;
-      d.targetY = d.y;
-    }
+    // static quality: still track the pointer (magnetised), but snap to
+    // the target instead of animating toward it.
+    const pointer = d.inside
+      ? { x: d.pointerX, y: d.pointerY }
+      : this.selectedItem
+        ? (() => {
+            const ar = this.selectedItem.getBoundingClientRect();
+            return {
+              x: ar.left - dockRect.left + ar.width / 2,
+              y: ar.top - dockRect.top + ar.height / 2,
+            };
+          })()
+        : { x: d.pointerX, y: d.pointerY };
+    const target = this.computeDropletGeometry(pointer);
+    d.x = target.x;
+    d.y = target.y;
+    d.w = target.w;
+    d.h = target.h;
+    d.targetX = target.x;
+    d.targetY = target.y;
+    d.targetW = target.w;
+    d.targetH = target.h;
     this.pointer.currentScaleX = 1;
     this.pointer.currentScaleY = 1;
+    this.pointer.targetScaleX = 1;
+    this.pointer.targetScaleY = 1;
     this.root.dataset.lensVisible = "true";
     this.applyCssState();
   }
@@ -1110,8 +1194,10 @@ export class LiquidDockController {
   reflow() {
     if (this._destroyed) return;
     if (this.interactionMode === "fluid-pointer") {
-      // The droplet is pointer-driven; a resize only needs a CSS re-apply.
-      this.applyCssState();
+      // Window/DPI/zoom resize moved the buttons; re-anchor the droplet
+      // onto the selected item's CURRENT geometry (unless the pointer is
+      // actively tracking — reanchorSelectedItem handles that guard).
+      this.reanchorSelectedItem({ snap: true });
       return;
     }
     const item = this.resolveCurrentItem();

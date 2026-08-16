@@ -1951,6 +1951,10 @@ class UIController {
     Logger.info("UIController ready");
   }
 
+  // When the Liquid nav dock owns the selection transaction, the nav-tab
+  // click handler must not switchSection again (double switch).
+  liquidNavOwnsSelection = false;
+
   getFormulaInsertMode() {
     return selectedFormulaInsertMode();
   }
@@ -2287,6 +2291,11 @@ class UIController {
   initEventListeners() {
     document.querySelectorAll(".nav-tab").forEach((btn) => {
       btn.addEventListener("click", (e) => {
+        // The Liquid nav dock owns the selection transaction when active:
+        // its click handler (tracking root) calls switchSection exactly
+        // once via onSelect. Fall back to a direct switch only when the
+        // glass is off (no controller).
+        if (this.liquidNavOwnsSelection) return;
         this.switchSection(e.currentTarget.id.replace("Btn", ""));
       });
     });
@@ -9249,8 +9258,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         // the semantic selection (accent text / aria-selected) is updated
         // in the same transaction via onSelect.
         interactionMode: "fluid-pointer",
-        lensPaddingX: 4,
-        lensPaddingY: 2,
+        // Generous padding + a minimum footprint: the glass must read as
+        // a volume of liquid around each label, not a tight outline.
+        lensPaddingX: 11,
+        lensPaddingY: 7,
+        minDropletWidth: 58,
+        minDropletHeight: 38,
         pointerFollow: 0.16,
         returnFollow: 0.075,
         magneticRadius: 64,
@@ -9262,11 +9275,27 @@ document.addEventListener("DOMContentLoaded", async () => {
           controller.switchSection(section);
         },
       });
+      // The dock owns nav selection while it is active.
+      controller.liquidNavOwnsSelection = true;
       navLiquidDock.setSelectedItem(
         navDock.querySelector(".nav-tab.active") ||
           navDock.querySelector(".nav-tab"),
         { snap: true },
       );
+      // First paint happens before fonts are ready / layout is stable;
+      // re-anchor once fonts + two frames settle so the droplet lands on
+      // the *final* button position, not the DOMContentLoaded one.
+      const stabilize = async () => {
+        try {
+          await document.fonts?.ready;
+        } catch {
+          /* fonts API unavailable */
+        }
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        navLiquidDock?.reanchorSelectedItem({ snap: true });
+      };
+      void stabilize();
     }
 
     const demoDock = document.querySelector("[data-liquid-demo-dock]");
@@ -9284,6 +9313,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     navLiquidDock = null;
     demoLiquidDock?.destroy();
     demoLiquidDock = null;
+    controller.liquidNavOwnsSelection = false;
   };
 
   window.addEventListener("latexsnipper:liquid-glass-change", (event) => {

@@ -237,6 +237,34 @@ describe("computeDropletTarget", () => {
     assert.equal(r.attraction, 0);
     assert.equal(r.nearest, null);
   });
+
+  it("enforces a minimum footprint around short labels", () => {
+    // Item 80px wide with generous padding + min: target must be at least
+    // the minimum, not a tight outline.
+    const r = computeDropletTarget({ x: 60, y: 25 }, boxes, {
+      magneticRadius: 64,
+      magneticStrength: 0.3,
+      paddingX: 11,
+      paddingY: 7,
+      minW: 58,
+      minH: 38,
+    });
+    assert.ok(r.w >= 58, `droplet width respects minW (got ${r.w})`);
+    assert.ok(r.h >= 38, `droplet height respects minH (got ${r.h})`);
+  });
+
+  it("min size is a floor, not a ceiling (wide items still grow)", () => {
+    const wide = [{ x: 20, y: 10, w: 220, h: 30 }];
+    const r = computeDropletTarget({ x: 130, y: 25 }, wide, {
+      magneticRadius: 200,
+      magneticStrength: 0.3,
+      paddingX: 11,
+      paddingY: 7,
+      minW: 58,
+      minH: 38,
+    });
+    assert.ok(r.w > 58, `wide item grows beyond minW (got ${r.w})`);
+  });
 });
 
 describe("computeVelocityStretch", () => {

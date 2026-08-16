@@ -589,4 +589,164 @@ describe("LiquidDockController static quality sync", () => {
       dock.destroy();
     });
   });
+
+  it("static quality follows the pointer via magnet target, not RAF", () => {
+    withRaf(() => {
+      rafCalled = false;
+      const { dock, itemA } = makeStaticDock();
+      dock.setSelectedItem(itemA, { snap: true });
+      const before = dock.droplet.x;
+      // Pointer moves onto item B (inside=true → magnet target follows).
+      dock.droplet.inside = true;
+      dock.droplet.pointerX = 205;
+      dock.droplet.pointerY = 26;
+      dock.scheduleFrame();
+      assert.equal(rafCalled, false, "static never schedules a RAF");
+      assert.notEqual(
+        dock.droplet.x,
+        before,
+        "droplet snaps toward the pointer immediately",
+      );
+      assert.equal(
+        dock.droplet.targetX,
+        dock.droplet.x,
+        "static keeps target == current",
+      );
+      dock.destroy();
+    });
+  });
+
+  it("static quality snaps back to the selected item on leave", () => {
+    withRaf(() => {
+      const { dock, itemA } = makeStaticDock();
+      dock.setSelectedItem(itemA, { snap: true });
+      // Pointer leaves while on item B.
+      dock.droplet.inside = true;
+      dock.droplet.pointerX = 205;
+      dock.droplet.pointerY = 26;
+      dock.scheduleFrame();
+      const onB = dock.droplet.x;
+      dock.droplet.inside = false;
+      dock.scheduleFrame();
+      const aRect = itemA.getBoundingClientRect();
+      const aCenter = aRect.left + aRect.width / 2;
+      const dropletCenter = dock.droplet.x + dock.droplet.w / 2;
+      assert.ok(
+        Math.abs(dropletCenter - aCenter) < 1,
+        "droplet returns to the selected item on leave",
+      );
+      assert.notEqual(dock.droplet.x, onB, "droplet actually moved");
+      dock.destroy();
+    });
+  });
+});
+
+describe("LiquidDockController reanchor", () => {
+  function withRaf(fn) {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancel = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      return fn();
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancel;
+    }
+  }
+
+  function makeFluidDock() {
+    const itemA = new StubElement({ disabled: false });
+    itemA.setAttribute("data-liquid-item", "");
+    itemA.closest = (s) => (s === "[data-liquid-item]" ? itemA : null);
+    itemA.getBoundingClientRect = () => ({
+      left: 50,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const { root } = makeDockStub({ items: [itemA] });
+    root.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 52,
+    });
+    const dock = new LiquidDockController(root, {
+      quality: "full",
+      interactionMode: "fluid-pointer",
+    });
+    return { dock, root, itemA };
+  }
+
+  it("reanchorSelectedItem re-places the droplet on the item's current centre", () => {
+    withRaf(() => {
+      const { dock, root, itemA } = makeFluidDock();
+      dock.setSelectedItem(itemA, { snap: true });
+      // Item moves after layout stabilisation (fonts/DPI/zoom).
+      itemA.getBoundingClientRect = () => ({
+        left: 90,
+        top: 12,
+        width: 110,
+        height: 34,
+      });
+      dock.reanchorSelectedItem({ snap: true });
+      const r = itemA.getBoundingClientRect();
+      const movedCx = r.left + r.width / 2;
+      const dropletCenter = dock.droplet.x + dock.droplet.w / 2;
+      assert.ok(
+        Math.abs(dropletCenter - movedCx) < 1,
+        "droplet re-anchored onto the moved item",
+      );
+      assert.equal(root.dataset.lensVisible, "true");
+      dock.destroy();
+    });
+  });
+
+  it("reanchor does not fire onSelect or change aria-selected", () => {
+    withRaf(() => {
+      let selects = 0;
+      const { dock, itemA } = makeFluidDock();
+      dock.onSelect = () => selects++;
+      dock.setSelectedItem(itemA, { snap: true });
+      const afterSelect = selects;
+      const before = itemA.getAttribute("aria-selected");
+      itemA.getBoundingClientRect = () => ({
+        left: 30,
+        top: 8,
+        width: 100,
+        height: 30,
+      });
+      dock.reanchorSelectedItem({ snap: true });
+      assert.equal(
+        selects,
+        afterSelect,
+        "reanchor is not a selection transaction",
+      );
+      assert.equal(
+        itemA.getAttribute("aria-selected"),
+        before,
+        "aria-selected untouched",
+      );
+      dock.destroy();
+    });
+  });
+
+  it("reanchor is skipped while the pointer is actively tracking", () => {
+    withRaf(() => {
+      const { dock, itemA } = makeFluidDock();
+      dock.setSelectedItem(itemA, { snap: true });
+      dock.droplet.inside = true;
+      const before = dock.droplet.x;
+      itemA.getBoundingClientRect = () => ({
+        left: 300,
+        top: 20,
+        width: 90,
+        height: 32,
+      });
+      dock.reanchorSelectedItem({ snap: true });
+      assert.equal(dock.droplet.x, before, "no yank while tracking");
+      dock.destroy();
+    });
+  });
 });
