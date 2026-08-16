@@ -9225,13 +9225,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   let navLiquidDock = null;
   let demoLiquidDock = null;
 
-  const syncNavActive = () => {
-    if (!navLiquidDock) return;
-    const activeTab = document.querySelector(".liquid-nav .nav-tab.active");
-    navLiquidDock.activeItem = activeTab;
-    navLiquidDock.restoreResolvedItem();
-  };
-
   const initLiquidDocks = () => {
     const quality = glassState.quality || "full";
     if (quality === "off") return;
@@ -9248,13 +9241,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (navDock && !navLiquidDock) {
       navLiquidDock = new LiquidDockController(navDock, {
         quality,
-        // Top nav: the Lens stays locked on the active page; hover only
-        // drives the highlight field and a soft glow.
-        interactionMode: "selection",
-        lensPaddingX: 3,
-        lensPaddingY: 1,
+        // Top nav: a free water droplet follows the cursor continuously;
+        // the semantic selection (accent text / aria-selected) is updated
+        // in the same transaction via onSelect.
+        interactionMode: "fluid-pointer",
+        lensPaddingX: 4,
+        lensPaddingY: 2,
+        pointerFollow: 0.16,
+        returnFollow: 0.075,
+        magneticRadius: 64,
+        magneticStrength: 0.3,
+        velocityStretch: 0.08,
+        onSelect: (item) => {
+          // Same transaction: switch the page + move the active class.
+          const section = item.id.replace("Btn", "");
+          controller.switchSection(section);
+        },
       });
-      syncNavActive();
+      navLiquidDock.setSelectedItem(
+        navDock.querySelector(".nav-tab.active") ||
+          navDock.querySelector(".nav-tab"),
+      );
     }
 
     const demoDock = document.querySelector("[data-liquid-demo-dock]");
@@ -9287,13 +9294,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   initLiquidDocks();
-
-  // Keep the nav Lens on the active tab as the user switches sections.
-  document.querySelectorAll(".nav-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      requestAnimationFrame(syncNavActive);
-    });
-  });
 
   // Wire liquid glass mode select in settings + sync initial state
   const liquidGlassSelect = document.getElementById("liquidGlassModeSelect");

@@ -379,3 +379,121 @@ describe("LiquidDockController state resolution", () => {
     dock.destroy();
   });
 });
+
+describe("LiquidDockController fluid-pointer mode", () => {
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancel = globalThis.cancelAnimationFrame;
+  let rafCalls = 0;
+  let cancelled = 0;
+
+  function withRaf(fn) {
+    globalThis.requestAnimationFrame = () => {
+      rafCalls++;
+      return rafCalls;
+    };
+    globalThis.cancelAnimationFrame = () => cancelled++;
+    try {
+      return fn();
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancel;
+    }
+  }
+
+  function makeFluidDock({ onSelect } = {}) {
+    const item = new StubElement({ disabled: false });
+    item.setAttribute("data-liquid-item", "");
+    item.closest = (sel) => (sel === "[data-liquid-item]" ? item : null);
+    const { root, lens } = makeDockStub({ items: [item] });
+    // Give the root a real-ish bounding rect so droplet math runs.
+    root.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 52,
+    });
+    item.getBoundingClientRect = () => ({
+      left: 50,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const dock = new LiquidDockController(root, {
+      quality: "full",
+      interactionMode: "fluid-pointer",
+      onSelect,
+    });
+    return { dock, root, lens, item };
+  }
+
+  it("tracks the cursor continuously on every pointermove", () => {
+    withRaf(() => {
+      const { dock, root } = makeFluidDock();
+      // First move enters the dock and sets the droplet position.
+      dock.onPointerEnter();
+      dock.onPointerMove({ target: null, clientX: 100, clientY: 20 });
+      const p1 = { ...dock.droplet };
+      // Move again within the same "item" region: position must update.
+      dock.onPointerMove({ target: null, clientX: 160, clientY: 24 });
+      assert.notEqual(dock.droplet.pointerX, p1.pointerX, "pointerX tracks");
+      assert.notEqual(dock.droplet.pointerY, p1.pointerY, "pointerY tracks");
+      // The lens becomes visible once the RAF loop runs.
+      dock.animate();
+      assert.equal(root.dataset.lensVisible, "true");
+      dock.destroy();
+    });
+  });
+
+  it("velocity is computed on every move (stretch input)", () => {
+    withRaf(() => {
+      const { dock } = makeFluidDock();
+      dock.onPointerEnter();
+      dock.onPointerMove({ target: null, clientX: 100, clientY: 20 });
+      dock.onPointerMove({ target: null, clientX: 130, clientY: 20 });
+      assert.ok(Math.abs(dock.droplet.velocityX) > 0, "velocityX non-zero");
+      dock.destroy();
+    });
+  });
+
+  it("click captures the droplet onto the item and fires onSelect once", () => {
+    withRaf(() => {
+      let selects = 0;
+      const { dock, root, item } = makeFluidDock({
+        onSelect: () => selects++,
+      });
+      dock.setSelectedItem(item);
+      assert.equal(selects, 1, "onSelect fired once");
+      assert.equal(item.getAttribute("aria-selected"), "true");
+      assert.equal(!!dock.droplet.captureItem, true, "droplet captured");
+      // The droplet becomes visible when the RAF loop runs.
+      dock.animate();
+      assert.equal(root.dataset.lensVisible, "true");
+      dock.destroy();
+    });
+  });
+
+  it("pointer leave returns the droplet to the selected item (needs frames)", () => {
+    withRaf(() => {
+      const { dock, item } = makeFluidDock();
+      dock.onPointerEnter();
+      dock.onPointerMove({ target: null, clientX: 300, clientY: 40 });
+      dock.setSelectedItem(item);
+      dock.onPointerLeave();
+      assert.equal(dock.droplet.inside, false, "inside cleared");
+      assert.equal(dock.droplet.captureItem, null, "capture cleared");
+      dock.destroy();
+    });
+  });
+
+  it("resolveCurrentItem falls back to selection in fluid-pointer mode", () => {
+    withRaf(() => {
+      const { dock, item } = makeFluidDock();
+      const other = new StubElement({ disabled: false });
+      dock.hoverItem = other;
+      dock.selectedItem = item;
+      // Hover must NOT resolve as the current item (droplet is free).
+      assert.equal(dock.resolveCurrentItem(), item);
+      dock.destroy();
+    });
+  });
+});

@@ -92,6 +92,90 @@ export function computeHighlightTargets(clientX, clientY, itemRect) {
   };
 }
 
+/**
+ * Fluid-pointer droplet target: the droplet follows the cursor freely but
+ * is magnetically attracted toward the nearest item centre (partial, never
+ * a snap). Returns the dock-local target box plus how strongly the nearest
+ * item pulled it (0..1), which also drives the droplet's size blend.
+ *
+ * @param {{x:number,y:number}} pointer - dock-local cursor position
+ * @param {Array<{x:number,y:number,w:number,h:number}>} itemBoxes
+ * @param {{magneticRadius:number, magneticStrength:number}} opts
+ * @param {{x:number,y:number,w:number,h:number}} fallbackSize - free-droplet size
+ * @returns {{x:number,y:number,w:number,h:number,attraction:number,nearest:object|null}}
+ */
+export function computeDropletTarget(
+  pointer,
+  itemBoxes,
+  opts = {},
+  fallbackSize = { x: 0, y: 0, w: 30, h: 26 },
+) {
+  const magneticRadius = opts.magneticRadius ?? 64;
+  const magneticStrength = opts.magneticStrength ?? 0.3;
+  const paddingX = opts.paddingX ?? 4;
+  const paddingY = opts.paddingY ?? 2;
+
+  let nearest = null;
+  let bestDist = Infinity;
+  for (const box of itemBoxes) {
+    const cx = box.x + box.w / 2;
+    const cy = box.y + box.h / 2;
+    const d = Math.hypot(pointer.x - cx, pointer.y - cy);
+    if (d < bestDist) {
+      bestDist = d;
+      nearest = { box, cx, cy, dist: d };
+    }
+  }
+
+  if (!nearest || bestDist > magneticRadius) {
+    return {
+      x: pointer.x - fallbackSize.w / 2,
+      y: pointer.y - fallbackSize.h / 2,
+      w: fallbackSize.w,
+      h: fallbackSize.h,
+      attraction: 0,
+      nearest: null,
+    };
+  }
+
+  const attraction = 1 - clamp(bestDist / magneticRadius, 0, 1);
+  const pull = attraction * magneticStrength;
+  const targetW = nearest.box.w + paddingX * 2;
+  const targetH = nearest.box.h + paddingY * 2;
+  const cx = lerp(pointer.x, nearest.cx, pull);
+  const cy = lerp(pointer.y, nearest.cy, pull);
+  const w = lerp(fallbackSize.w, targetW, attraction);
+  const h = lerp(fallbackSize.h, targetH, attraction);
+  return {
+    x: cx - w / 2,
+    y: cy - h / 2,
+    w,
+    h,
+    attraction,
+    nearest,
+  };
+}
+
+/**
+ * Velocity-driven stretch: a fast horizontal sweep makes the droplet
+ * elongate in the direction of motion (capped ~9%).
+ */
+export function computeVelocityStretch(
+  velocityX,
+  velocityY,
+  maxStretch = 0.09,
+) {
+  const speed = Math.hypot(velocityX, velocityY);
+  const stretch = clamp(speed * 0.006, 0, maxStretch);
+  if (stretch < 0.001) {
+    return { targetScaleX: 1, targetScaleY: 1 };
+  }
+  const angle = Math.atan2(velocityY, velocityX);
+  const sx = 1 + stretch * Math.abs(Math.cos(angle));
+  const sy = 1 + stretch * Math.abs(Math.sin(angle));
+  return { targetScaleX: sx, targetScaleY: sy };
+}
+
 // ── controller ───────────────────────────────────────────────────────
 
 const POINTER_SPEED_INSIDE = 0.12;
@@ -102,6 +186,11 @@ const DEFORM_SPEED = 0.1;
 const BRIDGE_MS = 420;
 const PREVIEW_DELAY_MS = 180;
 const PREVIEW_HIDE_MS = 80;
+// fluid-pointer droplet dynamics
+const DROPLET_FOLLOW = 0.16;
+const DROPLET_RETURN = 0.075;
+const DROPLET_DEFAULT_W = 34;
+const DROPLET_DEFAULT_H = 24;
 
 const DEFAULT_ITEM_QUERY = "[data-liquid-item]";
 
@@ -121,9 +210,20 @@ export class LiquidDockController {
     this.lensPaddingX = options.lensPaddingX ?? 5;
     this.lensPaddingY = options.lensPaddingY ?? 5;
 
+    // fluid-pointer droplet options
+    this.dropletFollow = options.pointerFollow ?? DROPLET_FOLLOW;
+    this.dropletReturn = options.returnFollow ?? DROPLET_RETURN;
+    this.magneticRadius = options.magneticRadius ?? 64;
+    this.magneticStrength = options.magneticStrength ?? 0.3;
+    this.velocityStretch = options.velocityStretch ?? 0.08;
+    this.onSelect = options.onSelect ?? null;
+
     this.activeItem = null;
     this.hoverItem = null;
     this.focusItem = null;
+    // Semantic selection (fluid-pointer): which page is actually open. It
+    // only drives accent text / aria-selected — not the big glass.
+    this.selectedItem = null;
 
     this.pointer = {
       inside: false,
@@ -171,6 +271,21 @@ export class LiquidDockController {
     this._bridgeY = 24;
     this._bridgeH = 14;
     this._destroyed = false;
+    // fluid-pointer: free droplet state (dock-local px, lerped on RAF).
+    this.droplet = {
+      pointerX: 0,
+      pointerY: 0,
+      x: 0,
+      y: 0,
+      w: DROPLET_DEFAULT_W,
+      h: DROPLET_DEFAULT_H,
+      velocityX: 0,
+      velocityY: 0,
+      prevPointerX: 0,
+      prevPointerY: 0,
+      inside: false,
+      captureItem: null,
+    };
 
     this.resizeObserver =
       typeof ResizeObserver !== "undefined"
@@ -219,23 +334,38 @@ export class LiquidDockController {
 
   onPointerEnter = () => {
     this.pointer.inside = true;
+    if (this.interactionMode === "fluid-pointer") {
+      this.droplet.inside = true;
+    }
     this.scheduleFrame();
   };
 
   onPointerMove = (event) => {
     const rect = this.root.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return;
+    const dockX = event.clientX - rect.left;
+    const dockY = event.clientY - rect.top;
 
-    this.pointer.targetX = clamp(
-      ((event.clientX - rect.left) / rect.width) * 100,
-      0,
-      100,
-    );
-    this.pointer.targetY = clamp(
-      ((event.clientY - rect.top) / rect.height) * 100,
-      0,
-      100,
-    );
+    this.pointer.targetX = clamp((dockX / rect.width) * 100, 0, 100);
+    this.pointer.targetY = clamp((dockY / rect.height) * 100, 0, 100);
+
+    if (this.interactionMode === "fluid-pointer") {
+      // Continuous cursor tracking: velocity + target update on EVERY
+      // pointermove (this was the old bug — glow froze inside one item).
+      this.droplet.pointerX = dockX;
+      this.droplet.pointerY = dockY;
+      this.droplet.velocityX = dockX - this.droplet.prevPointerX;
+      this.droplet.velocityY = dockY - this.droplet.prevPointerY;
+      this.droplet.prevPointerX = dockX;
+      this.droplet.prevPointerY = dockY;
+      const hovered = this.resolveItemFromEvent(event);
+      if (hovered !== this.hoverItem) {
+        this.hoverItem = hovered;
+        if (hovered) this.schedulePreview(hovered);
+      }
+      this.scheduleFrame();
+      return;
+    }
 
     const item = this.resolveItemFromEvent(event);
     if (item) {
@@ -272,6 +402,14 @@ export class LiquidDockController {
     this.pointer.targetY = 24;
     this.hoverItem = null;
     this.clearHoverGlow();
+    if (this.interactionMode === "fluid-pointer") {
+      // Droplet loses the cursor: it flows back to the selected item
+      // (low viscosity) — handled in animate().
+      this.droplet.inside = false;
+      this.droplet.captureItem = null;
+      this.scheduleFrame();
+      return;
+    }
     // In selection mode the active item keeps the Lens; in hover mode the
     // pointer leaving restores focus/active or hides.
     if (this.interactionMode === "hover") {
@@ -313,12 +451,46 @@ export class LiquidDockController {
       this.hidePreview();
       return;
     }
+
+    if (this.interactionMode === "fluid-pointer") {
+      // Droplet capture: the droplet contracts onto the clicked item and
+      // the semantic selection updates in the same transaction.
+      this.setSelectedItem(item);
+      this.pulse();
+      return;
+    }
+
     if (this.activeItem !== item) {
       this.activeItem = item;
       this.restoreResolvedItem();
     }
     this.pulse();
   };
+
+  /**
+   * fluid-pointer: update the semantic selection in one transaction —
+   * business state (callback), droplet anchor, aria-selected — so the
+   * glass and the page never disagree.
+   */
+  setSelectedItem(item) {
+    if (!item) return;
+    this.selectedItem = item;
+    const dockRect = this.root.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    // Capture target: the droplet homes in on the item centre.
+    this.droplet.captureItem = item;
+    this.droplet.pointerX = itemRect.left - dockRect.left + itemRect.width / 2;
+    this.droplet.pointerY = itemRect.top - dockRect.top + itemRect.height / 2;
+    // aria-selected on the nav items (visual accent is CSS-driven).
+    this.items.forEach((candidate) => {
+      candidate.setAttribute(
+        "aria-selected",
+        candidate === item ? "true" : "false",
+      );
+    });
+    if (this.onSelect) this.onSelect(item);
+    this.scheduleFrame();
+  }
 
   // ── state resolution ───────────────────────────────────────────────
 
@@ -327,6 +499,12 @@ export class LiquidDockController {
       // The Lens is owned by the active page; keyboard focus may borrow it
       // temporarily. Hover only drives the highlight field / glow.
       return this.focusItem || this.activeItem || null;
+    }
+    if (this.interactionMode === "fluid-pointer") {
+      // The free droplet is not anchored to an item; the Lens target is
+      // computed per frame from the pointer. This returns the semantic
+      // selection for reflow / fallback.
+      return this.focusItem || this.selectedItem || null;
     }
     return this.hoverItem || this.focusItem || this.activeItem || null;
   }
@@ -504,6 +682,17 @@ export class LiquidDockController {
     this._rafId = 0;
     if (this._destroyed) return;
 
+    if (this.interactionMode === "fluid-pointer") {
+      this.animateDroplet();
+      this.applyCssState();
+      this.updateBridgeFrame();
+      const bridgeActive = this.root.dataset.bridgeVisible === "true";
+      if (this.needsAnotherFrame() || bridgeActive) {
+        this.scheduleFrame();
+      }
+      return;
+    }
+
     const p = this.pointer;
     const speed = p.inside ? POINTER_SPEED_INSIDE : POINTER_SPEED_LEAVE;
 
@@ -538,7 +727,134 @@ export class LiquidDockController {
     }
   };
 
+  /**
+   * fluid-pointer frame: the droplet follows the cursor continuously
+   * (viscosity), is magnetically pulled toward the nearest item centre
+   * (partial), stretches with velocity, and flows back to the selected
+   * item on leave. This is the "water droplet" model — the Lens is not a
+   * snap-on slider.
+   */
+  animateDroplet() {
+    const d = this.droplet;
+    const dockRect = this.root.getBoundingClientRect();
+    if (dockRect.width === 0) return;
+
+    let pointer = { x: d.pointerX, y: d.pointerY };
+    let viscosity = d.inside ? this.dropletFollow : this.dropletReturn;
+
+    if (!d.inside) {
+      // Flow back to the selected item centre (low viscosity = slow return).
+      const anchor = this.selectedItem;
+      if (anchor) {
+        const ar = anchor.getBoundingClientRect();
+        pointer = {
+          x: ar.left - dockRect.left + ar.width / 2,
+          y: ar.top - dockRect.top + ar.height / 2,
+        };
+      }
+    }
+
+    // Magnetic attraction toward the nearest item box.
+    const boxes = this.items
+      .map((item) => {
+        const r = item.getBoundingClientRect();
+        return {
+          x: r.left - dockRect.left,
+          y: r.top - dockRect.top,
+          w: r.width,
+          h: r.height,
+        };
+      })
+      .filter((b) => b.w > 0 && b.h > 0);
+
+    const fallback = {
+      x: pointer.x - d.w / 2,
+      y: pointer.y - d.h / 2,
+      w: DROPLET_DEFAULT_W,
+      h: DROPLET_DEFAULT_H,
+    };
+    const target = computeDropletTarget(
+      pointer,
+      boxes,
+      {
+        magneticRadius: this.magneticRadius,
+        magneticStrength: this.magneticStrength,
+        paddingX: this.lensPaddingX,
+        paddingY: this.lensPaddingY,
+      },
+      fallback,
+    );
+
+    // Droplet lerps toward the (magnetised) pointer position.
+    d.x = lerp(d.x, target.x, viscosity);
+    d.y = lerp(d.y, target.y, viscosity);
+    d.w = lerp(d.w, target.w, viscosity);
+    d.h = lerp(d.h, target.h, viscosity);
+
+    // Velocity-driven stretch (fast sweeps elongate the droplet).
+    const stretch = computeVelocityStretch(
+      d.velocityX,
+      d.velocityY,
+      this.velocityStretch,
+    );
+    this.pointer.targetScaleX = stretch.targetScaleX;
+    this.pointer.targetScaleY = stretch.targetScaleY;
+    this.pointer.currentScaleX = lerp(
+      this.pointer.currentScaleX,
+      stretch.targetScaleX,
+      DEFORM_SPEED,
+    );
+    this.pointer.currentScaleY = lerp(
+      this.pointer.currentScaleY,
+      stretch.targetScaleY,
+      DEFORM_SPEED,
+    );
+
+    // Highlight spot tracks the cursor inside the droplet.
+    this.pointer.targetHighlightX =
+      20 + clamp(d.pointerX / dockRect.width, 0, 1) * 60;
+    this.pointer.targetHighlightY =
+      12 + clamp(d.pointerY / dockRect.height, 0, 1) * 44;
+    this.pointer.currentHighlightX = lerp(
+      this.pointer.currentHighlightX,
+      this.pointer.targetHighlightX,
+      LOCAL_SPEED,
+    );
+    this.pointer.currentHighlightY = lerp(
+      this.pointer.currentHighlightY,
+      this.pointer.targetHighlightY,
+      LOCAL_SPEED,
+    );
+
+    this.root.dataset.lensVisible = "true";
+  }
+
   needsAnotherFrame() {
+    if (this.interactionMode === "fluid-pointer") {
+      const d = this.droplet;
+      // Keep driving while the droplet is still settling (inside) or
+      // returning (leave).
+      const threshold = d.inside ? 0.3 : 0.05;
+      if (d.inside) {
+        return (
+          Math.abs(d.velocityX) > 0.05 ||
+          Math.abs(d.velocityY) > 0.05 ||
+          Math.abs(this.pointer.currentScaleX - this.pointer.targetScaleX) >
+            0.001
+        );
+      }
+      // Leave: continue until the droplet reaches the selected item.
+      const dockRect = this.root.getBoundingClientRect();
+      const anchor = this.selectedItem;
+      if (!anchor) return false;
+      const ar = anchor.getBoundingClientRect();
+      const ax = ar.left - dockRect.left + ar.width / 2;
+      const ay = ar.top - dockRect.top + ar.height / 2;
+      return (
+        Math.abs(d.x + d.w / 2 - ax) > threshold ||
+        Math.abs(d.y + d.h / 2 - ay) > threshold
+      );
+    }
     const p = this.pointer;
     const threshold = 0.05;
     return (
@@ -570,14 +886,26 @@ export class LiquidDockController {
       root.style.setProperty("--liquid-pointer-y", "24%");
     }
 
-    root.style.setProperty("--liquid-lens-x", `${p.currentLensX}px`);
-    root.style.setProperty("--liquid-lens-y", `${p.currentLensY}px`);
-    root.style.setProperty("--liquid-lens-w", `${p.currentLensW}px`);
-    root.style.setProperty("--liquid-lens-h", `${p.currentLensH}px`);
+    if (this.interactionMode === "fluid-pointer") {
+      // The droplet geometry IS the lens box.
+      root.style.setProperty("--liquid-lens-x", `${this.droplet.x}px`);
+      root.style.setProperty("--liquid-lens-y", `${this.droplet.y}px`);
+      root.style.setProperty("--liquid-lens-w", `${this.droplet.w}px`);
+      root.style.setProperty("--liquid-lens-h", `${this.droplet.h}px`);
+      root.style.setProperty("--liquid-local-x", "0px");
+      root.style.setProperty("--liquid-local-y", "0px");
+    } else {
+      root.style.setProperty("--liquid-lens-x", `${p.currentLensX}px`);
+      root.style.setProperty("--liquid-lens-y", `${p.currentLensY}px`);
+      root.style.setProperty("--liquid-lens-w", `${p.currentLensW}px`);
+      root.style.setProperty("--liquid-lens-h", `${p.currentLensH}px`);
+      if (this.surface) {
+        root.style.setProperty("--liquid-local-x", `${p.currentLocalX}px`);
+        root.style.setProperty("--liquid-local-y", `${p.currentLocalY}px`);
+      }
+    }
 
     if (this.surface) {
-      root.style.setProperty("--liquid-local-x", `${p.currentLocalX}px`);
-      root.style.setProperty("--liquid-local-y", `${p.currentLocalY}px`);
       root.style.setProperty(
         "--liquid-scale-x",
         staticQuality ? "1" : p.currentScaleX.toFixed(4),
@@ -675,6 +1003,11 @@ export class LiquidDockController {
 
   reflow() {
     if (this._destroyed) return;
+    if (this.interactionMode === "fluid-pointer") {
+      // The droplet is pointer-driven; a resize only needs a CSS re-apply.
+      this.applyCssState();
+      return;
+    }
     const item = this.resolveCurrentItem();
     if (item) this.moveLens(item, false);
   }

@@ -14,9 +14,11 @@ import { describe, it } from "node:test";
 import {
   clamp,
   computeDeformationTargets,
+  computeDropletTarget,
   computeHighlightTargets,
   computeLensGeometry,
   computeLocalOffsetTargets,
+  computeVelocityStretch,
   lerp,
 } from "../src/features/appearance/liquid-dock.js";
 
@@ -178,5 +180,86 @@ describe("computeHighlightTargets", () => {
     );
     assert.ok(far.targetHighlightX <= 80);
     assert.ok(far.targetHighlightY <= 56);
+  });
+});
+
+describe("computeDropletTarget", () => {
+  const boxes = [
+    { x: 20, y: 10, w: 80, h: 30 },
+    { x: 120, y: 10, w: 80, h: 30 },
+    { x: 220, y: 10, w: 80, h: 30 },
+  ];
+
+  it("returns a free droplet with fallback size far from items", () => {
+    const r = computeDropletTarget(
+      { x: 500, y: 200 },
+      boxes,
+      {},
+      { w: 34, h: 24 },
+    );
+    assert.equal(r.attraction, 0);
+    assert.equal(r.nearest, null);
+    assert.equal(r.w, 34);
+    assert.equal(r.h, 24);
+    assert.equal(r.x, 500 - 17);
+    assert.equal(r.y, 200 - 12);
+  });
+
+  it("magnetises toward the nearest item centre (partial, not a snap)", () => {
+    // Pointer at the left item centre: attraction should pull it slightly.
+    const r = computeDropletTarget({ x: 60, y: 25 }, boxes, {
+      magneticRadius: 64,
+      magneticStrength: 0.3,
+    });
+    assert.ok(r.attraction > 0, "attraction active");
+    assert.ok(r.attraction <= 1, "attraction bounded");
+    assert.equal(r.nearest.box, boxes[0]);
+    // Pulled between pointer and centre, never past it.
+    assert.ok(r.x + r.w / 2 >= 60, "droplet centre not left of pointer");
+    assert.ok(r.x + r.w / 2 <= 60 + 0.3 * 0, "pull direction");
+  });
+
+  it("grows toward the item size with attraction", () => {
+    const r = computeDropletTarget({ x: 60, y: 25 }, boxes, {
+      magneticRadius: 64,
+      magneticStrength: 0.3,
+      paddingX: 4,
+      paddingY: 2,
+    });
+    assert.ok(r.w >= 34, "droplet widened by magnet");
+    assert.ok(r.w <= 80 + 8, "not larger than padded item");
+  });
+
+  it("ignores items beyond the magnetic radius", () => {
+    const r = computeDropletTarget({ x: 60, y: 400 }, boxes, {
+      magneticRadius: 64,
+    });
+    assert.equal(r.attraction, 0);
+    assert.equal(r.nearest, null);
+  });
+});
+
+describe("computeVelocityStretch", () => {
+  it("returns identity at rest", () => {
+    const r = computeVelocityStretch(0, 0);
+    assert.equal(r.targetScaleX, 1);
+    assert.equal(r.targetScaleY, 1);
+  });
+
+  it("stretches in the direction of fast motion, capped ~9%", () => {
+    const horizontal = computeVelocityStretch(12, 0);
+    assert.ok(horizontal.targetScaleX > 1.02, "elongates along X");
+    assert.equal(horizontal.targetScaleY, 1, "no Y stretch for pure X motion");
+    assert.ok(horizontal.targetScaleX - 1 <= 0.09, "cap respected");
+
+    const vertical = computeVelocityStretch(0, 12);
+    assert.equal(vertical.targetScaleX, 1);
+    assert.ok(vertical.targetScaleY > 1.02);
+  });
+
+  it("caps extreme velocity", () => {
+    const r = computeVelocityStretch(999, 999, 0.09);
+    assert.ok(r.targetScaleX - 1 <= 0.09);
+    assert.ok(r.targetScaleY - 1 <= 0.09);
   });
 });
