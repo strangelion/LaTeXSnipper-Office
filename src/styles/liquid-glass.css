@@ -330,7 +330,8 @@ html[data-liquid-glass="off"] {
   opacity: 0.82;
 }
 
-/* ── Liquid Lens ──────────────────────────────────────────────────── */
+/* ── Liquid Lens ────────────────────────────────────────────────────
+   Stacking inside the dock: z0 sheen · z1 bridge · z2 Lens · z3 text. */
 
 .liquid-lens-positioner {
   position: absolute;
@@ -342,7 +343,7 @@ html[data-liquid-glass="off"] {
 
   transform: translate3d(var(--liquid-lens-x), var(--liquid-lens-y), 0);
 
-  z-index: 1;
+  z-index: 2;
   pointer-events: none;
   opacity: 0;
 
@@ -376,6 +377,7 @@ html[data-liquid-glass="off"] {
     0
   );
 
+  z-index: 1;
   border-radius: 999px;
 
   background: linear-gradient(
@@ -413,36 +415,38 @@ html[data-liquid-glass="off"] {
     scale(var(--liquid-scale-x), var(--liquid-scale-y));
   transform-origin: center;
 
+  /* Optical glass: clear centre, bright edges. The body is translucent
+     (background shows through); a thin rim light reads as the glass
+     edge; a small specular spot tracks the cursor. */
   background:
-    /* Clear optical glass: translucent body + a soft top-lit tint so the
-       lens reads against the dock, with a small moving specular dot. */
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.2),
-      rgba(255, 255, 255, 0.06) 42%,
-      rgba(255, 255, 255, 0.1)
-    ),
     radial-gradient(
       circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
-      rgba(255, 255, 255, 0.2),
-      rgba(255, 255, 255, 0.05) 30%,
-      transparent 55%
+      rgba(255, 255, 255, 0.22),
+      rgba(255, 255, 255, 0.05) 24%,
+      transparent 46%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.14),
+      rgba(255, 255, 255, 0.03) 48%,
+      rgba(255, 255, 255, 0.07)
     ),
     var(--liquid-lens-bg);
 
   backdrop-filter: blur(var(--liquid-lens-blur))
-    saturate(var(--liquid-lens-saturation)) brightness(1.08);
+    saturate(var(--liquid-lens-saturation));
   -webkit-backdrop-filter: blur(var(--liquid-lens-blur))
-    saturate(var(--liquid-lens-saturation)) brightness(1.08);
+    saturate(var(--liquid-lens-saturation));
 
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  /* Edge light: crisper rim on top, faint on the bottom. */
+  border: 1px solid rgba(255, 255, 255, 0.48);
 
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
-    inset 1px 0 0 rgba(255, 255, 255, 0.18),
-    inset -1px 0 0 rgba(255, 255, 255, 0.18),
-    0 6px 18px rgba(15, 23, 42, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.16),
+    inset -1px 0 0 rgba(255, 255, 255, 0.16),
+    0 6px 18px rgba(15, 23, 42, 0.13);
 
   /* No transform transition here: the surface transform is written every
      frame by the RAF loop. A CSS transition on top would double-blend and
@@ -456,20 +460,22 @@ html[data-liquid-glass="off"] {
   border-radius: inherit;
   pointer-events: none;
 
-  /* Fresnel rim: bright arc along the top edge (glass catches light at
-     grazing angles) plus a small specular dot under the cursor. */
+  /* Specular hotspot: a small, bright spot that clearly flows inside the
+     glass as the cursor moves — not a large pale wash. */
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.28),
-      rgba(255, 255, 255, 0.05) 26%,
-      transparent 52%
+      rgba(255, 255, 255, 0.22),
+      rgba(255, 255, 255, 0.04) 24%,
+      transparent 46%
     ),
     radial-gradient(
-      circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
-      rgba(255, 255, 255, 0.16),
-      rgba(255, 255, 255, 0.04) 22%,
-      transparent 42%
+      ellipse 34% 42% at var(--liquid-lens-highlight-x)
+        var(--liquid-lens-highlight-y),
+      rgba(255, 255, 255, 0.82) 0%,
+      rgba(255, 255, 255, 0.42) 18%,
+      rgba(255, 255, 255, 0.12) 40%,
+      transparent 64%
     );
 
   mix-blend-mode: screen;
@@ -480,14 +486,13 @@ html[data-liquid-glass="off"] {
   inset: 1px;
   border-radius: inherit;
   pointer-events: none;
-  opacity: 0.32;
+  opacity: 0.35;
 
-  background: linear-gradient(
-    115deg,
-    rgba(96, 165, 250, 0.13),
-    transparent 34%,
-    rgba(45, 212, 191, 0.11) 66%,
-    rgba(244, 114, 182, 0.08)
+  /* Light accent caustic in the lower-right corner of the lens. */
+  background: radial-gradient(
+    ellipse at 76% 86%,
+    color-mix(in srgb, var(--accent) 24%, transparent),
+    transparent 52%
   );
 
   mix-blend-mode: screen;
@@ -499,7 +504,7 @@ html[data-liquid-glass="off"] {
 .liquid-dock .btn,
 .office-action-dock.liquid-dock .btn {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   min-height: 38px;
   padding: 0 14px;
   border: 0;
@@ -738,10 +743,11 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
 }
 
 /* ── Top navigation as a Liquid Dock (desktop wide nav) ────────────
-   The top nav keeps its own glass bar; the nav-tabs get a transparent
-   dock body with a single sliding Lens. The active tab keeps a clear
-   glass capsule so selection is always readable; the Lens rides on top
-   and glides between tabs. */
+   Stacking order (fixed):
+     z0 sheen · z1 bridge · z2 Lens · z3 text/icon/button · z4 focus ring
+   The top nav is a *selection* dock: the Lens stays locked on the active
+   page. Pointer hover only drives a faint glow + the highlight field; the
+   Lens glides (with bridge) when a tab is clicked. */
 
 .liquid-nav {
   position: relative;
@@ -757,7 +763,10 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
   overflow: visible;
 }
 
+/* Text must always sit above the optical layers. */
 .liquid-nav .nav-tab {
+  position: relative;
+  z-index: 3;
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -765,58 +774,73 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
   -webkit-text-fill-color: currentColor;
   transition:
     color 150ms ease,
-    background-color 150ms ease,
-    border-color 150ms ease,
-    box-shadow 150ms ease,
     transform 150ms ease;
 }
 
+/* No per-tab hover pill: hover is expressed by the glow + highlight only. */
 .liquid-nav .nav-tab:hover {
-  background: rgba(var(--glass-rgb), 0.28);
-  border-color: rgba(var(--glass-rgb), 0.22);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    0 2px 10px rgba(15, 23, 42, 0.05);
-}
-
-/* The selected tab keeps a clear glass capsule so the active state reads
-   even before/without the sliding Lens; the Lens then rides on top. */
-.liquid-nav .nav-tab.active {
-  color: var(--accent);
   background: transparent;
   border-color: transparent;
   box-shadow: none;
-  font-weight: 600;
+}
+
+/* The active page owns the Lens; no extra indicator needed. */
+.liquid-nav .nav-tab.active {
+  color: var(--accent);
+  font-weight: 650;
 }
 
 [data-theme="dark"] .liquid-nav .nav-tab.active {
   color: #93c5fd;
 }
 
-/* MacOS-Dock-style selection indicator: a small arch (half-capsule)
-   protruding from the bottom of the active tab, instead of painting the
-   whole tab as a solid pill. */
-.liquid-nav .nav-tab.active::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -6px;
-  width: 16px;
-  height: 7px;
-  transform: translateX(-50%);
-  border-radius: 7px 7px 0 0;
-  background: var(--accent);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+/* Pointer hover glow (selection mode): a soft light spot that follows the
+   cursor without moving the Lens. */
+.liquid-nav[data-hover-glow="true"] .liquid-dock-sheen {
+  opacity: 1;
+  background: radial-gradient(
+    circle at var(--liquid-glow-x) var(--liquid-glow-y),
+    rgba(255, 255, 255, 0.32),
+    rgba(255, 255, 255, 0.1) 26%,
+    transparent 55%
+  );
 }
 
-[data-theme="dark"] .liquid-nav .nav-tab.active::after {
-  background: #93c5fd;
+/* Top-nav Lens material: more transparent than the action dock — it sits
+   on a plain glass bar, so the lens must not turn milky. */
+.liquid-nav {
+  --liquid-lens-bg: rgba(255, 255, 255, 0.045);
+  --liquid-lens-blur: 8px;
+  --liquid-lens-saturation: 175%;
+}
+
+.liquid-nav .liquid-lens-surface {
+  background:
+    radial-gradient(
+      ellipse at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.18) 18%,
+      transparent 42%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.025)
+    );
+
+  border: 1px solid rgba(255, 255, 255, 0.42);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.05),
+    0 5px 16px rgba(15, 23, 42, 0.1);
 }
 
 /* Lens inside the top nav: centered on the tab bar, slightly flatter. */
 .liquid-nav .liquid-lens-positioner {
   height: calc(var(--liquid-lens-h) - 2px);
   margin-top: 1px;
+  z-index: 2;
 }
 
 .liquid-nav .liquid-lens-bridge {

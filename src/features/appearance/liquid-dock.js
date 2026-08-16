@@ -25,12 +25,17 @@ export function lerp(current, target, speed) {
  * Lens geometry inside the Dock coordinate space.
  * @returns {{x:number,y:number,width:number,height:number}}
  */
-export function computeLensGeometry(dockRect, itemRect, padding = 5) {
+export function computeLensGeometry(
+  dockRect,
+  itemRect,
+  paddingX = 5,
+  paddingY = 5,
+) {
   return {
-    x: itemRect.left - dockRect.left - padding,
-    y: itemRect.top - dockRect.top - padding,
-    width: itemRect.width + padding * 2,
-    height: itemRect.height + padding * 2,
+    x: itemRect.left - dockRect.left - paddingX,
+    y: itemRect.top - dockRect.top - paddingY,
+    width: itemRect.width + paddingX * 2,
+    height: itemRect.height + paddingY * 2,
   };
 }
 
@@ -109,6 +114,12 @@ export class LiquidDockController {
     this.preview = root.querySelector("[data-liquid-preview]");
     this.previewProvider = options.previewProvider ?? null;
     this.itemQuery = options.itemQuery ?? DEFAULT_ITEM_QUERY;
+    // "hover":     the Lens follows the pointer (action dock).
+    // "selection": the Lens stays locked on the active item; the pointer
+    //              only drives the highlight field and hover glow (top nav).
+    this.interactionMode = options.interactionMode ?? "hover";
+    this.lensPaddingX = options.lensPaddingX ?? 5;
+    this.lensPaddingY = options.lensPaddingY ?? 5;
 
     this.activeItem = null;
     this.hoverItem = null;
@@ -208,6 +219,7 @@ export class LiquidDockController {
 
   onPointerEnter = () => {
     this.pointer.inside = true;
+    this.scheduleFrame();
   };
 
   onPointerMove = (event) => {
@@ -226,13 +238,29 @@ export class LiquidDockController {
     );
 
     const item = this.resolveItemFromEvent(event);
-    if (item && item !== this.hoverItem) {
-      this.hoverItem = item;
-      this.restoreResolvedItem();
-      this.schedulePreview(item);
-    }
     if (item) {
-      this.updateLocalLensField(item, event.clientX, event.clientY);
+      if (item !== this.hoverItem) {
+        this.hoverItem = item;
+        // In selection mode the Lens stays on the active item; the pointer
+        // only drives the highlight field / hover glow. In hover mode the
+        // Lens follows the pointer.
+        if (this.interactionMode === "hover") {
+          this.restoreResolvedItem();
+          this.schedulePreview(item);
+        } else {
+          this.updateHoverGlow(item, event.clientX, event.clientY);
+        }
+      }
+      // Highlight/offset coordinates are relative to the item the Lens is
+      // currently on (active in selection mode, hovered in hover mode).
+      const lensItem =
+        this.interactionMode === "selection" ? this.resolveCurrentItem() : item;
+      if (lensItem) {
+        this.updateLocalLensField(lensItem, event.clientX, event.clientY);
+      }
+    } else {
+      this.hoverItem = null;
+      this.clearHoverGlow();
     }
 
     this.scheduleFrame();
@@ -242,8 +270,11 @@ export class LiquidDockController {
     this.pointer.inside = false;
     this.pointer.targetX = 50;
     this.pointer.targetY = 24;
-    if (this.hoverItem) {
-      this.hoverItem = null;
+    this.hoverItem = null;
+    this.clearHoverGlow();
+    // In selection mode the active item keeps the Lens; in hover mode the
+    // pointer leaving restores focus/active or hides.
+    if (this.interactionMode === "hover") {
       this.restoreResolvedItem();
     }
     this.hidePreview();
@@ -275,8 +306,10 @@ export class LiquidDockController {
   onClick = (event) => {
     const item = this.resolveItemFromEvent(event);
     if (!item) {
-      this.activeItem = null;
-      this.restoreResolvedItem();
+      if (this.interactionMode === "hover") {
+        this.activeItem = null;
+        this.restoreResolvedItem();
+      }
       this.hidePreview();
       return;
     }
@@ -290,6 +323,11 @@ export class LiquidDockController {
   // ── state resolution ───────────────────────────────────────────────
 
   resolveCurrentItem() {
+    if (this.interactionMode === "selection") {
+      // The Lens is owned by the active page; keyboard focus may borrow it
+      // temporarily. Hover only drives the highlight field / glow.
+      return this.focusItem || this.activeItem || null;
+    }
     return this.hoverItem || this.focusItem || this.activeItem || null;
   }
 
@@ -311,7 +349,12 @@ export class LiquidDockController {
     if (!this.lens || this.quality === "off") return;
     const dockRect = this.root.getBoundingClientRect();
     const itemRect = item.getBoundingClientRect();
-    const geometry = computeLensGeometry(dockRect, itemRect);
+    const geometry = computeLensGeometry(
+      dockRect,
+      itemRect,
+      this.lensPaddingX,
+      this.lensPaddingY,
+    );
 
     // Set targets; the shared RAF loop interpolates position/size on the
     // same clock as highlight and deformation.
@@ -424,6 +467,29 @@ export class LiquidDockController {
     const highlight = computeHighlightTargets(clientX, clientY, itemRect);
     this.pointer.targetHighlightX = highlight.targetHighlightX;
     this.pointer.targetHighlightY = highlight.targetHighlightY;
+  }
+
+  /**
+   * Selection-mode hover glow: a faint light spot on the hovered item.
+   * Uses dock-local CSS vars so the sheen can be tinted per item without
+   * moving the Lens itself.
+   */
+  updateHoverGlow(item, clientX, clientY) {
+    const rect = item.getBoundingClientRect();
+    const dockRect = this.root.getBoundingClientRect();
+    const x = clientX - dockRect.left;
+    const y = clientY - dockRect.top;
+    const cx = (clientX - rect.left) / Math.max(1, rect.width);
+    const cy = (clientY - rect.top) / Math.max(1, rect.height);
+    this.root.style.setProperty("--liquid-glow-x", `${x}px`);
+    this.root.style.setProperty("--liquid-glow-y", `${y}px`);
+    this.root.style.setProperty("--liquid-glow-cx", `${clamp(cx, 0, 1)}`);
+    this.root.style.setProperty("--liquid-glow-cy", `${clamp(cy, 0, 1)}`);
+    this.root.dataset.hoverGlow = "true";
+  }
+
+  clearHoverGlow() {
+    this.root.dataset.hoverGlow = "false";
   }
 
   // ── animation loop ─────────────────────────────────────────────────

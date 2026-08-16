@@ -32,22 +32,31 @@ describe("computeLensGeometry", () => {
     assert.equal(g.height, 38 + 10);
   });
 
-  it("applies a custom padding", () => {
+  it("applies a custom X padding (Y stays default)", () => {
     const item = { left: 120, top: 205, width: 90, height: 38 };
     const g = computeLensGeometry(dockRect, item, 10);
     assert.equal(g.x, 120 - 100 - 10);
-    assert.equal(g.y, 205 - 200 - 10);
+    assert.equal(g.y, 205 - 200 - 5);
     assert.equal(g.width, 90 + 20);
-    assert.equal(g.height, 38 + 20);
+    assert.equal(g.height, 38 + 10);
+  });
+
+  it("supports independent X and Y padding", () => {
+    const item = { left: 120, top: 205, width: 90, height: 38 };
+    const g = computeLensGeometry(dockRect, item, 3, 1);
+    assert.equal(g.x, 120 - 100 - 3);
+    assert.equal(g.y, 205 - 200 - 1);
+    assert.equal(g.width, 90 + 6);
+    assert.equal(g.height, 38 + 2);
   });
 
   it("handles zero padding", () => {
     const item = { left: 120, top: 205, width: 90, height: 38 };
     const g = computeLensGeometry(dockRect, item, 0);
     assert.equal(g.x, 20);
-    assert.equal(g.y, 5);
+    assert.equal(g.y, 0);
     assert.equal(g.width, 90);
-    assert.equal(g.height, 38);
+    assert.equal(g.height, 48);
   });
 });
 

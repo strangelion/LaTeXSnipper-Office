@@ -299,7 +299,7 @@ describe("LiquidDockController state resolution", () => {
     dock.destroy();
   });
 
-  it("hover wins over focus and active", () => {
+  it("hover wins over focus and active (hover mode)", () => {
     const hover = new StubElement({ disabled: false });
     const focus = new StubElement({ disabled: false });
     const active = new StubElement({ disabled: false });
@@ -313,7 +313,58 @@ describe("LiquidDockController state resolution", () => {
     dock.destroy();
   });
 
-  it("falls back focus -> active -> none when hover clears", () => {
+  it("selection mode: hover never moves the Lens (active owns it)", () => {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancel = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      const hover = new StubElement({ disabled: false });
+      const active = new StubElement({ disabled: false });
+      hover.dataset.liquidPreviewKind = "latex";
+      // resolveItemFromEvent uses target.closest(itemQuery).
+      hover.closest = (sel) => (sel === "[data-liquid-item]" ? hover : null);
+      active.closest = (sel) => (sel === "[data-liquid-item]" ? active : null);
+      const { root } = makeDockStub({ items: [hover, active] });
+      const dock = new LiquidDockController(root, {
+        quality: "full",
+        interactionMode: "selection",
+      });
+      dock.focusItem = null;
+      dock.activeItem = active;
+      assert.equal(dock.resolveCurrentItem(), active, "Lens stays on active");
+      // Pointer motion on the hovered item must not swap the lens target.
+      dock.onPointerMove({
+        target: hover,
+        clientX: 10,
+        clientY: 10,
+      });
+      assert.equal(dock.resolveCurrentItem(), active);
+      assert.equal(dock.root.dataset.hoverGlow, "true");
+      dock.destroy();
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancel;
+    }
+  });
+
+  it("selection mode: focus borrows the lens temporarily, active on blur", () => {
+    const focus = new StubElement({ disabled: false });
+    const active = new StubElement({ disabled: false });
+    const { root } = makeDockStub({ items: [focus, active] });
+    const dock = new LiquidDockController(root, {
+      quality: "full",
+      interactionMode: "selection",
+    });
+    dock.focusItem = focus;
+    dock.activeItem = active;
+    assert.equal(dock.resolveCurrentItem(), focus);
+    dock.focusItem = null;
+    assert.equal(dock.resolveCurrentItem(), active);
+    dock.destroy();
+  });
+
+  it("falls back focus -> active -> none when hover clears (hover mode)", () => {
     const focus = new StubElement({ disabled: false });
     const active = new StubElement({ disabled: false });
     const { root } = makeDockStub({ items: [focus, active] });

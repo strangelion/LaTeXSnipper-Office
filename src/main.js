@@ -9248,6 +9248,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (navDock && !navLiquidDock) {
       navLiquidDock = new LiquidDockController(navDock, {
         quality,
+        // Top nav: the Lens stays locked on the active page; hover only
+        // drives the highlight field and a soft glow.
+        interactionMode: "selection",
+        lensPaddingX: 3,
+        lensPaddingY: 1,
       });
       syncNavActive();
     }
