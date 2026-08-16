@@ -472,15 +472,23 @@ export class LiquidDockController {
    * business state (callback), droplet anchor, aria-selected — so the
    * glass and the page never disagree.
    */
-  setSelectedItem(item) {
+  setSelectedItem(item, { snap = false } = {}) {
     if (!item) return;
     this.selectedItem = item;
     const dockRect = this.root.getBoundingClientRect();
     const itemRect = item.getBoundingClientRect();
+    const cx = itemRect.left - dockRect.left + itemRect.width / 2;
+    const cy = itemRect.top - dockRect.top + itemRect.height / 2;
     // Capture target: the droplet homes in on the item centre.
     this.droplet.captureItem = item;
-    this.droplet.pointerX = itemRect.left - dockRect.left + itemRect.width / 2;
-    this.droplet.pointerY = itemRect.top - dockRect.top + itemRect.height / 2;
+    this.droplet.pointerX = cx;
+    this.droplet.pointerY = cy;
+    if (snap) {
+      // Initial placement: place the droplet directly on the item so it
+      // never appears floating at (0,0) before the first RAF frame.
+      this.droplet.x = cx - this.droplet.w / 2;
+      this.droplet.y = cy - this.droplet.h / 2;
+    }
     // aria-selected on the nav items (visual accent is CSS-driven).
     this.items.forEach((candidate) => {
       candidate.setAttribute(
@@ -489,6 +497,7 @@ export class LiquidDockController {
       );
     });
     if (this.onSelect) this.onSelect(item);
+    this.applyCssState();
     this.scheduleFrame();
   }
 

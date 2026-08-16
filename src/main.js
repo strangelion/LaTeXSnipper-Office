@@ -9261,6 +9261,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       navLiquidDock.setSelectedItem(
         navDock.querySelector(".nav-tab.active") ||
           navDock.querySelector(".nav-tab"),
+        { snap: true },
       );
     }
 
