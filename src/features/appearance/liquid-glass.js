@@ -1,8 +1,14 @@
 // Liquid Glass appearance controller.
 //
-// Modes: auto | on | off
-// Auto disables glass when backdrop-filter is unsupported, reduced-motion
-// is preferred, or graphics capacity is limited.
+// Public modes: auto | on | off
+// Effective quality (internal): full | reduced | static | off
+//   - off:   glass disabled (requested off, or backdrop-filter unsupported)
+//   - static: glass material kept, fluid animation stopped (reduced motion /
+//            very low-end devices)
+//   - reduced: blur + lens sliding kept, per-frame sheen/deformation dropped
+//   - full:  complete fluid Dock experience
+
+import { resolveLiquidQuality } from "./liquid-performance.js";
 
 const STORAGE_KEY = "latexsnipper.liquidGlassMode";
 const MODES = new Set(["auto", "on", "off"]);
@@ -23,36 +29,43 @@ function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function hasEnoughGraphicsCapacity() {
-  const cores = navigator.hardwareConcurrency ?? 8;
-  const memory = navigator.deviceMemory ?? 8;
-  return cores >= 4 && memory >= 4;
+function deviceCapacity() {
+  return {
+    hardwareConcurrency: navigator.hardwareConcurrency ?? null,
+    deviceMemory: navigator.deviceMemory ?? null,
+  };
 }
 
 export function resolveLiquidGlass(requestedMode) {
   const mode = normalizeMode(requestedMode);
-  if (mode === "on") return "on";
-  if (mode === "off") return "off";
-  if (!supportsBackdropFilter()) return "off";
-  if (prefersReducedMotion()) {
-    document.documentElement.dataset.reducedMotion = "true";
-  }
-  if (!hasEnoughGraphicsCapacity()) return "off";
-  return "on";
+  const quality = resolveLiquidQuality({
+    requestedMode: mode,
+    supportsBackdropFilter: supportsBackdropFilter(),
+    prefersReducedMotion: prefersReducedMotion(),
+    ...deviceCapacity(),
+  });
+  return quality === "off" ? "off" : "on";
 }
 
 export function applyLiquidGlassMode(requestedMode) {
   currentMode = normalizeMode(requestedMode);
-  const resolved = resolveLiquidGlass(currentMode);
+  const quality = resolveLiquidQuality({
+    requestedMode: currentMode,
+    supportsBackdropFilter: supportsBackdropFilter(),
+    prefersReducedMotion: prefersReducedMotion(),
+    ...deviceCapacity(),
+  });
+  const resolved = quality === "off" ? "off" : "on";
   const root = document.documentElement;
   root.dataset.liquidGlass = resolved;
   root.dataset.liquidGlassRequested = currentMode;
+  root.dataset.liquidQuality = quality;
   window.dispatchEvent(
     new CustomEvent("latexsnipper:liquid-glass-change", {
-      detail: { requested: currentMode, actual: resolved },
+      detail: { requested: currentMode, actual: resolved, quality },
     }),
   );
-  return { requested: currentMode, actual: resolved };
+  return { requested: currentMode, actual: resolved, quality };
 }
 
 export function setLiquidGlassMode(mode) {
@@ -80,6 +93,7 @@ export function getLiquidGlassDiagnostics() {
   return {
     requested: root.dataset.liquidGlassRequested ?? "auto",
     actual: root.dataset.liquidGlass ?? "off",
+    quality: root.dataset.liquidQuality ?? "off",
     backdropFilter: supportsBackdropFilter(),
     hardwareConcurrency: navigator.hardwareConcurrency ?? null,
     deviceMemory: navigator.deviceMemory ?? null,
