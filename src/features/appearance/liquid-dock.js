@@ -189,8 +189,9 @@ const PREVIEW_HIDE_MS = 80;
 // fluid-pointer droplet dynamics
 const DROPLET_FOLLOW = 0.16;
 const DROPLET_RETURN = 0.075;
-const DROPLET_DEFAULT_W = 34;
-const DROPLET_DEFAULT_H = 24;
+const DROPLET_DEFAULT_W = 46;
+const DROPLET_DEFAULT_H = 32;
+const VELOCITY_DAMPING = 0.78;
 
 const DEFAULT_ITEM_QUERY = "[data-liquid-item]";
 
@@ -209,6 +210,8 @@ export class LiquidDockController {
     this.interactionMode = options.interactionMode ?? "hover";
     this.lensPaddingX = options.lensPaddingX ?? 5;
     this.lensPaddingY = options.lensPaddingY ?? 5;
+    // Wider element that receives pointer events (defaults to the dock).
+    this.trackingRoot = options.trackingRoot ?? null;
 
     // fluid-pointer droplet options
     this.dropletFollow = options.pointerFollow ?? DROPLET_FOLLOW;
@@ -272,6 +275,8 @@ export class LiquidDockController {
     this._bridgeH = 14;
     this._destroyed = false;
     // fluid-pointer: free droplet state (dock-local px, lerped on RAF).
+    // targetX/Y/W/H persist between frames so needsAnotherFrame() can
+    // check position error — not just velocity.
     this.droplet = {
       pointerX: 0,
       pointerY: 0,
@@ -279,6 +284,10 @@ export class LiquidDockController {
       y: 0,
       w: DROPLET_DEFAULT_W,
       h: DROPLET_DEFAULT_H,
+      targetX: 0,
+      targetY: 0,
+      targetW: DROPLET_DEFAULT_W,
+      targetH: DROPLET_DEFAULT_H,
       velocityX: 0,
       velocityY: 0,
       prevPointerX: 0,
@@ -298,13 +307,18 @@ export class LiquidDockController {
   }
 
   bind() {
-    this.root.addEventListener("pointermove", this.onPointerMove);
-    this.root.addEventListener("pointerleave", this.onPointerLeave);
-    this.root.addEventListener("pointerenter", this.onPointerEnter);
-    this.root.addEventListener("focusin", this.onFocusIn);
-    this.root.addEventListener("focusout", this.onFocusOut);
-    this.root.addEventListener("click", this.onClick);
+    // The tracking root can be wider than the visual dock (e.g. the whole
+    // top bar) so the droplet keeps following the cursor near the nav;
+    // coordinates are still converted into the dock's local space.
+    const track = this.trackingRoot || this.root;
+    track.addEventListener("pointermove", this.onPointerMove);
+    track.addEventListener("pointerleave", this.onPointerLeave);
+    track.addEventListener("pointerenter", this.onPointerEnter);
+    track.addEventListener("focusin", this.onFocusIn);
+    track.addEventListener("focusout", this.onFocusOut);
+    track.addEventListener("click", this.onClick);
     if (this.resizeObserver) this.resizeObserver.observe(this.root);
+    this._trackingRoot = track;
   }
 
   refreshItems() {
@@ -483,11 +497,14 @@ export class LiquidDockController {
     this.droplet.captureItem = item;
     this.droplet.pointerX = cx;
     this.droplet.pointerY = cy;
-    if (snap) {
-      // Initial placement: place the droplet directly on the item so it
-      // never appears floating at (0,0) before the first RAF frame.
+    if (snap || this.quality === "static") {
+      // Initial placement OR static quality (no RAF animation): place the
+      // droplet directly on the item so selection and glass never desync.
       this.droplet.x = cx - this.droplet.w / 2;
       this.droplet.y = cy - this.droplet.h / 2;
+      this.droplet.targetX = this.droplet.x;
+      this.droplet.targetY = this.droplet.y;
+      this.root.dataset.lensVisible = "true";
     }
     // aria-selected on the nav items (visual accent is CSS-driven).
     this.items.forEach((candidate) => {
@@ -498,6 +515,10 @@ export class LiquidDockController {
     });
     if (this.onSelect) this.onSelect(item);
     this.applyCssState();
+    if (this.quality === "static") {
+      // static: position is already synced; no RAF needed.
+      return;
+    }
     this.scheduleFrame();
   }
 
@@ -748,6 +769,13 @@ export class LiquidDockController {
     const dockRect = this.root.getBoundingClientRect();
     if (dockRect.width === 0) return;
 
+    // static quality: no motion animation, but the position must sync
+    // immediately so selection never desyncs from the glass.
+    if (this.quality === "static") {
+      this.snapDropletToTarget();
+      return;
+    }
+
     let pointer = { x: d.pointerX, y: d.pointerY };
     let viscosity = d.inside ? this.dropletFollow : this.dropletReturn;
 
@@ -794,11 +822,23 @@ export class LiquidDockController {
       fallback,
     );
 
+    // Persist the target so needsAnotherFrame() can check position error.
+    d.targetX = target.x;
+    d.targetY = target.y;
+    d.targetW = target.w;
+    d.targetH = target.h;
+
     // Droplet lerps toward the (magnetised) pointer position.
-    d.x = lerp(d.x, target.x, viscosity);
-    d.y = lerp(d.y, target.y, viscosity);
-    d.w = lerp(d.w, target.w, viscosity);
-    d.h = lerp(d.h, target.h, viscosity);
+    d.x = lerp(d.x, d.targetX, viscosity);
+    d.y = lerp(d.y, d.targetY, viscosity);
+    d.w = lerp(d.w, d.targetW, viscosity);
+    d.h = lerp(d.h, d.targetH, viscosity);
+    // Snap once settled so needsAnotherFrame() can stop the RAF loop
+    // (position error check uses 0.15, so snap below that threshold).
+    if (Math.abs(d.x - d.targetX) < 0.15) d.x = d.targetX;
+    if (Math.abs(d.y - d.targetY) < 0.15) d.y = d.targetY;
+    if (Math.abs(d.w - d.targetW) < 0.15) d.w = d.targetW;
+    if (Math.abs(d.h - d.targetH) < 0.15) d.h = d.targetH;
 
     // Velocity-driven stretch (fast sweeps elongate the droplet).
     const stretch = computeVelocityStretch(
@@ -818,12 +858,27 @@ export class LiquidDockController {
       stretch.targetScaleY,
       DEFORM_SPEED,
     );
+    // Snap scale once it is effectively settled so the RAF loop can stop
+    // (a plain lerp asymptotes forever and would keep the loop alive).
+    if (Math.abs(this.pointer.currentScaleX - stretch.targetScaleX) < 0.0005) {
+      this.pointer.currentScaleX = stretch.targetScaleX;
+    }
+    if (Math.abs(this.pointer.currentScaleY - stretch.targetScaleY) < 0.0005) {
+      this.pointer.currentScaleY = stretch.targetScaleY;
+    }
 
-    // Highlight spot tracks the cursor inside the droplet.
-    this.pointer.targetHighlightX =
-      20 + clamp(d.pointerX / dockRect.width, 0, 1) * 60;
-    this.pointer.targetHighlightY =
-      12 + clamp(d.pointerY / dockRect.height, 0, 1) * 44;
+    // Velocity damps like a liquid; zero below the jitter floor.
+    d.velocityX *= VELOCITY_DAMPING;
+    d.velocityY *= VELOCITY_DAMPING;
+    if (Math.abs(d.velocityX) < 0.02) d.velocityX = 0;
+    if (Math.abs(d.velocityY) < 0.02) d.velocityY = 0;
+
+    // Highlight tracks the cursor *inside the droplet* (droplet-local
+    // coordinates), so the light visibly flows within the glass.
+    const localX = clamp((d.pointerX - d.x) / Math.max(1, d.w), 0, 1);
+    const localY = clamp((d.pointerY - d.y) / Math.max(1, d.h), 0, 1);
+    this.pointer.targetHighlightX = 18 + localX * 64;
+    this.pointer.targetHighlightY = 12 + localY * 52;
     this.pointer.currentHighlightX = lerp(
       this.pointer.currentHighlightX,
       this.pointer.targetHighlightX,
@@ -834,34 +889,76 @@ export class LiquidDockController {
       this.pointer.targetHighlightY,
       LOCAL_SPEED,
     );
+    // Snap the highlight once settled so the RAF loop can stop.
+    if (
+      Math.abs(this.pointer.currentHighlightX - this.pointer.targetHighlightX) <
+      0.05
+    ) {
+      this.pointer.currentHighlightX = this.pointer.targetHighlightX;
+    }
+    if (
+      Math.abs(this.pointer.currentHighlightY - this.pointer.targetHighlightY) <
+      0.05
+    ) {
+      this.pointer.currentHighlightY = this.pointer.targetHighlightY;
+    }
 
     this.root.dataset.lensVisible = "true";
+  }
+
+  /**
+   * static quality: no animation, but the droplet must land exactly on
+   * the current target so selection and glass never desync.
+   */
+  snapDropletToTarget() {
+    const d = this.droplet;
+    const dockRect = this.root.getBoundingClientRect();
+    if (dockRect.width === 0) return;
+    const anchor = this.selectedItem;
+    if (anchor) {
+      const ar = anchor.getBoundingClientRect();
+      const cx = ar.left - dockRect.left + ar.width / 2;
+      const cy = ar.top - dockRect.top + ar.height / 2;
+      d.x = cx - d.w / 2;
+      d.y = cy - d.h / 2;
+      d.targetX = d.x;
+      d.targetY = d.y;
+    } else {
+      d.x = d.pointerX - d.w / 2;
+      d.y = d.pointerY - d.h / 2;
+      d.targetX = d.x;
+      d.targetY = d.y;
+    }
+    this.pointer.currentScaleX = 1;
+    this.pointer.currentScaleY = 1;
+    this.root.dataset.lensVisible = "true";
+    this.applyCssState();
   }
 
   needsAnotherFrame() {
     if (this.interactionMode === "fluid-pointer") {
       const d = this.droplet;
-      // Keep driving while the droplet is still settling (inside) or
-      // returning (leave).
-      const threshold = d.inside ? 0.3 : 0.05;
+      // Stop only when the droplet has actually arrived at its target:
+      // check position/size error, not just velocity (a slow move leaves
+      // the droplet mid-flight otherwise).
       if (d.inside) {
         return (
-          Math.abs(d.velocityX) > 0.05 ||
-          Math.abs(d.velocityY) > 0.05 ||
+          Math.abs(d.x - d.targetX) > 0.15 ||
+          Math.abs(d.y - d.targetY) > 0.15 ||
+          Math.abs(d.w - d.targetW) > 0.15 ||
+          Math.abs(d.h - d.targetH) > 0.15 ||
+          Math.abs(d.velocityX) > 0.02 ||
+          Math.abs(d.velocityY) > 0.02 ||
           Math.abs(this.pointer.currentScaleX - this.pointer.targetScaleX) >
-            0.001
+            0.0005 ||
+          Math.abs(
+            this.pointer.currentHighlightX - this.pointer.targetHighlightX,
+          ) > 0.15
         );
       }
       // Leave: continue until the droplet reaches the selected item.
-      const dockRect = this.root.getBoundingClientRect();
-      const anchor = this.selectedItem;
-      if (!anchor) return false;
-      const ar = anchor.getBoundingClientRect();
-      const ax = ar.left - dockRect.left + ar.width / 2;
-      const ay = ar.top - dockRect.top + ar.height / 2;
       return (
-        Math.abs(d.x + d.w / 2 - ax) > threshold ||
-        Math.abs(d.y + d.h / 2 - ay) > threshold
+        Math.abs(d.x - d.targetX) > 0.15 || Math.abs(d.y - d.targetY) > 0.15
       );
     }
     const p = this.pointer;

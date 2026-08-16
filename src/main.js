@@ -9241,6 +9241,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (navDock && !navLiquidDock) {
       navLiquidDock = new LiquidDockController(navDock, {
         quality,
+        // Track the whole top bar (brand area, settings, theme toggle)
+        // so the droplet keeps following the cursor near the nav;
+        // coordinates stay in the nav's local space.
+        trackingRoot: document.querySelector(".top-nav .inner"),
         // Top nav: a free water droplet follows the cursor continuously;
         // the semantic selection (accent text / aria-selected) is updated
         // in the same transaction via onSelect.

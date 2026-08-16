@@ -497,3 +497,96 @@ describe("LiquidDockController fluid-pointer mode", () => {
     });
   });
 });
+
+describe("LiquidDockController static quality sync", () => {
+  const originalRaf = globalThis.requestAnimationFrame;
+  const originalCancel = globalThis.cancelAnimationFrame;
+  let rafCalled = false;
+
+  function withRaf(fn) {
+    globalThis.requestAnimationFrame = () => {
+      rafCalled = true;
+      return 1;
+    };
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      return fn();
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancel;
+    }
+  }
+
+  function makeStaticDock() {
+    const itemA = new StubElement({ disabled: false });
+    itemA.setAttribute("data-liquid-item", "");
+    itemA.closest = (s) => (s === "[data-liquid-item]" ? itemA : null);
+    itemA.getBoundingClientRect = () => ({
+      left: 50,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const itemB = new StubElement({ disabled: false });
+    itemB.setAttribute("data-liquid-item", "");
+    itemB.closest = (s) => (s === "[data-liquid-item]" ? itemB : null);
+    itemB.getBoundingClientRect = () => ({
+      left: 160,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const { root } = makeDockStub({ items: [itemA, itemB] });
+    root.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 52,
+    });
+    const dock = new LiquidDockController(root, {
+      quality: "static",
+      interactionMode: "fluid-pointer",
+    });
+    return { dock, root, itemA, itemB };
+  }
+
+  it("static quality snaps the droplet on setSelectedItem without RAF", () => {
+    withRaf(() => {
+      rafCalled = false;
+      const { dock, itemA, itemB } = makeStaticDock();
+      dock.setSelectedItem(itemA, { snap: true });
+      const aX = dock.droplet.x;
+      // Select B: the droplet must jump immediately, not wait for a frame.
+      dock.setSelectedItem(itemB);
+      assert.equal(rafCalled, false, "no RAF scheduled in static mode");
+      assert.notEqual(
+        dock.droplet.x,
+        aX,
+        "droplet position changed immediately",
+      );
+      assert.equal(
+        dock.droplet.targetX,
+        dock.droplet.x,
+        "target synced for static",
+      );
+      assert.equal(dock.root.dataset.lensVisible, "true");
+      dock.destroy();
+    });
+  });
+
+  it("static quality stays visible and aligned after selection", () => {
+    withRaf(() => {
+      const { dock, root, itemB } = makeStaticDock();
+      dock.setSelectedItem(itemB, { snap: true });
+      assert.equal(root.dataset.lensVisible, "true");
+      const bRect = itemB.getBoundingClientRect();
+      const bCenter = bRect.left + bRect.width / 2;
+      const dropletCenter = dock.droplet.x + dock.droplet.w / 2;
+      assert.ok(
+        Math.abs(dropletCenter - bCenter) < 1,
+        "droplet centre aligns with item B",
+      );
+      dock.destroy();
+    });
+  });
+});

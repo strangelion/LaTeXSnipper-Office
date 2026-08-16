@@ -807,11 +807,13 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
 }
 
 /* Top-nav Lens material: more transparent than the action dock — it sits
-   on a plain glass bar, so the lens must not turn milky. */
+   on a plain glass bar, so the lens must not turn milky. Since the nav
+   background is nearly uniform, thickness comes from self-visible edges
+   (Fresnel) rather than backdrop blur alone. */
 .liquid-nav {
-  --liquid-lens-bg: rgba(255, 255, 255, 0.045);
-  --liquid-lens-blur: 8px;
-  --liquid-lens-saturation: 175%;
+  --liquid-lens-bg: rgba(255, 255, 255, 0.075);
+  --liquid-lens-blur: 12px;
+  --liquid-lens-saturation: 200%;
 }
 
 .liquid-nav .liquid-lens-surface {
@@ -828,12 +830,27 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
       rgba(255, 255, 255, 0.025)
     );
 
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  /* Fresnel thickness: bright top rim, lit sides, dark under-edge, plus
+     a soft drop shadow — visible even on a flat grey background. */
+  border: 1px solid rgba(255, 255, 255, 0.44);
 
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    inset 0 -1px 0 rgba(15, 23, 42, 0.05),
-    0 5px 16px rgba(15, 23, 42, 0.1);
+    inset 0 1.5px 1px rgba(255, 255, 255, 0.72),
+    inset 1px 0 1px rgba(255, 255, 255, 0.22),
+    inset -1px 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 -1.5px 2px rgba(0, 0, 0, 0.3),
+    0 5px 14px rgba(0, 0, 0, 0.18);
+}
+
+/* Accent caustic inside the top-nav lens: light refracted from the
+   lower-right edge of the droplet. */
+.liquid-nav .liquid-lens-chromatic {
+  opacity: 0.4;
+  background: radial-gradient(
+    ellipse at 76% 84%,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    transparent 48%
+  );
 }
 
 /* Lens inside the top nav: centered on the tab bar, slightly flatter. */
