@@ -202,8 +202,15 @@ if ($Tag) {
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     $remoteTag = git ls-remote --tags origin "refs/tags/$tagName" 2>&1
+    $lsExit = $LASTEXITCODE
     $ErrorActionPreference = $prevEAP
-    if ($remoteTag) {
+    if ($lsExit -ne 0) {
+        throw "Cannot verify remote tags (git ls-remote failed, exit $lsExit): $remoteTag"
+    }
+    # Only a line containing the ref pattern means the tag exists; a
+    # connection error must NOT be mistaken for an existing tag.
+    $tagExists = [bool]($remoteTag | Where-Object { $_ -match "refs/tags/$tagName" })
+    if ($tagExists) {
         throw "Tag $tagName already exists on remote. Aborting."
     }
     if (git tag --list $tagName) {
