@@ -81,13 +81,29 @@ describe("Dock DOM structure", () => {
     assert.match(html, /data-liquid-demo-dock/, "settings demo dock");
     assert.match(html, /liquid-demo-wall/, "colored demo wall");
   });
+
+  it("applies the liquid dock to the top navigation", () => {
+    assert.match(html, /class="nav-tabs liquid-nav"/, "nav liquid dock");
+    assert.match(html, /data-liquid-dock/, "nav dock attribute");
+    const navTabs =
+      html.match(
+        /<div[^>]*class="nav-tabs[^"]*"[\s\S]*?(?=\n\s*<button\s+class="theme-toggle)/,
+      )?.[0] || "";
+    assert.match(navTabs, /data-liquid-lens/, "nav lens layer");
+    assert.match(navTabs, /liquid-lens-bridge/, "nav bridge layer");
+    assert.match(navTabs, /liquid-dock-sheen/, "nav sheen layer");
+    const tabs = [
+      ...navTabs.matchAll(/class="nav-tab[^"]*"[^>]*data-liquid-item/g),
+    ];
+    assert.equal(tabs.length, 5, "all five nav tabs are liquid items");
+  });
 });
 
 describe("Focus & disabled handling", () => {
   it("keeps :focus-visible outline for liquid items", () => {
     assert.match(
       css,
-      /\.office-action-dock \[data-liquid-item\]:focus-visible\s*\{/,
+      /\[data-liquid-item\]:focus-visible\s*(,|\{)/,
       "focus-visible rule exists",
     );
     assert.match(css, /outline: 2px solid var\(--accent\)/);

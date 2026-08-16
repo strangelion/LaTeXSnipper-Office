@@ -89,10 +89,12 @@ export function computeHighlightTargets(clientX, clientY, itemRect) {
 
 // ── controller ───────────────────────────────────────────────────────
 
-const POINTER_SPEED_INSIDE = 0.14;
-const POINTER_SPEED_LEAVE = 0.06;
-const LOCAL_SPEED = 0.18;
-const DEFORM_SPEED = 0.14;
+const POINTER_SPEED_INSIDE = 0.12;
+const POINTER_SPEED_LEAVE = 0.045;
+const LENS_SPEED = 0.16;
+const LOCAL_SPEED = 0.12;
+const DEFORM_SPEED = 0.1;
+const BRIDGE_MS = 420;
 const PREVIEW_DELAY_MS = 180;
 const PREVIEW_HIDE_MS = 80;
 
@@ -103,6 +105,7 @@ export class LiquidDockController {
     this.root = root;
     this.lens = root.querySelector("[data-liquid-lens]");
     this.surface = this.lens?.querySelector(".liquid-lens-surface");
+    this.bridge = root.querySelector(".liquid-lens-bridge");
     this.preview = root.querySelector("[data-liquid-preview]");
     this.previewProvider = options.previewProvider ?? null;
     this.itemQuery = options.itemQuery ?? DEFAULT_ITEM_QUERY;
@@ -117,6 +120,17 @@ export class LiquidDockController {
       targetY: 24,
       currentX: 50,
       currentY: 24,
+      // Lens box (dock-local px), animated on the same RAF clock as the
+      // local fields so position, size, highlight and deformation stay in
+      // sync — no CSS-transition vs RAF fight.
+      targetLensX: 0,
+      targetLensY: 0,
+      targetLensW: 0,
+      targetLensH: 0,
+      currentLensX: 0,
+      currentLensY: 0,
+      currentLensW: 0,
+      currentLensH: 0,
       targetLocalX: 0,
       targetLocalY: 0,
       currentLocalX: 0,
@@ -126,9 +140,9 @@ export class LiquidDockController {
       currentScaleX: 1,
       currentScaleY: 1,
       targetHighlightX: 35,
-      targetHighlightY: 22,
+      targetHighlightY: 26,
       currentHighlightX: 35,
-      currentHighlightY: 22,
+      currentHighlightY: 26,
     };
 
     this.quality = options.quality ?? "full";
@@ -138,6 +152,13 @@ export class LiquidDockController {
     this._hideTimer = null;
     this._previewKind = null;
     this._previewKey = null;
+    this._bridgeTimer = null;
+    this._lastGeometry = null;
+    this._bridgeFromX = 0;
+    this._bridgeToX = 0;
+    this._bridgeStart = 0;
+    this._bridgeY = 24;
+    this._bridgeH = 14;
     this._destroyed = false;
 
     this.resizeObserver =
@@ -291,18 +312,90 @@ export class LiquidDockController {
     const dockRect = this.root.getBoundingClientRect();
     const itemRect = item.getBoundingClientRect();
     const geometry = computeLensGeometry(dockRect, itemRect);
-    this.root.style.setProperty("--liquid-lens-x", `${geometry.x}px`);
-    this.root.style.setProperty("--liquid-lens-y", `${geometry.y}px`);
-    this.root.style.setProperty("--liquid-lens-w", `${geometry.width}px`);
-    this.root.style.setProperty("--liquid-lens-h", `${geometry.height}px`);
+
+    // Set targets; the shared RAF loop interpolates position/size on the
+    // same clock as highlight and deformation.
+    this.pointer.targetLensX = geometry.x;
+    this.pointer.targetLensY = geometry.y;
+    this.pointer.targetLensW = geometry.width;
+    this.pointer.targetLensH = geometry.height;
     this.root.dataset.lensVisible = "true";
+
     if (!animate) {
-      // Snap instead of CSS transition (used on reflow/quality change).
-      this.lens.style.transition = "none";
-      requestAnimationFrame(() => {
-        if (!this._destroyed) this.lens.style.transition = "";
-      });
+      // Snap (reflow / quality change): jump directly to the target.
+      this.pointer.currentLensX = geometry.x;
+      this.pointer.currentLensY = geometry.y;
+      this.pointer.currentLensW = geometry.width;
+      this.pointer.currentLensH = geometry.height;
+      this.hideBridge();
+      this.applyCssState();
+      return;
     }
+
+    // Stretch a liquid bridge from the previous lens box toward the new
+    // one; it shrinks every frame as the lens closes in (see animate()).
+    if (this._lastGeometry) {
+      this.updateBridge(this._lastGeometry, geometry);
+    }
+    this._lastGeometry = geometry;
+    this.scheduleFrame();
+  }
+
+  /**
+   * Drive the liquid bridge: a thin stretched layer spanning from the
+   * previous lens position toward the new one. It uses the dock-local
+   * coordinate space (same as the lens positioner). The RAF loop narrows
+   * it every frame as the lens approaches, so it reads as a liquid strand
+   * being pulled back into the lens.
+   */
+  updateBridge(fromGeometry, toGeometry) {
+    if (!this.bridge) return;
+    const gap = toGeometry.x - fromGeometry.x;
+    if (Math.abs(gap) < 2) {
+      this.hideBridge();
+      return;
+    }
+    const direction = gap > 0 ? 1 : -1;
+    // Strand runs from the trailing edge of the old lens to the leading
+    // edge of the new one, then shrinks to nothing on its own clock so
+    // the "liquid pull" stays visible even on a fast glide.
+    this._bridgeFromX =
+      direction > 0 ? fromGeometry.x + fromGeometry.width : fromGeometry.x;
+    this._bridgeToX =
+      direction > 0 ? toGeometry.x : toGeometry.x + toGeometry.width;
+    this._bridgeStart = performance.now();
+    this._bridgeY =
+      toGeometry.y +
+      (toGeometry.height - Math.min(16, Math.round(toGeometry.height * 0.55))) /
+        2;
+    this._bridgeH = Math.min(16, Math.round(toGeometry.height * 0.55));
+    this.root.dataset.bridgeVisible = "true";
+  }
+
+  /** Animate the strand toward the target edge while thinning out. */
+  updateBridgeFrame() {
+    if (!this.bridge || !this.root.dataset.bridgeVisible) return;
+    const elapsed = performance.now() - this._bridgeStart;
+    const t = Math.min(1, elapsed / BRIDGE_MS);
+    const span = Math.abs(this._bridgeToX - this._bridgeFromX);
+    const x = lerp(this._bridgeFromX, this._bridgeToX, t);
+    const w = Math.max(0, span * (1 - t));
+    if (w < 1) {
+      this.hideBridge();
+      return;
+    }
+    this.root.style.setProperty("--liquid-bridge-x", `${x}px`);
+    this.root.style.setProperty("--liquid-bridge-y", `${this._bridgeY}px`);
+    this.root.style.setProperty("--liquid-bridge-w", `${w}px`);
+    this.root.style.setProperty("--liquid-bridge-h", `${this._bridgeH}px`);
+  }
+
+  hideBridge() {
+    if (!this.bridge) return;
+    clearTimeout(this._bridgeTimer);
+    this.root.dataset.bridgeVisible = "false";
+    this._bridgeFromX = 0;
+    this._bridgeToX = 0;
   }
 
   updateLensFromItemCenter(item) {
@@ -350,6 +443,10 @@ export class LiquidDockController {
 
     p.currentX = lerp(p.currentX, p.targetX, speed);
     p.currentY = lerp(p.currentY, p.targetY, speed);
+    p.currentLensX = lerp(p.currentLensX, p.targetLensX, LENS_SPEED);
+    p.currentLensY = lerp(p.currentLensY, p.targetLensY, LENS_SPEED);
+    p.currentLensW = lerp(p.currentLensW, p.targetLensW, LENS_SPEED);
+    p.currentLensH = lerp(p.currentLensH, p.targetLensH, LENS_SPEED);
     p.currentLocalX = lerp(p.currentLocalX, p.targetLocalX, LOCAL_SPEED);
     p.currentLocalY = lerp(p.currentLocalY, p.targetLocalY, LOCAL_SPEED);
     p.currentScaleX = lerp(p.currentScaleX, p.targetScaleX, DEFORM_SPEED);
@@ -366,8 +463,11 @@ export class LiquidDockController {
     );
 
     this.applyCssState();
+    this.updateBridgeFrame();
 
-    if (this.needsAnotherFrame()) {
+    // Keep driving while the lens moves OR the strand is still playing.
+    const bridgeActive = this.root.dataset.bridgeVisible === "true";
+    if (this.needsAnotherFrame() || bridgeActive) {
       this.scheduleFrame();
     }
   };
@@ -378,6 +478,10 @@ export class LiquidDockController {
     return (
       Math.abs(p.currentX - p.targetX) > threshold ||
       Math.abs(p.currentY - p.targetY) > threshold ||
+      Math.abs(p.currentLensX - p.targetLensX) > 0.3 ||
+      Math.abs(p.currentLensY - p.targetLensY) > 0.3 ||
+      Math.abs(p.currentLensW - p.targetLensW) > 0.3 ||
+      Math.abs(p.currentLensH - p.targetLensH) > 0.3 ||
       Math.abs(p.currentLocalX - p.targetLocalX) > threshold ||
       Math.abs(p.currentLocalY - p.targetLocalY) > threshold ||
       Math.abs(p.currentScaleX - p.targetScaleX) > 0.001 ||
@@ -399,6 +503,11 @@ export class LiquidDockController {
       root.style.setProperty("--liquid-pointer-x", "50%");
       root.style.setProperty("--liquid-pointer-y", "24%");
     }
+
+    root.style.setProperty("--liquid-lens-x", `${p.currentLensX}px`);
+    root.style.setProperty("--liquid-lens-y", `${p.currentLensY}px`);
+    root.style.setProperty("--liquid-lens-w", `${p.currentLensW}px`);
+    root.style.setProperty("--liquid-lens-h", `${p.currentLensH}px`);
 
     if (this.surface) {
       root.style.setProperty("--liquid-local-x", `${p.currentLocalX}px`);
@@ -506,10 +615,10 @@ export class LiquidDockController {
 
   setQuality(quality) {
     this.quality = quality;
-    this.applyCssState();
     const item = this.resolveCurrentItem();
     if (item) this.moveLens(item, false);
     else this.hideLens();
+    this.applyCssState();
     if (quality === "static" || quality === "off") {
       this.pointer.currentX = 50;
       this.pointer.currentY = 24;
@@ -517,6 +626,7 @@ export class LiquidDockController {
       this.pointer.currentLocalY = 0;
       this.pointer.currentScaleX = 1;
       this.pointer.currentScaleY = 1;
+      this.hideBridge();
       this.applyCssState();
     }
   }
@@ -527,6 +637,7 @@ export class LiquidDockController {
     this._rafId = 0;
     clearTimeout(this._previewTimer);
     clearTimeout(this._hideTimer);
+    clearTimeout(this._bridgeTimer);
     if (this.resizeObserver) this.resizeObserver.disconnect();
     this.root.removeEventListener("pointermove", this.onPointerMove);
     this.root.removeEventListener("pointerleave", this.onPointerLeave);

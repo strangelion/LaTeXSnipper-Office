@@ -2276,6 +2276,10 @@ class UIController {
 
   initCustomSelects() {
     document.querySelectorAll(".custom-select").forEach((el) => {
+      // crossRefPicker and other JS-managed pickers reuse the class but
+      // have no trigger; CustomSelect requires one. Skip them instead of
+      // crashing app startup.
+      if (!el.querySelector(".custom-select-trigger")) return;
       el._selectInstance = new CustomSelect(el);
     });
   }
@@ -9216,9 +9220,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Initialize liquid glass appearance (before UI renders)
   const glassState = initLiquidGlass();
 
-  // ── Liquid Dock controllers (main dock + settings live preview) ──
+  // ── Liquid Dock controllers (main dock + top nav + settings preview) ──
   let mainLiquidDock = null;
+  let navLiquidDock = null;
   let demoLiquidDock = null;
+
+  const syncNavActive = () => {
+    if (!navLiquidDock) return;
+    const activeTab = document.querySelector(".liquid-nav .nav-tab.active");
+    navLiquidDock.activeItem = activeTab;
+    navLiquidDock.restoreResolvedItem();
+  };
 
   const initLiquidDocks = () => {
     const quality = glassState.quality || "full";
@@ -9232,6 +9244,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     }
 
+    const navDock = document.querySelector(".liquid-nav");
+    if (navDock && !navLiquidDock) {
+      navLiquidDock = new LiquidDockController(navDock, {
+        quality,
+      });
+      syncNavActive();
+    }
+
     const demoDock = document.querySelector("[data-liquid-demo-dock]");
     if (demoDock && !demoLiquidDock) {
       demoLiquidDock = new LiquidDockController(demoDock, {
@@ -9243,6 +9263,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const teardownLiquidDocks = () => {
     mainLiquidDock?.destroy();
     mainLiquidDock = null;
+    navLiquidDock?.destroy();
+    navLiquidDock = null;
     demoLiquidDock?.destroy();
     demoLiquidDock = null;
   };
@@ -9254,11 +9276,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
       initLiquidDocks();
       mainLiquidDock?.setQuality(quality);
+      navLiquidDock?.setQuality(quality);
       demoLiquidDock?.setQuality(quality);
     }
   });
 
   initLiquidDocks();
+
+  // Keep the nav Lens on the active tab as the user switches sections.
+  document.querySelectorAll(".nav-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      requestAnimationFrame(syncNavActive);
+    });
+  });
 
   // Wire liquid glass mode select in settings + sync initial state
   const liquidGlassSelect = document.getElementById("liquidGlassModeSelect");

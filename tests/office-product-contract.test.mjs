@@ -19,7 +19,10 @@ const viteConfig = readFileSync(
   "utf8",
 );
 
-const nav = html.match(/<div class="nav-tabs"[\s\S]*?<\/div>/)?.[0] || "";
+const nav =
+  html.match(
+    /<div[^>]*class="nav-tabs[^"]*"[\s\S]*?(?=\n\s*<button\s+class="theme-toggle)/,
+  )?.[0] || "";
 const workspaces = [...nav.matchAll(/id="(\w+)Btn"/g)].map((match) => match[1]);
 assert.deepEqual(workspaces, [
   "editor",

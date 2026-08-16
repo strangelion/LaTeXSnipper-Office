@@ -17,12 +17,39 @@
       <nav class="top-nav">
         <div class="inner">
           <span class="brand-link">LaTeXSnipper Office</span>
-          <div class="nav-tabs" aria-label="主工作区">
-            <button class="nav-tab active" id="editorBtn">编辑</button>
-            <button class="nav-tab" id="ocrBtn">识别</button>
-            <button class="nav-tab" id="historyBtn">公式库</button>
-            <button class="nav-tab" id="officeBtn">Office</button>
-            <button class="nav-tab" id="diagnosticsBtn">诊断</button>
+          <div
+            class="nav-tabs liquid-nav"
+            data-liquid-dock
+            aria-label="主工作区"
+          >
+            <div class="liquid-dock-sheen" aria-hidden="true"></div>
+
+            <div class="liquid-lens-bridge" aria-hidden="true"></div>
+
+            <div
+              class="liquid-lens-positioner"
+              data-liquid-lens
+              aria-hidden="true"
+            >
+              <div class="liquid-lens-surface">
+                <div class="liquid-lens-highlight"></div>
+                <div class="liquid-lens-chromatic"></div>
+              </div>
+            </div>
+
+            <button class="nav-tab active" id="editorBtn" data-liquid-item>
+              编辑
+            </button>
+            <button class="nav-tab" id="ocrBtn" data-liquid-item>识别</button>
+            <button class="nav-tab" id="historyBtn" data-liquid-item>
+              公式库
+            </button>
+            <button class="nav-tab" id="officeBtn" data-liquid-item>
+              Office
+            </button>
+            <button class="nav-tab" id="diagnosticsBtn" data-liquid-item>
+              诊断
+            </button>
           </div>
           <button
             class="theme-toggle settings-launcher"
@@ -444,6 +471,8 @@
                 data-liquid-dock
               >
                 <div class="liquid-dock-sheen" aria-hidden="true"></div>
+
+                <div class="liquid-lens-bridge" aria-hidden="true"></div>
 
                 <div
                   class="liquid-lens-positioner"
@@ -2372,10 +2401,8 @@
                     class="btn-group office-action-dock liquid-dock liquid-demo-dock glass-noise"
                     data-liquid-demo-dock
                   >
-                    <div
-                      class="liquid-dock-sheen"
-                      aria-hidden="true"
-                    ></div>
+                    <div class="liquid-dock-sheen" aria-hidden="true"></div>
+                    <div class="liquid-lens-bridge" aria-hidden="true"></div>
                     <div
                       class="liquid-lens-positioner"
                       data-liquid-lens
@@ -2421,7 +2448,8 @@
                   </div>
                 </div>
                 <p class="settings-hint">
-                  切换 自动 / 开启 / 关闭 可实时观察模糊、饱和度、高光与 Lens 运动差异。
+                  切换 自动 / 开启 / 关闭 可实时观察模糊、饱和度、高光与 Lens
+                  运动差异。
                 </p>
               </div>
             </div>

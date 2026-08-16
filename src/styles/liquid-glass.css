@@ -209,11 +209,13 @@ html[data-liquid-glass="off"] {
    ════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --liquid-dock-bg: rgba(235, 242, 255, 0.22);
+  --liquid-dock-bg: rgba(235, 242, 255, 0.18);
   --liquid-dock-border: rgba(255, 255, 255, 0.34);
 
-  --liquid-lens-bg: rgba(255, 255, 255, 0.14);
-  --liquid-lens-accent: rgba(45, 212, 191, 0.16);
+  /* The lens is clear glass with enough body to read against the dock:
+     nearly transparent fill + crisp edge light + small specular dot. */
+  --liquid-lens-bg: rgba(255, 255, 255, 0.16);
+  --liquid-lens-accent: rgba(45, 212, 191, 0.14);
 
   --liquid-lens-x: 0px;
   --liquid-lens-y: 0px;
@@ -229,24 +231,26 @@ html[data-liquid-glass="off"] {
   --liquid-scale-x: 1;
   --liquid-scale-y: 1;
 
+  /* Small moving specular dot inside the glass (not a big white circle). */
   --liquid-lens-highlight-x: 35%;
-  --liquid-lens-highlight-y: 22%;
+  --liquid-lens-highlight-y: 26%;
 
   --liquid-dock-blur: 28px;
   --liquid-dock-saturation: 185%;
-  --liquid-lens-blur: 10px;
-  --liquid-lens-saturation: 225%;
+  --liquid-lens-blur: 12px;
+  --liquid-lens-saturation: 210%;
 
-  --liquid-motion-position: 360ms;
+  --liquid-motion-position: 520ms;
+  --liquid-motion-curve: cubic-bezier(0.22, 1, 0.36, 1);
 
   --liquid-dynamic-accent: var(--accent);
 }
 
 [data-theme="dark"] {
-  --liquid-dock-bg: rgba(34, 43, 60, 0.36);
-  --liquid-dock-border: rgba(255, 255, 255, 0.15);
-  --liquid-lens-bg: rgba(255, 255, 255, 0.085);
-  --liquid-lens-accent: rgba(45, 212, 191, 0.14);
+  --liquid-dock-bg: rgba(34, 43, 60, 0.34);
+  --liquid-dock-border: rgba(255, 255, 255, 0.16);
+  --liquid-lens-bg: rgba(255, 255, 255, 0.09);
+  --liquid-lens-accent: rgba(45, 212, 191, 0.12);
 }
 
 @supports (color: color-mix(in srgb, red 50%, blue)) {
@@ -342,15 +346,62 @@ html[data-liquid-glass="off"] {
   pointer-events: none;
   opacity: 0;
 
-  transition:
-    transform var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
-    width var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
-    height var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 150ms ease;
+  /* Position/size are driven every frame by the RAF loop — no CSS
+     transition here or the two clocks fight and the glide feels sticky. */
+  transition: opacity 150ms ease;
 }
 
-.liquid-dock[data-lens-visible="true"] .liquid-lens-positioner {
+.liquid-dock[data-lens-visible="true"] .liquid-lens-positioner,
+.liquid-nav[data-lens-visible="true"] .liquid-lens-positioner {
   opacity: 1;
+}
+
+/* ── Liquid bridge ──────────────────────────────────────────────────
+   A thin stretched link that trails between the outgoing and incoming
+   items while the lens glides. Geometry uses dock coordinates via CSS
+   vars: --liquid-bridge-x / --liquid-bridge-w; vertical center aligns
+   with the lens through --liquid-bridge-y (dock-local, defaults to a
+   rough center). Fades out once the lens settles. */
+
+.liquid-lens-bridge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--liquid-bridge-w, 0px);
+  height: var(--liquid-bridge-h, 14px);
+
+  transform: translate3d(
+    var(--liquid-bridge-x, 0px),
+    var(--liquid-bridge-y, 24px),
+    0
+  );
+
+  border-radius: 999px;
+
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.16),
+    rgba(255, 255, 255, 0.05)
+  );
+
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 2px 10px rgba(15, 23, 42, 0.08);
+
+  opacity: 0;
+  pointer-events: none;
+
+  /* Geometry follows the RAF-driven lens every frame; only the fade is
+     transitioned. */
+  transition: opacity 200ms ease;
+}
+
+.liquid-dock[data-bridge-visible="true"] .liquid-lens-bridge,
+.liquid-nav[data-bridge-visible="true"] .liquid-lens-bridge {
+  opacity: 0.55;
 }
 
 .liquid-lens-surface {
@@ -363,47 +414,63 @@ html[data-liquid-glass="off"] {
   transform-origin: center;
 
   background:
-    radial-gradient(
-      circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
-      rgba(255, 255, 255, 0.54),
-      transparent 32%
+    /* Clear optical glass: translucent body + a soft top-lit tint so the
+       lens reads against the dock, with a small moving specular dot. */
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.2),
+      rgba(255, 255, 255, 0.06) 42%,
+      rgba(255, 255, 255, 0.1)
     ),
     radial-gradient(
-      circle at 72% 100%,
-      color-mix(in srgb, var(--accent) 20%, transparent),
-      transparent 58%
+      circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
+      rgba(255, 255, 255, 0.2),
+      rgba(255, 255, 255, 0.05) 30%,
+      transparent 55%
     ),
     var(--liquid-lens-bg);
 
   backdrop-filter: blur(var(--liquid-lens-blur))
-    saturate(var(--liquid-lens-saturation)) brightness(1.1) contrast(1.04);
+    saturate(var(--liquid-lens-saturation)) brightness(1.08);
   -webkit-backdrop-filter: blur(var(--liquid-lens-blur))
-    saturate(var(--liquid-lens-saturation)) brightness(1.1) contrast(1.04);
+    saturate(var(--liquid-lens-saturation)) brightness(1.08);
 
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.5);
 
   box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.56),
-    inset -1px -1px 0 rgba(255, 255, 255, 0.08),
-    0 9px 22px rgba(15, 23, 42, 0.13);
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.18),
+    inset -1px 0 0 rgba(255, 255, 255, 0.18),
+    0 6px 18px rgba(15, 23, 42, 0.14);
 
-  transition:
-    transform 90ms linear,
-    filter 120ms ease;
+  /* No transform transition here: the surface transform is written every
+     frame by the RAF loop. A CSS transition on top would double-blend and
+     feel sticky. */
+  transition: filter 120ms ease;
 }
 
 .liquid-lens-highlight {
   position: absolute;
-  inset: 2px;
+  inset: 1px;
   border-radius: inherit;
   pointer-events: none;
 
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.4),
-    rgba(255, 255, 255, 0.06) 35%,
-    transparent 58%
-  );
+  /* Fresnel rim: bright arc along the top edge (glass catches light at
+     grazing angles) plus a small specular dot under the cursor. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.28),
+      rgba(255, 255, 255, 0.05) 26%,
+      transparent 52%
+    ),
+    radial-gradient(
+      circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
+      rgba(255, 255, 255, 0.16),
+      rgba(255, 255, 255, 0.04) 22%,
+      transparent 42%
+    );
 
   mix-blend-mode: screen;
 }
@@ -631,6 +698,10 @@ html[data-liquid-quality="static"] .liquid-lens-positioner {
   transition: opacity 80ms ease;
 }
 
+html[data-liquid-quality="static"] .liquid-lens-bridge {
+  display: none;
+}
+
 html[data-liquid-quality="static"] .liquid-lens-surface {
   transition: none;
 }
@@ -652,6 +723,7 @@ html[data-liquid-glass="off"] .liquid-dock {
 }
 
 html[data-liquid-glass="off"] .liquid-lens-positioner,
+html[data-liquid-glass="off"] .liquid-lens-bridge,
 html[data-liquid-glass="off"] .liquid-dock-sheen,
 html[data-liquid-glass="off"] .liquid-dock-preview {
   display: none;
@@ -665,11 +737,150 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
   }
 }
 
-/* ── Focus visibility ─────────────────────────────────────────────── */
+/* ── Top navigation as a Liquid Dock (desktop wide nav) ────────────
+   The top nav keeps its own glass bar; the nav-tabs get a transparent
+   dock body with a single sliding Lens. The active tab keeps a clear
+   glass capsule so selection is always readable; the Lens rides on top
+   and glides between tabs. */
 
-.office-action-dock [data-liquid-item]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.liquid-nav {
+  position: relative;
+  isolation: isolate;
+  z-index: 1;
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  margin-left: 2rem;
+  padding: 4px;
+  border-radius: 999px;
+  background: transparent;
+  overflow: visible;
+}
+
+.liquid-nav .nav-tab {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: var(--muted);
+  -webkit-text-fill-color: currentColor;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    transform 150ms ease;
+}
+
+.liquid-nav .nav-tab:hover {
+  background: rgba(var(--glass-rgb), 0.28);
+  border-color: rgba(var(--glass-rgb), 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 2px 10px rgba(15, 23, 42, 0.05);
+}
+
+/* The selected tab keeps a clear glass capsule so the active state reads
+   even before/without the sliding Lens; the Lens then rides on top. */
+.liquid-nav .nav-tab.active {
+  color: var(--accent);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  font-weight: 600;
+}
+
+[data-theme="dark"] .liquid-nav .nav-tab.active {
+  color: #93c5fd;
+}
+
+/* MacOS-Dock-style selection indicator: a small arch (half-capsule)
+   protruding from the bottom of the active tab, instead of painting the
+   whole tab as a solid pill. */
+.liquid-nav .nav-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 16px;
+  height: 7px;
+  transform: translateX(-50%);
+  border-radius: 7px 7px 0 0;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18);
+}
+
+[data-theme="dark"] .liquid-nav .nav-tab.active::after {
+  background: #93c5fd;
+}
+
+/* Lens inside the top nav: centered on the tab bar, slightly flatter. */
+.liquid-nav .liquid-lens-positioner {
+  height: calc(var(--liquid-lens-h) - 2px);
+  margin-top: 1px;
+}
+
+.liquid-nav .liquid-lens-bridge {
+  top: 0;
+}
+
+/* Keep the responsive flex behavior from main.css intact. */
+@media (max-width: 720px) {
+  .liquid-nav {
+    margin-left: 0;
+  }
+}
+
+/* ── Command bar buttons (新建/打开/截图/… ) ─────────────────────
+   Segmented capsule: the left button has an arch on its outer edge and
+   the right button a half-capsule, so the pair reads as one split pill.
+   Hover highlights each button inside its own rounded segment. */
+
+.workspace-command-cluster > div {
+  border-radius: 999px;
+  background: color-mix(
+    in srgb,
+    var(--card-bg) 88%,
+    rgba(var(--glass-rgb), 0.4)
+  );
+}
+
+.workspace-command-cluster > div button {
+  border-color: transparent;
+  background: transparent;
+  border-radius: 999px 0 0 999px;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+/* Right button: half-capsule (arch on the right, flat join on the left). */
+.workspace-command-cluster > div button + button {
+  border-left: 1px solid var(--border-color);
+  border-radius: 0 999px 999px 0;
+}
+
+.workspace-command-cluster > div button:hover {
+  background: rgba(var(--glass-rgb), 0.36);
+  color: var(--accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+/* Primary command (新建) becomes a translucent accent glass pill instead
+   of a solid blue block, matching the rest of the glass row. */
+.workspace-command-cluster > div .command-primary {
+  background: color-mix(in srgb, var(--accent) 84%, rgba(255, 255, 255, 0.14));
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 3px 12px rgba(37, 99, 235, 0.24);
+}
+
+.workspace-command-cluster > div .command-primary:hover {
+  background: color-mix(in srgb, var(--accent) 92%, rgba(255, 255, 255, 0.1));
+  color: #fff;
 }
 
 /* ── Settings live material preview (Phase 1) ────────────────────── */
@@ -713,4 +924,11 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
 
 .liquid-demo-dock .liquid-dock-preview {
   display: none;
+}
+/* ── Focus visibility ─────────────────────────────────────────────── */
+
+.office-action-dock [data-liquid-item]:focus-visible,
+.liquid-nav [data-liquid-item]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
