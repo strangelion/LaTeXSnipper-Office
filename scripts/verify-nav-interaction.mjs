@@ -36,9 +36,8 @@ async function navLens() {
       activeCenter: Math.round(activeC * 10) / 10,
       off: Math.round(Math.abs(lensC - activeC) * 10) / 10,
       glow: nav.dataset.hoverGlow,
-      lensOpacity: getComputedStyle(
-        nav.querySelector("[data-liquid-lens]"),
-      ).opacity,
+      lensOpacity: getComputedStyle(nav.querySelector("[data-liquid-lens]"))
+        .opacity,
     };
   });
 }
@@ -128,6 +127,8 @@ check(
 
 console.log("ERRORS:", errors.join(" | ") || "none");
 const failed = results.filter((r) => !r.ok);
-console.log(`\n=== ${results.length - failed.length}/${results.length} passed ===`);
+console.log(
+  `\n=== ${results.length - failed.length}/${results.length} passed ===`,
+);
 await browser.close();
 process.exit(failed.length ? 1 : 0);
