@@ -550,7 +550,18 @@ jobs:
           if ($fullUpgrade) {
             $prior = (Resolve-Path prior-version.msi).Path
             $priorVersion = Get-MsiProductVersion $prior
-            $expectedPrior = '${{ inputs.prior_tag }}'.TrimStart('v')
+            # Prior tags before v1.6.0 shipped the plain semver as the MSI
+            # ProductVersion; v1.6.0+ encode patch*100+99 (same mapping as
+            # build.ps1's ConvertTo-MsiVersion). Match the tag's own era.
+            $priorSemVer = '${{ inputs.prior_tag }}'.TrimStart('v')
+            $priorParts = $priorSemVer -split '[.-]'
+            $expectedPrior = if ([int]$priorParts[0] -eq 1 -and [int]$priorParts[1] -lt 6) {
+              $priorSemVer
+            } else {
+              $patch = [int]$priorParts[2]
+              $build = ($patch * 100 + 99).ToString('D2')
+              "$($priorParts[0]).$($priorParts[1]).$build"
+            }
             if ($priorVersion -ne $expectedPrior) { throw "Prior MSI ProductVersion mismatch: expected=$expectedPrior actual=$priorVersion" }
             "prior=$priorVersion`ncurrent=$(Get-MsiProductVersion $current)" |
               Set-Content package-diagnostics\msi-product-versions.txt -Encoding UTF8
