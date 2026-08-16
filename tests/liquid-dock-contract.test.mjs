@@ -750,3 +750,91 @@ describe("LiquidDockController reanchor", () => {
     });
   });
 });
+
+describe("LiquidDockController axis lock", () => {
+  function withRaf(fn) {
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalCancel = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+    try {
+      return fn();
+    } finally {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.cancelAnimationFrame = originalCancel;
+    }
+  }
+
+  function makeLockedDock() {
+    const itemA = new StubElement({ disabled: false });
+    itemA.setAttribute("data-liquid-item", "");
+    itemA.closest = (s) => (s === "[data-liquid-item]" ? itemA : null);
+    itemA.getBoundingClientRect = () => ({
+      left: 50,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const itemB = new StubElement({ disabled: false });
+    itemB.setAttribute("data-liquid-item", "");
+    itemB.closest = (s) => (s === "[data-liquid-item]" ? itemB : null);
+    itemB.getBoundingClientRect = () => ({
+      left: 160,
+      top: 10,
+      width: 90,
+      height: 32,
+    });
+    const { root } = makeDockStub({ items: [itemA, itemB] });
+    root.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 52,
+    });
+    const dock = new LiquidDockController(root, {
+      quality: "full",
+      interactionMode: "fluid-pointer",
+    });
+    return { dock, root, itemA, itemB };
+  }
+
+  it("locks Y to the item row regardless of pointer height", () => {
+    withRaf(() => {
+      const { dock } = makeLockedDock();
+      // Row centre = 10 + 16 = 26.
+      const low = dock.computeDropletGeometry({ x: 205, y: 5 });
+      const high = dock.computeDropletGeometry({ x: 205, y: 48 });
+      assert.equal(low.y + low.h / 2, 26, "Y locked at row centre (low)");
+      assert.equal(high.y + high.h / 2, 26, "Y locked at row centre (high)");
+      dock.destroy();
+    });
+  });
+
+  it("clamps X to the label span when the pointer goes beyond", () => {
+    withRaf(() => {
+      const { dock } = makeLockedDock();
+      // Label span: itemA left 50 … itemB right 250.
+      const left = dock.computeDropletGeometry({ x: -200, y: 26 });
+      const right = dock.computeDropletGeometry({ x: 900, y: 26 });
+      assert.ok(
+        left.x + left.w / 2 >= 50 - 2,
+        `droplet centre does not escape left edge (got ${left.x + left.w / 2})`,
+      );
+      assert.ok(
+        right.x + right.w / 2 <= 250 + 2,
+        `droplet centre does not escape right edge (got ${right.x + right.w / 2})`,
+      );
+      dock.destroy();
+    });
+  });
+
+  it("slides freely between items (not snapped to a single column)", () => {
+    withRaf(() => {
+      const { dock } = makeLockedDock();
+      const mid = dock.computeDropletGeometry({ x: 180, y: 26 });
+      assert.ok(mid.x + mid.w / 2 > 100, "droplet can rest between items");
+      assert.ok(mid.x + mid.w / 2 < 250, "droplet stays within span");
+      dock.destroy();
+    });
+  });
+});

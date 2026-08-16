@@ -874,10 +874,12 @@ export class LiquidDockController {
     if (Math.abs(d.w - d.targetW) < 0.15) d.w = d.targetW;
     if (Math.abs(d.h - d.targetH) < 0.15) d.h = d.targetH;
 
-    // Velocity-driven stretch (fast sweeps elongate the droplet).
+    // Velocity-driven stretch (fast horizontal sweeps elongate the
+    // droplet). Vertical velocity is ignored: the droplet is locked to
+    // the item row, so vertical motion must not deform it.
     const stretch = computeVelocityStretch(
       d.velocityX,
-      d.velocityY,
+      0,
       this.velocityStretch,
     );
     this.pointer.targetScaleX = stretch.targetScaleX;
@@ -903,9 +905,11 @@ export class LiquidDockController {
 
     // Velocity damps like a liquid; zero below the jitter floor.
     d.velocityX *= VELOCITY_DAMPING;
-    d.velocityY *= VELOCITY_DAMPING;
+    // Vertical velocity is meaningless once the droplet is row-locked
+    // (its Y never moves); zero it so the RAF stop condition (which
+    // checks velocity) cannot keep the loop alive on vertical jitter.
+    d.velocityY = 0;
     if (Math.abs(d.velocityX) < 0.02) d.velocityX = 0;
-    if (Math.abs(d.velocityY) < 0.02) d.velocityY = 0;
 
     // Highlight tracks the cursor *inside the droplet* (droplet-local
     // coordinates), so the light visibly flows within the glass.
@@ -960,14 +964,50 @@ export class LiquidDockController {
       })
       .filter((b) => b.w > 0 && b.h > 0);
 
+    // Vertical lock: the droplet lives on the item row. Only the
+    // horizontal axis chases the cursor; Y stays on the nearest item's
+    // vertical centre (all nav items share one row), or the dock midline
+    // when the pointer is far from any item. The droplet never floats up
+    // or down with the mouse.
+    let rowY = dockRect.height / 2;
+    let nearestRow = null;
+    let bestDx = Infinity;
+    let spanMin = dockRect.width;
+    let spanMax = 0;
+    for (const b of boxes) {
+      const bCx = b.x + b.w / 2;
+      const dx = Math.abs(pointer.x - bCx);
+      if (dx < bestDx) {
+        bestDx = dx;
+        nearestRow = b;
+      }
+      spanMin = Math.min(spanMin, b.x);
+      spanMax = Math.max(spanMax, b.x + b.w);
+    }
+    if (nearestRow) rowY = nearestRow.y + nearestRow.h / 2;
+
+    // Horizontal lock: the droplet centre never leaves the label span.
+    // It slides freely between the first and last item, and rests at the
+    // edge when the cursor goes beyond the text (brand/settings areas).
+    const HORIZONTAL_LEASH = 2; // px of slack past the outer labels
+    const clampedX =
+      boxes.length > 0
+        ? clamp(
+            pointer.x,
+            spanMin - HORIZONTAL_LEASH,
+            spanMax + HORIZONTAL_LEASH,
+          )
+        : pointer.x;
+    const lockedPointer = { x: clampedX, y: rowY };
+
     const fallback = {
-      x: pointer.x - d.w / 2,
-      y: pointer.y - d.h / 2,
+      x: lockedPointer.x - d.w / 2,
+      y: lockedPointer.y - d.h / 2,
       w: DROPLET_DEFAULT_W,
       h: DROPLET_DEFAULT_H,
     };
     return computeDropletTarget(
-      pointer,
+      lockedPointer,
       boxes,
       {
         magneticRadius: this.magneticRadius,
