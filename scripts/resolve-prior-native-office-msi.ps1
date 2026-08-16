@@ -40,6 +40,35 @@ function Get-MsiProductVersion([string]$Path) {
     return $record.GetType().InvokeMember("StringData", "GetProperty", $null, $record, 1)
 }
 
+# Convert semver to the MSI ProductVersion (major.minor.build) that
+# apps/native-office/Installer/build.ps1 encodes. Windows Installer only
+# uses the first THREE fields; the RC number lives in the 3rd (build)
+# field so MajorUpgrade can distinguish RC builds:
+#
+#   "1.5.1-rc.1" -> "1.5.101"   "1.5.1" -> "1.5.199"
+#   "1.6.0"     -> "1.6.99"     "1.7.0-rc.2" -> "1.7.2"
+function ConvertTo-MsiVersion([string]$SemVer) {
+    if ($SemVer -match '^(\d+)\.(\d+)\.(\d+)(?:-(rc|alpha|beta)\.(\d+))?$') {
+        $major = $Matches[1]
+        $minor = $Matches[2]
+        $patch = [int]$Matches[3]
+        $kind = $Matches[4]
+        $num = if ($Matches[5]) { [int]$Matches[5] } else { 0 }
+
+        if (-not $kind) {
+            $build = ($patch * 100 + 99).ToString("D2")
+        } elseif ($kind -eq "rc") {
+            $build = ($patch * 100 + $num).ToString("D2")
+        } elseif ($kind -eq "alpha") {
+            $build = ($patch * 100 + 200 + $num).ToString("D2")
+        } else { # beta
+            $build = ($patch * 100 + 250 + $num).ToString("D2")
+        }
+        return "$major.$minor.$build"
+    }
+    return $SemVer
+}
+
 $release = $null
 try {
     $releaseJson = & gh api "repos/$repository/releases/tags/$Tag" 2>$null
@@ -66,7 +95,8 @@ if ($asset) {
     $expected = $asset.digest.Substring(7).ToLowerInvariant()
     if ($actual -ne $expected) { throw "Prior MSI SHA256 mismatch: expected=$expected actual=$actual" }
     $productVersion = Get-MsiProductVersion $destinationPath
-    if ($productVersion -ne $Tag.TrimStart('v')) { throw "Prior release MSI ProductVersion mismatch: $productVersion" }
+    $expectedMsiVersion = ConvertTo-MsiVersion $Tag.TrimStart('v')
+    if ($productVersion -ne $expectedMsiVersion) { throw "Prior release MSI ProductVersion mismatch: expected=$expectedMsiVersion actual=$productVersion" }
     "source=release`ntag=$Tag`nasset=$($asset.name)`nsha256=$actual`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
     "chosenSource=release; msiSha256=$actual; ProductVersion=$productVersion" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
@@ -188,7 +218,8 @@ try {
 
     $sha = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $productVersion = Get-MsiProductVersion $destinationPath
-    if ($productVersion -ne $expectedVersion) { throw "Prior worktree MSI ProductVersion mismatch: expected=$expectedVersion actual=$productVersion" }
+    $expectedMsiVersion = ConvertTo-MsiVersion $expectedVersion
+    if ($productVersion -ne $expectedMsiVersion) { throw "Prior worktree MSI ProductVersion mismatch: expected=$expectedMsiVersion actual=$productVersion" }
     "source=worktree`ntag=$Tag`ntagCommit=$tagCommit`nworktreeCommit=$worktreeCommit`nsourcePackageVersion=$($priorPackage.version)`nmsiVersion=$expectedVersion`nsha256=$sha`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
     "worktreeCommit=$worktreeCommit; chosenSource=worktree; msiSha256=$sha; ProductVersion=$productVersion" | Add-Content -LiteralPath $resolutionLog -Encoding UTF8
