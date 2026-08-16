@@ -47,6 +47,10 @@ function Get-MsiProductVersion([string]$Path) {
 #
 #   "1.5.1-rc.1" -> "1.5.101"   "1.5.1" -> "1.5.199"
 #   "1.6.0"     -> "1.6.99"     "1.7.0-rc.2" -> "1.7.2"
+#
+# The mapping was introduced in v1.6.0. Older tags (<= v1.5.x) passed the
+# plain semver straight to WiX, so their MSI ProductVersion equals the
+# semver itself (e.g. 1.2.1 -> "1.2.1").
 function ConvertTo-MsiVersion([string]$SemVer) {
     if ($SemVer -match '^(\d+)\.(\d+)\.(\d+)(?:-(rc|alpha|beta)\.(\d+))?$') {
         $major = $Matches[1]
@@ -67,6 +71,19 @@ function ConvertTo-MsiVersion([string]$SemVer) {
         return "$major.$minor.$build"
     }
     return $SemVer
+}
+
+# Expected MSI ProductVersion for a prior release tag. Tags >= 1.6.0 use
+# the semver->MSI mapping above; older tags used the plain semver as the
+# WiX Version, so their MSI ProductVersion is the semver unchanged.
+function Get-PriorMsiVersion([string]$Tag) {
+    $version = $Tag.TrimStart('v')
+    $first = ($version -split '[.-]')[0]
+    $second = ($version -split '[.-]')[1]
+    if ($first -eq '1' -and [int]$second -lt 6) {
+        return $version
+    }
+    return ConvertTo-MsiVersion $version
 }
 
 $release = $null
@@ -95,7 +112,7 @@ if ($asset) {
     $expected = $asset.digest.Substring(7).ToLowerInvariant()
     if ($actual -ne $expected) { throw "Prior MSI SHA256 mismatch: expected=$expected actual=$actual" }
     $productVersion = Get-MsiProductVersion $destinationPath
-    $expectedMsiVersion = ConvertTo-MsiVersion $Tag.TrimStart('v')
+    $expectedMsiVersion = Get-PriorMsiVersion $Tag
     if ($productVersion -ne $expectedMsiVersion) { throw "Prior release MSI ProductVersion mismatch: expected=$expectedMsiVersion actual=$productVersion" }
     "source=release`ntag=$Tag`nasset=$($asset.name)`nsha256=$actual`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
@@ -218,7 +235,7 @@ try {
 
     $sha = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $productVersion = Get-MsiProductVersion $destinationPath
-    $expectedMsiVersion = ConvertTo-MsiVersion $expectedVersion
+    $expectedMsiVersion = Get-PriorMsiVersion $Tag
     if ($productVersion -ne $expectedMsiVersion) { throw "Prior worktree MSI ProductVersion mismatch: expected=$expectedMsiVersion actual=$productVersion" }
     "source=worktree`ntag=$Tag`ntagCommit=$tagCommit`nworktreeCommit=$worktreeCommit`nsourcePackageVersion=$($priorPackage.version)`nmsiVersion=$expectedVersion`nsha256=$sha`nProductVersion=$productVersion" |
         Set-Content -LiteralPath (Join-Path $DiagnosticsDirectory "prior-native-office-source.txt") -Encoding UTF8
