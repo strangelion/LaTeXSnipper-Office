@@ -497,14 +497,11 @@ try {
 
 # ── 10. Run drift checks ──
 
-# resource-drift: compares staged resources against build outputs.
-Write-Host "Drift checks:" -ForegroundColor Yellow
-$prevEAP = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-& npm run check:resource-drift 2>&1
-$driftOk = ($LASTEXITCODE -eq 0)
-$ErrorActionPreference = $prevEAP
-Assert-Gate "resource-drift" $driftOk "staged resources out of sync with build outputs; run 'npm run stage:resources && npm run stage:ecosystem'"
+# NOTE: resource-drift compares staged resources against git HEAD. A
+# version bump necessarily changes staged manifests before they are
+# committed, so this check must run AFTER the commit (step 13) — running
+# it here would falsely flag the very bump being released. The real
+# post-commit drift gate lives below next to check:ecosystem-drift.
 
 # ── 11. Run tests ──
 
@@ -564,8 +561,14 @@ foreach ($f in $commitFiles) {
 git commit -m "chore: bump version to $Version"
 Write-Host "`nCommitted." -ForegroundColor Green
 
-# Post-commit ecosystem drift check: now HEAD is the new version, this should pass.
-Write-Host "Running post-commit ecosystem drift check..." -ForegroundColor Gray
+# Post-commit drift checks: now HEAD is the new version, staged resources
+# must match the committed tree (resource-drift) and the generated plugin
+# payloads (ecosystem-drift).
+Write-Host "Running post-commit drift checks..." -ForegroundColor Gray
+& npm run check:resource-drift
+if ($LASTEXITCODE -ne 0) {
+    throw "Committed resources do not match the staged tree; refusing to tag or push."
+}
 & npm run check:ecosystem-drift
 if ($LASTEXITCODE -ne 0) {
     throw "Committed ecosystem resources do not match the generated payloads; refusing to tag or push."
