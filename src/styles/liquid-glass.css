@@ -196,3 +196,521 @@ html[data-liquid-glass="off"] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   Liquid Glass 2.0 — Continuous Fluid Dock
+   ============================================================
+   Five layers:
+   1. Continuous glass Dock (base material)
+   2. Independent Liquid Lens (single selection bubble)
+   3. Pointer-driven global highlight field (sheen)
+   4. Local refraction / attraction / micro deformation
+   5. Context-aware Preview HUD
+   ════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --liquid-dock-bg: rgba(235, 242, 255, 0.22);
+  --liquid-dock-border: rgba(255, 255, 255, 0.34);
+
+  --liquid-lens-bg: rgba(255, 255, 255, 0.14);
+  --liquid-lens-accent: rgba(45, 212, 191, 0.16);
+
+  --liquid-lens-x: 0px;
+  --liquid-lens-y: 0px;
+  --liquid-lens-w: 0px;
+  --liquid-lens-h: 0px;
+
+  --liquid-pointer-x: 50%;
+  --liquid-pointer-y: 24%;
+
+  --liquid-local-x: 0px;
+  --liquid-local-y: 0px;
+
+  --liquid-scale-x: 1;
+  --liquid-scale-y: 1;
+
+  --liquid-lens-highlight-x: 35%;
+  --liquid-lens-highlight-y: 22%;
+
+  --liquid-dock-blur: 28px;
+  --liquid-dock-saturation: 185%;
+  --liquid-lens-blur: 10px;
+  --liquid-lens-saturation: 225%;
+
+  --liquid-motion-position: 360ms;
+
+  --liquid-dynamic-accent: var(--accent);
+}
+
+[data-theme="dark"] {
+  --liquid-dock-bg: rgba(34, 43, 60, 0.36);
+  --liquid-dock-border: rgba(255, 255, 255, 0.15);
+  --liquid-lens-bg: rgba(255, 255, 255, 0.085);
+  --liquid-lens-accent: rgba(45, 212, 191, 0.14);
+}
+
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  :root {
+    --liquid-dynamic-accent: color-mix(in srgb, var(--accent) 64%, #2dd4bf);
+  }
+}
+
+/* ── Dock body ────────────────────────────────────────────────────── */
+
+.liquid-dock {
+  isolation: isolate;
+  position: sticky;
+  bottom: 14px;
+  z-index: 80;
+
+  width: fit-content;
+  max-width: calc(100% - 32px);
+
+  margin: 20px auto max(14px, env(safe-area-inset-bottom));
+  padding: 7px;
+  gap: 4px;
+
+  overflow: visible;
+  border-radius: 999px;
+
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.04)
+    ),
+    var(--liquid-dock-bg);
+
+  border: 1px solid var(--liquid-dock-border);
+
+  backdrop-filter: blur(var(--liquid-dock-blur))
+    saturate(var(--liquid-dock-saturation)) brightness(1.04);
+  -webkit-backdrop-filter: blur(var(--liquid-dock-blur))
+    saturate(var(--liquid-dock-saturation)) brightness(1.04);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
+    0 18px 50px rgba(15, 23, 42, 0.18),
+    0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+/* The old solid translucent background must not overpaint the lens. */
+.office-action-dock.liquid-dock {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.04)
+    ),
+    var(--liquid-dock-bg);
+  border-radius: 999px;
+}
+
+/* ── Global highlight field ───────────────────────────────────────── */
+
+.liquid-dock-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+
+  background: radial-gradient(
+    circle at var(--liquid-pointer-x) var(--liquid-pointer-y),
+    rgba(255, 255, 255, 0.34),
+    rgba(255, 255, 255, 0.13) 22%,
+    transparent 48%
+  );
+
+  opacity: 0.82;
+}
+
+/* ── Liquid Lens ──────────────────────────────────────────────────── */
+
+.liquid-lens-positioner {
+  position: absolute;
+  left: 0;
+  top: 0;
+
+  width: var(--liquid-lens-w);
+  height: var(--liquid-lens-h);
+
+  transform: translate3d(var(--liquid-lens-x), var(--liquid-lens-y), 0);
+
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+
+  transition:
+    transform var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
+    width var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
+    height var(--liquid-motion-position) cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 150ms ease;
+}
+
+.liquid-dock[data-lens-visible="true"] .liquid-lens-positioner {
+  opacity: 1;
+}
+
+.liquid-lens-surface {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+
+  transform: translate3d(var(--liquid-local-x), var(--liquid-local-y), 0)
+    scale(var(--liquid-scale-x), var(--liquid-scale-y));
+  transform-origin: center;
+
+  background:
+    radial-gradient(
+      circle at var(--liquid-lens-highlight-x) var(--liquid-lens-highlight-y),
+      rgba(255, 255, 255, 0.54),
+      transparent 32%
+    ),
+    radial-gradient(
+      circle at 72% 100%,
+      color-mix(in srgb, var(--accent) 20%, transparent),
+      transparent 58%
+    ),
+    var(--liquid-lens-bg);
+
+  backdrop-filter: blur(var(--liquid-lens-blur))
+    saturate(var(--liquid-lens-saturation)) brightness(1.1) contrast(1.04);
+  -webkit-backdrop-filter: blur(var(--liquid-lens-blur))
+    saturate(var(--liquid-lens-saturation)) brightness(1.1) contrast(1.04);
+
+  border: 1px solid rgba(255, 255, 255, 0.42);
+
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.56),
+    inset -1px -1px 0 rgba(255, 255, 255, 0.08),
+    0 9px 22px rgba(15, 23, 42, 0.13);
+
+  transition:
+    transform 90ms linear,
+    filter 120ms ease;
+}
+
+.liquid-lens-highlight {
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.4),
+    rgba(255, 255, 255, 0.06) 35%,
+    transparent 58%
+  );
+
+  mix-blend-mode: screen;
+}
+
+.liquid-lens-chromatic {
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.32;
+
+  background: linear-gradient(
+    115deg,
+    rgba(96, 165, 250, 0.13),
+    transparent 34%,
+    rgba(45, 212, 191, 0.11) 66%,
+    rgba(244, 114, 182, 0.08)
+  );
+
+  mix-blend-mode: screen;
+  filter: blur(0.4px);
+}
+
+/* ── Buttons inside the Dock ──────────────────────────────────────── */
+
+.liquid-dock .btn,
+.office-action-dock.liquid-dock .btn {
+  position: relative;
+  z-index: 2;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+
+  transition:
+    color 150ms ease,
+    transform 150ms ease,
+    opacity 150ms ease;
+}
+
+.liquid-dock .btn:hover,
+.office-action-dock.liquid-dock .btn:hover {
+  background: transparent;
+  transform: translateY(-1px);
+}
+
+.liquid-dock .btn:active,
+.office-action-dock.liquid-dock .btn:active {
+  transform: scale(0.97);
+}
+
+.liquid-dock .btn.primary,
+.office-action-dock.liquid-dock .btn.primary {
+  background: transparent;
+  color: var(--liquid-dynamic-accent, var(--accent));
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.liquid-dock .custom-select,
+.liquid-dock .custom-select-trigger,
+.office-action-dock.liquid-dock .custom-select,
+.office-action-dock.liquid-dock .custom-select-trigger {
+  position: relative;
+  z-index: 2;
+}
+
+/* Disabled items: lens never enters, no preview, no deformation. */
+.liquid-dock [data-liquid-item][disabled],
+.liquid-dock [data-liquid-item][aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Context Preview HUD ──────────────────────────────────────────── */
+
+.liquid-dock-preview {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 14px);
+  width: min(340px, calc(100vw - 40px));
+  padding: 14px 16px;
+  border-radius: 22px;
+
+  background:
+    linear-gradient(
+      150deg,
+      rgba(255, 255, 255, 0.2),
+      rgba(255, 255, 255, 0.055)
+    ),
+    rgba(var(--glass-rgb), 0.27);
+
+  backdrop-filter: blur(30px) saturate(190%) brightness(1.05);
+  -webkit-backdrop-filter: blur(30px) saturate(190%) brightness(1.05);
+
+  border: 1px solid rgba(255, 255, 255, 0.28);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    0 22px 60px rgba(15, 23, 42, 0.18);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 10px) scale(0.96);
+
+  transition:
+    opacity 160ms ease,
+    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    visibility 160ms;
+}
+
+.liquid-dock-preview[data-visible="true"] {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.liquid-preview-node {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.liquid-preview-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.liquid-preview-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.liquid-preview-subtitle {
+  font-size: 0.68rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.liquid-preview-formula {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.liquid-preview-detail {
+  font-size: 0.72rem;
+  line-height: 1.55;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.liquid-preview-status {
+  align-self: flex-start;
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(var(--glass-rgb), 0.3);
+  color: var(--muted);
+}
+
+.liquid-preview-status.tone-ok {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.12);
+}
+
+.liquid-preview-status.tone-warn {
+  color: #b45309;
+  background: rgba(180, 83, 9, 0.12);
+}
+
+.liquid-preview-status.tone-error {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+[data-theme="dark"] .liquid-preview-status.tone-ok {
+  color: #34d399;
+}
+
+[data-theme="dark"] .liquid-preview-status.tone-warn {
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .liquid-preview-status.tone-error {
+  color: #f87171;
+}
+
+/* ── Pulse ────────────────────────────────────────────────────────── */
+
+@keyframes liquidLensPulse {
+  0% {
+    scale: 1;
+  }
+  36% {
+    scale: 1.045 0.965;
+  }
+  68% {
+    scale: 0.99 1.018;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+.liquid-lens-surface.is-pulsing {
+  animation: liquidLensPulse 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ── Quality tiers ────────────────────────────────────────────────── */
+
+/* static: keep the glass material, stop fluid motion. */
+html[data-liquid-quality="static"] .liquid-dock {
+  --liquid-motion-position: 0ms;
+}
+
+html[data-liquid-quality="static"] .liquid-lens-positioner {
+  transition: opacity 80ms ease;
+}
+
+html[data-liquid-quality="static"] .liquid-lens-surface {
+  transition: none;
+}
+
+html[data-liquid-quality="static"] .liquid-dock-sheen {
+  opacity: 0;
+}
+
+/* reduced: keep blur + position transition, drop per-frame sheen. */
+html[data-liquid-quality="reduced"] .liquid-dock-sheen {
+  opacity: 0.4;
+}
+
+/* off: plain surface, no backdrop-filter, no dynamic lens. */
+html[data-liquid-glass="off"] .liquid-dock {
+  background: rgba(var(--glass-strong-rgb), 0.96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-liquid-glass="off"] .liquid-lens-positioner,
+html[data-liquid-glass="off"] .liquid-dock-sheen,
+html[data-liquid-glass="off"] .liquid-dock-preview {
+  display: none;
+}
+
+/* ── Reduced motion (keeps glass, stops flow) ─────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-liquid-quality="static"] .liquid-lens-positioner {
+    transition: opacity 80ms ease;
+  }
+}
+
+/* ── Focus visibility ─────────────────────────────────────────────── */
+
+.office-action-dock [data-liquid-item]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Settings live material preview (Phase 1) ────────────────────── */
+
+.liquid-material-demo {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.liquid-demo-wall {
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 18% 30%,
+      rgba(59, 130, 246, 0.55),
+      transparent 46%
+    ),
+    radial-gradient(
+      circle at 78% 22%,
+      rgba(139, 92, 246, 0.5),
+      transparent 44%
+    ),
+    radial-gradient(
+      circle at 55% 82%,
+      rgba(45, 212, 191, 0.48),
+      transparent 52%
+    ),
+    linear-gradient(160deg, #1e293b, #0f172a);
+}
+
+.liquid-demo-dock {
+  position: relative;
+  bottom: auto;
+  margin: 0 auto;
+  z-index: 1;
+}
+
+.liquid-demo-dock .liquid-dock-preview {
+  display: none;
+}
