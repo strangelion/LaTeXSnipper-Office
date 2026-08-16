@@ -438,25 +438,67 @@
                 </div>
               </div>
 
-              <div class="btn-group office-action-dock glass-noise">
+              <div
+                id="officeActionDock"
+                class="btn-group office-action-dock liquid-dock glass-noise"
+                data-liquid-dock
+              >
+                <div class="liquid-dock-sheen" aria-hidden="true"></div>
+
+                <div
+                  class="liquid-lens-positioner"
+                  data-liquid-lens
+                  aria-hidden="true"
+                >
+                  <div class="liquid-lens-surface">
+                    <div class="liquid-lens-highlight"></div>
+                    <div class="liquid-lens-chromatic"></div>
+                  </div>
+                </div>
+
+                <div
+                  class="liquid-dock-preview glass-popover"
+                  data-liquid-preview
+                  data-visible="false"
+                  aria-hidden="true"
+                >
+                  <div class="liquid-preview-content"></div>
+                </div>
+
                 <button
                   id="copyLatex"
                   class="btn primary"
                   title="复制 LaTeX 源码"
+                  data-liquid-item
+                  data-liquid-preview-kind="latex"
                 >
                   复制 LaTeX
                 </button>
-                <button id="copyMathml" class="btn" title="复制 MathML 格式">
+                <button
+                  id="copyMathml"
+                  class="btn"
+                  title="复制 MathML 格式"
+                  data-liquid-item
+                  data-liquid-preview-kind="mathml"
+                >
                   复制 MathML
                 </button>
                 <button
                   id="copyOmmL"
                   class="btn"
                   title="复制 OMML（Office 数学格式）"
+                  data-liquid-item
+                  data-liquid-preview-kind="omml"
                 >
                   复制 OMML
                 </button>
-                <button id="copySvg" class="btn" title="复制 SVG 渲染图">
+                <button
+                  id="copySvg"
+                  class="btn"
+                  title="复制 SVG 渲染图"
+                  data-liquid-item
+                  data-liquid-preview-kind="svg"
+                >
                   复制 SVG
                 </button>
                 <button
@@ -464,6 +506,8 @@
                   class="btn md-copy-btn"
                   title="复制为 Markdown 公式"
                   style="display: none"
+                  data-liquid-item
+                  data-liquid-preview-kind="md"
                 >
                   复制 MD
                 </button>
@@ -472,7 +516,12 @@
                   class="custom-select dropup"
                   style="display: none; margin-left: 8px"
                 >
-                  <div class="custom-select-trigger" data-value="">
+                  <div
+                    class="custom-select-trigger"
+                    data-value=""
+                    data-liquid-item
+                    data-liquid-preview-kind="office-host"
+                  >
                     <span>未连接 Office</span>
                   </div>
                   <div
@@ -485,6 +534,8 @@
                   class="btn office-insert-btn"
                   title="插入到 Office"
                   style="display: none"
+                  data-liquid-item
+                  data-liquid-preview-kind="office-insert"
                 >
                   <svg
                     width="14"
@@ -508,6 +559,8 @@
                   class="btn office-insert-btn"
                   title="插入对已编号公式的交叉引用，如「见公式 (2.3)」"
                   style="display: none"
+                  data-liquid-item
+                  data-liquid-preview-kind="cross-ref"
                 >
                   交叉引用
                 </button>
@@ -516,6 +569,8 @@
                   class="btn office-insert-btn"
                   title="插入公式目录（收集全部编号公式，Word 中按 F9 刷新）"
                   style="display: none"
+                  data-liquid-item
+                  data-liquid-preview-kind="eq-list"
                 >
                   公式目录
                 </button>
@@ -524,6 +579,8 @@
                   class="btn office-insert-btn"
                   title="检查文档中编号公式的重复/跳号问题"
                   style="display: none"
+                  data-liquid-item
+                  data-liquid-preview-kind="numbering-check"
                 >
                   检查编号
                 </button>
@@ -2299,6 +2356,72 @@
                 </div>
                 <p class="settings-hint">
                   自动模式会根据图形能力和系统辅助功能设置决定是否启用。开启后导航栏、侧边栏、下拉菜单等将显示液态玻璃效果。
+                </p>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-row settings-row-column">
+                <span class="settings-label">实时材质预览</span>
+                <div
+                  class="liquid-material-demo"
+                  aria-label="液态玻璃实时材质预览"
+                >
+                  <div class="liquid-demo-wall" aria-hidden="true"></div>
+                  <div
+                    class="btn-group office-action-dock liquid-dock liquid-demo-dock glass-noise"
+                    data-liquid-demo-dock
+                  >
+                    <div
+                      class="liquid-dock-sheen"
+                      aria-hidden="true"
+                    ></div>
+                    <div
+                      class="liquid-lens-positioner"
+                      data-liquid-lens
+                      aria-hidden="true"
+                    >
+                      <div class="liquid-lens-surface">
+                        <div class="liquid-lens-highlight"></div>
+                        <div class="liquid-lens-chromatic"></div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn"
+                      data-liquid-item
+                      data-liquid-preview-kind="latex"
+                    >
+                      复制 LaTeX
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      data-liquid-item
+                      data-liquid-preview-kind="mathml"
+                    >
+                      复制 MathML
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      data-liquid-item
+                      data-liquid-preview-kind="office-insert"
+                    >
+                      插入 Word
+                    </button>
+                    <button
+                      type="button"
+                      class="btn"
+                      data-liquid-item
+                      data-liquid-preview-kind="svg"
+                    >
+                      复制 SVG
+                    </button>
+                  </div>
+                </div>
+                <p class="settings-hint">
+                  切换 自动 / 开启 / 关闭 可实时观察模糊、饱和度、高光与 Lens 运动差异。
                 </p>
               </div>
             </div>

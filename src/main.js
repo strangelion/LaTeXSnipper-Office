@@ -41,6 +41,8 @@ import {
   resolveNumberingPreference,
   validateNumberingTemplate,
 } from "./features/formula-numbering.js";
+import { LiquidDockController } from "./features/appearance/liquid-dock.js";
+import { createLiquidPreviewNode } from "./features/appearance/liquid-preview.js";
 import { createPlatformContext } from "./platform/platform-context.js";
 import {
   migrateLegacySetting,
@@ -417,6 +419,22 @@ class FormulaEditor {
       source.value = latex;
     }
     this.updatePreview(latex);
+  }
+
+  /**
+   * Build a standalone rendered formula node for the Liquid Preview HUD.
+   * Reuses the shared Temml renderer — no second rendering pipeline.
+   * Read-only: never triggers Office invoke.
+   */
+  async createPreviewNode(latex, display = false) {
+    if (!this.renderer.loaded) {
+      await this.renderer.init();
+    }
+    const html = await this.renderer.render(latex, display);
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const fragment = template.content.cloneNode(true);
+    return fragment;
   }
 
   getLatex() {
@@ -8974,6 +8992,206 @@ function syncLiquidGlassSelect(select, value) {
   }
 }
 
+// ═══════════════════════════════════════════
+// Liquid Dock context preview provider
+// ═══════════════════════════════════════════
+// Reads real business state from the app controller. Preview never fakes
+// “connected / verified / insertable” — only reflects actual session,
+// OLE, route and insertion-mode state.
+
+const INSERT_MODE_LABEL = {
+  inline: "行内",
+  display: "行间",
+  numbered: "编号",
+};
+
+function currentOfficeSession(app) {
+  const sessions = app._sessions || [];
+  if (!app._selectedSessionId) return null;
+  return sessions.find((s) => s.session_id === app._selectedSessionId) || null;
+}
+
+function officeConnectionStatus(app) {
+  const officePlatform = (app.platforms || []).find((p) => p.id === "office");
+  const enabled =
+    officePlatform?.enabled && app.settingsManager?.get("officeEnabled");
+  const session = currentOfficeSession(app);
+  return { enabled: Boolean(enabled), session };
+}
+
+function oleStatusLabel(app) {
+  const ole = app._oleStatus;
+  if (!ole) return null;
+  if (ole.available === true)
+    return { label: "Editable OLE · 可编辑", tone: "ok" };
+  if (ole.health === "NotInstalled") {
+    return { label: "OLE 未安装 · 双击编辑不可用", tone: "warn" };
+  }
+  if (ole.health === "NotSupported") {
+    return { label: "OLE 仅 Windows 可用", tone: "warn" };
+  }
+  return { label: `OLE ${ole.health || "不可用"}`, tone: "warn" };
+}
+
+function createOfficeDockPreviewProvider(app) {
+  return async (item) => {
+    const kind = item.dataset.liquidPreviewKind;
+    if (!kind) return null;
+    const latex = app.editor?.getLatex?.() || "";
+    const mode = selectedFormulaInsertMode();
+    const display = officeInsertModeIsDisplay(mode);
+    const modeLabel = INSERT_MODE_LABEL[mode] || mode;
+    const route = app.settingsManager?.get("officeIntegrationMode") || "auto";
+    const { enabled, session } = officeConnectionStatus(app);
+    const docTitle = session?.document_title || "未命名";
+
+    // Cache key: kind + formula + session + insert mode + route.
+    const key = [kind, latex, session?.session_id || "", mode, route].join("|");
+
+    const formulaNode = latex
+      ? await app.editor.createPreviewNode(latex, display)
+      : null;
+
+    switch (kind) {
+      case "latex":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "复制 LaTeX",
+            subtitle: "text/plain",
+            formulaNode,
+            detail: latex ? latex.split("\n").slice(0, 2).join("\n") : "",
+          }),
+        };
+      case "mathml":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "复制 MathML",
+            subtitle: "application/mathml+xml",
+            formulaNode,
+          }),
+        };
+      case "omml":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "复制 OMML",
+            subtitle: "Office 原生数学格式",
+            formulaNode,
+          }),
+        };
+      case "svg":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "复制 SVG",
+            subtitle: "image/svg+xml",
+            formulaNode,
+          }),
+        };
+      case "md":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "复制 Markdown",
+            subtitle: "text/markdown",
+            formulaNode,
+          }),
+        };
+      case "office-insert": {
+        const routeLabel =
+          {
+            native: "Native OMML",
+            ole: "Editable OLE",
+            vector: "SVG 矢量",
+            image: "PNG 图片",
+            auto: "自动路由",
+          }[route] || "自动路由";
+        const ole = oleStatusLabel(app);
+        const lines = [
+          `目标：${docTitle}`,
+          `版式：${modeLabel} · 路线：${routeLabel}`,
+        ];
+        if (ole) lines.push(ole.label);
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: enabled ? "插入到 Word" : "插入到 Office",
+            subtitle: enabled ? "已连接" : "未连接",
+            formulaNode,
+            detail: lines.join("\n"),
+            status: enabled
+              ? { label: "插件已连接", tone: "ok" }
+              : { label: "当前不可用", tone: "warn" },
+          }),
+        };
+      }
+      case "office-host": {
+        const session = currentOfficeSession(app);
+        const sessions = app._sessions || [];
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "Office 宿主",
+            subtitle: session ? session.host_type : "未连接",
+            detail:
+              sessions.length > 0
+                ? sessions
+                    .slice(0, 3)
+                    .map(
+                      (s) => `${s.host_type} · ${s.document_title || "未命名"}`,
+                    )
+                    .join("\n")
+                : "未检测到 Office 会话",
+            status: session
+              ? { label: "已选择目标", tone: "ok" }
+              : { label: "等待连接", tone: "warn" },
+          }),
+        };
+      }
+      case "cross-ref":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "插入交叉引用",
+            subtitle: enabled ? "Word · 已连接" : "未连接",
+            detail: `插入如「见公式 (2.3)」的引用，需要先有编号公式。`,
+            status: enabled
+              ? { label: "可插入", tone: "ok" }
+              : { label: "需要 Office 连接", tone: "warn" },
+          }),
+        };
+      case "eq-list":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "插入公式目录",
+            subtitle: enabled ? "Word · 已连接" : "未连接",
+            detail: `收集全部编号公式插入目录，Word 中按 F9 刷新。`,
+            status: enabled
+              ? { label: "可插入", tone: "ok" }
+              : { label: "需要 Office 连接", tone: "warn" },
+          }),
+        };
+      case "numbering-check":
+        return {
+          key,
+          node: createLiquidPreviewNode({
+            title: "检查编号",
+            subtitle: enabled ? "Word · 已连接" : "未连接",
+            detail: `检查文档中编号公式的重复与跳号问题。`,
+            status: enabled
+              ? { label: "可用", tone: "ok" }
+              : { label: "需要 Office 连接", tone: "warn" },
+          }),
+        };
+      default:
+        return null;
+    }
+  };
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
@@ -8997,6 +9215,50 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Initialize liquid glass appearance (before UI renders)
   const glassState = initLiquidGlass();
+
+  // ── Liquid Dock controllers (main dock + settings live preview) ──
+  let mainLiquidDock = null;
+  let demoLiquidDock = null;
+
+  const initLiquidDocks = () => {
+    const quality = glassState.quality || "full";
+    if (quality === "off") return;
+
+    const mainDock = document.getElementById("officeActionDock");
+    if (mainDock && !mainLiquidDock) {
+      mainLiquidDock = new LiquidDockController(mainDock, {
+        previewProvider: createOfficeDockPreviewProvider(controller),
+        quality,
+      });
+    }
+
+    const demoDock = document.querySelector("[data-liquid-demo-dock]");
+    if (demoDock && !demoLiquidDock) {
+      demoLiquidDock = new LiquidDockController(demoDock, {
+        quality,
+      });
+    }
+  };
+
+  const teardownLiquidDocks = () => {
+    mainLiquidDock?.destroy();
+    mainLiquidDock = null;
+    demoLiquidDock?.destroy();
+    demoLiquidDock = null;
+  };
+
+  window.addEventListener("latexsnipper:liquid-glass-change", (event) => {
+    const quality = event.detail?.quality ?? "off";
+    if (quality === "off") {
+      teardownLiquidDocks();
+    } else {
+      initLiquidDocks();
+      mainLiquidDock?.setQuality(quality);
+      demoLiquidDock?.setQuality(quality);
+    }
+  });
+
+  initLiquidDocks();
 
   // Wire liquid glass mode select in settings + sync initial state
   const liquidGlassSelect = document.getElementById("liquidGlassModeSelect");
