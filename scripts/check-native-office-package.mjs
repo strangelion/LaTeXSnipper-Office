@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { resolve, join } from "path";
 
@@ -31,6 +32,7 @@ const required = [
   // Certificates
   join("certificates", "LaTeXSnipperOffice.cer"),
   join("certificates", "native-office-signing.json"),
+  "build-provenance.json",
 ];
 
 let allOk = true;
@@ -48,6 +50,59 @@ if (!allOk) {
   console.error(
     "\nNative Office package check FAILED: missing required files.",
   );
+  process.exit(1);
+}
+
+// A structurally complete payload from another commit is still unsafe to
+// reuse. Verify both the commit binding and every staged byte recorded by the
+// NativeOffice build.
+try {
+  const provenance = JSON.parse(
+    readFileSync(join(stagingDir, "build-provenance.json"), "utf8"),
+  );
+  const expectedCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+    encoding: "utf8",
+  })
+    .trim()
+    .toLowerCase();
+  const expectedCoreCommit = execFileSync(
+    "git",
+    ["-C", "src-tauri/latexsnipper-core", "rev-parse", "HEAD"],
+    { encoding: "utf8" },
+  )
+    .trim()
+    .toLowerCase();
+  if (provenance.sourceCommitSha !== expectedCommit) {
+    throw new Error(
+      `source commit mismatch: expected=${expectedCommit} actual=${provenance.sourceCommitSha}`,
+    );
+  }
+  if (provenance.coreCommitSha !== expectedCoreCommit) {
+    throw new Error(
+      `Core commit mismatch: expected=${expectedCoreCommit} actual=${provenance.coreCommitSha}`,
+    );
+  }
+  for (const [relativePath, expectedHash] of Object.entries(
+    provenance.payloadHashes || {},
+  )) {
+    const fullPath = join(stagingDir, ...relativePath.split("/"));
+    if (!existsSync(fullPath)) {
+      throw new Error(`provenance file missing: ${relativePath}`);
+    }
+    const actualHash = createHash("sha256")
+      .update(readFileSync(fullPath))
+      .digest("hex");
+    if (actualHash !== expectedHash) {
+      throw new Error(
+        `provenance hash mismatch: ${relativePath} expected=${expectedHash} actual=${actualHash}`,
+      );
+    }
+  }
+  console.log(
+    `  Provenance: Office ${expectedCommit.slice(0, 12)}, Core ${expectedCoreCommit.slice(0, 12)}`,
+  );
+} catch (error) {
+  console.error(`  INVALID: NativeOffice provenance: ${error.message}`);
   process.exit(1);
 }
 

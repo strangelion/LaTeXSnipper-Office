@@ -5605,10 +5605,16 @@ class UIController {
         const lines = String(report.logTail || "")
           .split(/\r?\n/)
           .filter(Boolean).length;
+        const provenance = report.componentProvenance || {};
+        const provenanceSummary =
+          provenance.consistent === false
+            ? `组件来源不一致：${(provenance.mismatches || []).join("、")}`
+            : `组件来源一致 · Office ${String(provenance.backendCommitSha || "未知").slice(0, 12)} · Core ${String(provenance.coreCommitSha || "未知").slice(0, 12)}`;
         setEvidence(
           "diagnosticsBundle",
-          "诊断证据已就绪",
-          `${report.os || "未知系统"} / ${report.arch || "未知架构"} · 日志尾部 ${lines} 行 · 导出时会继续脱敏。`,
+          provenance.consistent === false ? "组件来源不一致" : "诊断证据已就绪",
+          `${provenanceSummary} · ${report.os || "未知系统"} / ${report.arch || "未知架构"} · 日志尾部 ${lines} 行 · 导出时会继续脱敏。`,
+          provenance.consistent === false,
         );
       } else {
         setEvidence(

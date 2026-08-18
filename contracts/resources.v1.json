@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "coreSubmoduleSha": "d04706ae090f487514489a68aea1a187f0465e64",
+  "coreSubmoduleSha": "4f4e2fedff5e0daa3cc84985b375cfbd2d4b9a88",
   "files": {
     "src-tauri/resources/RecognitionQuality/baselines/index.json": "19e42c9990161564ed9bf5d336b8d0de44e1a17837b01ad858e19230253a2a9e",
     "src-tauri/latexsnipper-core/contracts/fixtures/provider-smoke-v1.json": "25c2b8d6e4a6d3637c06adf4407938d48d5dbd1c2e876c2e30c609c4d192c4f1",
     "src-tauri/resources/OfficeJS/manifest/word.xml": "845812a7531f2d6f38c8c4857bb61da2f0e7c114ab45e91375ab3c4c603cd1b2",
-    "src-tauri/resources/WPS/manifest.xml": "00a13b1915a1454e1b6c5f5082039135abc8994c4f0b39dcf85cdb44f0ce9a63"
+    "src-tauri/resources/WPS/manifest.xml": "c764d86ec45e9368a7bab28ed5d21376be2f5389949f60818407912bc984b611"
   }
 }

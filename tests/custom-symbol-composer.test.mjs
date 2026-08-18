@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
+  buildCustomSymbolRequest,
   buildSmoothFreehandPath,
   coalescedPointerSamples,
   compositionSvg,
@@ -10,6 +11,7 @@ import {
   resolveComposerViewportBounds,
   rotationFromPointer,
 } from "../src/features/custom-symbols/composer.js";
+import contractFixture from "./fixtures/custom-symbol-build-request-v1.json" with { type: "json" };
 
 test("freehand strokes use a smooth midpoint path", () => {
   const path = buildSmoothFreehandPath([
@@ -164,4 +166,18 @@ test("LaTeX layers preserve source but keep rendered markup outside the Core con
   const composition = createCompositionPayload([formula]);
   assert.equal(composition.layers[0].source.latex, formula.source.latex);
   assert.equal("renderedSvg" in composition.layers[0].source, false);
+});
+
+test("frontend custom-symbol request stays byte-shape compatible with the Rust DTO fixture", () => {
+  const contractLayer = structuredClone(layer);
+  contractLayer.transform.translateX = 500;
+  const request = buildCustomSymbolRequest({
+    id: "user-contract-symbol",
+    name: "Contract symbol",
+    latexCommand: "\\contractsymbol",
+    mathClass: "ordinary",
+    layers: [contractLayer],
+    snapToGrid: true,
+  });
+  assert.deepEqual(request, contractFixture);
 });

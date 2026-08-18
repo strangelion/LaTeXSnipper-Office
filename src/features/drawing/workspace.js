@@ -144,11 +144,21 @@ export function createDrawingWorkspaceController({
     autoPreview: true,
     revision: 0,
     previewTimer: null,
+    pendingPreview: false,
+    compileSequence: 0,
+    activeCompileId: null,
     editorMode: "visual",
   };
 
   const status = (message) => {
     if (elements.status) elements.status.textContent = message;
+  };
+
+  const invalidateCompilation = () => {
+    state.revision += 1;
+    state.lastResult = null;
+    if (state.compiling && state.autoPreview) state.pendingPreview = true;
+    if (elements.insertButton) elements.insertButton.disabled = true;
   };
 
   const activateMode = (mode) => {
@@ -182,21 +192,28 @@ export function createDrawingWorkspaceController({
       elements.source.value =
         DEFAULT_SOURCES[preset] || DEFAULT_SOURCES[language] || "";
     }
-    state.lastResult = null;
-    if (elements.insertButton) elements.insertButton.disabled = true;
+    invalidateCompilation();
     setEditorMode(language === "svg_source" ? state.editorMode : "source");
     status("源码已切换，本地安全预览已排队");
     schedulePreview();
   };
 
   const compile = async ({ automatic = false } = {}) => {
-    if (state.compiling) return null;
-    const revision = ++state.revision;
+    if (state.compiling) {
+      if (state.autoPreview) state.pendingPreview = true;
+      return null;
+    }
+    const revision = state.revision;
+    const compileId = ++state.compileSequence;
+    state.activeCompileId = compileId;
+    state.pendingPreview = false;
     state.compiling = true;
     state.lastResult = null;
     if (elements.compileButton) elements.compileButton.disabled = true;
     if (elements.insertButton) elements.insertButton.disabled = true;
     status("正在安全编译…");
+    const isCurrent = () =>
+      state.activeCompileId === compileId && state.revision === revision;
     try {
       const drawingId =
         globalThis.crypto?.randomUUID?.() || `drawing-${Date.now()}`;
@@ -211,7 +228,7 @@ export function createDrawingWorkspaceController({
             renderId: drawingId,
           })
         : null;
-      if (revision !== state.revision) return null;
+      if (!isCurrent()) return null;
       if (renderedSvg && elements.preview) {
         elements.preview.innerHTML = renderedSvg;
         fitDrawingPreview(elements.preview);
@@ -228,6 +245,7 @@ export function createDrawingWorkspaceController({
           rendererId: renderedSvg ? `bundled-${state.language}@1` : null,
         });
       } catch (error) {
+        if (!isCurrent()) return null;
         if (!renderedSvg) throw error;
         status(
           `本地预览已生成；${userFacingError(error)}，尚未完成 Core 安全校验，插入已禁用`,
@@ -240,6 +258,7 @@ export function createDrawingWorkspaceController({
           originalLanguage: state.language,
         };
       }
+      if (!isCurrent()) return null;
       if (!result?.success || !result.payload || !result.svg) {
         if (renderedSvg) {
           status(
@@ -268,20 +287,29 @@ export function createDrawingWorkspaceController({
       );
       return result;
     } catch (error) {
+      if (!isCurrent()) return null;
       status(`编译失败：${userFacingError(error)}`);
       return null;
     } finally {
-      state.compiling = false;
-      if (elements.compileButton) elements.compileButton.disabled = false;
+      if (state.activeCompileId === compileId) {
+        state.activeCompileId = null;
+        state.compiling = false;
+        if (elements.compileButton) elements.compileButton.disabled = false;
+        if (state.pendingPreview && state.autoPreview) schedulePreview(0);
+      }
     }
   };
 
-  function schedulePreview() {
+  function schedulePreview(delay = 520) {
     if (!state.autoPreview) return;
+    if (state.compiling) {
+      state.pendingPreview = true;
+      return;
+    }
     clearTimeout(state.previewTimer);
     state.previewTimer = setTimeout(
       () => void compile({ automatic: true }),
-      520,
+      delay,
     );
   }
 
@@ -312,8 +340,7 @@ export function createDrawingWorkspaceController({
       canvas: elements.visualCanvas,
       onSourceChange: (source) => {
         if (elements.source) elements.source.value = source;
-        state.lastResult = null;
-        if (elements.insertButton) elements.insertButton.disabled = true;
+        invalidateCompilation();
         status("可视化图形已同步，安全预览已排队");
         schedulePreview();
       },
@@ -429,14 +456,18 @@ export function createDrawingWorkspaceController({
   elements.insertButton?.addEventListener("click", insert);
   elements.copyButton?.addEventListener("click", copy);
   elements.source?.addEventListener("input", () => {
-    state.lastResult = null;
-    if (elements.insertButton) elements.insertButton.disabled = true;
+    invalidateCompilation();
     status("正在等待输入稳定…");
     schedulePreview();
   });
   elements.autoPreview?.addEventListener("change", () => {
     state.autoPreview = elements.autoPreview.checked;
     if (state.autoPreview) schedulePreview();
+  });
+  elements.graphvizEngine?.addEventListener("change", () => {
+    invalidateCompilation();
+    status("布局引擎已切换，本地安全预览已排队");
+    schedulePreview();
   });
   elements.zoom?.addEventListener("input", () => {
     elements.preview?.style?.setProperty?.(
@@ -477,6 +508,7 @@ export function createDrawingWorkspaceController({
       const end = elements.source.selectionEnd ?? start;
       elements.source.value = `${elements.source.value.slice(0, start)}\n${snippet}\n${elements.source.value.slice(end)}`;
       elements.source.focus?.();
+      invalidateCompilation();
       schedulePreview();
     });
   }

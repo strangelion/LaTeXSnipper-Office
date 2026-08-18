@@ -144,6 +144,30 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
   return withTimeout(rendered);
 }
 
+async function renderTikzIsolated(source, packageProfiles, previewHost) {
+  const documentRef = previewHost?.ownerDocument || globalThis.document;
+  if (!documentRef?.body?.appendChild) {
+    return renderTikz(source, { packageProfiles, host: previewHost });
+  }
+  const stagingHost = documentRef.createElement("div");
+  stagingHost.setAttribute("aria-hidden", "true");
+  stagingHost.style.position = "fixed";
+  stagingHost.style.left = "-100000px";
+  stagingHost.style.top = "0";
+  stagingHost.style.width = "320px";
+  stagingHost.style.height = "220px";
+  stagingHost.style.visibility = "hidden";
+  documentRef.body.appendChild(stagingHost);
+  try {
+    return await renderTikz(source, {
+      packageProfiles,
+      host: stagingHost,
+    });
+  } finally {
+    stagingHost.remove();
+  }
+}
+
 export async function renderDrawingLocally({
   language,
   source,
@@ -158,7 +182,7 @@ export async function renderDrawingLocally({
     case "mermaid":
       return renderMermaid(source, renderId);
     case "tikz":
-      return renderTikz(source, { packageProfiles, host: previewHost });
+      return renderTikzIsolated(source, packageProfiles, previewHost);
     case "svg_source":
       return assertSafeSource(source);
     default:

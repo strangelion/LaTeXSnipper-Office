@@ -701,6 +701,32 @@ fn find_msi_package() -> Result<PathBuf, String> {
     Err("LaTeXSnipper.NativeOffice.msi not found in any expected location".to_string())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MsiFailureDiagnosis {
+    error_code: &'static str,
+    primary_cause: &'static str,
+    recovery_action: &'static str,
+}
+
+fn classify_msi_install_failure(exit_code: i32, verbose_log: &str) -> Option<MsiFailureDiagnosis> {
+    let normalized = verbose_log.to_ascii_lowercase();
+    let missing_source = exit_code == 1612
+        || normalized.contains("system error 1612")
+        || normalized.contains("error 1612")
+        || normalized.contains("failed to resolve source");
+    let failed_upgrade = normalized.contains("error 1714")
+        || normalized.contains("older version") && normalized.contains("cannot be removed")
+        || normalized.contains("removeexistingproducts. return value 3");
+    if missing_source && (failed_upgrade || exit_code == 1612) {
+        return Some(MsiFailureDiagnosis {
+            error_code: "NATIVE_OFFICE_LEGACY_INSTALL_CACHE_MISSING",
+            primary_cause: "旧版 NativeOffice 的 Windows Installer 缓存已丢失，升级程序无法安全卸载旧版本（1612/1714）。",
+            recovery_action: "请使用 Microsoft“程序安装和卸载”疑难解答移除损坏的旧安装，或提供与旧 ProductCode 完全匹配的原 MSI 后先卸载；不要手动删除 C:\\Windows\\Installer 或批量清理注册表。",
+        });
+    }
+    None
+}
+
 /// Run MSI install synchronously (with verbose logging).
 ///
 /// MSI exit codes 0 (success) and 3010 / 1641 (success, reboot required)
@@ -750,6 +776,31 @@ fn run_msi_install(msi_path: &Path) -> PlatformIntegrationResult {
                     )
                 }
                 code => {
+                    let verbose_log = std::fs::read_to_string(&log_path).unwrap_or_default();
+                    if let Some(diagnosis) = classify_msi_install_failure(code, &verbose_log) {
+                        log::error!(
+                            "[Office] {} (exit {code}). Log: {}",
+                            diagnosis.error_code,
+                            log_path.display()
+                        );
+                        return PlatformIntegrationResult {
+                            success: false,
+                            platform: "office".to_string(),
+                            mode: "native-stack-recovery".to_string(),
+                            message: format!(
+                                "{} {}",
+                                diagnosis.primary_cause, diagnosis.recovery_action
+                            ),
+                            restart_required: false,
+                            details: Some(serde_json::json!({
+                                "errorCode": diagnosis.error_code,
+                                "primaryCause": diagnosis.primary_cause,
+                                "recoveryAction": diagnosis.recovery_action,
+                                "installerExitCode": code,
+                                "logPath": log_path,
+                            })),
+                        };
+                    }
                     log::error!(
                         "[Office] MSI install failed (exit {code}). Log: {}",
                         log_path.display()
@@ -6730,6 +6781,26 @@ mod office_js_install_tests {
         assert!(taskpane_heartbeat_is_fresh(1_000, 30_999));
         assert!(!taskpane_heartbeat_is_fresh(1_000, 31_000));
         assert!(!taskpane_heartbeat_is_fresh(2_000, 1_999));
+    }
+
+    #[test]
+    fn msi_1612_upgrade_chain_has_a_safe_primary_diagnosis() {
+        let log = r#"
+            Error 1714. The older version of LaTeXSnipper.NativeOffice cannot be removed.
+            System Error 1612.
+            RemoveExistingProducts. Return value 3
+        "#;
+        let diagnosis = classify_msi_install_failure(1603, log).unwrap();
+        assert_eq!(
+            diagnosis.error_code,
+            "NATIVE_OFFICE_LEGACY_INSTALL_CACHE_MISSING"
+        );
+        assert!(diagnosis.recovery_action.contains("不要手动删除"));
+    }
+
+    #[test]
+    fn generic_msi_1603_is_not_misclassified_as_missing_cache() {
+        assert!(classify_msi_install_failure(1603, "InstallValidate. Return value 3").is_none());
     }
 
     #[test]

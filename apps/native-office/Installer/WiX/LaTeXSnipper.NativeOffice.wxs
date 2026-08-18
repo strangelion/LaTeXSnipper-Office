@@ -106,6 +106,10 @@
         </RegistryKey>
       </Component>
 
+      <Component Id="BuildProvenanceComponent" Directory="NativeOfficeDir" Guid="91897609-CBAF-41AF-9E39-C38E6D9A011C">
+        <File Id="NativeOfficeBuildProvenance" Source="$(var.ProvenanceFile)" Name="build-provenance.json" />
+      </Component>
+
       <!-- OLE x86 -->
       <Component Id="OleComponentX86" Directory="NativeOfficeDir" Guid="F5A6B7C8-5555-6666-7777-88889999AAAA"
                  Bitness="always32">
@@ -208,6 +212,7 @@
       <ComponentRef Id="VisioRegistration" />
       <ComponentRef Id="CertificateComponent" />
       <ComponentRef Id="OleRuntimeStateComponent" />
+      <ComponentRef Id="BuildProvenanceComponent" />
       <ComponentRef Id="OleComponentX86" />
       <ComponentRef Id="OleComponentX64" />
     </Feature>

@@ -3347,7 +3347,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-api-types"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-ast",
  "latexsnipper-image",
@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-artifact"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-ast",
  "serde",
@@ -3368,7 +3368,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-ast"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3377,7 +3377,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-conversion"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3399,7 +3399,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-custom-symbols"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -3410,7 +3410,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-drawing"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "quick-xml 0.41.0",
  "serde",
@@ -3422,7 +3422,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-engine"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-api-types",
  "latexsnipper-ast",
@@ -3444,7 +3444,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-export"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-ast",
  "latexsnipper-foundation",
@@ -3460,7 +3460,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-foundation"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "log",
  "once_cell",
@@ -3471,7 +3471,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-image"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "image",
  "imageproc",
@@ -3487,7 +3487,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-inference"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-ast",
  "latexsnipper-foundation",
@@ -3507,7 +3507,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-model"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "hex",
  "latexsnipper-foundation",
@@ -3524,7 +3524,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-office"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "arboard",
  "axum",
@@ -3573,7 +3573,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-pipeline"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "async-trait",
  "latexsnipper-artifact",
@@ -3595,7 +3595,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-runtime"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "half",
  "hex",
@@ -3611,11 +3611,12 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "toml 0.8.2",
+ "zip",
 ]
 
 [[package]]
 name = "latexsnipper-syntax"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "latexsnipper-ast",
  "latexsnipper-foundation",
@@ -3627,7 +3628,7 @@ dependencies = [
 
 [[package]]
 name = "latexsnipper-tensor"
-version = "3.1.0"
+version = "3.2.1"
 dependencies = [
  "half",
  "serde",

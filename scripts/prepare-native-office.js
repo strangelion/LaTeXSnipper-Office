@@ -16,6 +16,9 @@ const staging = path.join(
   "staging",
 );
 const nativeSourceRoot = path.join("apps", "native-office");
+const repositoryCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+  encoding: "utf8",
+}).trim().toLowerCase();
 
 function newestSourceMtimeMs(dir) {
   let newest = 0;
@@ -56,6 +59,7 @@ function requiredStagingFiles() {
     path.join(staging, "OleFormulaObject.x64.dll"),
     path.join(staging, "certificates", "LaTeXSnipperOffice.cer"),
     path.join(staging, "certificates", "native-office-signing.json"),
+    path.join(staging, "build-provenance.json"),
   );
   return files;
 }
@@ -63,6 +67,21 @@ function requiredStagingFiles() {
 function hasRequiredStaging() {
   const requiredFiles = requiredStagingFiles();
   if (!requiredFiles.every((file) => fs.existsSync(file))) {
+    return false;
+  }
+
+  try {
+    const provenance = JSON.parse(
+      fs.readFileSync(path.join(staging, "build-provenance.json"), "utf8"),
+    );
+    if (String(provenance.sourceCommitSha || "").toLowerCase() !== repositoryCommit) {
+      console.warn(
+        `[native-office] refusing staging from commit ${provenance.sourceCommitSha || "unknown"}; expected ${repositoryCommit}`,
+      );
+      return false;
+    }
+  } catch (error) {
+    console.warn(`[native-office] invalid staging provenance: ${error.message}`);
     return false;
   }
 

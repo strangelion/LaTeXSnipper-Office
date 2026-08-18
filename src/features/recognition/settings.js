@@ -1,4 +1,4 @@
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 import * as api from "./api.js";
 import { collectProviderValidations } from "./provider-validation.js";
@@ -113,6 +113,9 @@ export function initRecognitionSettings(nextContext) {
   document
     .getElementById("importModelPackageBtn")
     ?.addEventListener("click", importModelPackage);
+  document
+    .getElementById("createModelPackageBtn")
+    ?.addEventListener("click", createModelPackage);
   document
     .getElementById("refreshModelListBtn")
     ?.addEventListener("click", async () => {
@@ -440,6 +443,48 @@ async function importModelPackage() {
     const details = errorDetails(error, "MODEL_IMPORT_FAILED");
     toast(`${details.code}：${details.message}`);
     log("error", "model-import", {
+      operationId: id,
+      success: false,
+      errorCode: details.code,
+      errorMessage: details.message,
+    });
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+async function createModelPackage() {
+  const button = document.getElementById("createModelPackageBtn");
+  const id = operationId("model-package-create");
+  setBusy(button, true, "选择目录...");
+  try {
+    const sourceDirectory = await open({
+      directory: true,
+      multiple: false,
+      title: "选择包含根目录 manifest.toml 的模型目录",
+    });
+    if (!sourceDirectory) return;
+    const directoryName = String(sourceDirectory)
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop();
+    const outputPath = await save({
+      title: "生成 LaTeXSnipper 模型包",
+      defaultPath: `${directoryName || "model"}.lsmodel`,
+      filters: [{ name: "LaTeXSnipper Model", extensions: ["lsmodel"] }],
+    });
+    if (!outputPath) return;
+    setBusy(button, true, "打包中...");
+    await api.createModelPackage(sourceDirectory, outputPath);
+    toast(".lsmodel 已生成；manifest.toml 位于压缩包根目录");
+    log("info", "model-package-create", {
+      operationId: id,
+      success: true,
+    });
+  } catch (error) {
+    const details = errorDetails(error, "MODEL_PACKAGE_CREATE_FAILED");
+    toast(`${details.code}：${details.message}`);
+    log("error", "model-package-create", {
       operationId: id,
       success: false,
       errorCode: details.code,

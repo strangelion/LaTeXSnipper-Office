@@ -15,7 +15,8 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [string]$PayloadRoot
+    [string]$PayloadRoot,
+    [string]$ExpectedSourceCommit = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +45,7 @@ $required = @(
     @{ RelPath = "OleFormulaObject.x86.dll";              Desc = "OLE x86 DLL" }
     @{ RelPath = "certificates\LaTeXSnipperOffice.cer";   Desc = "Signing certificate" }
     @{ RelPath = "certificates\native-office-signing.json"; Desc = "Signing metadata" }
+    @{ RelPath = "build-provenance.json";              Desc = "Build provenance" }
 )
 
 Write-Host ""
@@ -129,6 +131,50 @@ if (Test-Path -LiteralPath $jsonPath) {
         }
     } catch {
         Write-Host "  FAIL: native-office-signing.json is not valid JSON: $_" -ForegroundColor Red
+        $exitCode = 1
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Verify commit binding and exact staged payload hashes
+# ---------------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Checking build provenance ---" -ForegroundColor Cyan
+$provenancePath = Join-Path $PayloadRoot "build-provenance.json"
+if (Test-Path -LiteralPath $provenancePath -PathType Leaf) {
+    try {
+        $provenance = Get-Content -Raw -LiteralPath $provenancePath | ConvertFrom-Json
+        if ($provenance.schemaVersion -ne 1 -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.sourceCommitSha) -or
+            [string]::IsNullOrWhiteSpace([string]$provenance.coreCommitSha)) {
+            throw "Required provenance fields are missing."
+        }
+        if ($ExpectedSourceCommit -and
+            [string]$provenance.sourceCommitSha -ne $ExpectedSourceCommit.ToLowerInvariant()) {
+            throw "Source commit mismatch: expected=$ExpectedSourceCommit actual=$($provenance.sourceCommitSha)"
+        }
+        $hashEntries = @($provenance.payloadHashes.PSObject.Properties)
+        if ($hashEntries.Count -eq 0) {
+            throw "Payload hash ledger is empty."
+        }
+        foreach ($entry in $hashEntries) {
+            $relative = [string]$entry.Name
+            if ($relative -notmatch '^[^\\/:*?"<>|]+(?:/[^\\/:*?"<>|]+)*$' -or
+                $relative -match '(^|/)\.\.?(?:/|$)') {
+                throw "Unsafe provenance path: $relative"
+            }
+            $file = Join-Path $PayloadRoot ($relative -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+                throw "Provenance payload file is missing: $relative"
+            }
+            $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne [string]$entry.Value) {
+                throw "Provenance hash mismatch: $relative expected=$($entry.Value) actual=$actual"
+            }
+        }
+        Write-Host "  OK source=$($provenance.sourceCommitSha) core=$($provenance.coreCommitSha) files=$($hashEntries.Count)" -ForegroundColor Green
+    } catch {
+        Write-Host "  FAIL: build provenance is invalid: $_" -ForegroundColor Red
         $exitCode = 1
     }
 }

@@ -568,6 +568,32 @@ export function createCompositionPayload(layers, snapToGrid = true) {
   };
 }
 
+export function buildCustomSymbolRequest({
+  id,
+  name,
+  latexCommand,
+  mathClass,
+  layers,
+  snapToGrid = true,
+}) {
+  const trimmedName = String(name || "").trim();
+  const generatedId = `user-${
+    trimmedName
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-")
+      .replace(/^-|-$/g, "") || Date.now()
+  }`;
+  return {
+    id: id || generatedId,
+    name: trimmedName,
+    latexCommand: String(latexCommand || "").trim() || null,
+    aliases: [],
+    mathClass,
+    composition: createCompositionPayload(layers, snapToGrid),
+    svg: compositionSvg(layers),
+  };
+}
+
 function elements(root) {
   const id = (value) => root.getElementById(value);
   return {
@@ -1398,22 +1424,13 @@ export function initCustomSymbolComposer({
 
   const buildRequest = () => {
     if (!state.layers.length) throw new Error("请至少添加一个符号或图元");
-    const name = el.name.value.trim();
-    const id = `user-${
-      name
-        .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-")
-        .replace(/^-|-$/g, "") || Date.now()
-    }`;
-    return {
-      id,
-      name,
-      latexCommand: el.latex.value.trim() || null,
-      aliases: [],
+    return buildCustomSymbolRequest({
+      name: el.name.value,
+      latexCommand: el.latex.value,
       mathClass: el.mathClass.value,
-      composition: createCompositionPayload(state.layers, el.snap.checked),
-      svg: compositionSvg(state.layers),
-    };
+      layers: state.layers,
+      snapToGrid: el.snap.checked,
+    });
   };
   const validate = async () =>
     invoke("build_custom_symbol_bundle", { request: buildRequest() });

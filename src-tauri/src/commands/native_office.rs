@@ -1750,6 +1750,8 @@ pub fn export_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
     let version = env!("CARGO_PKG_VERSION");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
+    let backend_commit = env!("LATEXSNIPPER_SOURCE_COMMIT");
+    let core_commit = env!("LATEXSNIPPER_CORE_COMMIT");
 
     // Build summary
     let mut summary = serde_json::json!({
@@ -1757,6 +1759,65 @@ pub fn export_diagnostics(app: tauri::AppHandle) -> serde_json::Value {
         "os": os,
         "arch": arch,
         "timestamp": chrono::Local::now().to_rfc3339(),
+        "sourceCommitSha": backend_commit,
+        "coreCommitSha": core_commit,
+    });
+
+    let resource_provenance = app
+        .path()
+        .resource_dir()
+        .ok()
+        .and_then(|root| {
+            std::fs::read_to_string(root.join("resources").join("provenance.json"))
+                .ok()
+                .or_else(|| std::fs::read_to_string(root.join("provenance.json")).ok())
+        })
+        .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok());
+    let packaged_resource_commit = resource_provenance
+        .as_ref()
+        .and_then(|value| value.get("sourceCommitSha"))
+        .and_then(serde_json::Value::as_str);
+
+    #[cfg(target_os = "windows")]
+    let native_provenance = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .and_then(|root| {
+            std::fs::read_to_string(
+                root.join("LaTeXSnipper")
+                    .join("NativeOffice")
+                    .join("build-provenance.json"),
+            )
+            .ok()
+        })
+        .and_then(|source| serde_json::from_str::<serde_json::Value>(&source).ok());
+    #[cfg(not(target_os = "windows"))]
+    let native_provenance: Option<serde_json::Value> = None;
+    let native_commit = native_provenance
+        .as_ref()
+        .and_then(|value| value.get("sourceCommitSha"))
+        .and_then(serde_json::Value::as_str);
+    let native_core_commit = native_provenance
+        .as_ref()
+        .and_then(|value| value.get("coreCommitSha"))
+        .and_then(serde_json::Value::as_str);
+    let mut provenance_mismatches = Vec::new();
+    if packaged_resource_commit.is_some_and(|value| value != backend_commit) {
+        provenance_mismatches.push("PACKAGED_RESOURCES_COMMIT_MISMATCH");
+    }
+    if native_commit.is_some_and(|value| value != backend_commit) {
+        provenance_mismatches.push("NATIVE_OFFICE_COMMIT_MISMATCH");
+    }
+    if native_core_commit.is_some_and(|value| value != core_commit) {
+        provenance_mismatches.push("NATIVE_OFFICE_CORE_COMMIT_MISMATCH");
+    }
+    summary["componentProvenance"] = serde_json::json!({
+        "consistent": provenance_mismatches.is_empty(),
+        "backendCommitSha": backend_commit,
+        "coreCommitSha": core_commit,
+        "packagedResourcesCommitSha": packaged_resource_commit,
+        "nativeOfficeCommitSha": native_commit,
+        "nativeOfficeCoreCommitSha": native_core_commit,
+        "mismatches": provenance_mismatches,
     });
 
     // Office status

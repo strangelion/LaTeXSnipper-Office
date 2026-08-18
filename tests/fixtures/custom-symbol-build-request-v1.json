@@ -1,0 +1,42 @@
+{
+  "id": "user-contract-symbol",
+  "name": "Contract symbol",
+  "latexCommand": "\\contractsymbol",
+  "aliases": [],
+  "mathClass": "ordinary",
+  "composition": {
+    "schemaVersion": 1,
+    "layers": [
+      {
+        "layerId": "line-1",
+        "name": "line",
+        "source": {
+          "kind": "primitive",
+          "primitive": {
+            "kind": "line",
+            "from": { "x": -100, "y": 0 },
+            "to": { "x": 100, "y": 0 },
+            "strokeWidth": 12
+          }
+        },
+        "transform": {
+          "translateX": 500,
+          "translateY": 500,
+          "scaleX": 1,
+          "scaleY": 1,
+          "rotationDegrees": 0,
+          "flipHorizontal": false,
+          "flipVertical": false
+        },
+        "opacity": 1,
+        "color": "#7C3AED",
+        "zIndex": 0,
+        "visible": true
+      }
+    ],
+    "snapToGrid": true,
+    "gridSize": 25,
+    "autoFitCanvas": true
+  },
+  "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 1000\" role=\"img\" aria-label=\"自定义符号预览\"><g color=\"#18212f\"><g class=\"symbol-layer\" data-layer-id=\"line-1\" color=\"#7C3AED\" opacity=\"1\" transform=\"translate(500 500) rotate(0) scale(1 1)\"><line x1=\"-100\" y1=\"0\" x2=\"100\" y2=\"0\" stroke=\"currentColor\" stroke-width=\"12\" stroke-linecap=\"round\"/></g></g></svg>"
+}

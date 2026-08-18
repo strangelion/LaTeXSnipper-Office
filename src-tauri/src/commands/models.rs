@@ -150,48 +150,40 @@ pub async fn model_inspect_package(path: String) -> Result<ModelInspectResult, S
     }
 
     let file = std::fs::File::open(p).map_err(|e| format!("Cannot open package: {e}"))?;
-    let mut archive =
-        zip::ZipArchive::new(file).map_err(|e| format!("Cannot read package: {e}"))?;
+    let inspection =
+        latexsnipper_runtime::inspect_lsmodel_archive(file).map_err(|e| e.to_string())?;
+    let manifest = inspection.manifest;
+    let runtime_variants = manifest
+        .runtime_variants
+        .iter()
+        .map(|variant| variant.id.clone())
+        .collect();
 
-    // Look for manifest.toml (Core TOML format)
-    let manifest_content = read_archive_file(&mut archive, "manifest.toml")?;
+    Ok(ModelInspectResult {
+        id: Some(manifest.id),
+        task: Some(model_task_name(manifest.task).to_string()),
+        version: Some(manifest.version),
+        adapter: Some(manifest.adapter),
+        runtime_variants,
+        compatible: true,
+        warnings: Vec::new(),
+    })
+}
 
-    let mut warnings = Vec::new();
-
-    match toml::from_str::<latexsnipper_runtime::ModelManifest>(&manifest_content) {
-        Ok(manifest) => {
-            let compatible = manifest.validate().is_ok();
-
-            if let Err(e) = manifest.validate() {
-                warnings.push(format!("Validation: {e}"));
-            }
-
-            let runtime_variants: Vec<String> = manifest
-                .runtime_variants
-                .iter()
-                .map(|v| v.id.clone())
-                .collect();
-
-            Ok(ModelInspectResult {
-                id: Some(manifest.id),
-                task: Some(model_task_name(manifest.task).to_string()),
-                version: Some(manifest.version),
-                adapter: Some(manifest.adapter),
-                runtime_variants,
-                compatible,
-                warnings,
-            })
-        }
-        Err(e) => Ok(ModelInspectResult {
-            id: None,
-            task: None,
-            version: None,
-            adapter: None,
-            runtime_variants: vec![],
-            compatible: false,
-            warnings: vec![format!("TOML parse failed: {e}")],
-        }),
-    }
+/// Build a deterministic .lsmodel archive whose manifest is at the ZIP root.
+#[tauri::command]
+pub async fn model_create_package(
+    source_directory: String,
+    output_path: String,
+) -> Result<ModelOperationResult, String> {
+    let source = std::path::Path::new(&source_directory);
+    let output = std::path::Path::new(&output_path);
+    latexsnipper_runtime::create_lsmodel_archive(source, output)
+        .map_err(|error| error.to_string())?;
+    Ok(ModelOperationResult {
+        success: true,
+        message: format!("Model package created: {}", output.display()),
+    })
 }
 
 /// Import a .lsmodel package.
@@ -420,19 +412,6 @@ fn validate_model_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn read_archive_file(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    name: &str,
-) -> Result<String, String> {
-    let mut file = archive
-        .by_name(name)
-        .map_err(|_| format!("Package does not contain {name}"))?;
-    let mut buf = String::new();
-    std::io::Read::read_to_string(&mut file, &mut buf)
-        .map_err(|e| format!("Cannot read {name}: {e}"))?;
-    Ok(buf)
-}
-
 fn dir_size(path: &std::path::Path) -> Result<u64, std::io::Error> {
     let mut total = 0u64;
     if path.is_dir() {
@@ -453,6 +432,7 @@ fn dir_size(path: &std::path::Path) -> Result<u64, std::io::Error> {
 mod tests {
     use super::model_task_name;
     use latexsnipper_runtime::ModelTask;
+    use std::io::{Cursor, Write};
 
     #[test]
     fn model_task_mapping_is_typed_and_covers_layout_analysis() {
@@ -461,5 +441,48 @@ mod tests {
             "formularecognition"
         );
         assert_eq!(model_task_name(ModelTask::LayoutAnalysis), "layoutanalysis");
+    }
+
+    #[test]
+    fn nested_manifest_error_reports_actual_archive_layout() {
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut bytes);
+            writer
+                .start_file("model-x/manifest.toml", zip::write::FileOptions::default())
+                .unwrap();
+            writer.write_all(b"id = 'x/y'").unwrap();
+            writer.finish().unwrap();
+        }
+        bytes.set_position(0);
+        let error = latexsnipper_runtime::inspect_lsmodel_archive(bytes).unwrap_err();
+        let error = error.to_string();
+        assert!(error.contains("MODEL_PACKAGE_MANIFEST_MISSING"));
+        assert!(error.contains("root entries: model-x"));
+        assert!(error.contains("model-x/manifest.toml"));
+    }
+
+    #[test]
+    fn packager_places_manifest_at_zip_root() {
+        let temp = std::env::temp_dir().join(format!(
+            "latexsnipper-model-package-test-{}",
+            rand::random::<u64>()
+        ));
+        let source = temp.join("model-x");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::copy(
+            "latexsnipper-core/examples/ctc_ocr_model/manifest.toml",
+            source.join("manifest.toml"),
+        )
+        .unwrap();
+        std::fs::write(source.join("model.onnx"), b"test model").unwrap();
+        std::fs::write(source.join("charset.txt"), b"x").unwrap();
+        let output = temp.join("model-x.lsmodel");
+        latexsnipper_runtime::create_lsmodel_archive(&source, &output).unwrap();
+        let file = std::fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        assert!(archive.by_name("manifest.toml").is_ok());
+        assert!(archive.by_name("model-x/manifest.toml").is_err());
+        std::fs::remove_dir_all(temp).unwrap();
     }
 }

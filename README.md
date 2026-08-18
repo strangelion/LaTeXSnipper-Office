@@ -2,7 +2,7 @@
 
 独立的 LaTeX 公式编辑器和插入工具，支持 Office (OLE/VSTO)、Obsidian、WPS、VS Code、浏览器等多平台。
 
-![LaTeXSnipper Office 主界面](docs/images/main-workspace.png)
+![LaTeXSnipper Office 1.7.1 主界面](docs/images/main-workspace-1.7.1.jpg)
 
 ## 界面与工作流
 

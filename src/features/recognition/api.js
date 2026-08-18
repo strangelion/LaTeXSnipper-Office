@@ -90,6 +90,16 @@ export async function inspectModelPackage(path) {
 }
 
 /**
+ * Create a .lsmodel package with manifest.toml at its ZIP root.
+ * @param {string} sourceDirectory
+ * @param {string} outputPath
+ * @returns {object}
+ */
+export async function createModelPackage(sourceDirectory, outputPath) {
+  return invoke("model_create_package", { sourceDirectory, outputPath });
+}
+
+/**
  * Import a .lsmodel package.
  * @param {string} path
  * @returns {object}

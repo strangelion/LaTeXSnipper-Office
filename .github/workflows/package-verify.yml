@@ -486,6 +486,17 @@ jobs:
           $nsis = $nsisBundles[0].FullName
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$nativeMsi`" /qn TARGETDIR=`"$pwd\package-extract\native`""
           if ($p.ExitCode -ne 0) { throw "Native MSI administrative extraction failed: $($p.ExitCode)" }
+          $nativePayloadRoots = @(
+            Get-ChildItem package-extract\native -Recurse -File -Filter build-provenance.json |
+              ForEach-Object { $_.Directory.FullName }
+          )
+          if ($nativePayloadRoots.Count -ne 1) {
+            throw "Expected exactly one extracted NativeOffice provenance root; found=$($nativePayloadRoots.Count)"
+          }
+          & scripts\test-native-office-payload.ps1 `
+            -PayloadRoot $nativePayloadRoots[0] `
+            -ExpectedSourceCommit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "Extracted NativeOffice payload verification failed" }
           $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/a `"$tauriMsi`" /qn TARGETDIR=`"$pwd\package-extract\tauri-msi`""
           if ($p.ExitCode -ne 0) { throw "Tauri MSI administrative extraction failed: $($p.ExitCode)" }
           $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue).Source

@@ -68,6 +68,15 @@ class FakeElement extends EventTarget {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+const deferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((accept, fail) => {
+    resolve = accept;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+};
 
 function fixture() {
   const svgButton = new FakeElement({ drawingLanguage: "svg_source" });
@@ -75,12 +84,13 @@ function fixture() {
     drawingLanguage: "tikz",
     drawingProfile: "pgf_plots",
   });
+  const graphvizButton = new FakeElement({ drawingLanguage: "graphviz_dot" });
   return {
     formulaTab: new FakeElement(),
     drawingTab: new FakeElement(),
     formulaWorkspace: new FakeElement(),
     drawingWorkspace: new FakeElement(),
-    languageButtons: [svgButton, tikzButton],
+    languageButtons: [svgButton, tikzButton, graphvizButton],
     source: new FakeElement(),
     compileButton: new FakeElement(),
     insertButton: new FakeElement(),
@@ -181,6 +191,47 @@ test("local preview remains visible but insertion stays disabled without Core", 
   assert.equal(elements.insertButton.disabled, true);
   assert.match(elements.status.textContent, /本地预览已生成/);
   assert.match(elements.status.textContent, /尚未完成 Core 安全校验/);
+});
+
+test("stale drawing work cannot overwrite a newer language generation", async () => {
+  const elements = fixture();
+  const firstRender = deferred();
+  const compileRequests = [];
+  const controller = createDrawingWorkspaceController({
+    elements,
+    renderLocal: async ({ language }) => {
+      if (language === "tikz") return firstRender.promise;
+      return '<svg data-generation="graphviz" viewBox="0 0 20 10"/>';
+    },
+    compileDrawing: async (request) => {
+      compileRequests.push(request);
+      return {
+        success: true,
+        svg: request.source,
+        payload: {
+          drawingId: request.drawingId,
+          widthPoints: 20,
+          heightPoints: 10,
+        },
+      };
+    },
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+
+  elements.languageButtons[1].click();
+  const oldCompile = controller.compile();
+  await settle();
+  elements.languageButtons[2].click();
+  firstRender.resolve('<svg data-generation="tikz" viewBox="0 0 10 10"/>');
+  assert.equal(await oldCompile, null);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(elements.preview.innerHTML, /data-generation="graphviz"/);
+  assert.doesNotMatch(elements.preview.innerHTML, /data-generation="tikz"/);
+  assert.equal(controller.state.lastResult?.originalLanguage, "graphviz_dot");
+  assert.equal(compileRequests.length, 1);
+  assert.equal(elements.insertButton.disabled, false);
 });
 
 test("visual-editor output excludes canvas grid and editing controls", () => {

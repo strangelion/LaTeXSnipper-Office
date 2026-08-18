@@ -390,6 +390,7 @@ pub fn run() {
             commands::recognition_export::recognition_export,
             commands::models::model_list,
             commands::models::model_inspect_package,
+            commands::models::model_create_package,
             commands::models::model_import_package,
             commands::models::model_remove,
             commands::models::model_refresh,

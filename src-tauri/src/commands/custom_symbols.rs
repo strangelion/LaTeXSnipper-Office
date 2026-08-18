@@ -9,7 +9,7 @@ use latexsnipper_drawing::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BuildCustomSymbolRequest {
     pub id: String,
     pub name: String,
@@ -214,5 +214,18 @@ mod tests {
             composition.layers[0].source,
             CompositionLayerSource::Formula { .. }
         ));
+    }
+
+    #[test]
+    fn frontend_request_fixture_deserializes_and_builds_without_field_translation() {
+        let json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../tests/fixtures/custom-symbol-build-request-v1.json"
+        ));
+        let request: BuildCustomSymbolRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.id, "user-contract-symbol");
+        let response = build_custom_symbol(request).unwrap();
+        assert_eq!(response.bundle.symbol.id, "user-contract-symbol");
+        assert_eq!(response.bundle.symbol.math_class, MathSymbolClass::Ordinary);
     }
 }

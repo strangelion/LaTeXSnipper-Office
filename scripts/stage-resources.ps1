@@ -246,6 +246,25 @@ if ($runningOnWindows) {
     # MSI package — the authoritative installer (settings page runs this directly)
     $msiPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.msi"
     Require-File $msiPath "NativeOffice MSI package"
+    $nativeProvenancePath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.provenance.json"
+    Require-File $nativeProvenancePath "NativeOffice build provenance"
+    $nativeProvenance = Get-Content -Raw -LiteralPath $nativeProvenancePath | ConvertFrom-Json
+    $expectedSourceCommit = if ($env:GITHUB_SHA) {
+        $env:GITHUB_SHA.Trim().ToLowerInvariant()
+    } else {
+        ((& git -C $ProjectRoot rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+    }
+    $expectedCoreCommit = ((& git -C (Join-Path $ProjectRoot "src-tauri\latexsnipper-core") rev-parse HEAD) | Out-String).Trim().ToLowerInvariant()
+    $actualMsiHash = (Get-Sha256Hex -LiteralPath $msiPath).ToLowerInvariant()
+    if ([string]$nativeProvenance.sourceCommitSha -ne $expectedSourceCommit) {
+        throw "NativeOffice provenance commit mismatch: expected=$expectedSourceCommit actual=$($nativeProvenance.sourceCommitSha)"
+    }
+    if ([string]$nativeProvenance.coreCommitSha -ne $expectedCoreCommit) {
+        throw "NativeOffice Core provenance mismatch: expected=$expectedCoreCommit actual=$($nativeProvenance.coreCommitSha)"
+    }
+    if ([string]$nativeProvenance.msiSha256 -ne $actualMsiHash) {
+        throw "NativeOffice MSI provenance hash mismatch: expected=$($nativeProvenance.msiSha256) actual=$actualMsiHash"
+    }
 
     # Certificate — needed for VSTO trust verification during MSI install
     $certDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "WiX")
@@ -256,12 +275,17 @@ if ($runningOnWindows) {
     # GitHub Release artifacts, not embedded in the main Tauri installer.
     New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
     Copy-Item -LiteralPath $msiPath -Destination $vstoDest -Force
+    Copy-Item -LiteralPath $nativeProvenancePath -Destination $vstoDest -Force
 
     # Write metadata for runtime discovery
     $metadata = [ordered]@{
         schemaVersion = 1
         installerType = "msi"
         msiFile = "LaTeXSnipper.NativeOffice.msi"
+        provenanceFile = "LaTeXSnipper.NativeOffice.provenance.json"
+        sourceCommitSha = $expectedSourceCommit
+        coreCommitSha = $expectedCoreCommit
+        msiSha256 = $actualMsiHash
     }
     $metadata | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $vstoDest "installer.json") -Encoding UTF8
 
@@ -351,6 +375,8 @@ $provenance = [ordered]@{
         nativeOffice = [ordered]@{
             name = if (-not $runningOnWindows) { "excluded" } else { "msi-installer" }
             path = if (-not $runningOnWindows) { "" } else { $vstoDest }
+            sourceCommitSha = if (-not $runningOnWindows) { $null } else { $nativeProvenance.sourceCommitSha }
+            coreCommitSha = if (-not $runningOnWindows) { $null } else { $nativeProvenance.coreCommitSha }
         }
         obsidian = [ordered]@{
             name = if ($ObsidianSourceName) { $ObsidianSourceName } elseif ($ObsidianStaging) { "explicit-path" } else { "local-build" }
@@ -380,7 +406,7 @@ foreach ($relative in @("manifest.xml", "main.js", "js/command-layer.js")) {
     }
 }
 if ($runningOnWindows) {
-    foreach ($name in @("LaTeXSnipper.NativeOffice.msi")) {
+    foreach ($name in @("LaTeXSnipper.NativeOffice.msi", "LaTeXSnipper.NativeOffice.provenance.json", "installer.json")) {
         $filePath = Join-Path $vstoDest $name
         if (Test-Path -LiteralPath $filePath -PathType Leaf) {
             $provenance.nativeOfficeHashes[$name] = Get-Sha256Hex -LiteralPath $filePath

@@ -1,13 +1,45 @@
 #[cfg(target_os = "windows")]
 use std::path::PathBuf;
+use std::process::Command;
 
 fn main() {
+    emit_build_provenance();
     tauri_build::build();
 
     // The ort crate downloads DirectML.dll to its cache, but the Tauri bundler
     // does not discover that Windows runtime dependency automatically.
     #[cfg(target_os = "windows")]
     copy_directml_dll();
+}
+
+fn git_commit(path: &std::path::Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(["-C", path.to_str()?, "rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let commit = String::from_utf8(output.stdout).ok()?.trim().to_lowercase();
+    (commit.len() == 40 && commit.chars().all(|value| value.is_ascii_hexdigit())).then_some(commit)
+}
+
+fn emit_build_provenance() {
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    let manifest = std::path::PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_owned()),
+    );
+    let repository = manifest.parent().unwrap_or(&manifest);
+    let source_commit = std::env::var("GITHUB_SHA")
+        .ok()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| value.len() == 40 && value.chars().all(|c| c.is_ascii_hexdigit()))
+        .or_else(|| git_commit(repository))
+        .unwrap_or_else(|| "unknown".to_owned());
+    let core_commit =
+        git_commit(&manifest.join("latexsnipper-core")).unwrap_or_else(|| "unknown".to_owned());
+    println!("cargo:rustc-env=LATEXSNIPPER_SOURCE_COMMIT={source_commit}");
+    println!("cargo:rustc-env=LATEXSNIPPER_CORE_COMMIT={core_commit}");
 }
 
 /// Locate the directory where `latexsnipper-office.exe` will be placed.

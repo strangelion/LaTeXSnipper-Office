@@ -242,8 +242,11 @@ function checkNativeOffice() {
   }
 
   const msiName = "LaTeXSnipper.NativeOffice.msi";
+  const provenanceName = "LaTeXSnipper.NativeOffice.provenance.json";
   const buildMsi = join(buildDir, msiName);
   const stagedMsi = join(stagedDir, msiName);
+  const buildProvenance = join(buildDir, provenanceName);
+  const stagedProvenance = join(stagedDir, provenanceName);
 
   if (!existsSync(buildMsi)) {
     fail(
@@ -257,12 +260,29 @@ function checkNativeOffice() {
     );
     return;
   }
+  if (!existsSync(buildProvenance) || !existsSync(stagedProvenance)) {
+    fail(
+      "NativeOffice provenance is missing from build output or staged resources",
+    );
+    return;
+  }
 
   const buildHash = binaryHash(buildMsi);
   const stagedHash = binaryHash(stagedMsi);
   if (buildHash !== stagedHash) {
     fail(
       "NativeOffice: MSI content mismatch — staged MSI differs from build output",
+    );
+    return;
+  }
+  if (binaryHash(buildProvenance) !== binaryHash(stagedProvenance)) {
+    fail("NativeOffice: staged provenance differs from build output");
+    return;
+  }
+  const provenance = JSON.parse(readFileSync(buildProvenance, "utf8"));
+  if (provenance.msiSha256 !== buildHash) {
+    fail(
+      `NativeOffice: provenance MSI hash mismatch — expected=${provenance.msiSha256} actual=${buildHash}`,
     );
     return;
   }

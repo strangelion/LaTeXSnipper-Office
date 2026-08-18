@@ -640,6 +640,41 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..\..")).Pat
 $verifyVstoManifests = Join-Path $repoRoot "scripts\verify-vsto-manifests.ps1"
 & $verifyVstoManifests -PayloadRoot (Resolve-Path -LiteralPath $staging).Path
 
+# Bind the staged VSTO/OLE payload to the exact Office and Core commits that
+# produced it. Consumers must reject a staging directory from another commit.
+$sourceCommitSha = if ($env:GITHUB_SHA) {
+    $env:GITHUB_SHA.Trim()
+} else {
+    ((& git -C $repoRoot rev-parse HEAD) | Out-String).Trim()
+}
+$coreRoot = Join-Path $repoRoot "src-tauri\latexsnipper-core"
+$coreCommitSha = ((& git -C $coreRoot rev-parse HEAD) | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or
+    $sourceCommitSha -notmatch '^[0-9a-fA-F]{40}$' -or
+    $coreCommitSha -notmatch '^[0-9a-fA-F]{40}$') {
+    throw "Unable to resolve exact Office/Core source commits for NativeOffice provenance."
+}
+$payloadHashes = [ordered]@{}
+Get-ChildItem -LiteralPath $staging -Recurse -File |
+    Where-Object { $_.Name -ne "build-provenance.json" } |
+    Sort-Object FullName |
+    ForEach-Object {
+        $relative = [System.IO.Path]::GetRelativePath($stagingAbs, $_.FullName).Replace('\', '/')
+        $payloadHashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+$nativeOfficeBuildProvenance = [ordered]@{
+    schemaVersion = 1
+    component = "LaTeXSnipper.NativeOffice"
+    packageVersion = $Version
+    msiVersion = $MsiVersion
+    sourceCommitSha = $sourceCommitSha.ToLowerInvariant()
+    coreCommitSha = $coreCommitSha.ToLowerInvariant()
+    payloadHashes = $payloadHashes
+}
+$nativeOfficeBuildProvenance |
+    ConvertTo-Json -Depth 6 |
+    Set-Content -LiteralPath (Join-Path $staging "build-provenance.json") -Encoding UTF8
+
 if ($StageOnly) {
     Write-Host "`n=== VSTO staging complete ===" -ForegroundColor Green
     Write-Host "Staging: $staging" -ForegroundColor Yellow
@@ -743,6 +778,7 @@ $env:ExcelBinDir = $stagingAbs + "\Excel"
 $env:PowerPointBinDir = $stagingAbs + "\PowerPoint"
 $env:VisioBinDir = $stagingAbs + "\Visio"
 $env:CertificateDir = $stagingAbs + "\certificates"
+$env:ProvenanceFile = $stagingAbs + "\build-provenance.json"
 
 & $WixPath build "$wixSrc\LaTeXSnipper.NativeOffice.wxs" `
     -arch x64 `
@@ -757,6 +793,7 @@ $env:CertificateDir = $stagingAbs + "\certificates"
     -d OleDllX86Sha256=$oleDllX86Sha256 `
     -d OleDllX64Sha256=$oleDllX64Sha256 `
     -d CertificateDir=$env:CertificateDir `
+    -d ProvenanceFile=$env:ProvenanceFile `
     -ext $uiExtension `
     -ext $iisExtension
 if ($LASTEXITCODE -ne 0) { throw "WiX MSI build failed" }
@@ -782,6 +819,16 @@ if ($externalCabinets.Count -gt 0) {
 }
 
 Write-Host "  MSI is self-contained; no external cabinet files were generated." -ForegroundColor Green
+
+$nativeOfficeReleaseProvenance = [ordered]@{}
+foreach ($property in $nativeOfficeBuildProvenance.GetEnumerator()) {
+    $nativeOfficeReleaseProvenance[$property.Key] = $property.Value
+}
+$nativeOfficeReleaseProvenance["msiFile"] = "LaTeXSnipper.NativeOffice.msi"
+$nativeOfficeReleaseProvenance["msiSha256"] = (Get-FileHash -LiteralPath $msiOutput -Algorithm SHA256).Hash.ToLowerInvariant()
+$nativeOfficeReleaseProvenance |
+    ConvertTo-Json -Depth 6 |
+    Set-Content -LiteralPath (Join-Path $OutputDir "LaTeXSnipper.NativeOffice.provenance.json") -Encoding UTF8
 
 # ─── Build Bundles (Bootstrappers) ────────────────────────────────
 Write-Host "`n[4/4] Building Bootstrappers..." -ForegroundColor Cyan
