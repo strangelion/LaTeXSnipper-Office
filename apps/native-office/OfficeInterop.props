@@ -1,6 +1,8 @@
 <Project>
   <PropertyGroup>
     <SignManifests Condition="'$(SignManifests)' == ''">false</SignManifests>
+    <!-- Keep VSTO host restore graphs aligned with the shared win RID. -->
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifiers)' == ''">win</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(OfficeCorePiaPath)' != '' and Exists('$(OfficeCorePiaPath)')">

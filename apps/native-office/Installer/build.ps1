@@ -259,6 +259,7 @@ New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
 $publishUrl = (Resolve-Path $publishDir).Path.TrimEnd('\') + "\"
 $buildArgs = @(
     "$SolutionDir\LaTeXSnipper.NativeOffice.sln"
+    "/restore"
     "/t:Build"
     "/p:Configuration=$Configuration"
     "/p:Platform=Any CPU"
@@ -267,6 +268,7 @@ $buildArgs = @(
     "/p:InstallUrl=$publishUrl"
     "/p:GenerateManifests=true"
     "/p:LaTeXSnipperVersion=$Version"
+    "/p:RestorePackagesConfig=true"
     "/v:minimal"
 )
 
