@@ -657,11 +657,16 @@ if ($LASTEXITCODE -ne 0 -or
     throw "Unable to resolve exact Office/Core source commits for NativeOffice provenance."
 }
 $payloadHashes = [ordered]@{}
+$stagingPrefix = $stagingAbs.TrimEnd('\') + '\'
 Get-ChildItem -LiteralPath $staging -Recurse -File |
     Where-Object { $_.Name -ne "build-provenance.json" } |
     Sort-Object FullName |
     ForEach-Object {
-        $relative = [System.IO.Path]::GetRelativePath($stagingAbs, $_.FullName).Replace('\', '/')
+        $fullPath = [System.IO.Path]::GetFullPath($_.FullName)
+        if (-not $fullPath.StartsWith($stagingPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "NativeOffice provenance path escapes staging root: $fullPath"
+        }
+        $relative = $fullPath.Substring($stagingPrefix.Length).Replace('\', '/')
         $payloadHashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 $nativeOfficeBuildProvenance = [ordered]@{
