@@ -678,9 +678,14 @@ $nativeOfficeBuildProvenance = [ordered]@{
     coreCommitSha = $coreCommitSha.ToLowerInvariant()
     payloadHashes = $payloadHashes
 }
-$nativeOfficeBuildProvenance |
-    ConvertTo-Json -Depth 6 |
-    Set-Content -LiteralPath (Join-Path $staging "build-provenance.json") -Encoding UTF8
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$buildProvenancePath = Join-Path $staging "build-provenance.json"
+$buildProvenanceJson = $nativeOfficeBuildProvenance | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText(
+    $buildProvenancePath,
+    $buildProvenanceJson + [Environment]::NewLine,
+    $utf8NoBom
+)
 
 if ($StageOnly) {
     Write-Host "`n=== VSTO staging complete ===" -ForegroundColor Green
@@ -833,9 +838,13 @@ foreach ($property in $nativeOfficeBuildProvenance.GetEnumerator()) {
 }
 $nativeOfficeReleaseProvenance["msiFile"] = "LaTeXSnipper.NativeOffice.msi"
 $nativeOfficeReleaseProvenance["msiSha256"] = (Get-FileHash -LiteralPath $msiOutput -Algorithm SHA256).Hash.ToLowerInvariant()
-$nativeOfficeReleaseProvenance |
-    ConvertTo-Json -Depth 6 |
-    Set-Content -LiteralPath (Join-Path $OutputDir "LaTeXSnipper.NativeOffice.provenance.json") -Encoding UTF8
+$releaseProvenancePath = Join-Path $OutputDir "LaTeXSnipper.NativeOffice.provenance.json"
+$releaseProvenanceJson = $nativeOfficeReleaseProvenance | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText(
+    $releaseProvenancePath,
+    $releaseProvenanceJson + [Environment]::NewLine,
+    $utf8NoBom
+)
 
 # ─── Build Bundles (Bootstrappers) ────────────────────────────────
 Write-Host "`n[4/4] Building Bootstrappers..." -ForegroundColor Cyan
