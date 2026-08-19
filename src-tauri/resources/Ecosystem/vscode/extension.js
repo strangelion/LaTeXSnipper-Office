@@ -77,6 +77,7 @@ var BridgeClient = class {
         clientName,
         capabilities: [
           "insert_formula",
+          "insert_image_attachment",
           "replace_selection",
           "read_selection",
           "open_editor"
@@ -145,6 +146,56 @@ function getSelectedText() {
   const editor = getActiveEditor();
   return editor.document.getText(editor.selection);
 }
+function decodePngBase64(value) {
+  const encoded = value.replace(/^data:image\/png;base64,/, "");
+  const bytes = Uint8Array.from(Buffer.from(encoded, "base64"));
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length < signature.length || signature.some((signatureByte, index) => bytes[index] !== signatureByte)) {
+    throw new Error("VSCODE_IMAGE_INVALID_PNG");
+  }
+  if (bytes.byteLength > 16 * 1024 * 1024) {
+    throw new Error("VSCODE_IMAGE_TOO_LARGE");
+  }
+  return bytes;
+}
+function safeImageName(value) {
+  const stem = value.replace(/\.png$/i, "").replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+  return `${stem || "latexsnipper-image"}.png`;
+}
+async function insertPngAttachment(pngBase64, fileName = "latexsnipper-image.png", altText = "LaTeXSnipper image") {
+  const editor = getActiveEditor();
+  if (editor.document.uri.scheme !== "file") {
+    throw new Error("VSCODE_IMAGE_REQUIRES_FILE_DOCUMENT");
+  }
+  const bytes = decodePngBase64(pngBase64);
+  const documentFolder = vscode2.Uri.joinPath(editor.document.uri, "..");
+  const assetFolder = vscode2.Uri.joinPath(
+    documentFolder,
+    ".latexsnipper-assets"
+  );
+  await vscode2.workspace.fs.createDirectory(assetFolder);
+  const baseName = safeImageName(fileName);
+  const stem = baseName.replace(/\.png$/i, "");
+  let name = baseName;
+  let target = vscode2.Uri.joinPath(assetFolder, name);
+  let suffix = 2;
+  while (true) {
+    try {
+      await vscode2.workspace.fs.stat(target);
+      name = `${stem}-${suffix}.png`;
+      target = vscode2.Uri.joinPath(assetFolder, name);
+      suffix += 1;
+    } catch {
+      break;
+    }
+  }
+  await vscode2.workspace.fs.writeFile(target, bytes);
+  const safeAlt = altText.replace(/[\]\\]/g, " ").trim() || "LaTeXSnipper image";
+  await insertText(
+    `![${safeAlt}](.latexsnipper-assets/${encodeURIComponent(name)})`
+  );
+  return { path: target.fsPath, bytes: bytes.byteLength };
+}
 
 // src/commands.ts
 function registerCommands(context, bridge) {
@@ -210,16 +261,26 @@ function startActionPoller(bridge, statusBar) {
       if (!data?.found || !data.action?.actionId) return;
       const action = data.action;
       actionId = action.actionId;
-      const latex = action.payload?.latex ?? "";
-      const display = !!action.payload?.display;
-      const markdown = action.payload?.markdown ?? (display ? `$$
+      let result = null;
+      if (action.actionType === "InsertImage") {
+        result = await insertPngAttachment(
+          action.payload?.pngBase64 ?? "",
+          action.payload?.fileName,
+          action.payload?.altText
+        );
+      } else {
+        const latex = action.payload?.latex ?? "";
+        const display = !!action.payload?.display;
+        const markdown = action.payload?.markdown ?? (display ? `$$
 ${latex}
 $$` : `$${latex}$`);
-      await insertText(markdown);
+        await insertText(markdown);
+      }
       await bridge.complete(actionId, true, {
-        inserted: true
+        inserted: true,
+        data: result
       });
-      statusBar.text = "$(check) LaTeXSnipper: formula inserted";
+      statusBar.text = `$(check) LaTeXSnipper: ${action.actionType === "InsertImage" ? "image" : "formula"} inserted`;
       setTimeout(() => {
         statusBar.text = "$(symbol-event) LaTeXSnipper";
       }, 3e3);
