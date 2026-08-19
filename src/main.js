@@ -19,6 +19,7 @@ import { decideAutoInsert } from "./features/recognition/auto-insert-decision.js
 import { shouldPresentRecognitionResult } from "./features/recognition/result-selection.js";
 import {
   initDrawingWorkspace,
+  rasterizeDrawingSvg,
   selectProductionDrawingRoute,
 } from "./features/drawing/workspace.js";
 import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
@@ -1969,6 +1970,9 @@ class UIController {
       this.customSymbolComposer = initCustomSymbolComposer({
         invoke,
         formulaRenderer: this.formulaSvgRenderer,
+        rasterizeSymbol: (svg) => rasterizeDrawingSvg(svg, 72, 72),
+        insertSymbol: (result) => this.insertCustomSymbolToOffice(result),
+        sendSymbolToPlatform: (payload) => this.sendImageToEcosystem(payload),
         notify: (message) => this.showToast(message),
       });
     } catch (error) {
@@ -2017,6 +2021,30 @@ class UIController {
       `绘图已通过 ${route.route.toUpperCase()} 路线发送到 ${session.host_type}`,
     );
     return route;
+  }
+
+  async insertCustomSymbolToOffice(result) {
+    const metrics = result.metrics || {};
+    const units = Math.max(1, Number(metrics.unitsPerEm) || 1000);
+    const bounds = metrics.boundingBox || {};
+    const width = Math.max(
+      12,
+      (Number(metrics.advanceWidth) / units) * 72 || 36,
+    );
+    const glyphHeight = Math.max(
+      1,
+      (Number(bounds.maxY) || 700) - (Number(bounds.minY) || -200),
+    );
+    const height = Math.max(12, (glyphHeight / units) * 72);
+    return this.insertDrawingToOffice({
+      svg: result.canonicalSvg,
+      payload: {
+        drawingId: `custom-symbol-${result.bundle.symbol.id}`,
+        source: result.bundle.latexFallback || result.bundle.symbol.name,
+        widthPoints: Math.min(144, width),
+        heightPoints: Math.min(144, height),
+      },
+    });
   }
 
   setFormulaInsertMode(value) {
@@ -6882,6 +6910,32 @@ class UIController {
       const code = error?.code ? `[${error.code}] ` : "";
       this.showToast(`${code}发送失败：${error?.message || String(error)}`);
     }
+  }
+
+  async sendImageToEcosystem({
+    pngBase64,
+    fileName = `latexsnipper-image-${Date.now()}.png`,
+    altText = "LaTeXSnipper image",
+  }) {
+    const container = document.getElementById("ecosystemHostSelector");
+    const trigger = container?.querySelector(".custom-select-trigger");
+    const target = trigger?.dataset?.value || "";
+    const targetClientId = trigger?.dataset?.clientId || "";
+    if (!target || !targetClientId) {
+      throw new Error("请先选择一个当前在线的目标插件");
+    }
+    if (!new Set(["obsidian", "vscode"]).has(target)) {
+      throw new Error("该平台暂不支持自动保存附件；请改用多格式复制后粘贴");
+    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    const actionId = await invoke("push_ecosystem_action_internal", {
+      request: {
+        target,
+        targetClientId,
+        action: { type: "InsertImage", pngBase64, fileName, altText },
+      },
+    });
+    return this.waitForEcosystemAction(actionId, 20000);
   }
 
   async cancelOleEdit() {

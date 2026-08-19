@@ -409,17 +409,18 @@ function formulaLayer(latex, renderedSvg, widthPt, heightPt, zIndex) {
 }
 
 function primitiveSvg(primitive) {
+  const fixedStroke = ' vector-effect="non-scaling-stroke"';
   switch (primitive.kind) {
     case "line":
-      return `<line x1="${primitive.from.x}" y1="${primitive.from.y}" x2="${primitive.to.x}" y2="${primitive.to.y}" stroke="currentColor" stroke-width="${primitive.strokeWidth}" stroke-linecap="round"/>`;
+      return `<line x1="${primitive.from.x}" y1="${primitive.from.y}" x2="${primitive.to.x}" y2="${primitive.to.y}" stroke="currentColor" stroke-width="${primitive.strokeWidth}" stroke-linecap="round"${fixedStroke}/>`;
     case "rectangle": {
       const b = primitive.bounds;
-      return `<rect x="${b.minX}" y="${b.minY}" width="${b.maxX - b.minX}" height="${b.maxY - b.minY}" rx="${primitive.cornerRadius}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}"/>`;
+      return `<rect x="${b.minX}" y="${b.minY}" width="${b.maxX - b.minX}" height="${b.maxY - b.minY}" rx="${primitive.cornerRadius}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}"${fixedStroke}/>`;
     }
     case "ellipse":
-      return `<ellipse cx="${primitive.center.x}" cy="${primitive.center.y}" rx="${primitive.radiusX}" ry="${primitive.radiusY}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}"/>`;
+      return `<ellipse cx="${primitive.center.x}" cy="${primitive.center.y}" rx="${primitive.radiusX}" ry="${primitive.radiusY}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}"${fixedStroke}/>`;
     case "path":
-      return `<path d="${escapeXml(primitive.pathData)}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`;
+      return `<path d="${escapeXml(primitive.pathData)}" fill="${primitive.filled ? "currentColor" : "none"}" stroke="currentColor" stroke-width="${primitive.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"${fixedStroke}/>`;
     default:
       return "";
   }
@@ -457,13 +458,15 @@ function layerBounds(layer) {
   return primitive.bounds;
 }
 
-function transformControls(layer) {
+function transformControls(layer, scaleX = 1, scaleY = 1) {
   const bounds = layerBounds(layer);
+  const scaledX = [bounds.minX * scaleX, bounds.maxX * scaleX];
+  const scaledY = [bounds.minY * scaleY, bounds.maxY * scaleY];
   const padding = 26;
-  const minX = bounds.minX - padding;
-  const minY = bounds.minY - padding;
-  const maxX = bounds.maxX + padding;
-  const maxY = bounds.maxY + padding;
+  const minX = Math.min(...scaledX) - padding;
+  const minY = Math.min(...scaledY) - padding;
+  const maxX = Math.max(...scaledX) + padding;
+  const maxY = Math.max(...scaledY) + padding;
   const width = maxX - minX;
   const height = maxY - minY;
   const centerX = (minX + maxX) / 2;
@@ -546,7 +549,8 @@ export function compositionSvg(layers, selectedId = null) {
       const selected =
         layer.layerId === selectedId ? " symbol-layer-selected" : "";
       if (layer.layerId === selectedId) {
-        controls = `<g class="symbol-editor-overlay" data-layer-id="${escapeXml(layer.layerId)}" transform="${transformAttribute}">${transformControls(layer)}</g>`;
+        const overlayTransform = `translate(${transform.translateX} ${transform.translateY}) rotate(${transform.rotationDegrees})`;
+        controls = `<g class="symbol-editor-overlay" data-layer-id="${escapeXml(layer.layerId)}" transform="${overlayTransform}">${transformControls(layer, scaleX, scaleY)}</g>`;
       }
       return `<g class="symbol-layer${selected}" data-layer-id="${escapeXml(layer.layerId)}" color="${escapeXml(layer.color || "#18212F")}" opacity="${layer.opacity}" transform="${transformAttribute}">${body}</g>`;
     })
@@ -594,6 +598,39 @@ export function buildCustomSymbolRequest({
   };
 }
 
+export async function attachPngArtifact(
+  bundle,
+  pngDataUrl,
+  subtle = globalThis.crypto?.subtle,
+) {
+  const dataBase64 = String(pngDataUrl || "").replace(
+    /^data:image\/png;base64,/,
+    "",
+  );
+  const binary = globalThis.atob(dataBase64);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (
+    bytes.length < signature.length ||
+    signature.some((value, index) => bytes[index] !== value)
+  ) {
+    throw new Error("SYMBOL_PNG_INVALID");
+  }
+  if (!subtle) throw new Error("SYMBOL_PNG_DIGEST_UNAVAILABLE");
+  const digest = await subtle.digest("SHA-256", bytes);
+  const sha256 = [...new Uint8Array(digest)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return {
+    ...bundle,
+    png: {
+      mimeType: "image/png",
+      dataBase64,
+      sha256,
+    },
+  };
+}
+
 function elements(root) {
   const id = (value) => root.getElementById(value);
   return {
@@ -621,6 +658,8 @@ function elements(root) {
     delete: id("symbolDeleteBtn"),
     save: id("symbolSaveBtn"),
     copy: id("symbolCopyBtn"),
+    insert: id("symbolInsertBtn"),
+    sendPlatform: id("symbolSendPlatformBtn"),
     x: id("symbolLayerX"),
     y: id("symbolLayerY"),
     scaleX: id("symbolLayerScaleX"),
@@ -647,6 +686,9 @@ function elements(root) {
 export function initCustomSymbolComposer({
   invoke,
   formulaRenderer,
+  rasterizeSymbol,
+  insertSymbol,
+  sendSymbolToPlatform,
   root = document,
   notify = () => {},
 }) {
@@ -1434,13 +1476,19 @@ export function initCustomSymbolComposer({
   };
   const validate = async () =>
     invoke("build_custom_symbol_bundle", { request: buildRequest() });
+  const bundleWithPng = async (result) => {
+    if (!rasterizeSymbol) return result.bundle;
+    const pngDataUrl = await rasterizeSymbol(result.canonicalSvg);
+    return attachPngArtifact(result.bundle, pngDataUrl);
+  };
   el.copy.addEventListener("click", async () => {
     el.copy.disabled = true;
     message("正在由 Core 验证几何与安全 SVG…");
     try {
       const result = await validate();
+      const bundle = await bundleWithPng(result);
       const report = await invoke("copy_symbol_bundle", {
-        request: { bundle: result.bundle },
+        request: { bundle },
       });
       message(
         `验证通过，已写入 ${report.writtenFormats.length} 种系统剪贴板格式`,
@@ -1450,6 +1498,43 @@ export function initCustomSymbolComposer({
       message(`验证失败：${error?.message || error}`);
     } finally {
       el.copy.disabled = false;
+    }
+  });
+  el.insert?.addEventListener("click", async () => {
+    el.insert.disabled = true;
+    message("正在验证并插入 Office…");
+    try {
+      const result = await validate();
+      if (!insertSymbol) throw new Error("当前环境不支持 Office 插入");
+      await insertSymbol(result);
+      message("自定义符号已插入 Office");
+      notify("自定义符号已插入 Office");
+    } catch (error) {
+      message(`插入失败：${error?.message || error}`);
+    } finally {
+      el.insert.disabled = false;
+    }
+  });
+  el.sendPlatform?.addEventListener("click", async () => {
+    el.sendPlatform.disabled = true;
+    message("正在生成平台图片…");
+    try {
+      const result = await validate();
+      const bundle = await bundleWithPng(result);
+      if (!bundle.png || !sendSymbolToPlatform) {
+        throw new Error("当前环境不支持图片附件发送");
+      }
+      await sendSymbolToPlatform({
+        pngBase64: `data:image/png;base64,${bundle.png.dataBase64}`,
+        fileName: `${result.bundle.symbol.id}.png`,
+        altText: result.bundle.symbol.name,
+      });
+      message("自定义符号已由目标平台保存并插入");
+      notify("自定义符号已发送到目标平台");
+    } catch (error) {
+      message(`发送失败：${error?.message || error}`);
+    } finally {
+      el.sendPlatform.disabled = false;
     }
   });
   el.save.addEventListener("click", async () => {

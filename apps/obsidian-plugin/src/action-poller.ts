@@ -1,10 +1,12 @@
-import { Notice } from "obsidian";
+import { Notice, Plugin } from "obsidian";
 import { BridgeClient } from "./bridge-client";
 import type { ObsidianAdapter } from "../obsidian.adapter";
+import { insertPngAttachment } from "./image-attachment";
 
 export function startActionPoller(
   bridge: BridgeClient,
   adapter: ObsidianAdapter,
+  plugin: Plugin,
 ) {
   let running = false;
 
@@ -44,6 +46,15 @@ export function startActionPoller(
             formulaId: payload.formulaId,
           },
         } as any);
+      } else if (action.actionType === "InsertImage") {
+        const payload = action.payload || {};
+        const inserted = await insertPngAttachment(
+          plugin,
+          payload.pngBase64 || "",
+          payload.fileName,
+          payload.altText,
+        );
+        result = { ok: true, data: inserted };
       } else if (action.actionType === "ReplaceSelection") {
         const payload = action.payload || {};
 

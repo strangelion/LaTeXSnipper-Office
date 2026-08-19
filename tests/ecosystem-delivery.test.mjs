@@ -82,6 +82,34 @@ describe("Obsidian bridge-client uses dynamic clientId", () => {
   });
 });
 
+describe("Obsidian image attachments are saved before Markdown insertion", () => {
+  const imageFile = resolve(
+    root,
+    "apps/obsidian-plugin/src/image-attachment.ts",
+  );
+  const pollerFile = resolve(root, "apps/obsidian-plugin/src/action-poller.ts");
+  const bridgeFile = resolve(root, "apps/obsidian-plugin/src/bridge-client.ts");
+  const image = readFileSync(imageFile, "utf8");
+  const poller = readFileSync(pollerFile, "utf8");
+  const bridge = readFileSync(bridgeFile, "utf8");
+
+  it("validates PNG bytes and creates a collision-safe vault attachment", () => {
+    assert.match(image, /OBSIDIAN_IMAGE_INVALID_PNG/);
+    assert.match(image, /createBinary/);
+    assert.match(
+      image,
+      /while \(plugin\.app\.vault\.getAbstractFileByPath\(path\)\)/,
+    );
+    assert.match(image, /editor\.replaceSelection\(`!\[/);
+  });
+
+  it("routes InsertImage and advertises the attachment capability", () => {
+    assert.match(poller, /action\.actionType === "InsertImage"/);
+    assert.match(poller, /insertPngAttachment\(/);
+    assert.match(bridge, /"insert_image_attachment"/);
+  });
+});
+
 // ─── VS Code tests ───────────────────────────────────────────────────
 
 describe("VS Code uses persistent clientId", () => {
@@ -100,6 +128,34 @@ describe("VS Code uses persistent clientId", () => {
       !content.includes("vscode-default"),
       "Should not have hardcoded clientId",
     );
+  });
+});
+
+describe("VS Code image attachments are written beside the active document", () => {
+  const adapter = readFileSync(
+    resolve(root, "apps/vscode-extension/src/editor-adapter.ts"),
+    "utf8",
+  );
+  const poller = readFileSync(
+    resolve(root, "apps/vscode-extension/src/action-poller.ts"),
+    "utf8",
+  );
+  const bridge = readFileSync(
+    resolve(root, "apps/vscode-extension/src/bridge-client.ts"),
+    "utf8",
+  );
+
+  it("validates and writes PNG data into a managed asset folder", () => {
+    assert.match(adapter, /VSCODE_IMAGE_INVALID_PNG/);
+    assert.match(adapter, /\.latexsnipper-assets/);
+    assert.match(adapter, /workspace\.fs\.writeFile/);
+    assert.match(adapter, /insertText\(\s*`!\[/);
+  });
+
+  it("routes InsertImage and advertises the attachment capability", () => {
+    assert.match(poller, /action\.actionType === "InsertImage"/);
+    assert.match(poller, /insertPngAttachment\(/);
+    assert.match(bridge, /"insert_image_attachment"/);
   });
 });
 
@@ -237,9 +293,11 @@ describe("Source hygiene - no legacy ecosystem values", () => {
     "apps/obsidian-plugin/src/bridge-client.ts",
     "apps/obsidian-plugin/src/action-poller.ts",
     "apps/obsidian-plugin/src/editor-adapter.ts",
+    "apps/obsidian-plugin/src/image-attachment.ts",
     "apps/vscode-extension/src/bridge-client.ts",
     "apps/vscode-extension/src/action-poller.ts",
     "apps/vscode-extension/src/extension.ts",
+    "apps/vscode-extension/src/editor-adapter.ts",
   ];
 
   const legacyValues = ["28765", "28766", "http://127.0.0.1:19876"];

@@ -55,7 +55,7 @@ export function setupEcosystemBridge(
     }
   }, 10000);
 
-  const stopPoller = startActionPoller(bridge, adapter);
+  const stopPoller = startActionPoller(bridge, adapter, plugin);
 
   plugin.register(() => {
     clearInterval(heartbeatTimer);

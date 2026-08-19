@@ -335,6 +335,38 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "writes the real Windows clipboard"]
+    fn real_clipboard_accepts_png_and_bitmap_fallbacks() {
+        use image::ImageEncoder as _;
+
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(
+                &[
+                    255, 0, 0, 255, 0, 96, 255, 255, 22, 163, 74, 255, 255, 255, 255, 255,
+                ],
+                2,
+                2,
+                image::ExtendedColorType::Rgba8,
+            )
+            .expect("png encode");
+        let report = write_payloads(&[ClipboardPayload {
+            format: FORMAT_PNG,
+            bytes: png,
+        }]);
+        let native_formats = report
+            .written_formats
+            .iter()
+            .map(|entry| entry.native_format.as_str())
+            .collect::<Vec<_>>();
+        eprintln!("real PNG clipboard report: {report:#?}");
+        assert!(native_formats.contains(&"PNG"));
+        assert!(native_formats.contains(&"CF_DIBV5"));
+        assert!(native_formats.contains(&"CF_DIB"));
+        assert!(report.clipboard_sequence.is_some());
+    }
+
+    #[test]
     fn dib_headers_from_png_are_well_formed() {
         use image::ImageEncoder as _;
 

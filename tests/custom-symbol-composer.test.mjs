@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
+  attachPngArtifact,
   buildCustomSymbolRequest,
   buildSmoothFreehandPath,
   coalescedPointerSamples,
@@ -12,6 +13,19 @@ import {
   rotationFromPointer,
 } from "../src/features/custom-symbols/composer.js";
 import contractFixture from "./fixtures/custom-symbol-build-request-v1.json" with { type: "json" };
+
+test("custom symbol PNG artifacts carry an accurate SHA-256", async () => {
+  const artifact = await attachPngArtifact(
+    { schemaVersion: 1 },
+    "data:image/png;base64,iVBORw0KGgo=",
+  );
+  assert.equal(artifact.png.mimeType, "image/png");
+  assert.equal(artifact.png.dataBase64, "iVBORw0KGgo=");
+  assert.equal(
+    artifact.png.sha256,
+    "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
+  );
+});
 
 test("freehand strokes use a smooth midpoint path", () => {
   const path = buildSmoothFreehandPath([
@@ -109,6 +123,7 @@ test("visual composer emits inert SVG and the frozen Core composition shape", ()
   assert.match(svg, /data-symbol-handle="scale-y"/);
   assert.match(svg, /data-symbol-handle="rotate"/);
   assert.match(svg, /class="symbol-editor-overlay"/);
+  assert.match(svg, /vector-effect="non-scaling-stroke"/);
   assert.doesNotMatch(
     svg,
     /opacity="0\.35"[^>]*>[^<]*<g class="symbol-transform-box"/,
@@ -123,6 +138,20 @@ test("visual composer emits inert SVG and the frozen Core composition shape", ()
   assert.doesNotMatch(
     JSON.stringify(composition),
     /symbol-transform-box|symbol-selection-frame|show-grid/,
+  );
+});
+
+test("non-uniform symbol scaling keeps the editor overlay unscaled", () => {
+  const stretched = structuredClone(layer);
+  stretched.transform.scaleX = 3;
+  stretched.transform.scaleY = 0.4;
+  const svg = compositionSvg([stretched], stretched.layerId);
+  const overlay = svg.match(/<g class="symbol-editor-overlay"[^>]*>/)?.[0];
+  assert.match(overlay, /translate\(500 500\) rotate\(0\)/);
+  assert.doesNotMatch(overlay, /scale\(/);
+  assert.match(
+    svg,
+    /class="symbol-layer symbol-layer-selected"[^>]*scale\(3 0\.4\)/,
   );
 });
 

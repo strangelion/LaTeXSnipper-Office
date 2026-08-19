@@ -767,6 +767,39 @@
                 Mermaid
               </button>
               <p>五种运行时均随应用离线提供；最终 SVG 仍经过 Core 安全净化。</p>
+              <button
+                id="drawingHelpButton"
+                type="button"
+                class="drawing-help-button"
+                aria-expanded="false"
+                aria-controls="drawingHelpPanel"
+              >
+                <span>绘图帮助与方向模板</span><span aria-hidden="true">?</span>
+              </button>
+              <section id="drawingHelpPanel" class="drawing-help-panel" hidden>
+                <p>
+                  先选择绘图语言，再选可视化或源码编辑。可视化工具会随
+                  SVG、TikZ、PGFPlots、Graphviz、Mermaid 自动变化。
+                </p>
+                <div class="drawing-direction-grid" aria-label="绘图方向模板">
+                  <button type="button" data-drawing-preset="process">
+                    <strong>流程表达</strong><span>步骤、判断与关系</span>
+                  </button>
+                  <button type="button" data-drawing-preset="math">
+                    <strong>数学科研</strong><span>坐标、函数与标注</span>
+                  </button>
+                  <button type="button" data-drawing-preset="data">
+                    <strong>数据结构</strong><span>输入、训练与验证</span>
+                  </button>
+                  <button type="button" data-drawing-preset="geometry">
+                    <strong>几何构图</strong><span>椭圆、方形与菱形</span>
+                  </button>
+                </div>
+                <p class="drawing-help-shortcuts">
+                  四角自由缩放 · 边中点调宽高 · Shift 等比缩放/吸附旋转 · Delete
+                  删除
+                </p>
+              </section>
             </aside>
             <div class="drawing-editor-panel">
               <div class="drawing-editor-heading">
@@ -819,6 +852,9 @@
                 <button type="button" data-drawing-tool="plot">函数图</button>
                 <button type="button" data-drawing-tool="label">标签</button>
               </div>
+              <p id="drawingEditorModeHint" class="drawing-editor-mode-hint">
+                SVG 可视化构图 · 输出安全矢量
+              </p>
               <div
                 id="drawingVisualEditor"
                 class="drawing-visual-editor"
@@ -879,6 +915,15 @@
                 <button id="drawingCopyBtn" type="button" class="btn">
                   多格式复制
                 </button>
+                <button
+                  id="drawingSendPlatformBtn"
+                  type="button"
+                  class="btn"
+                  disabled
+                  title="将 PNG 保存为 Obsidian 或 VS Code 附件并插入当前文档"
+                >
+                  发送平台
+                </button>
               </div>
               <p
                 id="drawingCompileStatus"
@@ -915,6 +960,114 @@
                 />
                 <output id="drawingZoomValue">100%</output>
               </label>
+              <section
+                class="drawing-inspector"
+                aria-labelledby="drawingInspectorHeading"
+              >
+                <div class="drawing-inspector-heading">
+                  <div>
+                    <span>选中对象</span>
+                    <strong id="drawingInspectorHeading">快速属性</strong>
+                  </div>
+                  <span id="drawingInspectorType" class="state-chip"
+                    >未选择</span
+                  >
+                </div>
+                <p id="drawingInspectorEmpty" class="drawing-inspector-empty">
+                  在画布中选择对象后，可在这里精确调整尺寸、角度、线宽和层级。
+                </p>
+                <div
+                  id="drawingInspectorControls"
+                  class="drawing-inspector-controls"
+                  hidden
+                >
+                  <div class="drawing-number-grid">
+                    <label
+                      >宽度<input
+                        id="drawingInspectorWidth"
+                        type="number"
+                        min="32"
+                        max="1200"
+                        step="1"
+                    /></label>
+                    <label
+                      >高度<input
+                        id="drawingInspectorHeight"
+                        type="number"
+                        min="24"
+                        max="900"
+                        step="1"
+                    /></label>
+                    <label
+                      >角度<input
+                        id="drawingInspectorRotation"
+                        type="number"
+                        min="-360"
+                        max="360"
+                        step="0.1"
+                    /></label>
+                    <label
+                      >线宽<input
+                        id="drawingInspectorStroke"
+                        type="number"
+                        min="1"
+                        max="24"
+                        step="0.5"
+                    /></label>
+                  </div>
+                  <div class="drawing-color-row">
+                    <span
+                      >描边
+                      <strong id="drawingInspectorColor">#2563EB</strong></span
+                    >
+                    <div class="drawing-color-swatches" aria-label="描边颜色">
+                      <button
+                        type="button"
+                        data-drawing-color="#2563EB"
+                        aria-label="蓝色"
+                      ></button>
+                      <button
+                        type="button"
+                        data-drawing-color="#7C3AED"
+                        aria-label="紫色"
+                      ></button>
+                      <button
+                        type="button"
+                        data-drawing-color="#DC2626"
+                        aria-label="红色"
+                      ></button>
+                      <button
+                        type="button"
+                        data-drawing-color="#059669"
+                        aria-label="绿色"
+                      ></button>
+                      <button
+                        type="button"
+                        data-drawing-color="#D97706"
+                        aria-label="橙色"
+                      ></button>
+                    </div>
+                  </div>
+                  <div class="drawing-inspector-actions">
+                    <button id="drawingInspectorDuplicate" type="button">
+                      复制
+                    </button>
+                    <button id="drawingInspectorBack" type="button">
+                      下移
+                    </button>
+                    <button id="drawingInspectorForward" type="button">
+                      上移
+                    </button>
+                    <button
+                      id="drawingInspectorDelete"
+                      type="button"
+                      class="danger"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+              </section>
               <strong>适配器状态</strong>
               <div id="drawingReadiness" class="drawing-readiness">
                 正在读取核心就绪状态…
@@ -1331,6 +1484,12 @@
                   </button>
                   <button id="symbolCopyBtn" type="button" class="btn primary">
                     验证并多格式复制
+                  </button>
+                  <button id="symbolInsertBtn" type="button" class="btn">
+                    插入 Office
+                  </button>
+                  <button id="symbolSendPlatformBtn" type="button" class="btn">
+                    发送平台
                   </button>
                 </div>
               </footer>

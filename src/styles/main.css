@@ -2825,6 +2825,74 @@ body {
   overflow-wrap: anywhere;
 }
 
+.drawing-help-button {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  border-color: color-mix(
+    in srgb,
+    var(--accent) 35%,
+    var(--border-color)
+  ) !important;
+  background: color-mix(in srgb, var(--accent) 9%, var(--card-bg)) !important;
+  color: var(--accent) !important;
+  font-weight: 750;
+}
+
+.drawing-help-button span:last-child {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+
+.drawing-help-panel {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-color));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+}
+
+.drawing-help-panel[hidden] {
+  display: none;
+}
+
+.drawing-direction-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.drawing-direction-grid button {
+  display: grid;
+  min-height: 58px;
+  align-content: center;
+  gap: 0.12rem;
+  padding: 0.45rem;
+  text-align: left;
+}
+
+.drawing-direction-grid button strong {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.drawing-direction-grid button span {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.drawing-help-shortcuts {
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border-color);
+}
+
 .drawing-editor-panel {
   display: grid;
   align-content: start;
@@ -2860,6 +2928,12 @@ body {
 .drawing-editor-mode-tabs button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.drawing-editor-mode-hint {
+  margin: -0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
 }
 
 .drawing-visual-editor,
@@ -2998,6 +3072,140 @@ body {
   width: 100%;
   height: auto;
   max-height: 420px;
+}
+
+.drawing-inspector {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-color));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
+}
+
+.drawing-inspector-heading,
+.drawing-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.drawing-inspector-heading > div {
+  display: grid;
+  gap: 0.08rem;
+}
+
+.drawing-inspector-heading > div > span {
+  color: var(--accent);
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+
+.drawing-inspector-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.drawing-inspector-controls {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.drawing-inspector-controls[hidden] {
+  display: none;
+}
+
+.drawing-number-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.drawing-number-grid label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.drawing-number-grid input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.drawing-color-row > span {
+  display: grid;
+  gap: 0.1rem;
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.drawing-color-row strong {
+  color: var(--text);
+  font-size: 0.65rem;
+}
+
+.drawing-color-swatches {
+  display: flex;
+  gap: 0.28rem;
+}
+
+.drawing-color-swatches button {
+  width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 2px solid var(--card-bg);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.drawing-color-swatches button:nth-child(1) {
+  background: #2563eb;
+}
+.drawing-color-swatches button:nth-child(2) {
+  background: #7c3aed;
+}
+.drawing-color-swatches button:nth-child(3) {
+  background: #dc2626;
+}
+.drawing-color-swatches button:nth-child(4) {
+  background: #059669;
+}
+.drawing-color-swatches button:nth-child(5) {
+  background: #d97706;
+}
+
+.drawing-inspector-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.drawing-inspector-actions button {
+  min-height: 32px;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.drawing-inspector-actions button.danger {
+  border-color: color-mix(in srgb, #dc2626 35%, var(--border-color));
+  color: #dc2626;
 }
 
 .command-palette-layer {

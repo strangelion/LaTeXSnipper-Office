@@ -1805,7 +1805,17 @@ pub struct PushActionPayload {
     #[serde(rename = "type")]
     pub action_type: String,
 
+    #[serde(default)]
     pub latex: String,
+
+    #[serde(default)]
+    pub png_base64: Option<String>,
+
+    #[serde(default)]
+    pub file_name: Option<String>,
+
+    #[serde(default)]
+    pub alt_text: Option<String>,
 
     #[serde(default)]
     pub display: Option<bool>,
@@ -1926,7 +1936,14 @@ async fn enqueue_ecosystem_action(
         .clone()
         .unwrap_or_else(|| "markdown".into());
 
-    let payload = if push.target == "browser" {
+    let payload = if push.action.action_type == "InsertImage" {
+        let encoded = validated_ecosystem_png(push.action.png_base64.as_deref())?;
+        serde_json::json!({
+            "pngBase64": encoded,
+            "fileName": push.action.file_name.unwrap_or_else(|| "latexsnipper-image.png".into()),
+            "altText": push.action.alt_text.unwrap_or_else(|| "LaTeXSnipper image".into())
+        })
+    } else if push.target == "browser" {
         serde_json::json!({
             "schemaVersion": 1,
             "latex": push.action.latex,
@@ -1973,6 +1990,44 @@ async fn enqueue_ecosystem_action(
 
     state.ecosystem_queue.enqueue(envelope).await?;
     Ok(action_id)
+}
+
+fn validated_ecosystem_png(value: Option<&str>) -> Result<&str, String> {
+    let encoded = value
+        .ok_or_else(|| "ECOSYSTEM_IMAGE_REQUIRED".to_string())?
+        .trim_start_matches("data:image/png;base64,");
+    if encoded.len() > 24 * 1024 * 1024 {
+        return Err("ECOSYSTEM_IMAGE_TOO_LARGE".to_string());
+    }
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "ECOSYSTEM_IMAGE_INVALID_BASE64".to_string())?;
+    if !decoded.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("ECOSYSTEM_IMAGE_INVALID_PNG".to_string());
+    }
+    Ok(encoded)
+}
+
+#[cfg(test)]
+mod ecosystem_image_tests {
+    use super::validated_ecosystem_png;
+
+    #[test]
+    fn ecosystem_image_requires_a_real_png_signature() {
+        let valid = "data:image/png;base64,iVBORw0KGgo=";
+        assert_eq!(
+            validated_ecosystem_png(Some(valid)).unwrap(),
+            "iVBORw0KGgo="
+        );
+        assert_eq!(
+            validated_ecosystem_png(Some("bm90IGEgcG5n")).unwrap_err(),
+            "ECOSYSTEM_IMAGE_INVALID_PNG"
+        );
+        assert_eq!(
+            validated_ecosystem_png(None).unwrap_err(),
+            "ECOSYSTEM_IMAGE_REQUIRED"
+        );
+    }
 }
 
 /// WPS-compatible /config endpoint.

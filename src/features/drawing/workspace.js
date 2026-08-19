@@ -77,6 +77,59 @@ const TOOL_SNIPPETS = Object.freeze({
   },
 });
 
+const VISUAL_TOOLSETS = Object.freeze({
+  svg_source: {
+    line: "线段",
+    arrow: "箭头",
+    connector: "连接线",
+    node: "节点",
+    rectangle: "矩形",
+    ellipse: "椭圆",
+    diamond: "菱形",
+    axes: "坐标轴",
+    plot: "函数图",
+    label: "标签",
+  },
+  tikz: {
+    line: "几何线",
+    arrow: "向量",
+    connector: "曲线路径",
+    node: "TikZ 节点",
+    rectangle: "矩形",
+    ellipse: "椭圆",
+    diamond: "判定形",
+    axes: "坐标轴",
+    label: "数学标注",
+  },
+  pgf_plots: {
+    axes: "坐标系",
+    plot: "函数曲线",
+    line: "辅助线",
+    label: "图例标注",
+  },
+  graphviz_dot: {
+    node: "图节点",
+    connector: "有向边",
+    arrow: "直连边",
+    diamond: "判定节点",
+    rectangle: "子图边界",
+    label: "图标题",
+  },
+  mermaid: {
+    node: "流程节点",
+    diamond: "判断节点",
+    connector: "流程关系",
+    arrow: "直接流程",
+    rectangle: "流程分组",
+    label: "图表标题",
+  },
+});
+
+export function visualToolsForLanguage(language, packageProfiles = []) {
+  const key = packageProfiles.includes("pgf_plots") ? "pgf_plots" : language;
+  return { ...(VISUAL_TOOLSETS[key] || VISUAL_TOOLSETS.svg_source) };
+}
+
 export function computeFittedViewBox(bounds, paddingRatio = 0.08) {
   const x = Number(bounds?.x);
   const y = Number(bounds?.y);
@@ -113,6 +166,55 @@ export function fitDrawingPreview(preview) {
   return true;
 }
 
+export function resolveDrawingAuthoringInput({
+  editorMode,
+  language,
+  nativeSource,
+  visualSource,
+}) {
+  const visual = editorMode === "visual" && Boolean(visualSource);
+  return {
+    language: visual ? "svg_source" : language,
+    source: visual ? visualSource : nativeSource,
+    packageProfiles: visual ? [] : null,
+    visual,
+  };
+}
+
+export async function rasterizeDrawingSvg(
+  svg,
+  widthPoints,
+  heightPoints,
+  { targetDpi = 192, maxEdge = 4096, maxPixels = 16 * 1024 * 1024 } = {},
+) {
+  if (!svg || typeof Image === "undefined" || typeof document === "undefined")
+    throw new Error("DRAWING_PNG_RENDER_UNAVAILABLE");
+  const width = Math.max(1, (Number(widthPoints) / 72) * targetDpi || 1);
+  const height = Math.max(1, (Number(heightPoints) / 72) * targetDpi || 1);
+  const scale = Math.min(
+    1,
+    maxEdge / width,
+    maxEdge / height,
+    Math.sqrt(maxPixels / (width * height)),
+  );
+  const widthPx = Math.max(1, Math.round(width * scale));
+  const heightPx = Math.max(1, Math.round(height * scale));
+  const image = await new Promise((resolve, reject) => {
+    const candidate = new Image();
+    candidate.onload = () => resolve(candidate);
+    candidate.onerror = () => reject(new Error("DRAWING_SVG_DECODE_FAILED"));
+    candidate.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = widthPx;
+  canvas.height = heightPx;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("DRAWING_CANVAS_UNAVAILABLE");
+  context.clearRect(0, 0, widthPx, heightPx);
+  context.drawImage(image, 0, 0, widthPx, heightPx);
+  return canvas.toDataURL("image/png");
+}
+
 function setSelected(element, selected) {
   element?.classList?.toggle("active", selected);
   element?.setAttribute?.("aria-selected", String(selected));
@@ -133,6 +235,8 @@ export function createDrawingWorkspaceController({
   renderLocal,
   insertDrawing,
   copyDrawing,
+  sendDrawingToPlatform,
+  rasterizeDrawing = rasterizeDrawingSvg,
   loadReadiness,
 }) {
   const state = {
@@ -148,6 +252,7 @@ export function createDrawingWorkspaceController({
     compileSequence: 0,
     activeCompileId: null,
     editorMode: "visual",
+    visualSource: "",
   };
 
   const status = (message) => {
@@ -159,6 +264,8 @@ export function createDrawingWorkspaceController({
     state.lastResult = null;
     if (state.compiling && state.autoPreview) state.pendingPreview = true;
     if (elements.insertButton) elements.insertButton.disabled = true;
+    if (elements.sendPlatformButton)
+      elements.sendPlatformButton.disabled = true;
   };
 
   const activateMode = (mode) => {
@@ -187,14 +294,24 @@ export function createDrawingWorkspaceController({
     for (const candidate of elements.languageButtons) {
       candidate.classList?.toggle("active", candidate === button);
     }
+    const toolset = visualToolsForLanguage(language, state.packageProfiles);
+    for (const tool of elements.toolButtons || []) {
+      const type = tool.dataset.drawingTool;
+      tool.hidden = !Object.hasOwn(toolset, type);
+      if (toolset[type]) tool.textContent = toolset[type];
+    }
     if (elements.source) {
       const preset = button.dataset.drawingProfile || language;
       elements.source.value =
         DEFAULT_SOURCES[preset] || DEFAULT_SOURCES[language] || "";
     }
     invalidateCompilation();
-    setEditorMode(language === "svg_source" ? state.editorMode : "source");
-    status("源码已切换，本地安全预览已排队");
+    setEditorMode(state.editorMode);
+    status(
+      state.editorMode === "visual"
+        ? "绘图语言已切换；通用可视化构图保持可编辑"
+        : "源码已切换，本地安全预览已排队",
+    );
     schedulePreview();
   };
 
@@ -217,12 +334,19 @@ export function createDrawingWorkspaceController({
     try {
       const drawingId =
         globalThis.crypto?.randomUUID?.() || `drawing-${Date.now()}`;
-      const originalSource = elements.source?.value || "";
+      const authored = resolveDrawingAuthoringInput({
+        editorMode: state.editorMode,
+        language: state.language,
+        nativeSource: elements.source?.value || "",
+        visualSource: state.visualSource,
+      });
+      const originalSource = authored.source;
+      const authoredLanguage = authored.language;
       const renderedSvg = renderLocal
         ? await renderLocal({
-            language: state.language,
+            language: authoredLanguage,
             source: originalSource,
-            packageProfiles: state.packageProfiles,
+            packageProfiles: authored.visual ? [] : state.packageProfiles,
             graphvizEngine: elements.graphvizEngine?.value || "dot",
             previewHost: elements.preview,
             renderId: drawingId,
@@ -238,9 +362,10 @@ export function createDrawingWorkspaceController({
       try {
         result = await compileDrawing({
           drawingId,
-          language: renderedSvg ? "svg_source" : state.language,
+          language: renderedSvg ? "svg_source" : authoredLanguage,
           source: renderedSvg || originalSource,
-          packageProfiles: renderedSvg ? [] : state.packageProfiles,
+          packageProfiles:
+            renderedSvg || authored.visual ? [] : state.packageProfiles,
           packageLockSha256: null,
           rendererId: renderedSvg ? `bundled-${state.language}@1` : null,
         });
@@ -275,13 +400,15 @@ export function createDrawingWorkspaceController({
         throw new Error(result?.error || "DRAWING_COMPILE_FAILED");
       }
       result.originalSource = originalSource;
-      result.originalLanguage = state.language;
+      result.originalLanguage = authoredLanguage;
       state.lastResult = result;
       if (elements.preview) {
         elements.preview.innerHTML = result.svg;
         fitDrawingPreview(elements.preview);
       }
       if (elements.insertButton) elements.insertButton.disabled = false;
+      if (elements.sendPlatformButton)
+        elements.sendPlatformButton.disabled = false;
       status(
         `${automatic ? "实时预览" : "编译完成"} · ${result.payload.widthPoints} × ${result.payload.heightPoints} pt · 本地离线`,
       );
@@ -314,10 +441,27 @@ export function createDrawingWorkspaceController({
   }
 
   let visualEditor = null;
+  const syncInspector = (object) => {
+    if (elements.inspectorEmpty)
+      elements.inspectorEmpty.hidden = Boolean(object);
+    if (elements.inspectorControls) elements.inspectorControls.hidden = !object;
+    if (!object) return;
+    if (elements.inspectorType)
+      elements.inspectorType.textContent = object.type || "对象";
+    for (const [element, value] of [
+      [elements.inspectorWidth, object.width],
+      [elements.inspectorHeight, object.height],
+      [elements.inspectorRotation, object.rotation],
+      [elements.inspectorStroke, object.strokeWidth],
+    ]) {
+      if (element && document.activeElement !== element)
+        element.value = String(Math.round(Number(value) * 10) / 10);
+    }
+    if (elements.inspectorColor)
+      elements.inspectorColor.textContent = object.color || "#2563EB";
+  };
   const setEditorMode = (mode) => {
-    const visualAvailable = state.language === "svg_source";
-    state.editorMode =
-      mode === "visual" && visualAvailable ? "visual" : "source";
+    state.editorMode = mode === "visual" ? "visual" : "source";
     const visual = state.editorMode === "visual";
     if (elements.visualEditor) elements.visualEditor.hidden = !visual;
     if (elements.sourceEditor) elements.sourceEditor.hidden = visual;
@@ -325,12 +469,15 @@ export function createDrawingWorkspaceController({
     elements.sourceModeButton?.classList?.toggle("active", !visual);
     elements.visualModeButton?.setAttribute("aria-selected", String(visual));
     elements.sourceModeButton?.setAttribute("aria-selected", String(!visual));
-    if (elements.visualModeButton) {
-      elements.visualModeButton.disabled = !visualAvailable;
-      elements.visualModeButton.title = visualAvailable
-        ? ""
-        : "当前语言使用源码编辑器与实时预览";
-    }
+    if (elements.visualModeButton)
+      elements.visualModeButton.title =
+        state.language === "svg_source"
+          ? "直接编辑安全 SVG"
+          : "使用通用可视化画布构图；源码模式仍保留当前语言";
+    if (elements.editorModeHint)
+      elements.editorModeHint.textContent = visual
+        ? `${state.language === "svg_source" ? "SVG" : "通用"}可视化构图 · 输出安全 SVG；原生语法可在源码编辑中继续使用`
+        : `正在编辑 ${state.language} 原生源码 · 实时预览保持开启`;
     visualEditor?.setEnabled(visual);
     if (visual) visualEditor?.commit();
   };
@@ -339,11 +486,14 @@ export function createDrawingWorkspaceController({
     visualEditor = createVisualDrawingEditor({
       canvas: elements.visualCanvas,
       onSourceChange: (source) => {
-        if (elements.source) elements.source.value = source;
+        state.visualSource = source;
+        if (state.language === "svg_source" && elements.source)
+          elements.source.value = source;
         invalidateCompilation();
         status("可视化图形已同步，安全预览已排队");
         schedulePreview();
       },
+      onSelectionChange: syncInspector,
     });
   }
 
@@ -372,10 +522,20 @@ export function createDrawingWorkspaceController({
       return null;
     }
     try {
+      let pngBase64 = null;
+      try {
+        pngBase64 = await rasterizeDrawing?.(
+          state.lastResult.svg,
+          state.lastResult.payload?.widthPoints,
+          state.lastResult.payload?.heightPoints,
+        );
+      } catch (error) {
+        console.warn("[Drawing] PNG clipboard rendering unavailable", error);
+      }
       const report = await copyDrawing({
         source: state.lastResult.originalSource || elements.source?.value || "",
         svg: state.lastResult.svg,
-        pngBase64: null,
+        pngBase64,
         protocolJson: JSON.stringify(state.lastResult.payload),
       });
       status(
@@ -385,6 +545,36 @@ export function createDrawingWorkspaceController({
     } catch (error) {
       status(`复制失败：${userFacingError(error)}`);
       return null;
+    }
+  };
+
+  const sendPlatform = async () => {
+    if (!state.lastResult || !sendDrawingToPlatform) {
+      status("请先生成有效预览");
+      return null;
+    }
+    if (elements.sendPlatformButton)
+      elements.sendPlatformButton.disabled = true;
+    try {
+      status("正在生成平台图片…");
+      const pngBase64 = await rasterizeDrawing(
+        state.lastResult.svg,
+        state.lastResult.payload?.widthPoints,
+        state.lastResult.payload?.heightPoints,
+      );
+      const result = await sendDrawingToPlatform({
+        pngBase64,
+        svg: state.lastResult.svg,
+        source: state.lastResult.originalSource || elements.source?.value || "",
+      });
+      status("图片已由目标平台保存并插入");
+      return result;
+    } catch (error) {
+      status(`发送失败：${userFacingError(error)}`);
+      return null;
+    } finally {
+      if (elements.sendPlatformButton)
+        elements.sendPlatformButton.disabled = false;
     }
   };
 
@@ -446,15 +636,20 @@ export function createDrawingWorkspaceController({
   for (const button of elements.languageButtons) {
     button.addEventListener("click", () => chooseLanguage(button));
   }
-  elements.visualModeButton?.addEventListener("click", () =>
-    setEditorMode("visual"),
-  );
-  elements.sourceModeButton?.addEventListener("click", () =>
-    setEditorMode("source"),
-  );
+  elements.visualModeButton?.addEventListener("click", () => {
+    setEditorMode("visual");
+    invalidateCompilation();
+    schedulePreview(0);
+  });
+  elements.sourceModeButton?.addEventListener("click", () => {
+    setEditorMode("source");
+    invalidateCompilation();
+    schedulePreview(0);
+  });
   elements.compileButton?.addEventListener("click", compile);
   elements.insertButton?.addEventListener("click", insert);
   elements.copyButton?.addEventListener("click", copy);
+  elements.sendPlatformButton?.addEventListener("click", sendPlatform);
   elements.source?.addEventListener("input", () => {
     invalidateCompilation();
     status("正在等待输入稳定…");
@@ -487,13 +682,50 @@ export function createDrawingWorkspaceController({
       elements.gridToggle.checked,
     );
   });
+  elements.helpButton?.addEventListener("click", () => {
+    const open = elements.helpPanel?.hidden !== false;
+    if (elements.helpPanel) elements.helpPanel.hidden = !open;
+    elements.helpButton?.setAttribute("aria-expanded", String(open));
+  });
+  for (const preset of elements.presetButtons || []) {
+    preset.addEventListener("click", () => {
+      setEditorMode("visual");
+      if (visualEditor?.applyPreset(preset.dataset.drawingPreset)) {
+        status("方向模板已载入；可继续调整对象、线宽与配色");
+      }
+    });
+  }
+  const inspectorUpdates = [
+    [elements.inspectorWidth, "width"],
+    [elements.inspectorHeight, "height"],
+    [elements.inspectorRotation, "rotation"],
+    [elements.inspectorStroke, "strokeWidth"],
+  ];
+  for (const [input, property] of inspectorUpdates) {
+    input?.addEventListener("input", () => {
+      visualEditor?.updateSelected({ [property]: Number(input.value) });
+    });
+  }
+  for (const swatch of elements.inspectorSwatches || []) {
+    swatch.addEventListener("click", () => {
+      visualEditor?.updateSelected({ color: swatch.dataset.drawingColor });
+    });
+  }
+  elements.inspectorDuplicate?.addEventListener("click", () =>
+    visualEditor?.duplicateSelected(),
+  );
+  elements.inspectorForward?.addEventListener("click", () =>
+    visualEditor?.moveLayer("forward"),
+  );
+  elements.inspectorBack?.addEventListener("click", () =>
+    visualEditor?.moveLayer("back"),
+  );
+  elements.inspectorDelete?.addEventListener("click", () =>
+    visualEditor?.deleteSelected(),
+  );
   for (const tool of elements.toolButtons || []) {
     tool.addEventListener("click", () => {
-      if (
-        state.editorMode === "visual" &&
-        state.language === "svg_source" &&
-        visualEditor
-      ) {
+      if (state.editorMode === "visual" && visualEditor) {
         visualEditor.add(tool.dataset.drawingTool);
         status("对象已添加；可直接拖动、缩放或旋转");
         return;
@@ -512,6 +744,15 @@ export function createDrawingWorkspaceController({
       schedulePreview();
     });
   }
+  const initialToolset = visualToolsForLanguage(
+    state.language,
+    state.packageProfiles,
+  );
+  for (const tool of elements.toolButtons || []) {
+    const type = tool.dataset.drawingTool;
+    tool.hidden = !Object.hasOwn(initialToolset, type);
+    if (initialToolset[type]) tool.textContent = initialToolset[type];
+  }
   setEditorMode("visual");
   activateMode("formula");
 
@@ -522,6 +763,7 @@ export function createDrawingWorkspaceController({
     compile,
     insert,
     copy,
+    sendPlatform,
     refreshReadiness,
     setEditorMode,
     visualEditor,
@@ -543,9 +785,11 @@ export function drawingWorkspaceElements(root = document) {
     visualEditor: root.getElementById("drawingVisualEditor"),
     sourceEditor: root.getElementById("drawingSourceEditor"),
     visualCanvas: root.getElementById("drawingVisualCanvas"),
+    editorModeHint: root.getElementById("drawingEditorModeHint"),
     compileButton: root.getElementById("drawingCompileBtn"),
     insertButton: root.getElementById("drawingInsertBtn"),
     copyButton: root.getElementById("drawingCopyBtn"),
+    sendPlatformButton: root.getElementById("drawingSendPlatformBtn"),
     autoPreview: root.getElementById("drawingAutoPreview"),
     gridToggle: root.getElementById("drawingGridToggle"),
     zoom: root.getElementById("drawingZoom"),
@@ -555,6 +799,22 @@ export function drawingWorkspaceElements(root = document) {
     status: root.getElementById("drawingCompileStatus"),
     preview: root.getElementById("drawingPreview"),
     readiness: root.getElementById("drawingReadiness"),
+    helpButton: root.getElementById("drawingHelpButton"),
+    helpPanel: root.getElementById("drawingHelpPanel"),
+    presetButtons: [...root.querySelectorAll("[data-drawing-preset]")],
+    inspectorEmpty: root.getElementById("drawingInspectorEmpty"),
+    inspectorControls: root.getElementById("drawingInspectorControls"),
+    inspectorType: root.getElementById("drawingInspectorType"),
+    inspectorWidth: root.getElementById("drawingInspectorWidth"),
+    inspectorHeight: root.getElementById("drawingInspectorHeight"),
+    inspectorRotation: root.getElementById("drawingInspectorRotation"),
+    inspectorStroke: root.getElementById("drawingInspectorStroke"),
+    inspectorColor: root.getElementById("drawingInspectorColor"),
+    inspectorSwatches: [...root.querySelectorAll("[data-drawing-color]")],
+    inspectorDuplicate: root.getElementById("drawingInspectorDuplicate"),
+    inspectorForward: root.getElementById("drawingInspectorForward"),
+    inspectorBack: root.getElementById("drawingInspectorBack"),
+    inspectorDelete: root.getElementById("drawingInspectorDelete"),
   };
 }
 
@@ -563,12 +823,68 @@ export function initDrawingWorkspace({
   insertDrawing,
   root = document,
 }) {
+  const waitForAction = async (actionId, timeoutMs = 20000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const record = await invoke("get_ecosystem_action_status_internal", {
+        actionId,
+      });
+      const actionStatus = String(record?.status || "").toLowerCase();
+      if (actionStatus === "completed") return record;
+      if (["failed", "canceled", "expired"].includes(actionStatus)) {
+        const error = new Error(
+          record?.error?.message || `Ecosystem action ${actionStatus}`,
+        );
+        error.code =
+          record?.error?.code ||
+          `ECOSYSTEM_ACTION_${actionStatus.toUpperCase()}`;
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    const error = new Error(
+      "目标插件未确认图片插入，请确认它在线且存在活动文档",
+    );
+    error.code = "ECOSYSTEM_ACTION_TIMEOUT";
+    throw error;
+  };
+
   const controller = createDrawingWorkspaceController({
     elements: drawingWorkspaceElements(root),
     compileDrawing: (request) => invoke("compile_drawing_svg", { request }),
     renderLocal: renderDrawingLocally,
     insertDrawing,
     copyDrawing: (request) => invoke("copy_drawing_bundle", { request }),
+    sendDrawingToPlatform: async ({ pngBase64 }) => {
+      const container = root.getElementById("ecosystemHostSelector");
+      const trigger = container?.querySelector(".custom-select-trigger");
+      const target = trigger?.dataset?.value || "";
+      const targetClientId = trigger?.dataset?.clientId || "";
+      if (!target || !targetClientId) {
+        throw new Error("请先在公式工作区选择一个在线目标插件");
+      }
+      if (!new Set(["obsidian", "vscode"]).has(target)) {
+        const error = new Error(
+          "该平台暂不支持自动保存图片附件；请使用“多格式复制”后粘贴",
+        );
+        error.code = "ECOSYSTEM_IMAGE_TARGET_UNSUPPORTED";
+        throw error;
+      }
+      const actionId = await invoke("push_ecosystem_action_internal", {
+        request: {
+          target,
+          targetClientId,
+          action: {
+            type: "InsertImage",
+            pngBase64,
+            fileName: `latexsnipper-drawing-${Date.now()}.png`,
+            altText: "LaTeXSnipper drawing",
+          },
+        },
+      });
+      return waitForAction(actionId);
+    },
+    rasterizeDrawing: rasterizeDrawingSvg,
     loadReadiness: () => invoke("get_drawing_readiness"),
   });
   void controller.refreshReadiness();

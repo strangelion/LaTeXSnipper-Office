@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   computeFittedViewBox,
   createDrawingWorkspaceController,
+  resolveDrawingAuthoringInput,
+  visualToolsForLanguage,
 } from "../src/features/drawing/workspace.js";
 import { normalizeMermaidRenderId } from "../src/features/drawing/local-renderers.js";
 import { serializeVisualDrawing } from "../src/features/drawing/visual-editor.js";
@@ -37,6 +39,41 @@ test("Mermaid render ids always form valid CSS id selectors", () => {
     "mermaid-6fc1da09-03be-4cd8",
   );
   assert.equal(normalizeMermaidRenderId("a/b"), "mermaid-a-b");
+});
+
+test("each drawing language exposes a purpose-built visual toolset", () => {
+  assert.equal(visualToolsForLanguage("svg_source").ellipse, "椭圆");
+  assert.equal(visualToolsForLanguage("tikz").arrow, "向量");
+  assert.equal(visualToolsForLanguage("graphviz_dot").node, "图节点");
+  assert.equal(visualToolsForLanguage("mermaid").diamond, "判断节点");
+  const pgf = visualToolsForLanguage("tikz", ["pgf_plots"]);
+  assert.deepEqual(Object.keys(pgf), ["axes", "plot", "line", "label"]);
+});
+
+test("visual authoring stays available for non-SVG languages without forging native source", () => {
+  assert.deepEqual(
+    resolveDrawingAuthoringInput({
+      editorMode: "visual",
+      language: "mermaid",
+      nativeSource: "flowchart LR\nA --> B",
+      visualSource: '<svg viewBox="0 0 10 10"/>',
+    }),
+    {
+      language: "svg_source",
+      source: '<svg viewBox="0 0 10 10"/>',
+      packageProfiles: [],
+      visual: true,
+    },
+  );
+  assert.equal(
+    resolveDrawingAuthoringInput({
+      editorMode: "source",
+      language: "mermaid",
+      nativeSource: "flowchart LR\nA --> B",
+      visualSource: "<svg/>",
+    }).language,
+    "mermaid",
+  );
 });
 
 class FakeElement extends EventTarget {
@@ -94,6 +131,8 @@ function fixture() {
     source: new FakeElement(),
     compileButton: new FakeElement(),
     insertButton: new FakeElement(),
+    copyButton: new FakeElement(),
+    sendPlatformButton: new FakeElement(),
     status: new FakeElement(),
     preview: new FakeElement(),
     readiness: new FakeElement(),
@@ -115,6 +154,61 @@ test("clicking Drawing changes panels and aria state", () => {
   assert.equal(elements.drawingWorkspace.hidden, false);
   assert.equal(elements.drawingTab.getAttribute("aria-selected"), "true");
   assert.equal(elements.formulaTab.getAttribute("aria-selected"), "false");
+});
+
+test("drawing copy rasterizes the verified SVG into a real PNG clipboard payload", async () => {
+  const elements = fixture();
+  elements.source.value = '<svg viewBox="0 0 144 72"/>';
+  const copies = [];
+  const controller = createDrawingWorkspaceController({
+    elements,
+    compileDrawing: async (request) => ({
+      success: true,
+      svg: request.source,
+      payload: { drawingId: "png-1", widthPoints: 144, heightPoints: 72 },
+    }),
+    rasterizeDrawing: async (svg, width, height) => {
+      assert.match(svg, /<svg/);
+      assert.equal(width, 144);
+      assert.equal(height, 72);
+      return "data:image/png;base64,iVBORw0KGgo=";
+    },
+    copyDrawing: async (request) => {
+      copies.push(request);
+      return { writtenFormats: ["image/svg+xml", "image/png"] };
+    },
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+  await controller.compile();
+  await controller.copy();
+  assert.equal(copies[0].pngBase64, "data:image/png;base64,iVBORw0KGgo=");
+  assert.match(elements.status.textContent, /已复制 2 种格式/);
+});
+
+test("drawing platform delivery sends a rasterized PNG attachment", async () => {
+  const elements = fixture();
+  elements.source.value = '<svg viewBox="0 0 144 72"/>';
+  const sent = [];
+  const controller = createDrawingWorkspaceController({
+    elements,
+    compileDrawing: async (request) => ({
+      success: true,
+      svg: request.source,
+      payload: { drawingId: "platform-1", widthPoints: 144, heightPoints: 72 },
+    }),
+    rasterizeDrawing: async () => "data:image/png;base64,iVBORw0KGgo=",
+    sendDrawingToPlatform: async (request) => {
+      sent.push(request);
+      return { status: "completed" };
+    },
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+  await controller.compile();
+  await controller.sendPlatform();
+  assert.equal(sent[0].pngBase64, "data:image/png;base64,iVBORw0KGgo=");
+  assert.match(elements.status.textContent, /目标平台保存并插入/);
 });
 
 test("clicking compile transitions state and enables real insert", async () => {
@@ -246,11 +340,14 @@ test("visual-editor output excludes canvas grid and editing controls", () => {
       rotation: 15,
       color: "#2563EB",
       fill: "#EFF6FF",
+      strokeWidth: 4,
       text: "节点",
     },
   ]);
   assert.match(svg, /viewBox="0 0 800 520"/);
   assert.match(svg, /data-drawing-object="node-1"/);
+  assert.match(svg, /vector-effect="non-scaling-stroke"/);
+  assert.match(svg, /markerUnits="userSpaceOnUse"/);
   assert.doesNotMatch(
     svg,
     /drawing-object-controls|drawing-selection-frame|show-grid|background-image/,

@@ -46,6 +46,7 @@ export class BridgeClient {
         clientName,
         capabilities: [
           "insert_formula",
+          "insert_image_attachment",
           "replace_selection",
           "read_selection",
           "open_editor",
