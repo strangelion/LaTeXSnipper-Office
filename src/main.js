@@ -1966,6 +1966,7 @@ class UIController {
       this.drawingWorkspace = initDrawingWorkspace({
         invoke,
         insertDrawing: (result) => this.insertDrawingToOffice(result),
+        formulaRenderer: this.formulaSvgRenderer,
       });
       this.customSymbolComposer = initCustomSymbolComposer({
         invoke,
@@ -2554,6 +2555,29 @@ class UIController {
       .getElementById("loadFromWord")
       ?.addEventListener("click", () => this.loadFromWord());
     document
+      .getElementById("editorInspectorInsert")
+      ?.addEventListener("click", () => this.insertToWord());
+    document
+      .getElementById("editorInspectorRead")
+      ?.addEventListener("click", () => this.loadFromWord());
+    document.querySelectorAll("[data-editor-copy-format]").forEach((button) => {
+      button.addEventListener("click", () =>
+        this.copyFormula(button.dataset.editorCopyFormat),
+      );
+    });
+    document.querySelectorAll("[data-editor-insert-mode]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.editorInsertMode;
+        const input = document.querySelector(
+          `input[name="formulaInsertMode"][value="${mode}"]`,
+        );
+        if (!input) return;
+        input.checked = true;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        input.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      });
+    });
+    document
       .getElementById("insertTableBtn")
       ?.addEventListener("click", () => this.insertTableToWord());
     document
@@ -2612,6 +2636,7 @@ class UIController {
             }
           }
           this.updateFormulaInsertModeUi(mode);
+          this.syncEditorInspector();
           Logger.info(`formulaInsertMode: ${mode}`);
           const latex = this.editor.getLatex();
           if (latex) this.editor.updatePreview(latex);
@@ -7254,6 +7279,52 @@ class UIController {
     }
   }
 
+  syncEditorInspector() {
+    const selectedMode =
+      document.querySelector('input[name="formulaInsertMode"]:checked')
+        ?.value || "inline";
+    document.querySelectorAll("[data-editor-insert-mode]").forEach((button) => {
+      const selected = button.dataset.editorInsertMode === selectedMode;
+      button.classList.toggle("active", selected);
+      button.setAttribute("aria-pressed", String(selected));
+    });
+
+    const officePlatform = this.platforms.find(
+      (platform) => platform.id === "office",
+    );
+    const enabled = Boolean(
+      officePlatform?.enabled && this.settingsManager.get("officeEnabled"),
+    );
+    const connected = enabled && Boolean(this._selectedSessionId);
+    const hostLabel = document.getElementById("editorInspectorHost");
+    if (hostLabel) {
+      hostLabel.textContent = connected
+        ? this._selectedHostType || "Office 已连接"
+        : enabled
+          ? "等待宿主"
+          : "Office 未启用";
+      hostLabel.classList.toggle("ready", connected);
+    }
+    for (const id of ["editorInspectorInsert", "editorInspectorRead"]) {
+      const button = document.getElementById(id);
+      if (button) button.disabled = !connected;
+    }
+    const route = this.settingsManager?.get("officeIntegrationMode") || "auto";
+    const routeNames = {
+      auto: "自动选择最佳路线",
+      native: "原生 OMML",
+      ole: "可编辑 OLE",
+      vector: "SVG 矢量",
+      image: "PNG 图片",
+    };
+    const routeHint = document.getElementById("editorInspectorRoute");
+    if (routeHint) {
+      routeHint.textContent = connected
+        ? `${routeNames[route] || routeNames.auto} · ${this._selectedHostType || "Office"}`
+        : "在“设置 → 平台插件”启用 Office，并打开 Word、Excel 或 PowerPoint";
+    }
+  }
+
   updateOfficeInsertButton() {
     const officePlatform = this.platforms.find((p) => p.id === "office");
     const enabled =
@@ -7294,6 +7365,7 @@ class UIController {
     const ecoBtn = document.getElementById("insertToEcosystem");
     if (ecoSelector) ecoSelector.style.display = hasEcoPlatform ? "" : "none";
     if (ecoBtn) ecoBtn.style.display = hasEcoPlatform ? "" : "none";
+    this.syncEditorInspector();
     this.refreshOfficeRouteSelector();
   }
 
@@ -7325,6 +7397,7 @@ class UIController {
       );
     this.updateOfficeIntegrationHint(route);
     this.refreshOfficeRouteSelector();
+    this.syncEditorInspector();
     this.showToast(
       `首选插入路线已设为 ${button?.querySelector("strong")?.textContent || route}`,
     );

@@ -5,6 +5,15 @@ let graphvizPromise;
 let mermaidPromise;
 let tikzPromise;
 
+export const MERMAID_RENDER_OPTIONS = Object.freeze({
+  startOnLoad: false,
+  securityLevel: "strict",
+  deterministicIds: true,
+  suppressErrorRendering: true,
+  htmlLabels: false,
+  flowchart: Object.freeze({ htmlLabels: false }),
+});
+
 export function normalizeMermaidRenderId(id) {
   const safe = String(id || "drawing").replace(/[^a-z0-9_-]/gi, "-");
   return `mermaid-${safe}`;
@@ -40,10 +49,7 @@ export async function renderMermaid(source, id = `mermaid-${Date.now()}`) {
   const text = assertSafeSource(source);
   mermaidPromise ||= import("mermaid").then(({ default: mermaid }) => {
     mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      deterministicIds: true,
-      suppressErrorRendering: true,
+      ...MERMAID_RENDER_OPTIONS,
       theme:
         document.documentElement.dataset.theme === "dark" ? "dark" : "default",
     });
@@ -54,7 +60,27 @@ export async function renderMermaid(source, id = `mermaid-${Date.now()}`) {
     mermaid.render(normalizeMermaidRenderId(id), text),
     15_000,
   );
-  return result.svg;
+  return normalizeBundledSvg(result.svg, "Mermaid");
+}
+
+export function normalizeBundledSvg(svg, renderer = "绘图") {
+  const source = String(svg || "").trim();
+  if (!/^<svg[\s>]/i.test(source)) {
+    throw new Error(`${renderer} 未生成有效 SVG`);
+  }
+  if (/<(?:script|foreignObject|iframe|object|embed)\b/i.test(source)) {
+    throw new Error(`${renderer} 生成了不支持的嵌入内容`);
+  }
+  // XHTML is an identifier rather than a fetched resource, but Core's
+  // fail-closed URL scan intentionally only grants the SVG/XLink namespaces.
+  // htmlLabels=false means Mermaid does not need this declaration, so remove
+  // any inert declaration left by a renderer version before verification.
+  return source
+    .replace(
+      /\s+xmlns(?::[\w.-]+)?=["']http:\/\/www\.w3\.org\/1999\/xhtml["']/gi,
+      "",
+    )
+    .replace(/http:\/\/www\.w3\.org\/1999\/xhtml/gi, "");
 }
 
 function normalizeTikzSource(source) {
@@ -97,8 +123,16 @@ async function loadTikzRuntime() {
       script.src = `${assetBaseUrl}tikzjax.min.js`;
       script.async = true;
       script.onload = resolve;
-      script.onerror = () => reject(new Error("TikZJax 本地运行时加载失败"));
+      script.onerror = () =>
+        reject(
+          new Error(
+            `TikZJax 本地运行时加载失败（${script.src}）；请检查安装资源完整性`,
+          ),
+        );
       document.head.appendChild(script);
+    }).catch((error) => {
+      tikzPromise = null;
+      throw error;
     });
   }
   await tikzPromise;
@@ -109,7 +143,7 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
   await loadTikzRuntime();
   const script = document.createElement("script");
   script.type = "text/tikz";
-  script.dataset.disableCache = "false";
+  script.dataset.disableCache = "true";
   script.dataset.width = "320";
   script.dataset.height = "220";
   if (packageProfiles.includes("pgf_plots")) {
@@ -123,9 +157,22 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
 
   const rendered = new Promise((resolve, reject) => {
     const observer = new MutationObserver(() => {
-      if (host.querySelector(".tikzjax-broken-wrapper,.tikzjax-error")) {
+      const errorNode = host.querySelector(
+        ".tikzjax-error,.tikzjax-broken-wrapper",
+      );
+      if (errorNode) {
         observer.disconnect();
-        reject(new Error("TikZ 编译失败，请检查源码或包设置"));
+        const detail = String(errorNode.textContent || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 360);
+        reject(
+          new Error(
+            detail
+              ? `TikZ 编译失败：${detail}`
+              : "TikZ 编译失败；本地 TeX 运行时未生成 DVI。请检查命令、括号与所需包",
+          ),
+        );
       }
     });
     observer.observe(host, { childList: true, subtree: true });
@@ -135,7 +182,7 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
         observer.disconnect();
         const svg = event.target?.closest?.("svg") || host.querySelector("svg");
         if (!svg) reject(new Error("TikZ 渲染未生成 SVG"));
-        else resolve(svg.outerHTML);
+        else resolve(normalizeBundledSvg(svg.outerHTML, "TikZ"));
       },
       { once: true },
     );
@@ -156,7 +203,10 @@ async function renderTikzIsolated(source, packageProfiles, previewHost) {
   stagingHost.style.top = "0";
   stagingHost.style.width = "320px";
   stagingHost.style.height = "220px";
-  stagingHost.style.visibility = "hidden";
+  // Keep the node fully laid out. TikZJax deprioritizes visibility:hidden
+  // targets and WebView layout engines may report zero geometry for them.
+  stagingHost.style.opacity = "0";
+  stagingHost.style.pointerEvents = "none";
   documentRef.body.appendChild(stagingHost);
   try {
     return await renderTikz(source, {

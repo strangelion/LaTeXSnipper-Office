@@ -728,12 +728,79 @@
                 </button>
               </div>
             </div>
-            <aside class="editor-inspector" aria-label="插入与导出选项">
-              <strong>插入目标</strong>
-              <span>当前 Office 宿主</span>
-              <strong>模式</strong><span>Native OMML / OLE / SVG / PNG</span>
-              <strong>版式</strong><span>尺寸 · 颜色 · 编号</span>
-              <strong>导出</strong><span>LaTeX · MathML · Typst · PDF</span>
+            <aside class="editor-inspector" aria-label="公式快捷操作">
+              <div class="editor-inspector-heading">
+                <div>
+                  <span class="eyebrow">快捷操作</span>
+                  <strong>插入与复制</strong>
+                </div>
+                <span id="editorInspectorHost" class="state-chip"
+                  >未连接 Office</span
+                >
+              </div>
+              <div class="editor-inspector-section">
+                <span class="editor-inspector-label">公式版式</span>
+                <div
+                  class="editor-inspector-segments"
+                  role="group"
+                  aria-label="公式版式"
+                >
+                  <button
+                    type="button"
+                    class="active"
+                    data-editor-insert-mode="inline"
+                  >
+                    行内
+                  </button>
+                  <button type="button" data-editor-insert-mode="display">
+                    行间
+                  </button>
+                  <button type="button" data-editor-insert-mode="numbered">
+                    编号
+                  </button>
+                </div>
+              </div>
+              <div class="editor-inspector-section">
+                <span class="editor-inspector-label">当前宿主</span>
+                <div class="editor-inspector-actions">
+                  <button
+                    id="editorInspectorInsert"
+                    type="button"
+                    class="primary"
+                  >
+                    插入公式
+                  </button>
+                  <button id="editorInspectorRead" type="button">
+                    读取选区
+                  </button>
+                </div>
+                <small id="editorInspectorRoute"
+                  >连接 Office 后可选择原生 OMML、OLE、SVG 或 PNG 路线</small
+                >
+              </div>
+              <div class="editor-inspector-section">
+                <span class="editor-inspector-label">复制格式</span>
+                <div class="editor-inspector-format-grid">
+                  <button type="button" data-editor-copy-format="smart">
+                    智能
+                  </button>
+                  <button type="button" data-editor-copy-format="latex">
+                    LaTeX
+                  </button>
+                  <button type="button" data-editor-copy-format="omml">
+                    OMML
+                  </button>
+                  <button type="button" data-editor-copy-format="svg">
+                    SVG
+                  </button>
+                  <button type="button" data-editor-copy-format="mathml">
+                    MathML
+                  </button>
+                  <button type="button" data-editor-copy-format="md">
+                    Markdown
+                  </button>
+                </div>
+              </div>
             </aside>
           </div>
           <section
@@ -781,6 +848,27 @@
                   先选择绘图语言，再选可视化或源码编辑。可视化工具会随
                   SVG、TikZ、PGFPlots、Graphviz、Mermaid 自动变化。
                 </p>
+                <ul class="drawing-help-language-list">
+                  <li>
+                    <strong>SVG</strong><span>自由路径、图标和分层插画</span>
+                  </li>
+                  <li>
+                    <strong>TikZ</strong
+                    ><span>几何、向量、交换图与 LaTeX 数学标注</span>
+                  </li>
+                  <li>
+                    <strong>PGFPlots</strong
+                    ><span>函数表达式、定义域和坐标曲线</span>
+                  </li>
+                  <li>
+                    <strong>Graphviz</strong
+                    ><span>层级/力导向布局和快速关系节点</span>
+                  </li>
+                  <li>
+                    <strong>Mermaid</strong
+                    ><span>流程、时序、状态与思维导图分支</span>
+                  </li>
+                </ul>
                 <div class="drawing-direction-grid" aria-label="绘图方向模板">
                   <button type="button" data-drawing-preset="process">
                     <strong>流程表达</strong><span>步骤、判断与关系</span>
@@ -855,6 +943,230 @@
               <p id="drawingEditorModeHint" class="drawing-editor-mode-hint">
                 SVG 可视化构图 · 输出安全矢量
               </p>
+              <section
+                class="drawing-language-workbenches"
+                aria-label="当前绘图语言工具"
+              >
+                <div
+                  class="drawing-language-workbench active"
+                  data-drawing-workbench="svg_source"
+                >
+                  <div>
+                    <strong>SVG 自由画板</strong
+                    ><span>路径、图形与分层排版</span>
+                  </div>
+                  <div class="drawing-profile-actions">
+                    <button type="button" data-drawing-profile-template="blank">
+                      空白画板
+                    </button>
+                    <button type="button" data-drawing-profile-template="icon">
+                      图标构图
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="illustration"
+                    >
+                      矢量插画
+                    </button>
+                  </div>
+                </div>
+                <div
+                  class="drawing-language-workbench"
+                  data-drawing-workbench="tikz"
+                  hidden
+                >
+                  <div>
+                    <strong>TikZ 数学构图</strong
+                    ><span>几何、向量与数学标注</span>
+                  </div>
+                  <div class="drawing-profile-actions">
+                    <button
+                      type="button"
+                      data-drawing-profile-template="geometry"
+                    >
+                      几何证明
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="vectors"
+                    >
+                      向量坐标
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="commutative"
+                    >
+                      交换图
+                    </button>
+                  </div>
+                  <div class="drawing-task-builder drawing-task-builder-wide">
+                    <label for="drawingTikzLatex">
+                      数学标注
+                      <input
+                        id="drawingTikzLatex"
+                        type="text"
+                        value="\frac{a}{b}=\sqrt{x}"
+                        spellcheck="false"
+                        placeholder="输入 LaTeX 公式"
+                      />
+                    </label>
+                    <button id="drawingTikzLatexAdd" type="button">
+                      渲染并加入画布
+                    </button>
+                  </div>
+                  <p id="drawingTikzLatexStatus" class="drawing-task-status">
+                    使用应用内公式引擎生成矢量标注，不依赖在线服务。
+                  </p>
+                </div>
+                <div
+                  class="drawing-language-workbench"
+                  data-drawing-workbench="pgf_plots"
+                  hidden
+                >
+                  <div>
+                    <strong>PGFPlots 数据曲线</strong
+                    ><span>坐标轴、函数与图例</span>
+                  </div>
+                  <div class="drawing-task-builder drawing-task-builder-plot">
+                    <label class="drawing-profile-field"
+                      >曲线
+                      <select id="drawingPlotCurve">
+                        <option value="sin">正弦</option>
+                        <option value="quadratic">二次函数</option>
+                        <option value="gaussian">高斯曲线</option>
+                        <option value="linear">线性函数</option>
+                      </select>
+                    </label>
+                    <label for="drawingPlotExpression"
+                      >表达式
+                      <input
+                        id="drawingPlotExpression"
+                        type="text"
+                        value="sin(x)"
+                        spellcheck="false"
+                      />
+                    </label>
+                    <label for="drawingPlotMin"
+                      >最小 x<input
+                        id="drawingPlotMin"
+                        type="number"
+                        value="-6.28"
+                        step="0.1"
+                    /></label>
+                    <label for="drawingPlotMax"
+                      >最大 x<input
+                        id="drawingPlotMax"
+                        type="number"
+                        value="6.28"
+                        step="0.1"
+                    /></label>
+                    <button type="button" data-drawing-profile-template="plot">
+                      绘制函数
+                    </button>
+                  </div>
+                </div>
+                <div
+                  class="drawing-language-workbench"
+                  data-drawing-workbench="graphviz_dot"
+                  hidden
+                >
+                  <div>
+                    <strong>Graphviz 关系图</strong
+                    ><span>层级、网络与自动布局</span>
+                  </div>
+                  <label class="drawing-profile-field"
+                    >布局
+                    <select id="drawingGraphvizEngine">
+                      <option value="dot">Dot（层次）</option>
+                      <option value="neato">Neato（弹簧）</option>
+                      <option value="fdp">FDP（力导向）</option>
+                      <option value="circo">Circo（环形）</option>
+                      <option value="twopi">Twopi（径向）</option>
+                    </select>
+                  </label>
+                  <div class="drawing-profile-actions">
+                    <button
+                      type="button"
+                      data-drawing-profile-template="hierarchy"
+                    >
+                      层级图
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="network"
+                    >
+                      关系网
+                    </button>
+                    <button type="button" data-drawing-profile-template="cycle">
+                      环形图
+                    </button>
+                  </div>
+                  <div class="drawing-task-builder">
+                    <label for="drawingGraphNodeLabel"
+                      >节点名称<input
+                        id="drawingGraphNodeLabel"
+                        type="text"
+                        value="新节点"
+                      />
+                    </label>
+                    <button id="drawingGraphNodeAdd" type="button">
+                      添加关系节点
+                    </button>
+                  </div>
+                </div>
+                <div
+                  class="drawing-language-workbench"
+                  data-drawing-workbench="mermaid"
+                  hidden
+                >
+                  <div>
+                    <strong>Mermaid 图表设计</strong
+                    ><span>流程、时序与状态模型</span>
+                  </div>
+                  <div class="drawing-profile-actions">
+                    <button type="button" data-drawing-profile-template="flow">
+                      流程图
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="sequence"
+                    >
+                      时序图
+                    </button>
+                    <button type="button" data-drawing-profile-template="state">
+                      状态图
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="mindmap"
+                    >
+                      思维导图
+                    </button>
+                  </div>
+                  <div class="drawing-task-builder drawing-task-builder-wide">
+                    <label for="drawingMindRoot"
+                      >中心主题<input
+                        id="drawingMindRoot"
+                        type="text"
+                        value="项目主题"
+                      />
+                    </label>
+                    <button id="drawingMindRootCreate" type="button">
+                      新建思维导图
+                    </button>
+                    <label for="drawingMindChild"
+                      >分支内容<input
+                        id="drawingMindChild"
+                        type="text"
+                        value="新分支"
+                      />
+                    </label>
+                    <button id="drawingMindChildAdd" type="button">
+                      快速添加分支
+                    </button>
+                  </div>
+                </div>
+              </section>
               <div
                 id="drawingVisualEditor"
                 class="drawing-visual-editor"
@@ -883,18 +1195,6 @@
                 <textarea id="drawingSource" spellcheck="false">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect x="12" y="12" width="296" height="156" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="4"/><path d="M72 112 L140 52 L248 126" fill="none" stroke="#0f172a" stroke-width="6"/><circle cx="140" cy="52" r="9" fill="#4f46e5"/></svg></textarea
                 >
-              </div>
-              <div class="drawing-runtime-options">
-                <label for="drawingGraphvizEngine">图布局引擎</label>
-                <div class="select-shell">
-                  <select id="drawingGraphvizEngine">
-                    <option value="dot">Dot（层次）</option>
-                    <option value="neato">Neato（弹簧）</option>
-                    <option value="fdp">FDP（力导向）</option>
-                    <option value="circo">Circo（环形）</option>
-                    <option value="twopi">Twopi（径向）</option>
-                  </select>
-                </div>
               </div>
               <div class="drawing-actions">
                 <button
@@ -936,7 +1236,12 @@
             </div>
             <aside class="drawing-preview-panel">
               <div class="drawing-preview-heading">
-                <strong>安全预览</strong>
+                <div>
+                  <strong>安全预览</strong>
+                  <span id="drawingPreviewSource" class="state-chip"
+                    >等待 SVG</span
+                  >
+                </div>
                 <label class="control-switch compact">
                   <input id="drawingGridToggle" type="checkbox" />
                   <span>网格</span>
@@ -1015,6 +1320,18 @@
                         step="0.5"
                     /></label>
                   </div>
+                  <label
+                    class="drawing-inspector-text"
+                    for="drawingInspectorText"
+                  >
+                    对象文字
+                    <input
+                      id="drawingInspectorText"
+                      type="text"
+                      maxlength="120"
+                      placeholder="当前对象没有文本"
+                    />
+                  </label>
                   <div class="drawing-color-row">
                     <span
                       >描边

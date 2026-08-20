@@ -4,10 +4,18 @@ import {
   computeFittedViewBox,
   createDrawingWorkspaceController,
   resolveDrawingAuthoringInput,
+  resolveVisualProfile,
   visualToolsForLanguage,
 } from "../src/features/drawing/workspace.js";
-import { normalizeMermaidRenderId } from "../src/features/drawing/local-renderers.js";
-import { serializeVisualDrawing } from "../src/features/drawing/visual-editor.js";
+import {
+  MERMAID_RENDER_OPTIONS,
+  normalizeBundledSvg,
+  normalizeMermaidRenderId,
+} from "../src/features/drawing/local-renderers.js";
+import {
+  createProfileDocument,
+  serializeVisualDrawing,
+} from "../src/features/drawing/visual-editor.js";
 
 class FakeClassList {
   constructor() {
@@ -41,6 +49,20 @@ test("Mermaid render ids always form valid CSS id selectors", () => {
   assert.equal(normalizeMermaidRenderId("a/b"), "mermaid-a-b");
 });
 
+test("Mermaid output disables HTML labels before Core verification", () => {
+  assert.equal(MERMAID_RENDER_OPTIONS.htmlLabels, false);
+  assert.equal(MERMAID_RENDER_OPTIONS.flowchart.htmlLabels, false);
+  const normalized = normalizeBundledSvg(
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml"><path d="M0 0"/></svg>',
+    "Mermaid",
+  );
+  assert.doesNotMatch(normalized, /1999\/xhtml/);
+  assert.throws(
+    () => normalizeBundledSvg("<svg><foreignObject/></svg>", "Mermaid"),
+    /不支持的嵌入内容/,
+  );
+});
+
 test("each drawing language exposes a purpose-built visual toolset", () => {
   assert.equal(visualToolsForLanguage("svg_source").ellipse, "椭圆");
   assert.equal(visualToolsForLanguage("tikz").arrow, "向量");
@@ -48,6 +70,32 @@ test("each drawing language exposes a purpose-built visual toolset", () => {
   assert.equal(visualToolsForLanguage("mermaid").diamond, "判断节点");
   const pgf = visualToolsForLanguage("tikz", ["pgf_plots"]);
   assert.deepEqual(Object.keys(pgf), ["axes", "plot", "line", "label"]);
+});
+
+test("PGFPlots resolves to an independent visual profile", () => {
+  assert.equal(resolveVisualProfile("tikz", []), "tikz");
+  assert.equal(resolveVisualProfile("tikz", ["pgf_plots"]), "pgf_plots");
+  assert.equal(resolveVisualProfile("mermaid", []), "mermaid");
+});
+
+test("language-specific documents expose different editing models", () => {
+  const tikz = createProfileDocument("tikz", "geometry");
+  const pgf = createProfileDocument("pgf_plots", "plot", {
+    curve: "gaussian",
+  });
+  const graph = createProfileDocument("graphviz_dot", "hierarchy");
+  const mermaid = createProfileDocument("mermaid", "sequence");
+  const mindmap = createProfileDocument("mermaid", "mindmap", {
+    root: "研究主题",
+  });
+  assert.ok(tikz.some((item) => item.text === "∠ABC"));
+  assert.equal(pgf.find((item) => item.type === "plot")?.curve, "gaussian");
+  assert.ok(graph.some((item) => item.text === "根"));
+  assert.deepEqual(
+    mermaid.filter((item) => item.type === "node").map((item) => item.text),
+    ["用户", "应用", "Office"],
+  );
+  assert.ok(mindmap.some((item) => item.text === "研究主题"));
 });
 
 test("visual authoring stays available for non-SVG languages without forging native source", () => {
@@ -135,6 +183,7 @@ function fixture() {
     sendPlatformButton: new FakeElement(),
     status: new FakeElement(),
     preview: new FakeElement(),
+    previewSource: new FakeElement(),
     readiness: new FakeElement(),
   };
 }
@@ -328,6 +377,22 @@ test("stale drawing work cannot overwrite a newer language generation", async ()
   assert.equal(elements.insertButton.disabled, false);
 });
 
+test("switching drawing language immediately invalidates stale preview evidence", () => {
+  const elements = fixture();
+  elements.preview.innerHTML = '<svg data-generation="old"/>';
+  const controller = createDrawingWorkspaceController({
+    elements,
+    compileDrawing: async () => null,
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+  controller.chooseLanguage(elements.languageButtons[2]);
+  assert.equal(elements.preview.innerHTML, "");
+  assert.equal(elements.preview.dataset.previewLanguage, "graphviz_dot");
+  assert.equal(elements.preview.dataset.previewState, "pending");
+  assert.match(elements.previewSource.textContent, /Graphviz.*待生成/);
+});
+
 test("visual-editor output excludes canvas grid and editing controls", () => {
   const svg = serializeVisualDrawing([
     {
@@ -353,4 +418,28 @@ test("visual-editor output excludes canvas grid and editing controls", () => {
     /drawing-object-controls|drawing-selection-frame|show-grid|background-image/,
   );
   assert.doesNotMatch(svg, /script|foreignObject|href=/i);
+});
+
+test("rendered LaTeX can be serialized as an independent safe vector object", () => {
+  const svg = serializeVisualDrawing([
+    {
+      id: "formula-1",
+      type: "formula",
+      profile: "tikz",
+      x: 400,
+      y: 260,
+      width: 240,
+      height: 90,
+      rotation: 0,
+      color: "#0F766E",
+      fill: "#FFFFFF",
+      strokeWidth: 2,
+      text: "\\frac{a}{b}",
+      formulaSvg:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 40"><path d="M0 20H100"/></svg>',
+    },
+  ]);
+  assert.match(svg, /scale\(/);
+  assert.match(svg, /M0 20H100/);
+  assert.doesNotMatch(svg, /foreignObject|script/i);
 });

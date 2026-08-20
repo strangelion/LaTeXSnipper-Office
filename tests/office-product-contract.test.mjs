@@ -41,7 +41,9 @@ for (const label of ["切换明暗主题", "关闭公式库", "打开公式库"]
   assert.match(html, new RegExp(`aria-label="${label}"`));
 }
 assert.match(html, /aria-label="编辑命令"/);
-assert.match(html, /Native OMML \/ OLE \/ SVG \/ PNG/);
+for (const format of ["smart", "latex", "omml", "svg", "mathml", "md"]) {
+  assert.match(html, new RegExp(`data-editor-copy-format="${format}"`));
+}
 assert.match(html, /id="diagnosticsSection"/);
 const recognitionActions =
   html.match(/<div class="recognition-actions">[\s\S]*?<\/div>/)?.[0] || "";
@@ -126,6 +128,17 @@ for (const control of [
   "drawingModeTab",
   "drawingCompileBtn",
   "drawingInsertBtn",
+  "editorInspectorInsert",
+  "editorInspectorRead",
+  "drawingPlotCurve",
+  "drawingPlotExpression",
+  "drawingGraphvizEngine",
+  "drawingGraphNodeAdd",
+  "drawingTikzLatexAdd",
+  "drawingMindRootCreate",
+  "drawingMindChildAdd",
+  "drawingPreviewSource",
+  "drawingInspectorText",
   "officeWorkspaceRead",
   "officeWorkspaceReplace",
   "officeWorkspaceBatch",
@@ -133,6 +146,17 @@ for (const control of [
 ]) {
   assert.match(html, new RegExp(`id="${control}"`));
 }
+for (const profile of [
+  "svg_source",
+  "tikz",
+  "pgf_plots",
+  "graphviz_dot",
+  "mermaid",
+]) {
+  assert.match(html, new RegExp(`data-drawing-workbench="${profile}"`));
+}
+assert.match(main, /data-editor-copy-format/);
+assert.match(main, /syncEditorInspector\(\)/);
 assert.doesNotMatch(main, /\$\{command \|\| "命令"\}/);
 assert.match(css, /grid-template-columns:\s*minmax\(168px/);
 assert.match(css, /\.editor-inspector\s*{[\s\S]*?top:\s*0/);

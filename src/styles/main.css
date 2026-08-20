@@ -2863,6 +2863,26 @@ body {
   display: none;
 }
 
+.drawing-help-language-list {
+  display: grid;
+  gap: 0.28rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drawing-help-language-list li {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.drawing-help-language-list strong {
+  color: var(--text);
+}
+
 .drawing-direction-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2934,6 +2954,128 @@ body {
   margin: -0.25rem 0 0;
   color: var(--muted);
   font-size: 0.68rem;
+}
+
+.drawing-language-workbenches {
+  min-width: 0;
+}
+
+.drawing-language-workbench {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border-color));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+}
+
+.drawing-language-workbench[hidden] {
+  display: none;
+}
+
+.drawing-language-workbench > div:first-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.drawing-language-workbench strong {
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.drawing-language-workbench span,
+.drawing-profile-field {
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.drawing-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.3rem;
+}
+
+.drawing-language-workbench button {
+  min-height: 30px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drawing-language-workbench button:hover,
+.drawing-language-workbench button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.drawing-profile-field {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 170px);
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.drawing-profile-field select {
+  min-height: 30px;
+  padding: 0 1.9rem 0 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+}
+
+.drawing-task-builder {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 0.45rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+}
+
+.drawing-task-builder-wide {
+  grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 0.8fr) auto;
+}
+
+.drawing-task-builder-plot {
+  grid-template-columns:
+    minmax(125px, 0.7fr) minmax(170px, 1.4fr) minmax(82px, 0.45fr)
+    minmax(82px, 0.45fr) auto;
+}
+
+.drawing-task-builder label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.drawing-task-builder :is(input, select) {
+  width: 100%;
+  min-height: 32px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font: inherit;
+}
+
+.drawing-task-status {
+  grid-column: 1 / -1;
+  margin: -0.1rem 0 0;
+  color: var(--muted);
+  font-size: 0.62rem;
 }
 
 .drawing-visual-editor,
@@ -3378,6 +3520,105 @@ body {
   color: var(--muted);
   font-size: 0.78rem;
   overflow-wrap: anywhere;
+}
+
+.editor-inspector-heading,
+.editor-inspector-section {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.editor-inspector-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.editor-inspector-heading > div {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.editor-inspector-heading .state-chip {
+  max-width: 104px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.editor-inspector-heading .state-chip.ready {
+  border-color: color-mix(in srgb, #16a34a 40%, var(--border-color));
+  background: color-mix(in srgb, #16a34a 10%, var(--card-bg));
+  color: #15803d;
+}
+
+.editor-inspector-section {
+  padding-top: 0.15rem;
+}
+
+.editor-inspector-label {
+  color: var(--muted);
+  font-size: 0.66rem !important;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.editor-inspector-segments,
+.editor-inspector-actions,
+.editor-inspector-format-grid {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.editor-inspector-segments {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
+}
+
+.editor-inspector-actions,
+.editor-inspector-format-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editor-inspector button {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--accent));
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.editor-inspector button:hover:not(:disabled),
+.editor-inspector button:focus-visible,
+.editor-inspector button.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--accent);
+}
+
+.editor-inspector button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.editor-inspector button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.editor-inspector small {
+  color: var(--muted);
+  font-size: 0.63rem;
+  line-height: 1.45;
 }
 
 .drawing-task-map {
@@ -4080,6 +4321,36 @@ input[type="file"]::file-selector-button {
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
+}
+
+.drawing-preview-heading > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.drawing-preview-heading .state-chip {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-inspector-text {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.drawing-inspector-text input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 0.58rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
 }
 
 .drawing-toolbox,
@@ -4817,6 +5088,20 @@ input[type="file"]::file-selector-button {
   }
   .drawing-runtime-options {
     grid-template-columns: 1fr;
+  }
+  .drawing-language-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drawing-profile-actions {
+    justify-content: flex-start;
+  }
+  .drawing-profile-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drawing-task-builder,
+  .drawing-task-builder-wide,
+  .drawing-task-builder-plot {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

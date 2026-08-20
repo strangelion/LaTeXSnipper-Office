@@ -126,9 +126,21 @@ const VISUAL_TOOLSETS = Object.freeze({
 });
 
 export function visualToolsForLanguage(language, packageProfiles = []) {
-  const key = packageProfiles.includes("pgf_plots") ? "pgf_plots" : language;
+  const key = resolveVisualProfile(language, packageProfiles);
   return { ...(VISUAL_TOOLSETS[key] || VISUAL_TOOLSETS.svg_source) };
 }
+
+export function resolveVisualProfile(language, packageProfiles = []) {
+  return packageProfiles.includes("pgf_plots") ? "pgf_plots" : language;
+}
+
+const VISUAL_PROFILE_NAMES = Object.freeze({
+  svg_source: "SVG 自由画板",
+  tikz: "TikZ 数学构图",
+  pgf_plots: "PGFPlots 数据曲线",
+  graphviz_dot: "Graphviz 关系图",
+  mermaid: "Mermaid 图表设计",
+});
 
 export function computeFittedViewBox(bounds, paddingRatio = 0.08) {
   const x = Number(bounds?.x);
@@ -238,6 +250,7 @@ export function createDrawingWorkspaceController({
   sendDrawingToPlatform,
   rasterizeDrawing = rasterizeDrawingSvg,
   loadReadiness,
+  formulaRenderer,
 }) {
   const state = {
     mode: "formula",
@@ -259,6 +272,29 @@ export function createDrawingWorkspaceController({
     if (elements.status) elements.status.textContent = message;
   };
 
+  const previewLabel = () =>
+    VISUAL_PROFILE_NAMES[
+      resolveVisualProfile(state.language, state.packageProfiles)
+    ] || state.language;
+  const markPreviewPending = (message = "等待生成当前绘图预览") => {
+    if (elements.preview) {
+      elements.preview.innerHTML = "";
+      elements.preview.textContent = message;
+      elements.preview.dataset.previewLanguage = state.language;
+      elements.preview.dataset.previewState = "pending";
+    }
+    if (elements.previewSource)
+      elements.previewSource.textContent = `${previewLabel()} · 待生成`;
+  };
+  const markPreviewReady = (verified) => {
+    if (elements.preview) {
+      elements.preview.dataset.previewLanguage = state.language;
+      elements.preview.dataset.previewState = verified ? "verified" : "local";
+    }
+    if (elements.previewSource)
+      elements.previewSource.textContent = `${previewLabel()} · ${verified ? "Core 已验证" : "本地待校验"}`;
+  };
+
   const invalidateCompilation = () => {
     state.revision += 1;
     state.lastResult = null;
@@ -266,6 +302,7 @@ export function createDrawingWorkspaceController({
     if (elements.insertButton) elements.insertButton.disabled = true;
     if (elements.sendPlatformButton)
       elements.sendPlatformButton.disabled = true;
+    markPreviewPending();
   };
 
   const activateMode = (mode) => {
@@ -295,6 +332,7 @@ export function createDrawingWorkspaceController({
       candidate.classList?.toggle("active", candidate === button);
     }
     const toolset = visualToolsForLanguage(language, state.packageProfiles);
+    const profile = resolveVisualProfile(language, state.packageProfiles);
     for (const tool of elements.toolButtons || []) {
       const type = tool.dataset.drawingTool;
       tool.hidden = !Object.hasOwn(toolset, type);
@@ -305,11 +343,17 @@ export function createDrawingWorkspaceController({
       elements.source.value =
         DEFAULT_SOURCES[preset] || DEFAULT_SOURCES[language] || "";
     }
+    visualEditor?.setProfile(profile);
+    for (const panel of elements.profilePanels || []) {
+      const selected = panel.dataset.drawingWorkbench === profile;
+      panel.hidden = !selected;
+      panel.classList?.toggle("active", selected);
+    }
     invalidateCompilation();
     setEditorMode(state.editorMode);
     status(
       state.editorMode === "visual"
-        ? "绘图语言已切换；通用可视化构图保持可编辑"
+        ? `已切换到 ${VISUAL_PROFILE_NAMES[profile]}；该语言的画布状态已恢复`
         : "源码已切换，本地安全预览已排队",
     );
     schedulePreview();
@@ -356,6 +400,7 @@ export function createDrawingWorkspaceController({
       if (renderedSvg && elements.preview) {
         elements.preview.innerHTML = renderedSvg;
         fitDrawingPreview(elements.preview);
+        markPreviewReady(false);
         status("本地预览已生成，正在由 Core 执行安全校验…");
       }
       let result;
@@ -405,6 +450,7 @@ export function createDrawingWorkspaceController({
       if (elements.preview) {
         elements.preview.innerHTML = result.svg;
         fitDrawingPreview(elements.preview);
+        markPreviewReady(true);
       }
       if (elements.insertButton) elements.insertButton.disabled = false;
       if (elements.sendPlatformButton)
@@ -446,8 +492,23 @@ export function createDrawingWorkspaceController({
       elements.inspectorEmpty.hidden = Boolean(object);
     if (elements.inspectorControls) elements.inspectorControls.hidden = !object;
     if (!object) return;
-    if (elements.inspectorType)
-      elements.inspectorType.textContent = object.type || "对象";
+    if (elements.inspectorType) {
+      const objectNames = {
+        line: "线段",
+        arrow: "箭头",
+        connector: "连接线",
+        node: "节点",
+        rectangle: "矩形",
+        ellipse: "椭圆",
+        diamond: "判断节点",
+        axes: "坐标轴",
+        plot: "函数曲线",
+        label: "文本标注",
+        formula: "LaTeX 数学标注",
+      };
+      elements.inspectorType.textContent =
+        objectNames[object.type] || object.type || "对象";
+    }
     for (const [element, value] of [
       [elements.inspectorWidth, object.width],
       [elements.inspectorHeight, object.height],
@@ -459,6 +520,17 @@ export function createDrawingWorkspaceController({
     }
     if (elements.inspectorColor)
       elements.inspectorColor.textContent = object.color || "#2563EB";
+    if (
+      elements.inspectorText &&
+      document.activeElement !== elements.inspectorText
+    ) {
+      elements.inspectorText.value = object.text || "";
+      elements.inspectorText.disabled = object.type === "formula";
+      elements.inspectorText.title =
+        object.type === "formula"
+          ? "数学标注请在 TikZ 专项工具中重新渲染"
+          : "直接修改当前对象文字";
+    }
   };
   const setEditorMode = (mode) => {
     state.editorMode = mode === "visual" ? "visual" : "source";
@@ -469,14 +541,12 @@ export function createDrawingWorkspaceController({
     elements.sourceModeButton?.classList?.toggle("active", !visual);
     elements.visualModeButton?.setAttribute("aria-selected", String(visual));
     elements.sourceModeButton?.setAttribute("aria-selected", String(!visual));
+    const profile = resolveVisualProfile(state.language, state.packageProfiles);
     if (elements.visualModeButton)
-      elements.visualModeButton.title =
-        state.language === "svg_source"
-          ? "直接编辑安全 SVG"
-          : "使用通用可视化画布构图；源码模式仍保留当前语言";
+      elements.visualModeButton.title = `使用 ${VISUAL_PROFILE_NAMES[profile]}；源码模式仍保留原生语言`;
     if (elements.editorModeHint)
       elements.editorModeHint.textContent = visual
-        ? `${state.language === "svg_source" ? "SVG" : "通用"}可视化构图 · 输出安全 SVG；原生语法可在源码编辑中继续使用`
+        ? `${VISUAL_PROFILE_NAMES[profile]} · 使用专属对象与模板；交付前统一转换为安全 SVG`
         : `正在编辑 ${state.language} 原生源码 · 实时预览保持开启`;
     visualEditor?.setEnabled(visual);
     if (visual) visualEditor?.commit();
@@ -695,6 +765,120 @@ export function createDrawingWorkspaceController({
       }
     });
   }
+  for (const button of elements.profileTemplateButtons || []) {
+    button.addEventListener("click", () => {
+      const panel = button.closest?.("[data-drawing-workbench]");
+      const profile = panel?.dataset?.drawingWorkbench;
+      if (
+        !profile ||
+        profile !== resolveVisualProfile(state.language, state.packageProfiles)
+      )
+        return;
+      setEditorMode("visual");
+      visualEditor?.applyProfileTemplate(
+        profile,
+        button.dataset.drawingProfileTemplate,
+        {
+          curve: elements.plotCurve?.value || "sin",
+          expression: elements.plotExpression?.value || "sin(x)",
+          xMin: Number(elements.plotMin?.value || -6.28),
+          xMax: Number(elements.plotMax?.value || 6.28),
+          root: elements.mindRoot?.value || "主题",
+        },
+      );
+      status(`${VISUAL_PROFILE_NAMES[profile]}模板已应用，可继续拖动和精调`);
+    });
+  }
+  elements.plotCurve?.addEventListener("change", () => {
+    if (
+      resolveVisualProfile(state.language, state.packageProfiles) !==
+      "pgf_plots"
+    )
+      return;
+    visualEditor?.applyProfileTemplate("pgf_plots", "plot", {
+      curve: elements.plotCurve.value,
+    });
+    status("PGFPlots 曲线已更新，安全预览已排队");
+  });
+  const applyPlotBuilder = () => {
+    const expression = String(elements.plotExpression?.value || "sin(x)")
+      .trim()
+      .toLowerCase();
+    const curve = /gauss|exp/.test(expression)
+      ? "gaussian"
+      : /x\s*\^\s*2|x\s*\*\s*x|quadratic/.test(expression)
+        ? "quadratic"
+        : /^\s*[+-]?\s*(?:\d+(?:\.\d+)?)?\s*\*?\s*x\s*$/.test(expression)
+          ? "linear"
+          : "sin";
+    if (elements.plotCurve) elements.plotCurve.value = curve;
+    visualEditor?.applyProfileTemplate("pgf_plots", "plot", {
+      curve,
+      expression: elements.plotExpression?.value || "sin(x)",
+      xMin: Number(elements.plotMin?.value || -6.28),
+      xMax: Number(elements.plotMax?.value || 6.28),
+    });
+    setEditorMode("visual");
+    status(
+      `函数 ${elements.plotExpression?.value || "sin(x)"} 已绘制；可继续调整坐标轴与曲线`,
+    );
+  };
+  elements.plotExpression?.addEventListener("change", applyPlotBuilder);
+  elements.plotMin?.addEventListener("change", applyPlotBuilder);
+  elements.plotMax?.addEventListener("change", applyPlotBuilder);
+  elements.graphNodeAdd?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.addGraphNode(elements.graphNodeLabel?.value || "新节点");
+    status("Graphviz 关系节点已加入画布；可添加连接线并交给布局引擎整理");
+  });
+  elements.mindRootCreate?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.applyProfileTemplate("mermaid", "mindmap", {
+      root: elements.mindRoot?.value || "主题",
+    });
+    status("思维导图骨架已创建；使用“快速添加分支”继续扩展");
+  });
+  elements.mindChildAdd?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.addMindMapChild(elements.mindChild?.value || "新分支");
+    status("思维导图分支已添加，可直接拖动节点重新排布");
+  });
+  elements.tikzLatexAdd?.addEventListener("click", async () => {
+    const latex = String(elements.tikzLatex?.value || "").trim();
+    if (!latex) {
+      if (elements.tikzLatexStatus)
+        elements.tikzLatexStatus.textContent = "请先输入 LaTeX 公式";
+      return;
+    }
+    if (!formulaRenderer?.renderFormulaSvg) {
+      if (elements.tikzLatexStatus)
+        elements.tikzLatexStatus.textContent = "公式渲染器尚未就绪";
+      return;
+    }
+    try {
+      if (elements.tikzLatexStatus)
+        elements.tikzLatexStatus.textContent = "正在生成矢量公式…";
+      const rendered = await formulaRenderer.renderFormulaSvg(latex, {
+        display: true,
+        color: "#0F172A",
+      });
+      setEditorMode("visual");
+      const added = visualEditor?.addFormula({
+        latex,
+        svg: rendered.svg,
+        width: Math.max(150, Number(rendered.widthPt || 120) * 2.4),
+        height: Math.max(64, Number(rendered.heightPt || 36) * 2.4),
+      });
+      if (!added) throw new Error("公式 SVG 不符合绘图安全约束");
+      if (elements.tikzLatexStatus)
+        elements.tikzLatexStatus.textContent =
+          "公式已作为独立矢量对象加入，可缩放、旋转和分层";
+      status("LaTeX 数学标注已加入 TikZ 画布");
+    } catch (error) {
+      if (elements.tikzLatexStatus)
+        elements.tikzLatexStatus.textContent = `生成失败：${userFacingError(error)}`;
+    }
+  });
   const inspectorUpdates = [
     [elements.inspectorWidth, "width"],
     [elements.inspectorHeight, "height"],
@@ -706,6 +890,9 @@ export function createDrawingWorkspaceController({
       visualEditor?.updateSelected({ [property]: Number(input.value) });
     });
   }
+  elements.inspectorText?.addEventListener("input", () => {
+    visualEditor?.updateSelected({ text: elements.inspectorText.value });
+  });
   for (const swatch of elements.inspectorSwatches || []) {
     swatch.addEventListener("click", () => {
       visualEditor?.updateSelected({ color: swatch.dataset.drawingColor });
@@ -795,9 +982,15 @@ export function drawingWorkspaceElements(root = document) {
     zoom: root.getElementById("drawingZoom"),
     zoomValue: root.getElementById("drawingZoomValue"),
     graphvizEngine: root.getElementById("drawingGraphvizEngine"),
+    plotCurve: root.getElementById("drawingPlotCurve"),
+    profilePanels: [...root.querySelectorAll("[data-drawing-workbench]")],
+    profileTemplateButtons: [
+      ...root.querySelectorAll("[data-drawing-profile-template]"),
+    ],
     toolButtons: [...root.querySelectorAll("[data-drawing-tool]")],
     status: root.getElementById("drawingCompileStatus"),
     preview: root.getElementById("drawingPreview"),
+    previewSource: root.getElementById("drawingPreviewSource"),
     readiness: root.getElementById("drawingReadiness"),
     helpButton: root.getElementById("drawingHelpButton"),
     helpPanel: root.getElementById("drawingHelpPanel"),
@@ -810,17 +1003,31 @@ export function drawingWorkspaceElements(root = document) {
     inspectorRotation: root.getElementById("drawingInspectorRotation"),
     inspectorStroke: root.getElementById("drawingInspectorStroke"),
     inspectorColor: root.getElementById("drawingInspectorColor"),
+    inspectorText: root.getElementById("drawingInspectorText"),
     inspectorSwatches: [...root.querySelectorAll("[data-drawing-color]")],
     inspectorDuplicate: root.getElementById("drawingInspectorDuplicate"),
     inspectorForward: root.getElementById("drawingInspectorForward"),
     inspectorBack: root.getElementById("drawingInspectorBack"),
     inspectorDelete: root.getElementById("drawingInspectorDelete"),
+    tikzLatex: root.getElementById("drawingTikzLatex"),
+    tikzLatexAdd: root.getElementById("drawingTikzLatexAdd"),
+    tikzLatexStatus: root.getElementById("drawingTikzLatexStatus"),
+    plotExpression: root.getElementById("drawingPlotExpression"),
+    plotMin: root.getElementById("drawingPlotMin"),
+    plotMax: root.getElementById("drawingPlotMax"),
+    graphNodeLabel: root.getElementById("drawingGraphNodeLabel"),
+    graphNodeAdd: root.getElementById("drawingGraphNodeAdd"),
+    mindRoot: root.getElementById("drawingMindRoot"),
+    mindRootCreate: root.getElementById("drawingMindRootCreate"),
+    mindChild: root.getElementById("drawingMindChild"),
+    mindChildAdd: root.getElementById("drawingMindChildAdd"),
   };
 }
 
 export function initDrawingWorkspace({
   invoke,
   insertDrawing,
+  formulaRenderer,
   root = document,
 }) {
   const waitForAction = async (actionId, timeoutMs = 20000) => {
@@ -886,6 +1093,7 @@ export function initDrawingWorkspace({
     },
     rasterizeDrawing: rasterizeDrawingSvg,
     loadReadiness: () => invoke("get_drawing_readiness"),
+    formulaRenderer,
   });
   void controller.refreshReadiness();
   return controller;
