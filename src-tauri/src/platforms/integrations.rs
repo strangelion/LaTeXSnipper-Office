@@ -701,6 +701,7 @@ fn find_msi_package() -> Result<PathBuf, String> {
     Err("LaTeXSnipper.NativeOffice.msi not found in any expected location".to_string())
 }
 
+#[cfg(any(target_os = "windows", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct MsiFailureDiagnosis {
     error_code: &'static str,
@@ -708,6 +709,7 @@ struct MsiFailureDiagnosis {
     recovery_action: &'static str,
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn classify_msi_install_failure(exit_code: i32, verbose_log: &str) -> Option<MsiFailureDiagnosis> {
     let normalized = verbose_log.to_ascii_lowercase();
     let missing_source = exit_code == 1612
