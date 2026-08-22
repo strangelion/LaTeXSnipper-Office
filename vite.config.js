@@ -115,6 +115,12 @@ export default defineConfig({
       targets: [
         {
           src: normalizePath(
+            resolve(__dirname, "node_modules/mathlive/fonts/*"),
+          ),
+          dest: "vendor/mathlive-fonts",
+        },
+        {
+          src: normalizePath(
             resolve(__dirname, "node_modules/@rod2ik/tikzjax/dist/**/*"),
           ),
           dest: "vendor/tikzjax",

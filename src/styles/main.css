@@ -260,6 +260,15 @@ a:hover {
   font-weight: 700;
 }
 
+.custom-select.is-disabled {
+  opacity: 0.58;
+}
+
+.custom-select.is-disabled .custom-select-trigger {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* ═══════════════════════════════════════════
    Custom Controls - Color Picker
    ═══════════════════════════════════════════ */
@@ -2980,6 +2989,19 @@ body {
   gap: 0.1rem;
 }
 
+.drawing-workbench-heading {
+  grid-column: 1 / -1;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.drawing-workbench-heading > div:first-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
 .drawing-language-workbench strong {
   color: var(--text);
   font-size: 0.74rem;
@@ -3032,6 +3054,20 @@ body {
   color: var(--text);
 }
 
+.drawing-profile-field .drawing-control-select {
+  width: 100%;
+  margin: 0;
+}
+
+.drawing-profile-field .custom-select-trigger {
+  min-height: 30px;
+  padding: 0 0.55rem;
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-size: 0.64rem;
+}
+
 .drawing-task-builder {
   grid-column: 1 / -1;
   display: grid;
@@ -3050,6 +3086,266 @@ body {
   grid-template-columns:
     minmax(125px, 0.7fr) minmax(170px, 1.4fr) minmax(82px, 0.45fr)
     minmax(82px, 0.45fr) auto;
+}
+
+.drawing-task-builder-graph {
+  grid-template-columns: minmax(145px, 1fr) minmax(135px, 0.8fr) auto;
+}
+
+.drawing-task-builder .drawing-control-select {
+  width: 100%;
+  margin: 0;
+}
+
+.drawing-task-builder .custom-select-trigger {
+  min-height: 32px;
+  padding: 0 0.55rem;
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-size: 0.64rem;
+}
+
+.drawing-task-builder-graph > button {
+  min-height: 32px;
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-color));
+  color: var(--accent);
+}
+
+.drawing-pgf-builder {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(82px, 1fr));
+  align-items: end;
+  gap: 0.48rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 75%, transparent);
+}
+
+.drawing-pgf-builder label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.drawing-pgf-builder label:nth-of-type(2),
+.drawing-pgf-builder label:nth-of-type(3) {
+  grid-column: span 2;
+}
+
+.drawing-pgf-builder :is(input, select) {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font: inherit;
+}
+
+.drawing-pgf-builder .drawing-control-select {
+  width: 100%;
+  margin: 0;
+  font-size: 0.68rem;
+}
+
+.drawing-pgf-builder .custom-select-trigger {
+  min-height: 34px;
+  padding: 0 0.55rem;
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+}
+
+.drawing-pgf-builder .custom-select-dropdown {
+  z-index: 80;
+  min-width: max(100%, 180px);
+}
+
+.drawing-pgf-wide {
+  grid-column: 1 / -1;
+}
+
+.drawing-plot-presets {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.62rem;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
+}
+
+.drawing-plot-presets > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.drawing-plot-presets strong,
+.drawing-plot-fit strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.drawing-plot-presets span,
+.drawing-plot-fit span {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.drawing-plot-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(82px, 1fr));
+  gap: 0.35rem;
+}
+
+.drawing-plot-preset-grid button {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border-color));
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  font: 650 0.64rem/1 var(--font-sans);
+}
+
+.drawing-plot-preset-grid button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+}
+
+.drawing-plot-help {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--card-bg);
+}
+
+.drawing-plot-help summary {
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drawing-plot-help > div {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 0.32rem 0.65rem;
+  margin-top: 0.55rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.drawing-plot-help code {
+  width: fit-content;
+  padding: 0.18rem 0.34rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--input-bg));
+  color: var(--text);
+}
+
+.drawing-plot-fit {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) minmax(220px, 0.8fr);
+  grid-template-areas:
+    "heading heading"
+    "data model"
+    "data action"
+    "status status";
+  align-items: end;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--card-bg));
+}
+
+.drawing-plot-fit .drawing-builder-section {
+  grid-area: heading;
+}
+
+.drawing-plot-fit > label:first-of-type {
+  grid-area: data;
+}
+
+.drawing-plot-fit > label:nth-of-type(2) {
+  grid-area: model;
+}
+
+.drawing-plot-fit > button {
+  grid-area: action;
+}
+
+.drawing-plot-fit-status {
+  grid-area: status;
+}
+
+.drawing-plot-fit textarea {
+  width: 100%;
+  min-height: 96px;
+  padding: 0.55rem;
+  resize: vertical;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font: 0.66rem/1.5 var(--font-mono);
+}
+
+.drawing-plot-fit-status {
+  min-height: 1.2rem;
+  color: var(--muted);
+  font-size: 0.62rem;
+}
+
+.drawing-plot-fit-status[data-state="success"] {
+  color: var(--success, #059669);
+}
+
+.drawing-plot-fit-status[data-state="error"] {
+  color: var(--danger, #dc2626);
+}
+
+.drawing-builder-section {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+}
+
+.drawing-builder-section strong {
+  color: var(--text);
+  font-size: 0.68rem;
+}
+
+.drawing-builder-section span {
+  color: var(--muted);
+  font-size: 0.6rem;
+}
+
+.drawing-builder-section-axes {
+  margin-top: 0.2rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-color);
+}
+
+#drawingPlotApply,
+#drawingPlotAxesApply {
+  min-height: 34px;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  color: var(--accent);
+}
+
+#drawingPlotFit,
+#drawingPlotFit:hover,
+#drawingPlotFit:focus-visible {
+  min-height: 36px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .drawing-task-builder label {
@@ -3089,7 +3385,68 @@ body {
   display: none;
 }
 
+.drawing-canvas-navigation {
+  display: grid;
+  grid-template-columns: auto auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--accent));
+}
+
+.drawing-canvas-navigation > span {
+  color: var(--text);
+  font-size: 0.66rem;
+  font-weight: 750;
+}
+
+.drawing-canvas-navigation > div {
+  display: flex;
+  overflow: hidden;
+  width: fit-content;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+
+.drawing-canvas-navigation button {
+  min-width: 34px;
+  min-height: 30px;
+  padding: 0 0.55rem;
+  border: 0;
+  border-right: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: 700 0.66rem/1 var(--font-sans);
+}
+
+.drawing-canvas-navigation button:last-child {
+  border-right: 0;
+}
+
+.drawing-canvas-navigation button:hover,
+.drawing-canvas-navigation button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
+  color: var(--accent);
+}
+
+.drawing-canvas-navigation output {
+  min-width: 42px;
+  color: inherit;
+  font: inherit;
+}
+
+.drawing-canvas-navigation small {
+  color: var(--muted);
+  font-size: 0.6rem;
+  text-align: right;
+}
+
 .drawing-visual-canvas {
+  position: relative;
   display: grid;
   min-height: 310px;
   place-items: center;
@@ -3116,6 +3473,26 @@ body {
   width: 100%;
   max-height: 390px;
   user-select: none;
+}
+
+.drawing-visual-canvas.is-panning,
+.drawing-visual-canvas.is-panning .drawing-visual-object {
+  cursor: grabbing;
+}
+
+.drawing-inline-text-editor {
+  position: absolute;
+  z-index: 4;
+  width: clamp(150px, 34%, 320px);
+  min-height: 38px;
+  padding: 0.45rem 0.58rem;
+  border: 2px solid var(--accent);
+  border-radius: 9px;
+  outline: none;
+  background: var(--card-bg);
+  color: var(--text);
+  box-shadow: 0 10px 30px rgb(15 23 42 / 20%);
+  font: 650 0.72rem/1.25 var(--font-sans);
 }
 
 .drawing-visual-object {
@@ -3158,6 +3535,33 @@ body {
 .drawing-rotate-handle {
   fill: #2563eb;
   cursor: grab;
+}
+
+.drawing-connection-port {
+  fill: var(--card-bg, #fff);
+  stroke: #2563eb;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+  cursor: crosshair;
+}
+
+.drawing-connection-port:hover,
+.drawing-visual-canvas.is-connecting .drawing-connection-port {
+  fill: #2563eb;
+  stroke: #fff;
+}
+
+.drawing-connection-preview {
+  fill: none;
+  stroke: #2563eb;
+  stroke-width: 4;
+  stroke-dasharray: 9 6;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.drawing-visual-canvas.is-connecting .drawing-visual-object {
+  cursor: crosshair;
 }
 
 .drawing-visual-editor > p {
@@ -5056,6 +5460,25 @@ input[type="file"]::file-selector-button {
 }
 
 @media (max-width: 980px) {
+  .drawing-canvas-navigation {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .drawing-canvas-navigation small {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .drawing-pgf-builder {
+    grid-template-columns: repeat(3, minmax(100px, 1fr));
+  }
+  .drawing-plot-preset-grid {
+    grid-template-columns: repeat(3, minmax(82px, 1fr));
+  }
+  .drawing-plot-fit {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.7fr);
+  }
+  .drawing-plot-fit > button {
+    grid-column: 1 / -1;
+  }
   .symbol-composer-workspace {
     grid-template-columns: minmax(0, 1fr);
     height: auto;
@@ -5076,6 +5499,9 @@ input[type="file"]::file-selector-button {
 }
 
 @media (max-width: 620px) {
+  .drawing-canvas-navigation {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .symbol-composer-palette {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
@@ -5100,8 +5526,29 @@ input[type="file"]::file-selector-button {
   }
   .drawing-task-builder,
   .drawing-task-builder-wide,
-  .drawing-task-builder-plot {
+  .drawing-task-builder-plot,
+  .drawing-pgf-builder {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .drawing-plot-preset-grid,
+  .drawing-plot-fit {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drawing-plot-fit {
+    grid-template-areas:
+      "heading"
+      "data"
+      "model"
+      "action"
+      "status";
+  }
+  .drawing-pgf-builder label:nth-of-type(2),
+  .drawing-pgf-builder label:nth-of-type(3) {
+    grid-column: auto;
+  }
+  .drawing-workbench-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

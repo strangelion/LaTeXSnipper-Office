@@ -1,3 +1,5 @@
+import { evaluatePlotExpression } from "./math-expression.js";
+
 const VIEW_WIDTH = 800;
 const VIEW_HEIGHT = 520;
 
@@ -19,11 +21,15 @@ const uid = () =>
   `drawing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const COLOR_PRESETS = ["#2563EB", "#7C3AED", "#DC2626", "#059669", "#D97706"];
+const NODE_TYPES = new Set(["node", "rectangle", "ellipse", "diamond"]);
+const EDGE_TYPES = new Set(["line", "arrow", "connector"]);
 
 const clamp = (value, min, max) => {
   const numeric = Number(value);
   return Math.max(min, Math.min(max, Number.isFinite(numeric) ? numeric : min));
 };
+
+export { evaluatePlotExpression } from "./math-expression.js";
 
 function createObject(type, index) {
   const offset = (index % 5) * 22;
@@ -63,6 +69,76 @@ function createObject(type, index) {
   return base;
 }
 
+const boundaryDistance = (object, unitX, unitY) => {
+  const halfWidth = Math.max(1, Number(object.width) / 2);
+  const halfHeight = Math.max(1, Number(object.height) / 2);
+  if (object.type === "ellipse") {
+    return 1 / Math.sqrt((unitX / halfWidth) ** 2 + (unitY / halfHeight) ** 2);
+  }
+  if (object.type === "diamond") {
+    return 1 / (Math.abs(unitX) / halfWidth + Math.abs(unitY) / halfHeight);
+  }
+  return Math.min(
+    Math.abs(unitX) > 0.0001 ? halfWidth / Math.abs(unitX) : Infinity,
+    Math.abs(unitY) > 0.0001 ? halfHeight / Math.abs(unitY) : Infinity,
+  );
+};
+
+function resolvedEdgeObject(edge, objects) {
+  if (!EDGE_TYPES.has(edge.type) || !edge.fromId || !edge.toId) return edge;
+  const from = objects.find((object) => object.id === edge.fromId);
+  const to = objects.find((object) => object.id === edge.toId);
+  if (!from || !to || from.id === to.id) return edge;
+  const dx = Number(to.x) - Number(from.x);
+  const dy = Number(to.y) - Number(from.y);
+  const distance = Math.max(1, Math.hypot(dx, dy));
+  const unitX = dx / distance;
+  const unitY = dy / distance;
+  const fromRadius = boundaryDistance(from, unitX, unitY);
+  const toRadius = boundaryDistance(to, -unitX, -unitY);
+  const startX = Number(from.x) + unitX * fromRadius;
+  const startY = Number(from.y) + unitY * fromRadius;
+  const endX = Number(to.x) - unitX * toRadius;
+  const endY = Number(to.y) - unitY * toRadius;
+  return {
+    ...edge,
+    x: (startX + endX) / 2,
+    y: (startY + endY) / 2,
+    width: Math.max(1, Math.hypot(endX - startX, endY - startY)),
+    rotation: (Math.atan2(endY - startY, endX - startX) * 180) / Math.PI,
+  };
+}
+
+export function materializeVisualObjects(objects) {
+  return (objects || []).map((object) => resolvedEdgeObject(object, objects));
+}
+
+function bindNearestEdges(objects) {
+  const nodes = objects.filter((object) => NODE_TYPES.has(object.type));
+  if (nodes.length < 2) return objects;
+  for (const edge of objects.filter((object) => EDGE_TYPES.has(object.type))) {
+    if (edge.fromId && edge.toId) continue;
+    const angle = (Number(edge.rotation || 0) * Math.PI) / 180;
+    const dx = (Number(edge.width || 100) / 2) * Math.cos(angle);
+    const dy = (Number(edge.width || 100) / 2) * Math.sin(angle);
+    const nearest = (x, y, excludedId) =>
+      nodes
+        .filter((node) => node.id !== excludedId)
+        .map((node) => ({
+          node,
+          distance: Math.hypot(Number(node.x) - x, Number(node.y) - y),
+        }))
+        .sort((left, right) => left.distance - right.distance)[0]?.node;
+    const from = nearest(Number(edge.x) - dx, Number(edge.y) - dy);
+    const to = nearest(Number(edge.x) + dx, Number(edge.y) + dy, from?.id);
+    if (from && to) {
+      edge.fromId = from.id;
+      edge.toId = to.id;
+    }
+  }
+  return objects;
+}
+
 function embeddedSvgParts(svg) {
   const source = String(svg || "").trim();
   if (
@@ -98,15 +174,17 @@ const PROFILE_COLORS = Object.freeze({
 
 function planObjects(plan, profile) {
   const colors = PROFILE_COLORS[profile] || PROFILE_COLORS.svg_source;
-  return plan.map(([type, x, y, text, extra], index) => ({
-    ...createObject(type, index),
-    x,
-    y,
-    ...(text ? { text } : {}),
-    ...(extra || {}),
-    color: colors[index % colors.length],
-    profile,
-  }));
+  return bindNearestEdges(
+    plan.map(([type, x, y, text, extra], index) => ({
+      ...createObject(type, index),
+      x,
+      y,
+      ...(text ? { text } : {}),
+      ...(extra || {}),
+      color: colors[index % colors.length],
+      profile,
+    })),
+  );
 }
 
 export function createProfileDocument(
@@ -143,7 +221,7 @@ export function createProfileDocument(
         ["ellipse", 300, 270],
         ["rectangle", 510, 270],
         ["line", 405, 270],
-        ["label", 405, 155, "\u2220ABC"],
+        ["label", 405, 155, "angle ABC"],
       ],
       vectors: [
         ["axes", 365, 275],
@@ -162,12 +240,50 @@ export function createProfileDocument(
     },
     pgf_plots: {
       default: [
-        ["axes", 385, 270],
-        ["plot", 385, 260, null, { curve: "sin" }],
+        [
+          "axes",
+          385,
+          270,
+          null,
+          {
+            xLabel: "x",
+            yLabel: "f(x)",
+            yMin: -1.5,
+            yMax: 1.5,
+            grid: "major",
+            legendPosition: "north east",
+          },
+        ],
+        [
+          "plot",
+          385,
+          260,
+          null,
+          {
+            curve: "sin",
+            expression: "sin(x)",
+            legend: "sin(x)",
+            samples: 120,
+            lineStyle: "solid",
+          },
+        ],
         ["label", 600, 105, "f(x)"],
       ],
       plot: [
-        ["axes", 385, 270],
+        [
+          "axes",
+          385,
+          270,
+          null,
+          {
+            xLabel: options.xLabel || "x",
+            yLabel: options.yLabel || "f(x)",
+            yMin: Number(options.yMin ?? -1.5),
+            yMax: Number(options.yMax ?? 1.5),
+            grid: options.grid || "major",
+            legendPosition: options.legendPosition || "north east",
+          },
+        ],
         [
           "plot",
           385,
@@ -176,8 +292,11 @@ export function createProfileDocument(
           {
             curve: options.curve || "sin",
             expression: options.expression || "sin(x)",
+            legend: options.legend || options.expression || "sin(x)",
             xMin: Number(options.xMin ?? -6.28),
             xMax: Number(options.xMax ?? 6.28),
+            samples: Number(options.samples ?? 120),
+            lineStyle: options.lineStyle || "solid",
           },
         ],
         ["label", 610, 105, options.expression || options.curve || "f(x)"],
@@ -288,7 +407,7 @@ export function createProfileDocument(
   );
 }
 
-function objectBody(object) {
+function objectBody(object, objects = []) {
   const width = object.width;
   const height = object.height;
   const x = -width / 2;
@@ -317,7 +436,7 @@ function objectBody(object) {
         object.type === "connector"
           ? `M${x} 0C${-width / 4} ${-height},${width / 4} ${height},${width / 2} 0`
           : `M${x} 0H${width / 2}`
-      }" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" marker-end="url(#drawing-arrow)"${vectorStroke}/>`;
+      }" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" marker-end="url(#drawing-arrow)"${vectorStroke}/>${object.text ? `<text x="0" y="-14" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="22" fill="${object.color}">${escapeXml(object.text)}</text>` : ""}`;
     case "ellipse":
       return `<ellipse rx="${width / 2}" ry="${height / 2}" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}"${vectorStroke}/>${label()}`;
     case "diamond":
@@ -339,27 +458,78 @@ function objectBody(object) {
     case "axes":
       return `<path d="M${x} 0H${width / 2}M0 ${height / 2}V${y}" fill="none" stroke="${object.color}" stroke-width="${stroke}" marker-end="url(#drawing-arrow)"${vectorStroke}/><text x="${width / 2 - 18}" y="-14" font-size="30" fill="${object.color}">x</text><text x="16" y="${y + 28}" font-size="30" fill="${object.color}">y</text>`;
     case "plot": {
-      const points = Array.from({ length: 41 }, (_, index) => {
-        const ratio = index / 40;
-        const pointX = x + width * ratio;
-        const unit = ratio * 2 - 1;
-        const curve = object.curve || "sin";
-        const value =
-          curve === "quadratic"
-            ? unit * unit * 2 - 1
-            : curve === "gaussian"
-              ? 1 - Math.exp(-unit * unit * 5) * 2
-              : curve === "linear"
-                ? unit
-                : Math.sin(ratio * Math.PI * 2);
-        const pointY = value * (-height * 0.4);
-        return `${pointX.toFixed(1)},${pointY.toFixed(1)}`;
-      }).join(" ");
+      const axes = objects.find((candidate) => candidate.type === "axes") || {};
+      const xMin = Number.isFinite(Number(object.xMin))
+        ? Number(object.xMin)
+        : -6.28;
+      const xMax = Number.isFinite(Number(object.xMax))
+        ? Number(object.xMax)
+        : 6.28;
+      let samples = [];
+      try {
+        samples = Array.from({ length: 81 }, (_, index) => {
+          const ratio = index / 80;
+          const input = xMin + (xMax - xMin) * ratio;
+          return {
+            input,
+            value: evaluatePlotExpression(object.expression || "sin(x)", input),
+          };
+        }).filter((sample) => Number.isFinite(sample.value));
+      } catch {
+        samples = [];
+      }
+      const sampleValues = samples.map((sample) => sample.value);
+      const rawValues = (object.dataPoints || [])
+        .map((point) => Number(point.y))
+        .filter(Number.isFinite);
+      const automaticMin = Math.min(...sampleValues, ...rawValues, -1);
+      const automaticMax = Math.max(...sampleValues, ...rawValues, 1);
+      const yMin = Number.isFinite(Number(axes.yMin))
+        ? Number(axes.yMin)
+        : automaticMin;
+      const yMax = Number.isFinite(Number(axes.yMax))
+        ? Number(axes.yMax)
+        : automaticMax;
+      const ySpan = Math.max(1e-8, yMax - yMin);
+      const pointPosition = (input, value) => ({
+        x: x + ((input - xMin) / Math.max(1e-8, xMax - xMin)) * width,
+        y: y + height - ((value - yMin) / ySpan) * height,
+      });
+      const points = samples
+        .map((sample) => pointPosition(sample.input, sample.value))
+        .filter(
+          (point) =>
+            Number.isFinite(point.x) &&
+            Number.isFinite(point.y) &&
+            point.y >= y - height * 2 &&
+            point.y <= y + height * 3,
+        )
+        .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+        .join(" ");
+      const rawPoints = (object.dataPoints || [])
+        .map((point) => pointPosition(Number(point.x), Number(point.y)))
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        .map(
+          (point) =>
+            `<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="6" fill="${object.color}" stroke="#FFFFFF" stroke-width="2"/>`,
+        )
+        .join("");
       const rangeLabels =
-        Number.isFinite(object.xMin) && Number.isFinite(object.xMax)
-          ? `<text x="${x}" y="${height / 2 - 6}" font-size="18" fill="${object.color}">${escapeXml(object.xMin)}</text><text x="${width / 2}" y="${height / 2 - 6}" text-anchor="end" font-size="18" fill="${object.color}">${escapeXml(object.xMax)}</text>`
+        Number.isFinite(xMin) && Number.isFinite(xMax)
+          ? `<text x="${x}" y="${height / 2 - 6}" font-size="18" fill="${object.color}">${escapeXml(xMin)}</text><text x="${width / 2}" y="${height / 2 - 6}" text-anchor="end" font-size="18" fill="${object.color}">${escapeXml(xMax)}</text>`
           : "";
-      return `<polyline points="${points}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"${vectorStroke}/>${rangeLabels}`;
+      const dash =
+        object.lineStyle === "dashed"
+          ? ' stroke-dasharray="18 12"'
+          : object.lineStyle === "dotted"
+            ? ' stroke-dasharray="3 10"'
+            : object.lineStyle === "dashdotted"
+              ? ' stroke-dasharray="18 8 3 8"'
+              : "";
+      const curve = points
+        ? `<polyline points="${points}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"${dash}${vectorStroke}/>`
+        : `<text x="0" y="8" text-anchor="middle" font-size="20" fill="#DC2626">表达式仅在安全预览中显示</text>`;
+      return `${curve}${rawPoints}${rangeLabels}`;
     }
     case "node":
       return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${object.profile === "graphviz_dot" ? 8 : object.profile === "tikz" ? 3 : 24}" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}"${vectorStroke}/>${label(36)}`;
@@ -368,7 +538,49 @@ function objectBody(object) {
   }
 }
 
-function objectMarkup(object, selected = false) {
+function connectionPorts(object, visible) {
+  if (!visible || !NODE_TYPES.has(object.type)) return "";
+  const halfWidth = Number(object.width) / 2 + 42;
+  const halfHeight = Number(object.height) / 2 + 42;
+  return `<g class="drawing-connection-ports" aria-hidden="true">
+    <circle class="drawing-connection-port" data-drawing-port="top" cx="0" cy="${-halfHeight}" r="11"/>
+    <circle class="drawing-connection-port" data-drawing-port="right" cx="${halfWidth}" cy="0" r="11"/>
+    <circle class="drawing-connection-port" data-drawing-port="bottom" cx="0" cy="${halfHeight}" r="11"/>
+    <circle class="drawing-connection-port" data-drawing-port="left" cx="${-halfWidth}" cy="0" r="11"/>
+  </g>`;
+}
+
+export function visualTransformCapabilities(object) {
+  if (
+    !object ||
+    (EDGE_TYPES.has(object.type) && object.fromId && object.toId)
+  ) {
+    return { move: false, resize: false, rotate: false };
+  }
+  if (object.profile === "mermaid") {
+    return { move: false, resize: false, rotate: false };
+  }
+  if (object.profile === "pgf_plots") {
+    return {
+      move: object.type === "label",
+      resize: false,
+      rotate: false,
+    };
+  }
+  if (object.profile === "graphviz_dot") {
+    return { move: true, resize: true, rotate: false };
+  }
+  return { move: true, resize: true, rotate: true };
+}
+
+function objectMarkup(
+  originalObject,
+  selected = false,
+  objects = [],
+  connectionMode = false,
+) {
+  const object = resolvedEdgeObject(originalObject, objects);
+  const capabilities = visualTransformCapabilities(object);
   const left = -object.width / 2 - 18;
   const right = object.width / 2 + 18;
   const top = -object.height / 2 - 18;
@@ -376,8 +588,18 @@ function objectMarkup(object, selected = false) {
   const controls = selected
     ? `<g class="drawing-object-controls" aria-hidden="true">
         <rect class="drawing-selection-frame" x="${left}" y="${top}" width="${object.width + 36}" height="${object.height + 36}" rx="10"/>
-        <line class="drawing-rotate-stem" x1="0" y1="${top}" x2="0" y2="${top - 64}"/>
+        ${
+          !capabilities.resize && !capabilities.rotate
+            ? ""
+            : `${
+                capabilities.rotate
+                  ? `<line class="drawing-rotate-stem" x1="0" y1="${top}" x2="0" y2="${top - 64}"/>
         <circle class="drawing-transform-handle drawing-rotate-handle" data-drawing-handle="rotate" cx="0" cy="${top - 64}" r="14"/>
+        `
+                  : ""
+              }${
+                capabilities.resize
+                  ? `
         <circle class="drawing-transform-handle drawing-corner-handle" data-drawing-handle="scale" cx="${left}" cy="${top}" r="13"/>
         <circle class="drawing-transform-handle drawing-corner-handle" data-drawing-handle="scale" cx="${right}" cy="${top}" r="13"/>
         <circle class="drawing-transform-handle drawing-corner-handle" data-drawing-handle="scale" cx="${right}" cy="${bottom}" r="13"/>
@@ -385,14 +607,20 @@ function objectMarkup(object, selected = false) {
         <rect class="drawing-transform-handle drawing-horizontal-handle" data-drawing-handle="scale-x" x="${left - 11}" y="-17" width="22" height="34" rx="6"/>
         <rect class="drawing-transform-handle drawing-horizontal-handle" data-drawing-handle="scale-x" x="${right - 11}" y="-17" width="22" height="34" rx="6"/>
         <rect class="drawing-transform-handle drawing-vertical-handle" data-drawing-handle="scale-y" x="-17" y="${top - 11}" width="34" height="22" rx="6"/>
-        <rect class="drawing-transform-handle drawing-vertical-handle" data-drawing-handle="scale-y" x="-17" y="${bottom - 11}" width="34" height="22" rx="6"/>
+        <rect class="drawing-transform-handle drawing-vertical-handle" data-drawing-handle="scale-y" x="-17" y="${bottom - 11}" width="34" height="22" rx="6"/>`
+                  : ""
+              }`
+        }
       </g>`
     : "";
-  return `<g class="drawing-visual-object${selected ? " is-selected" : ""}" data-drawing-object="${object.id}" transform="translate(${object.x} ${object.y}) rotate(${object.rotation})">${objectBody(object)}${controls}</g>`;
+  const ports = connectionPorts(object, connectionMode || selected);
+  return `<g class="drawing-visual-object${selected ? " is-selected" : ""}" data-drawing-object="${object.id}" transform="translate(${object.x} ${object.y}) rotate(${object.rotation})">${objectBody(object, objects)}${controls}${ports}</g>`;
 }
 
 export function serializeVisualDrawing(objects) {
-  const content = objects.map((object) => objectMarkup(object)).join("");
+  const content = objects
+    .map((object) => objectMarkup(object, false, objects))
+    .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}"><defs><marker id="drawing-arrow" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="18" markerHeight="18" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="context-stroke"/></marker></defs>${content}</svg>`;
 }
 
@@ -400,6 +628,7 @@ export function createVisualDrawingEditor({
   canvas,
   onSourceChange,
   onSelectionChange,
+  onViewportChange,
 }) {
   const state = {
     profile: "svg_source",
@@ -409,6 +638,11 @@ export function createVisualDrawingEditor({
     drag: null,
     frame: null,
     enabled: true,
+    connectionType: null,
+    connectionLabel: "",
+    connectionPreview: null,
+    viewport: { x: 0, y: 0, width: VIEW_WIDTH, height: VIEW_HEIGHT },
+    inlineEditor: null,
   };
   const selected = () =>
     state.objects.find((object) => object.id === state.selectedId) || null;
@@ -416,14 +650,29 @@ export function createVisualDrawingEditor({
     onSelectionChange?.(structuredClone(selected()));
   const render = () => {
     state.frame = null;
-    canvas.innerHTML = `<svg viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" role="img" aria-label="可视化绘图画布"><defs><marker id="drawing-arrow" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="18" markerHeight="18" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="context-stroke"/></marker></defs>${state.objects.map((object) => objectMarkup(object, object.id === state.selectedId)).join("")}</svg>`;
+    const preview = state.connectionPreview
+      ? `<path class="drawing-connection-preview" d="M${state.connectionPreview.start.x} ${state.connectionPreview.start.y} L${state.connectionPreview.end.x} ${state.connectionPreview.end.y}" marker-end="url(#drawing-arrow)"/>`
+      : "";
+    canvas.classList.toggle("is-connecting", Boolean(state.connectionType));
+    const viewport = state.viewport;
+    canvas.innerHTML = `<svg viewBox="${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}" role="img" aria-label="可视化绘图画布"><defs><marker id="drawing-arrow" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="18" markerHeight="18" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="context-stroke"/></marker></defs>${state.objects.map((object) => objectMarkup(object, object.id === state.selectedId, state.objects, Boolean(state.connectionType))).join("")}${preview}</svg>`;
+    onViewportChange?.({
+      ...viewport,
+      zoom: Math.round((VIEW_WIDTH / viewport.width) * 100),
+    });
     notifySelection();
   };
   const scheduleRender = () => {
     if (state.frame !== null) return;
     state.frame = requestAnimationFrame(render);
   };
-  const commit = () => onSourceChange?.(serializeVisualDrawing(state.objects));
+  const commit = () => {
+    state.documents[state.profile] = structuredClone(state.objects);
+    onSourceChange?.(serializeVisualDrawing(state.objects), {
+      profile: state.profile,
+      objects: structuredClone(state.objects),
+    });
+  };
   const point = (event) => {
     const svg = canvas.querySelector("svg");
     const matrix = svg?.getScreenCTM?.();
@@ -445,21 +694,169 @@ export function createVisualDrawingEditor({
     };
   };
 
+  const setViewport = (next) => {
+    const width = clamp(next.width, VIEW_WIDTH / 4, VIEW_WIDTH * 2.5);
+    const height = (width * VIEW_HEIGHT) / VIEW_WIDTH;
+    state.viewport = {
+      x: Number.isFinite(Number(next.x)) ? Number(next.x) : state.viewport.x,
+      y: Number.isFinite(Number(next.y)) ? Number(next.y) : state.viewport.y,
+      width,
+      height,
+    };
+    render();
+  };
+
+  const zoomAt = (factor, clientX, clientY) => {
+    const old = state.viewport;
+    const bounds = canvas.getBoundingClientRect();
+    const ratioX = Number.isFinite(clientX)
+      ? clamp((clientX - bounds.left) / Math.max(1, bounds.width), 0, 1)
+      : 0.5;
+    const ratioY = Number.isFinite(clientY)
+      ? clamp((clientY - bounds.top) / Math.max(1, bounds.height), 0, 1)
+      : 0.5;
+    const width = clamp(old.width / factor, VIEW_WIDTH / 4, VIEW_WIDTH * 2.5);
+    const height = (width * VIEW_HEIGHT) / VIEW_WIDTH;
+    setViewport({
+      x: old.x + ratioX * (old.width - width),
+      y: old.y + ratioY * (old.height - height),
+      width,
+    });
+  };
+
+  const resetViewport = () => setViewport({ x: 0, y: 0, width: VIEW_WIDTH });
+
+  const fitViewport = () => {
+    const visible = state.objects.filter(
+      (object) => !EDGE_TYPES.has(object.type),
+    );
+    if (!visible.length) return resetViewport();
+    const left = Math.min(
+      ...visible.map((object) => object.x - object.width / 2),
+    );
+    const right = Math.max(
+      ...visible.map((object) => object.x + object.width / 2),
+    );
+    const top = Math.min(
+      ...visible.map((object) => object.y - object.height / 2),
+    );
+    const bottom = Math.max(
+      ...visible.map((object) => object.y + object.height / 2),
+    );
+    const padding = 70;
+    let width = Math.max(180, right - left + padding * 2);
+    let height = Math.max(120, bottom - top + padding * 2);
+    const aspect = VIEW_WIDTH / VIEW_HEIGHT;
+    if (width / height < aspect) width = height * aspect;
+    else height = width / aspect;
+    setViewport({
+      x: (left + right - width) / 2,
+      y: (top + bottom - height) / 2,
+      width,
+    });
+  };
+
+  const closeInlineEditor = ({ commit: shouldCommit = false } = {}) => {
+    const editor = state.inlineEditor;
+    if (!editor) return;
+    state.inlineEditor = null;
+    if (shouldCommit) {
+      const object = state.objects.find((item) => item.id === editor.objectId);
+      if (object) {
+        object.text = editor.input.value.trim().slice(0, 80);
+        render();
+        commit();
+      }
+    }
+    editor.input.remove();
+  };
+
+  const openInlineEditor = (object, event) => {
+    if (!object) return;
+    closeInlineEditor();
+    state.selectedId = object.id;
+    render();
+    const bounds = canvas.getBoundingClientRect();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "drawing-inline-text-editor";
+    input.value = object.text || "";
+    input.setAttribute("aria-label", "编辑节点或关系文字");
+    input.style.left = `${clamp(event.clientX - bounds.left + 12, 8, Math.max(8, bounds.width - 330))}px`;
+    input.style.top = `${clamp(event.clientY - bounds.top + 12, 8, Math.max(8, bounds.height - 52))}px`;
+    input.addEventListener("pointerdown", (pointerEvent) =>
+      pointerEvent.stopPropagation(),
+    );
+    input.addEventListener("keydown", (keyEvent) => {
+      if (keyEvent.key === "Enter") {
+        keyEvent.preventDefault();
+        closeInlineEditor({ commit: true });
+      } else if (keyEvent.key === "Escape") {
+        keyEvent.preventDefault();
+        closeInlineEditor();
+        render();
+      }
+    });
+    input.addEventListener("blur", () => closeInlineEditor({ commit: true }), {
+      once: true,
+    });
+    canvas.appendChild(input);
+    state.inlineEditor = { input, objectId: object.id };
+    input.focus();
+    input.select();
+  };
+
   canvas.addEventListener("pointerdown", (event) => {
     if (!state.enabled) return;
     const objectNode = event.target.closest("[data-drawing-object]");
     if (!objectNode) {
       state.selectedId = null;
+      state.drag = {
+        kind: "pan",
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        viewport: { ...state.viewport },
+      };
+      canvas.classList.add("is-panning");
+      canvas.setPointerCapture?.(event.pointerId);
       render();
       return;
     }
     state.selectedId = objectNode.dataset.drawingObject;
     const object = selected();
     const cursor = point(event);
+    const port = event.target.closest("[data-drawing-port]");
+    if (port && NODE_TYPES.has(object.type)) {
+      state.connectionType ||= "arrow";
+      state.drag = {
+        kind: "connect",
+        pointerId: event.pointerId,
+        fromId: object.id,
+        start: cursor,
+      };
+      state.connectionPreview = { start: cursor, end: cursor };
+      canvas.setPointerCapture?.(event.pointerId);
+      render();
+      return;
+    }
+    const capabilities = visualTransformCapabilities(object);
+    const requestedKind =
+      event.target.closest("[data-drawing-handle]")?.dataset.drawingHandle ||
+      "move";
+    const allowedKind =
+      requestedKind === "move"
+        ? capabilities.move
+        : requestedKind === "rotate"
+          ? capabilities.rotate
+          : capabilities.resize;
+    if (!allowedKind) {
+      state.drag = null;
+      render();
+      return;
+    }
     state.drag = {
-      kind:
-        event.target.closest("[data-drawing-handle]")?.dataset.drawingHandle ||
-        "move",
+      kind: requestedKind,
       pointerId: event.pointerId,
       start: cursor,
       x: object.x,
@@ -487,9 +884,31 @@ export function createVisualDrawingEditor({
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!state.drag || state.drag.pointerId !== event.pointerId) return;
+    if (state.drag.kind === "pan") {
+      const bounds = canvas.getBoundingClientRect();
+      const viewport = state.drag.viewport;
+      state.viewport = {
+        ...viewport,
+        x:
+          viewport.x -
+          ((event.clientX - state.drag.clientX) * viewport.width) /
+            Math.max(1, bounds.width),
+        y:
+          viewport.y -
+          ((event.clientY - state.drag.clientY) * viewport.height) /
+            Math.max(1, bounds.height),
+      };
+      scheduleRender();
+      return;
+    }
     const object = selected();
     const cursor = point(event);
-    if (state.drag.kind === "move") {
+    if (state.drag.kind === "connect") {
+      state.connectionPreview = {
+        start: state.drag.start,
+        end: cursor,
+      };
+    } else if (state.drag.kind === "move") {
       object.x = state.drag.x + cursor.x - state.drag.start.x;
       object.y = state.drag.y + cursor.y - state.drag.start.y;
     } else if (
@@ -548,19 +967,80 @@ export function createVisualDrawingEditor({
     }
     scheduleRender();
   });
-  const endDrag = () => {
+  const endDrag = (event) => {
     if (!state.drag) return;
+    const draggedKind = state.drag.kind;
+    if (state.drag.kind === "connect") {
+      const canHitTest =
+        Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY);
+      const hit = canHitTest
+        ? globalThis.document
+            ?.elementFromPoint?.(event.clientX, event.clientY)
+            ?.closest?.("[data-drawing-object]")
+        : null;
+      const toId = hit?.dataset?.drawingObject;
+      const fromId = state.drag.fromId;
+      if (toId && fromId && toId !== fromId) {
+        const edge = createObject(
+          state.connectionType || "arrow",
+          state.objects.length,
+        );
+        Object.assign(edge, {
+          profile: state.profile,
+          fromId,
+          toId,
+          text: state.connectionLabel,
+          graphEdge: ["graphviz_dot", "mermaid"].includes(state.profile),
+        });
+        state.objects.push(edge);
+        state.selectedId = edge.id;
+      }
+      state.connectionPreview = null;
+      state.connectionType = null;
+      state.connectionLabel = "";
+    }
     state.drag = null;
+    canvas.classList.remove("is-panning");
     render();
-    commit();
+    if (draggedKind !== "pan") commit();
   };
   canvas.addEventListener("pointerup", endDrag);
   canvas.addEventListener("pointercancel", endDrag);
+  canvas.addEventListener("dblclick", (event) => {
+    const objectId = event.target.closest("[data-drawing-object]")?.dataset
+      ?.drawingObject;
+    const object = state.objects.find((item) => item.id === objectId);
+    if (!object) return;
+    event.preventDefault();
+    openInlineEditor(object, event);
+  });
+  canvas.addEventListener(
+    "wheel",
+    (event) => {
+      if (!state.enabled) return;
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 1.14 : 1 / 1.14, event.clientX, event.clientY);
+    },
+    { passive: false },
+  );
   canvas.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.connectionType) {
+      event.preventDefault();
+      state.connectionType = null;
+      state.connectionLabel = "";
+      state.connectionPreview = null;
+      state.drag = null;
+      render();
+      return;
+    }
     if ((event.key === "Delete" || event.key === "Backspace") && selected()) {
       event.preventDefault();
+      const selectedId = state.selectedId;
       state.objects = state.objects.filter(
-        (object) => object.id !== state.selectedId,
+        (object) =>
+          object.id !== selectedId &&
+          object.fromId !== selectedId &&
+          object.toId !== selectedId,
       );
       state.selectedId = null;
       render();
@@ -586,12 +1066,23 @@ export function createVisualDrawingEditor({
       supported.has(type) ? type : "rectangle",
       state.objects.length,
     );
+    const profileColors = PROFILE_COLORS[state.profile];
+    if (profileColors?.length) {
+      object.color = profileColors[state.objects.length % profileColors.length];
+    }
     Object.assign(object, patch, { profile: state.profile });
     state.objects.push(object);
     state.selectedId = object.id;
     render();
     commit();
     return structuredClone(object);
+  };
+  const beginConnection = (type = "arrow", label = "") => {
+    state.connectionType = type === "connector" ? "connector" : "arrow";
+    state.connectionLabel = String(label || "").slice(0, 80);
+    state.connectionPreview = null;
+    render();
+    return true;
   };
   const addFormula = ({ latex, svg, width = 250, height = 100 } = {}) => {
     if (!embeddedSvgParts(svg)) return false;
@@ -604,27 +1095,24 @@ export function createVisualDrawingEditor({
     });
     return true;
   };
-  const addGraphNode = (label = "新节点") => {
+  const addGraphNode = (label = "新节点", type = "node") => {
     const parent = selected();
-    const index = state.objects.filter((item) => item.type === "node").length;
+    const index = state.objects.filter((item) =>
+      NODE_TYPES.has(item.type),
+    ).length;
     const column = index % 3;
     const row = Math.floor(index / 3) % 3;
-    const child = add("node", {
+    const child = add(NODE_TYPES.has(type) ? type : "node", {
       text: String(label || "新节点").slice(0, 80),
       x: 180 + column * 220,
       y: 135 + row * 140,
       width: 175,
       height: 82,
     });
-    if (parent && ["node", "ellipse", "diamond"].includes(parent.type)) {
-      const dx = child.x - parent.x;
-      const dy = child.y - parent.y;
+    if (parent && NODE_TYPES.has(parent.type)) {
       add("arrow", {
-        x: (parent.x + child.x) / 2,
-        y: (parent.y + child.y) / 2,
-        width: Math.max(70, Math.hypot(dx, dy) - 120),
-        height: 36,
-        rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+        fromId: parent.id,
+        toId: child.id,
         graphEdge: true,
       });
       state.selectedId = child.id;
@@ -634,6 +1122,7 @@ export function createVisualDrawingEditor({
     return child;
   };
   const addMindMapChild = (label = "新分支") => {
+    const selectedParent = selected();
     const children = state.objects.filter(
       (item) => item.profile === "mermaid" && item.mindMapChild,
     ).length;
@@ -647,14 +1136,17 @@ export function createVisualDrawingEditor({
       height: 78,
       mindMapChild: true,
     });
-    const dx = child.x - 400;
-    const dy = child.y - 260;
+    const root = state.objects.find(
+      (object) => object.profile === "mermaid" && NODE_TYPES.has(object.type),
+    );
+    const parent =
+      selectedParent?.profile === "mermaid" &&
+      NODE_TYPES.has(selectedParent.type)
+        ? selectedParent
+        : root;
     add("connector", {
-      x: (400 + child.x) / 2,
-      y: (260 + child.y) / 2,
-      width: Math.max(70, Math.hypot(dx, dy) - 120),
-      height: 42,
-      rotation: (Math.atan2(dy, dx) * 180) / Math.PI,
+      fromId: parent?.id,
+      toId: child.id,
       mindMapEdge: true,
     });
     state.selectedId = child.id;
@@ -662,8 +1154,7 @@ export function createVisualDrawingEditor({
     commit();
     return child;
   };
-  const updateSelected = (patch) => {
-    const object = selected();
+  const applyObjectPatch = (object, patch) => {
     if (!object || !patch || typeof patch !== "object") return false;
     if (patch.width !== undefined) object.width = clamp(patch.width, 32, 1200);
     if (patch.height !== undefined)
@@ -677,14 +1168,61 @@ export function createVisualDrawingEditor({
     if (typeof patch.fill === "string" && /^#[0-9a-f]{6}$/i.test(patch.fill))
       object.fill = patch.fill.toUpperCase();
     if (typeof patch.text === "string") object.text = patch.text.slice(0, 80);
+    for (const property of [
+      "expression",
+      "legend",
+      "lineStyle",
+      "xLabel",
+      "yLabel",
+      "grid",
+      "legendPosition",
+    ]) {
+      if (typeof patch[property] === "string") {
+        object[property] = patch[property].slice(0, 160);
+      }
+    }
+    for (const property of ["xMin", "xMax", "yMin", "yMax", "samples"]) {
+      if (
+        patch[property] !== undefined &&
+        Number.isFinite(Number(patch[property]))
+      ) {
+        object[property] = Number(patch[property]);
+      }
+    }
+    if (typeof patch.curve === "string") object.curve = patch.curve;
+    return true;
+  };
+  const updateSelected = (patch) => {
+    const object = selected();
+    if (!applyObjectPatch(object, patch)) return false;
     render();
     commit();
     return true;
   };
+  const updateProfileObject = (
+    type,
+    patch,
+    { createIfMissing = false } = {},
+  ) => {
+    let object = selected()?.type === type ? selected() : null;
+    object ||= state.objects.find((candidate) => candidate.type === type);
+    if (!object && createIfMissing) {
+      return add(type, patch);
+    }
+    if (!applyObjectPatch(object, patch)) return false;
+    state.selectedId = object.id;
+    render();
+    commit();
+    return structuredClone(object);
+  };
   const deleteSelected = () => {
-    if (!selected()) return false;
+    const object = selected();
+    if (!object) return false;
     state.objects = state.objects.filter(
-      (object) => object.id !== state.selectedId,
+      (candidate) =>
+        candidate.id !== state.selectedId &&
+        candidate.fromId !== object.id &&
+        candidate.toId !== object.id,
     );
     state.selectedId = null;
     render();
@@ -765,7 +1303,7 @@ export function createVisualDrawingEditor({
     commit();
     return true;
   };
-  const setProfile = (profile) => {
+  const setProfile = (profile, { commit: shouldCommit = true } = {}) => {
     const nextProfile = Object.hasOwn(PROFILE_COLORS, profile)
       ? profile
       : "svg_source";
@@ -777,8 +1315,32 @@ export function createVisualDrawingEditor({
     );
     state.selectedId = state.objects[0]?.id || null;
     render();
-    commit();
+    if (shouldCommit) commit();
     return nextProfile;
+  };
+  const replaceDocument = (
+    profile,
+    objects,
+    { commit: shouldCommit = false } = {},
+  ) => {
+    if (!Array.isArray(objects)) return false;
+    const nextProfile = Object.hasOwn(PROFILE_COLORS, profile)
+      ? profile
+      : "svg_source";
+    state.documents[state.profile] = structuredClone(state.objects);
+    state.profile = nextProfile;
+    canvas.dataset.drawingProfile = nextProfile;
+    state.objects = structuredClone(objects).map((object, index) => ({
+      ...createObject(object?.type || "rectangle", index),
+      ...object,
+      id: String(object?.id || uid()),
+      profile: nextProfile,
+    }));
+    state.documents[nextProfile] = structuredClone(state.objects);
+    state.selectedId = state.objects[0]?.id || null;
+    render();
+    if (shouldCommit) commit();
+    return true;
   };
   const applyProfileTemplate = (profile, template, options = {}) => {
     if (profile !== state.profile) setProfile(profile);
@@ -799,18 +1361,25 @@ export function createVisualDrawingEditor({
   return {
     state,
     add,
+    beginConnection,
     addFormula,
     addGraphNode,
     addMindMapChild,
+    zoomIn: () => zoomAt(1.2),
+    zoomOut: () => zoomAt(1 / 1.2),
+    resetViewport,
+    fitViewport,
     setEnabled,
     commit,
     selected,
     updateSelected,
+    updateProfileObject,
     deleteSelected,
     duplicateSelected,
     moveLayer,
     applyPreset,
     setProfile,
+    replaceDocument,
     applyProfileTemplate,
   };
 }

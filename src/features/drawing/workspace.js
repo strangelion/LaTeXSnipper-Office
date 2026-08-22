@@ -3,7 +3,19 @@ import {
   selectDrawingOfficeRoute,
 } from "./office-routing.js";
 import { renderDrawingLocally } from "./local-renderers.js";
-import { createVisualDrawingEditor } from "./visual-editor.js";
+import {
+  createVisualDrawingEditor,
+  visualTransformCapabilities,
+} from "./visual-editor.js";
+import {
+  evaluatePlotExpression,
+  parsePlotExpression,
+} from "./math-expression.js";
+import {
+  parseVisualDocument,
+  serializeVisualDocument,
+  visualProfileKey,
+} from "./source-adapters.js";
 
 const DEFAULT_SOURCES = Object.freeze({
   svg_source:
@@ -39,24 +51,24 @@ const TOOL_SNIPPETS = Object.freeze({
   node: {
     svg_source:
       '<rect x="60" y="50" width="160" height="80" rx="16" fill="none" stroke="currentColor" stroke-width="4"/>',
-    tikz: "\\node[draw, rounded corners] (A) at (0,0) {节点};",
+    tikz: "\\node[draw, rounded corners] (A) at (0,0) {Node};",
     graphviz_dot: 'A [label="节点", shape=box];',
     mermaid: "A[节点]",
   },
   rectangle: {
     svg_source:
       '<rect x="60" y="50" width="200" height="100" rx="8" fill="none" stroke="currentColor" stroke-width="4"/>',
-    tikz: "\\node[draw, minimum width=3cm, minimum height=1.5cm] {矩形};",
+    tikz: "\\node[draw, minimum width=3cm, minimum height=1.5cm] {Rectangle};",
   },
   ellipse: {
     svg_source:
       '<ellipse cx="160" cy="100" rx="100" ry="55" fill="none" stroke="currentColor" stroke-width="4"/>',
-    tikz: "\\node[draw, ellipse, minimum width=3cm] {椭圆};",
+    tikz: "\\node[draw, ellipse, minimum width=3cm] {Ellipse};",
   },
   diamond: {
     svg_source:
       '<path d="M160 35 L270 100 L160 165 L50 100 Z" fill="none" stroke="currentColor" stroke-width="4"/>',
-    tikz: "\\node[draw, diamond, aspect=2] {判断};",
+    tikz: "\\node[draw, diamond, aspect=2] {Decision};",
     mermaid: "A{判断}",
   },
   axes: {
@@ -112,7 +124,7 @@ const VISUAL_TOOLSETS = Object.freeze({
     connector: "有向边",
     arrow: "直连边",
     diamond: "判定节点",
-    rectangle: "子图边界",
+    rectangle: "矩形节点",
     label: "图标题",
   },
   mermaid: {
@@ -120,7 +132,7 @@ const VISUAL_TOOLSETS = Object.freeze({
     diamond: "判断节点",
     connector: "流程关系",
     arrow: "直接流程",
-    rectangle: "流程分组",
+    rectangle: "矩形节点",
     label: "图表标题",
   },
 });
@@ -141,6 +153,189 @@ const VISUAL_PROFILE_NAMES = Object.freeze({
   graphviz_dot: "Graphviz 关系图",
   mermaid: "Mermaid 图表设计",
 });
+
+const VISUAL_PROFILE_GUIDANCE = Object.freeze({
+  svg_source:
+    "路径与图层编辑 · 拖动、独立宽高、连续旋转均直接写入 SVG transform",
+  tikz: "数学构图 · 几何对象与 LaTeX 标注直接写入 TikZ；安全预览是实际编译效果",
+  pgf_plots:
+    "函数与数据工作台 · 曲线、采样点和坐标设置直接生成 axis / addplot 源码",
+  graphviz_dot:
+    "关系图工作台 · 节点坐标与端口关系直接写入 DOT；视觉模式固定 Neato 坐标",
+  mermaid:
+    "语义图表工作台 · 流程、时序、状态和思维层级写入 Mermaid，由引擎负责最终排版",
+});
+
+const finiteNumber = (value) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+export function parsePlotDataTable(source) {
+  const points = [];
+  for (const line of String(source || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const values = trimmed.split(/[\t,;\s]+/).filter(Boolean);
+    if (values.length < 2) continue;
+    const x = finiteNumber(values[0]);
+    const y = finiteNumber(values[1]);
+    if (x === null || y === null) continue;
+    points.push({ x, y });
+  }
+  return points;
+}
+
+function solveLinearSystem(matrix, vector) {
+  const size = vector.length;
+  const rows = matrix.map((row, index) => [...row, vector[index]]);
+  for (let column = 0; column < size; column += 1) {
+    let pivot = column;
+    for (let row = column + 1; row < size; row += 1) {
+      if (Math.abs(rows[row][column]) > Math.abs(rows[pivot][column])) {
+        pivot = row;
+      }
+    }
+    if (Math.abs(rows[pivot][column]) < 1e-12) {
+      throw new Error("数据无法形成稳定拟合，请增加不同的 x 样本");
+    }
+    [rows[column], rows[pivot]] = [rows[pivot], rows[column]];
+    const divisor = rows[column][column];
+    for (let index = column; index <= size; index += 1) {
+      rows[column][index] /= divisor;
+    }
+    for (let row = 0; row < size; row += 1) {
+      if (row === column) continue;
+      const factor = rows[row][column];
+      for (let index = column; index <= size; index += 1) {
+        rows[row][index] -= factor * rows[column][index];
+      }
+    }
+  }
+  return rows.map((row) => row[size]);
+}
+
+function polynomialFit(points, degree) {
+  const size = degree + 1;
+  const matrix = Array.from({ length: size }, (_, row) =>
+    Array.from({ length: size }, (_, column) =>
+      points.reduce((sum, point) => sum + point.x ** (row + column), 0),
+    ),
+  );
+  const vector = Array.from({ length: size }, (_, power) =>
+    points.reduce((sum, point) => sum + point.y * point.x ** power, 0),
+  );
+  return solveLinearSystem(matrix, vector);
+}
+
+const compactCoefficient = (value) => {
+  const normalized = Math.abs(value) < 1e-10 ? 0 : value;
+  return Number(normalized.toPrecision(7)).toString();
+};
+
+function polynomialExpression(coefficients) {
+  return coefficients
+    .map((coefficient, power) => {
+      const value = compactCoefficient(coefficient);
+      if (power === 0) return `(${value})`;
+      if (power === 1) return `(${value})*x`;
+      return `(${value})*x^${power}`;
+    })
+    .join("+");
+}
+
+function regressionQuality(points, predict) {
+  const mean = points.reduce((sum, point) => sum + point.y, 0) / points.length;
+  const residual = points.reduce(
+    (sum, point) => sum + (point.y - predict(point.x)) ** 2,
+    0,
+  );
+  const total = points.reduce((sum, point) => sum + (point.y - mean) ** 2, 0);
+  return total <= 1e-12 ? (residual <= 1e-12 ? 1 : 0) : 1 - residual / total;
+}
+
+export function fitPlotData(points, model = "linear") {
+  const samples = (points || []).map(({ x, y }) => ({
+    x: Number(x),
+    y: Number(y),
+  }));
+  if (
+    !samples.every(
+      (point) => Number.isFinite(point.x) && Number.isFinite(point.y),
+    )
+  ) {
+    throw new Error("表格包含无效数字");
+  }
+  if (samples.length < 2) throw new Error("至少需要两个有效的 x/y 数据点");
+  const polynomialDegrees = { linear: 1, quadratic: 2, cubic: 3 };
+  let coefficients;
+  let expression;
+  let predict;
+  if (Object.hasOwn(polynomialDegrees, model)) {
+    const degree = polynomialDegrees[model];
+    if (samples.length < degree + 1) {
+      throw new Error(`${degree} 次拟合至少需要 ${degree + 1} 个有效数据点`);
+    }
+    coefficients = polynomialFit(samples, degree);
+    expression = polynomialExpression(coefficients);
+    predict = (x) =>
+      coefficients.reduce(
+        (sum, coefficient, power) => sum + coefficient * x ** power,
+        0,
+      );
+  } else if (model === "exponential") {
+    const transformed = samples.filter((point) => point.y > 0);
+    if (transformed.length !== samples.length || samples.length < 2) {
+      throw new Error("指数拟合要求至少两个 y > 0 的数据点");
+    }
+    const [intercept, slope] = polynomialFit(
+      transformed.map((point) => ({ x: point.x, y: Math.log(point.y) })),
+      1,
+    );
+    coefficients = [Math.exp(intercept), slope];
+    expression = `(${compactCoefficient(coefficients[0])})*exp((${compactCoefficient(coefficients[1])})*x)`;
+    predict = (x) => coefficients[0] * Math.exp(coefficients[1] * x);
+  } else if (model === "logarithmic") {
+    if (samples.length < 2 || samples.some((point) => point.x <= 0)) {
+      throw new Error("对数拟合要求至少两个 x > 0 的数据点");
+    }
+    coefficients = polynomialFit(
+      samples.map((point) => ({ x: Math.log(point.x), y: point.y })),
+      1,
+    );
+    expression = `(${compactCoefficient(coefficients[0])})+(${compactCoefficient(coefficients[1])})*ln(x)`;
+    predict = (x) => coefficients[0] + coefficients[1] * Math.log(x);
+  } else if (model === "power") {
+    if (
+      samples.length < 2 ||
+      samples.some((point) => point.x <= 0 || point.y <= 0)
+    ) {
+      throw new Error("幂函数拟合要求至少两个 x > 0 且 y > 0 的数据点");
+    }
+    const [intercept, exponent] = polynomialFit(
+      samples.map((point) => ({
+        x: Math.log(point.x),
+        y: Math.log(point.y),
+      })),
+      1,
+    );
+    coefficients = [Math.exp(intercept), exponent];
+    expression = `(${compactCoefficient(coefficients[0])})*x^(${compactCoefficient(coefficients[1])})`;
+    predict = (x) => coefficients[0] * x ** coefficients[1];
+  } else {
+    throw new Error(`不支持的拟合模型：${model}`);
+  }
+  const xValues = samples.map((point) => point.x);
+  return {
+    model,
+    coefficients,
+    expression,
+    rSquared: regressionQuality(samples, predict),
+    xMin: Math.min(...xValues),
+    xMax: Math.max(...xValues),
+    points: samples,
+  };
+}
 
 export function computeFittedViewBox(bounds, paddingRatio = 0.08) {
   const x = Number(bounds?.x);
@@ -182,14 +377,13 @@ export function resolveDrawingAuthoringInput({
   editorMode,
   language,
   nativeSource,
-  visualSource,
+  packageProfiles = [],
 }) {
-  const visual = editorMode === "visual" && Boolean(visualSource);
   return {
-    language: visual ? "svg_source" : language,
-    source: visual ? visualSource : nativeSource,
-    packageProfiles: visual ? [] : null,
-    visual,
+    language,
+    source: nativeSource,
+    packageProfiles: [...packageProfiles],
+    visual: editorMode === "visual",
   };
 }
 
@@ -233,6 +427,41 @@ function setSelected(element, selected) {
   if (element) element.tabIndex = selected ? 0 : -1;
 }
 
+function controlValue(element, fallback = "") {
+  const customValue = element?.querySelector?.(".custom-select-trigger")
+    ?.dataset?.value;
+  return customValue ?? element?.value ?? fallback;
+}
+
+function setControlValue(element, value) {
+  if (!element) return;
+  const trigger = element.querySelector?.(".custom-select-trigger");
+  if (!trigger) {
+    element.value = String(value);
+    return;
+  }
+  const option = [...element.querySelectorAll(".custom-select-option")].find(
+    (candidate) => candidate.dataset.value === String(value),
+  );
+  trigger.dataset.value = String(value);
+  if (element._selectInstance) element._selectInstance.value = String(value);
+  const label = trigger.querySelector("span");
+  if (label && option) label.textContent = option.textContent.trim();
+  for (const candidate of element.querySelectorAll(".custom-select-option")) {
+    candidate.classList.toggle("selected", candidate === option);
+    candidate.setAttribute("aria-selected", String(candidate === option));
+  }
+}
+
+function setControlDisabled(element, disabled) {
+  if (!element) return;
+  if ("disabled" in element) element.disabled = Boolean(disabled);
+  element.classList?.toggle("is-disabled", Boolean(disabled));
+  const trigger = element.querySelector?.(".custom-select-trigger");
+  trigger?.setAttribute?.("aria-disabled", String(Boolean(disabled)));
+  if (trigger) trigger.tabIndex = disabled ? -1 : 0;
+}
+
 function userFacingError(error) {
   const message = String(error?.message || error || "未知错误");
   if (message.includes("__TAURI_INTERNALS__") || message.includes("invoke")) {
@@ -265,7 +494,8 @@ export function createDrawingWorkspaceController({
     compileSequence: 0,
     activeCompileId: null,
     editorMode: "visual",
-    visualSource: "",
+    visualLocked: false,
+    sourceByProfile: new Map(),
   };
 
   const status = (message) => {
@@ -324,6 +554,12 @@ export function createDrawingWorkspaceController({
   const chooseLanguage = (button) => {
     const language = button?.dataset?.drawingLanguage;
     if (!language) return;
+    const previousProfile = visualProfileKey(
+      state.language,
+      state.packageProfiles,
+    );
+    if (elements.source)
+      state.sourceByProfile.set(previousProfile, elements.source.value);
     state.language = language;
     state.packageProfiles = button.dataset.drawingProfile
       ? [button.dataset.drawingProfile]
@@ -338,12 +574,28 @@ export function createDrawingWorkspaceController({
       tool.hidden = !Object.hasOwn(toolset, type);
       if (toolset[type]) tool.textContent = toolset[type];
     }
-    if (elements.source) {
+    const storedSource = state.sourceByProfile.get(profile);
+    if (visualEditor) {
+      visualEditor.setProfile(profile, { commit: !storedSource });
+      if (storedSource && elements.source) {
+        elements.source.value = storedSource;
+        const parsed = parseVisualDocument(profile, storedSource);
+        state.visualLocked = !parsed.lossless;
+        if (parsed.lossless)
+          visualEditor.replaceDocument(profile, parsed.objects, {
+            commit: false,
+          });
+      }
+    } else if (elements.source) {
       const preset = button.dataset.drawingProfile || language;
       elements.source.value =
-        DEFAULT_SOURCES[preset] || DEFAULT_SOURCES[language] || "";
+        storedSource ||
+        DEFAULT_SOURCES[preset] ||
+        DEFAULT_SOURCES[language] ||
+        "";
+      state.visualLocked = !parseVisualDocument(profile, elements.source.value)
+        .lossless;
     }
-    visualEditor?.setProfile(profile);
     for (const panel of elements.profilePanels || []) {
       const selected = panel.dataset.drawingWorkbench === profile;
       panel.hidden = !selected;
@@ -382,7 +634,7 @@ export function createDrawingWorkspaceController({
         editorMode: state.editorMode,
         language: state.language,
         nativeSource: elements.source?.value || "",
-        visualSource: state.visualSource,
+        packageProfiles: state.packageProfiles,
       });
       const originalSource = authored.source;
       const authoredLanguage = authored.language;
@@ -390,8 +642,8 @@ export function createDrawingWorkspaceController({
         ? await renderLocal({
             language: authoredLanguage,
             source: originalSource,
-            packageProfiles: authored.visual ? [] : state.packageProfiles,
-            graphvizEngine: elements.graphvizEngine?.value || "dot",
+            packageProfiles: authored.packageProfiles,
+            graphvizEngine: controlValue(elements.graphvizEngine, "dot"),
             previewHost: elements.preview,
             renderId: drawingId,
           })
@@ -409,8 +661,7 @@ export function createDrawingWorkspaceController({
           drawingId,
           language: renderedSvg ? "svg_source" : authoredLanguage,
           source: renderedSvg || originalSource,
-          packageProfiles:
-            renderedSvg || authored.visual ? [] : state.packageProfiles,
+          packageProfiles: renderedSvg ? [] : authored.packageProfiles,
           packageLockSha256: null,
           rendererId: renderedSvg ? `bundled-${state.language}@1` : null,
         });
@@ -492,6 +743,7 @@ export function createDrawingWorkspaceController({
       elements.inspectorEmpty.hidden = Boolean(object);
     if (elements.inspectorControls) elements.inspectorControls.hidden = !object;
     if (!object) return;
+    const capabilities = visualTransformCapabilities(object);
     if (elements.inspectorType) {
       const objectNames = {
         line: "线段",
@@ -518,6 +770,12 @@ export function createDrawingWorkspaceController({
       if (element && document.activeElement !== element)
         element.value = String(Math.round(Number(value) * 10) / 10);
     }
+    if (elements.inspectorWidth)
+      elements.inspectorWidth.disabled = !capabilities.resize;
+    if (elements.inspectorHeight)
+      elements.inspectorHeight.disabled = !capabilities.resize;
+    if (elements.inspectorRotation)
+      elements.inspectorRotation.disabled = !capabilities.rotate;
     if (elements.inspectorColor)
       elements.inspectorColor.textContent = object.color || "#2563EB";
     if (
@@ -531,40 +789,136 @@ export function createDrawingWorkspaceController({
           ? "数学标注请在 TikZ 专项工具中重新渲染"
           : "直接修改当前对象文字";
     }
+    const syncField = (element, value) => {
+      if (
+        element &&
+        document.activeElement !== element &&
+        value !== undefined
+      ) {
+        setControlValue(element, value);
+      }
+    };
+    if (object.type === "plot") {
+      syncField(elements.plotCurve, object.curve || "sin");
+      syncField(elements.plotExpression, object.expression || "sin(x)");
+      syncField(
+        elements.plotLegend,
+        object.legend || object.expression || "curve",
+      );
+      syncField(elements.plotStyle, object.lineStyle || "solid");
+      syncField(elements.plotMin, object.xMin ?? -6.28);
+      syncField(elements.plotMax, object.xMax ?? 6.28);
+      syncField(elements.plotSamples, object.samples ?? 120);
+    } else if (object.type === "axes") {
+      syncField(elements.plotXLabel, object.xLabel || "x");
+      syncField(elements.plotYLabel, object.yLabel || "f(x)");
+      syncField(elements.plotYMin, object.yMin ?? -1.5);
+      syncField(elements.plotYMax, object.yMax ?? 1.5);
+      syncField(elements.plotGrid, object.grid || "major");
+      syncField(
+        elements.plotLegendPosition,
+        object.legendPosition || "north east",
+      );
+    }
   };
   const setEditorMode = (mode) => {
-    state.editorMode = mode === "visual" ? "visual" : "source";
+    const requestedVisual = mode === "visual";
+    const profile = resolveVisualProfile(state.language, state.packageProfiles);
+    let parsed = null;
+    if (requestedVisual && elements.source) {
+      parsed = parseVisualDocument(profile, elements.source.value);
+      state.visualLocked = !parsed.lossless;
+      if (parsed.lossless && visualEditor) {
+        visualEditor.replaceDocument(profile, parsed.objects, {
+          commit: false,
+        });
+      }
+    }
+    state.editorMode =
+      requestedVisual && !state.visualLocked ? "visual" : "source";
     const visual = state.editorMode === "visual";
+    if (visual && profile === "graphviz_dot" && elements.graphvizEngine) {
+      setControlValue(elements.graphvizEngine, "neato");
+    }
+    if (elements.graphvizEngine) {
+      const fixedGraphviz = visual && profile === "graphviz_dot";
+      setControlDisabled(elements.graphvizEngine, fixedGraphviz);
+      elements.graphvizEngine.title = fixedGraphviz
+        ? "可视化模式使用 Neato 固定坐标，确保节点距离与源码输出一致"
+        : "源码模式可选择自动布局引擎";
+    }
     if (elements.visualEditor) elements.visualEditor.hidden = !visual;
     if (elements.sourceEditor) elements.sourceEditor.hidden = visual;
     elements.visualModeButton?.classList?.toggle("active", visual);
     elements.sourceModeButton?.classList?.toggle("active", !visual);
     elements.visualModeButton?.setAttribute("aria-selected", String(visual));
     elements.sourceModeButton?.setAttribute("aria-selected", String(!visual));
-    const profile = resolveVisualProfile(state.language, state.packageProfiles);
-    if (elements.visualModeButton)
+    if (elements.visualModeButton) {
       elements.visualModeButton.title = `使用 ${VISUAL_PROFILE_NAMES[profile]}；源码模式仍保留原生语言`;
+      elements.visualModeButton.disabled = state.visualLocked;
+    }
     if (elements.editorModeHint)
       elements.editorModeHint.textContent = visual
-        ? `${VISUAL_PROFILE_NAMES[profile]} · 使用专属对象与模板；交付前统一转换为安全 SVG`
-        : `正在编辑 ${state.language} 原生源码 · 实时预览保持开启`;
+        ? VISUAL_PROFILE_GUIDANCE[profile] ||
+          `${VISUAL_PROFILE_NAMES[profile]}结构编辑 · 下方安全预览是实际编译效果`
+        : state.visualLocked
+          ? parsed?.warning ||
+            "源码包含不能无损反解析的语法；视觉编辑已锁定，源码与预览保持不变"
+          : `正在编辑 ${state.language} 原生源码 · 可无损返回可视化编辑`;
     visualEditor?.setEnabled(visual);
     if (visual) visualEditor?.commit();
+    if (requestedVisual && state.visualLocked) {
+      status(
+        parsed?.warning ||
+          "当前源码不能无损转为可视对象，已保留源码并锁定可视化编辑",
+      );
+    }
   };
 
   if (elements.visualCanvas) {
     visualEditor = createVisualDrawingEditor({
       canvas: elements.visualCanvas,
-      onSourceChange: (source) => {
-        state.visualSource = source;
-        if (state.language === "svg_source" && elements.source)
-          elements.source.value = source;
+      onSourceChange: (_visualSvg, document) => {
+        if (!document?.objects) return;
+        const serialized = serializeVisualDocument(
+          document.profile,
+          document.objects,
+        );
+        if (elements.source) elements.source.value = serialized.source;
+        state.sourceByProfile.set(document.profile, serialized.source);
+        state.visualLocked = false;
+        if (
+          document.profile === "graphviz_dot" &&
+          elements.graphvizEngine &&
+          serialized.graphvizEngine
+        ) {
+          setControlValue(elements.graphvizEngine, serialized.graphvizEngine);
+        }
+        if (elements.visualModeButton)
+          elements.visualModeButton.disabled = false;
         invalidateCompilation();
-        status("可视化图形已同步，安全预览已排队");
+        status("可视化修改已写入原生源码，安全预览已排队");
         schedulePreview();
       },
       onSelectionChange: syncInspector,
+      onViewportChange: (viewport) => {
+        if (elements.canvasZoomValue) {
+          elements.canvasZoomValue.textContent = `${viewport.zoom}%`;
+        }
+      },
     });
+    elements.canvasZoomOut?.addEventListener("click", () =>
+      visualEditor.zoomOut(),
+    );
+    elements.canvasZoomIn?.addEventListener("click", () =>
+      visualEditor.zoomIn(),
+    );
+    elements.canvasReset?.addEventListener("click", () =>
+      visualEditor.resetViewport(),
+    );
+    elements.canvasFit?.addEventListener("click", () =>
+      visualEditor.fitViewport(),
+    );
   }
 
   const insert = async () => {
@@ -721,8 +1075,31 @@ export function createDrawingWorkspaceController({
   elements.copyButton?.addEventListener("click", copy);
   elements.sendPlatformButton?.addEventListener("click", sendPlatform);
   elements.source?.addEventListener("input", () => {
+    const profile = resolveVisualProfile(state.language, state.packageProfiles);
+    const parsed = parseVisualDocument(profile, elements.source.value);
+    state.sourceByProfile.set(profile, elements.source.value);
+    state.visualLocked = !parsed.lossless;
+    if (parsed.lossless && visualEditor) {
+      visualEditor.replaceDocument(profile, parsed.objects, { commit: false });
+    }
+    if (elements.visualModeButton) {
+      elements.visualModeButton.disabled = state.visualLocked;
+      elements.visualModeButton.title = state.visualLocked
+        ? parsed.warning
+        : `使用 ${VISUAL_PROFILE_NAMES[profile]}；当前源码可无损可视化`;
+    }
+    if (elements.editorModeHint) {
+      elements.editorModeHint.textContent = state.visualLocked
+        ? parsed.warning
+        : parsed.warning ||
+          `正在编辑 ${state.language} 原生源码 · 已同步可视对象`;
+    }
     invalidateCompilation();
-    status("正在等待输入稳定…");
+    status(
+      state.visualLocked
+        ? "源码已保留；检测到高级语法，视觉编辑暂时锁定"
+        : "源码已同步到可视对象，正在等待输入稳定…",
+    );
     schedulePreview();
   });
   elements.autoPreview?.addEventListener("change", () => {
@@ -779,7 +1156,7 @@ export function createDrawingWorkspaceController({
         profile,
         button.dataset.drawingProfileTemplate,
         {
-          curve: elements.plotCurve?.value || "sin",
+          curve: controlValue(elements.plotCurve, "sin"),
           expression: elements.plotExpression?.value || "sin(x)",
           xMin: Number(elements.plotMin?.value || -6.28),
           xMax: Number(elements.plotMax?.value || 6.28),
@@ -789,47 +1166,237 @@ export function createDrawingWorkspaceController({
       status(`${VISUAL_PROFILE_NAMES[profile]}模板已应用，可继续拖动和精调`);
     });
   }
-  elements.plotCurve?.addEventListener("change", () => {
-    if (
-      resolveVisualProfile(state.language, state.packageProfiles) !==
-      "pgf_plots"
-    )
-      return;
-    visualEditor?.applyProfileTemplate("pgf_plots", "plot", {
-      curve: elements.plotCurve.value,
-    });
-    status("PGFPlots 曲线已更新，安全预览已排队");
-  });
-  const applyPlotBuilder = () => {
+  const plotPatch = () => {
     const expression = String(elements.plotExpression?.value || "sin(x)")
       .trim()
       .toLowerCase();
-    const curve = /gauss|exp/.test(expression)
-      ? "gaussian"
-      : /x\s*\^\s*2|x\s*\*\s*x|quadratic/.test(expression)
-        ? "quadratic"
-        : /^\s*[+-]?\s*(?:\d+(?:\.\d+)?)?\s*\*?\s*x\s*$/.test(expression)
-          ? "linear"
-          : "sin";
-    if (elements.plotCurve) elements.plotCurve.value = curve;
-    visualEditor?.applyProfileTemplate("pgf_plots", "plot", {
+    parsePlotExpression(expression);
+    const xMin = Number(elements.plotMin?.value || -6.28);
+    const xMax = Number(elements.plotMax?.value || 6.28);
+    if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax) {
+      throw new Error("函数定义域需要满足：最小 x < 最大 x");
+    }
+    const finiteSamples = Array.from({ length: 33 }, (_, index) => {
+      const x = xMin + ((xMax - xMin) * index) / 32;
+      return evaluatePlotExpression(expression, x);
+    }).filter(Number.isFinite);
+    if (!finiteSamples.length) {
+      throw new Error("当前定义域内没有可绘制的有限函数值");
+    }
+    const yMin = Number(elements.plotYMin?.value ?? -1.5);
+    const yMax = Number(elements.plotYMax?.value ?? 1.5);
+    if (!Number.isFinite(yMin) || !Number.isFinite(yMax) || yMin >= yMax) {
+      throw new Error("纵轴范围需要满足：最小 y < 最大 y");
+    }
+    let curve = controlValue(elements.plotCurve, "custom");
+    if (!curve || curve === "custom") {
+      curve = /gauss|exp\s*\(\s*-?x\s*\^\s*2/.test(expression)
+        ? "gaussian"
+        : /x\s*\^\s*2|x\s*\*\s*x|quadratic/.test(expression)
+          ? "quadratic"
+          : /^\s*[+-]?\s*(?:\d+(?:\.\d+)?)?\s*\*?\s*x\s*$/.test(expression)
+            ? "linear"
+            : /^cos\s*\(/.test(expression)
+              ? "cos"
+              : /^sin\s*\(/.test(expression)
+                ? "sin"
+                : "custom";
+      setControlValue(elements.plotCurve, curve);
+    }
+    return {
       curve,
       expression: elements.plotExpression?.value || "sin(x)",
-      xMin: Number(elements.plotMin?.value || -6.28),
-      xMax: Number(elements.plotMax?.value || 6.28),
-    });
-    setEditorMode("visual");
-    status(
-      `函数 ${elements.plotExpression?.value || "sin(x)"} 已绘制；可继续调整坐标轴与曲线`,
-    );
+      legend:
+        elements.plotLegend?.value || elements.plotExpression?.value || "curve",
+      xMin,
+      xMax,
+      samples: Number(elements.plotSamples?.value || 120),
+      lineStyle: controlValue(elements.plotStyle, "solid"),
+      yMin,
+      yMax,
+    };
   };
-  elements.plotExpression?.addEventListener("change", applyPlotBuilder);
-  elements.plotMin?.addEventListener("change", applyPlotBuilder);
-  elements.plotMax?.addEventListener("change", applyPlotBuilder);
+  elements.plotCurve?.addEventListener("change", () => {
+    const presets = {
+      sin: "sin(x)",
+      cos: "cos(x)",
+      quadratic: "x^2",
+      gaussian: "exp(-x^2)",
+      linear: "x",
+    };
+    const selectedCurve = controlValue(elements.plotCurve, "sin");
+    if (selectedCurve === "custom") return;
+    const expression = presets[selectedCurve] || "sin(x)";
+    if (elements.plotExpression) elements.plotExpression.value = expression;
+    if (elements.plotLegend) elements.plotLegend.value = expression;
+  });
+  const applyPlotBuilder = ({ create = false } = {}) => {
+    try {
+      const patch = plotPatch();
+      setEditorMode("visual");
+      if (state.editorMode !== "visual") return;
+      if (create) {
+        visualEditor?.add("plot", {
+          ...patch,
+          x: 385,
+          y: 260,
+          width: 300,
+          height: 160,
+        });
+      } else {
+        visualEditor?.updateProfileObject("plot", patch, {
+          createIfMissing: true,
+        });
+      }
+      visualEditor?.updateProfileObject(
+        "axes",
+        {
+          yMin: patch.yMin,
+          yMax: patch.yMax,
+        },
+        { createIfMissing: true },
+      );
+      status(
+        `${create ? "新曲线已加入" : "当前曲线已更新"}：${elements.plotExpression?.value || "sin(x)"}；原生 axis 源码已同步`,
+      );
+    } catch (error) {
+      status(`函数未写入：${userFacingError(error)}`);
+    }
+  };
+  elements.plotApply?.addEventListener("click", () => applyPlotBuilder());
+  elements.plotAdd?.addEventListener("click", () =>
+    applyPlotBuilder({ create: true }),
+  );
+  const applyAxesBuilder = () => {
+    setEditorMode("visual");
+    if (state.editorMode !== "visual") return;
+    visualEditor?.updateProfileObject(
+      "axes",
+      {
+        xLabel: elements.plotXLabel?.value || "x",
+        yLabel: elements.plotYLabel?.value || "f(x)",
+        yMin: Number(elements.plotYMin?.value || -1.5),
+        yMax: Number(elements.plotYMax?.value || 1.5),
+        grid: controlValue(elements.plotGrid, "major"),
+        legendPosition: controlValue(elements.plotLegendPosition, "north east"),
+      },
+      { createIfMissing: true },
+    );
+    status("坐标轴、网格与图例位置已写入 PGFPlots 源码");
+  };
+  elements.plotAxesApply?.addEventListener("click", applyAxesBuilder);
+  for (const preset of elements.plotPresetButtons || []) {
+    preset.addEventListener("click", () => {
+      if (elements.plotExpression)
+        elements.plotExpression.value = preset.dataset.plotExpression || "";
+      if (elements.plotLegend)
+        elements.plotLegend.value =
+          preset.dataset.plotLegend || preset.dataset.plotExpression || "";
+      if (elements.plotMin && preset.dataset.plotXMin)
+        elements.plotMin.value = preset.dataset.plotXMin;
+      if (elements.plotMax && preset.dataset.plotXMax)
+        elements.plotMax.value = preset.dataset.plotXMax;
+      if (elements.plotYMin && preset.dataset.plotYMin)
+        elements.plotYMin.value = preset.dataset.plotYMin;
+      if (elements.plotYMax && preset.dataset.plotYMax)
+        elements.plotYMax.value = preset.dataset.plotYMax;
+      setControlValue(elements.plotCurve, "custom");
+      status(
+        "函数及适配坐标范围已填入；点击“更新当前曲线”后写入原生 PGFPlots 源码",
+      );
+    });
+  }
+  elements.plotFit?.addEventListener("click", () => {
+    try {
+      const points = parsePlotDataTable(elements.plotData?.value || "");
+      const model = controlValue(elements.plotFitModel, "linear");
+      const fitted = fitPlotData(points, model);
+      const modelNames = {
+        linear: "Linear",
+        quadratic: "Quadratic",
+        cubic: "Cubic",
+        exponential: "Exponential",
+        logarithmic: "Logarithmic",
+        power: "Power",
+      };
+      const legend = `${modelNames[model] || model} fit R2=${fitted.rSquared.toFixed(4)}`;
+      if (elements.plotExpression)
+        elements.plotExpression.value = fitted.expression;
+      if (elements.plotLegend) elements.plotLegend.value = legend;
+      if (elements.plotMin) elements.plotMin.value = String(fitted.xMin);
+      if (elements.plotMax) elements.plotMax.value = String(fitted.xMax);
+      setControlValue(elements.plotCurve, "custom");
+      setEditorMode("visual");
+      if (state.editorMode !== "visual") return;
+      const yValues = fitted.points.map((point) => point.y);
+      const yLow = Math.min(...yValues);
+      const yHigh = Math.max(...yValues);
+      const yPadding = Math.max(0.25, (yHigh - yLow) * 0.08);
+      if (elements.plotYMin) elements.plotYMin.value = String(yLow - yPadding);
+      if (elements.plotYMax) elements.plotYMax.value = String(yHigh + yPadding);
+      visualEditor?.add("plot", {
+        ...plotPatch(),
+        curve: "custom",
+        expression: fitted.expression,
+        legend,
+        fitModel: fitted.model,
+        fitCoefficients: fitted.coefficients,
+        fitRSquared: fitted.rSquared,
+        dataPoints: fitted.points,
+        xMin: fitted.xMin,
+        xMax: fitted.xMax,
+        yMin: yLow - yPadding,
+        yMax: yHigh + yPadding,
+        samples: Math.max(160, Number(elements.plotSamples?.value || 160)),
+        x: 385,
+        y: 260,
+        width: 300,
+        height: 160,
+      });
+      visualEditor?.updateProfileObject(
+        "axes",
+        {
+          xLabel: elements.plotXLabel?.value || "x",
+          yLabel: elements.plotYLabel?.value || "f(x)",
+          yMin: yLow - yPadding,
+          yMax: yHigh + yPadding,
+          grid: controlValue(elements.plotGrid, "major"),
+          legendPosition: controlValue(
+            elements.plotLegendPosition,
+            "north east",
+          ),
+        },
+        { createIfMissing: true },
+      );
+      if (elements.plotFitStatus) {
+        elements.plotFitStatus.textContent = `${points.length} 个点 · ${legend} · ${fitted.expression}`;
+        elements.plotFitStatus.dataset.state = "success";
+      }
+      status("采样点与拟合曲线已同时写入 PGFPlots 源码");
+    } catch (error) {
+      if (elements.plotFitStatus) {
+        elements.plotFitStatus.textContent = userFacingError(error);
+        elements.plotFitStatus.dataset.state = "error";
+      }
+      status(`拟合失败：${userFacingError(error)}`);
+    }
+  });
   elements.graphNodeAdd?.addEventListener("click", () => {
     setEditorMode("visual");
-    visualEditor?.addGraphNode(elements.graphNodeLabel?.value || "新节点");
-    status("Graphviz 关系节点已加入画布；可添加连接线并交给布局引擎整理");
+    visualEditor?.addGraphNode(
+      elements.graphNodeLabel?.value || "新节点",
+      controlValue(elements.graphNodeShape, "node"),
+    );
+    status("Graphviz 节点已写入 DOT；选中节点后可继续添加，自动形成父子关系");
+  });
+  elements.graphConnect?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.beginConnection(
+      controlValue(elements.graphRelationType, "arrow"),
+      elements.graphRelationLabel?.value || "",
+    );
+    elements.visualCanvas?.focus?.();
+    status("关系模式已开启：从起点端口拖到目标节点，名称将写入 DOT 边标签");
   });
   elements.mindRootCreate?.addEventListener("click", () => {
     setEditorMode("visual");
@@ -841,7 +1408,24 @@ export function createDrawingWorkspaceController({
   elements.mindChildAdd?.addEventListener("click", () => {
     setEditorMode("visual");
     visualEditor?.addMindMapChild(elements.mindChild?.value || "新分支");
-    status("思维导图分支已添加，可直接拖动节点重新排布");
+    status("思维导图分支已挂到当前选中节点；层级已写入 Mermaid 缩进源码");
+  });
+  elements.mermaidNodeAdd?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.addGraphNode(
+      elements.mermaidNodeLabel?.value || "新步骤",
+      controlValue(elements.mermaidNodeShape, "node"),
+    );
+    status("Mermaid 语义节点已添加；节点形状会直接写入 Mermaid 原生语法");
+  });
+  elements.mermaidConnect?.addEventListener("click", () => {
+    setEditorMode("visual");
+    visualEditor?.beginConnection(
+      controlValue(elements.mermaidRelationType, "arrow"),
+      elements.mermaidRelationLabel?.value || "",
+    );
+    elements.visualCanvas?.focus?.();
+    status("Mermaid 关系模式已开启：拖动两个端口建立带语义标签的关系");
   });
   elements.tikzLatexAdd?.addEventListener("click", async () => {
     const latex = String(elements.tikzLatex?.value || "").trim();
@@ -913,8 +1497,14 @@ export function createDrawingWorkspaceController({
   for (const tool of elements.toolButtons || []) {
     tool.addEventListener("click", () => {
       if (state.editorMode === "visual" && visualEditor) {
-        visualEditor.add(tool.dataset.drawingTool);
-        status("对象已添加；可直接拖动、缩放或旋转");
+        const type = tool.dataset.drawingTool;
+        if (["arrow", "connector"].includes(type)) {
+          visualEditor.beginConnection(type);
+          status("连接模式已开启：从起点端口拖到目标节点即可建立关系");
+        } else {
+          visualEditor.add(type);
+          status("对象已添加；可直接拖动、缩放或旋转");
+        }
         return;
       }
       const snippet = TOOL_SNIPPETS[tool.dataset.drawingTool]?.[state.language];
@@ -972,6 +1562,11 @@ export function drawingWorkspaceElements(root = document) {
     visualEditor: root.getElementById("drawingVisualEditor"),
     sourceEditor: root.getElementById("drawingSourceEditor"),
     visualCanvas: root.getElementById("drawingVisualCanvas"),
+    canvasZoomOut: root.getElementById("drawingCanvasZoomOut"),
+    canvasZoomIn: root.getElementById("drawingCanvasZoomIn"),
+    canvasReset: root.getElementById("drawingCanvasReset"),
+    canvasFit: root.getElementById("drawingCanvasFit"),
+    canvasZoomValue: root.getElementById("drawingCanvasZoomValue"),
     editorModeHint: root.getElementById("drawingEditorModeHint"),
     compileButton: root.getElementById("drawingCompileBtn"),
     insertButton: root.getElementById("drawingInsertBtn"),
@@ -983,6 +1578,23 @@ export function drawingWorkspaceElements(root = document) {
     zoomValue: root.getElementById("drawingZoomValue"),
     graphvizEngine: root.getElementById("drawingGraphvizEngine"),
     plotCurve: root.getElementById("drawingPlotCurve"),
+    plotLegend: root.getElementById("drawingPlotLegend"),
+    plotStyle: root.getElementById("drawingPlotStyle"),
+    plotSamples: root.getElementById("drawingPlotSamples"),
+    plotApply: root.getElementById("drawingPlotApply"),
+    plotAdd: root.getElementById("drawingPlotAdd"),
+    plotXLabel: root.getElementById("drawingPlotXLabel"),
+    plotYLabel: root.getElementById("drawingPlotYLabel"),
+    plotYMin: root.getElementById("drawingPlotYMin"),
+    plotYMax: root.getElementById("drawingPlotYMax"),
+    plotGrid: root.getElementById("drawingPlotGrid"),
+    plotLegendPosition: root.getElementById("drawingPlotLegendPosition"),
+    plotAxesApply: root.getElementById("drawingPlotAxesApply"),
+    plotPresetButtons: [...root.querySelectorAll("[data-plot-expression]")],
+    plotData: root.getElementById("drawingPlotData"),
+    plotFitModel: root.getElementById("drawingPlotFitModel"),
+    plotFit: root.getElementById("drawingPlotFit"),
+    plotFitStatus: root.getElementById("drawingPlotFitStatus"),
     profilePanels: [...root.querySelectorAll("[data-drawing-workbench]")],
     profileTemplateButtons: [
       ...root.querySelectorAll("[data-drawing-profile-template]"),
@@ -1016,11 +1628,21 @@ export function drawingWorkspaceElements(root = document) {
     plotMin: root.getElementById("drawingPlotMin"),
     plotMax: root.getElementById("drawingPlotMax"),
     graphNodeLabel: root.getElementById("drawingGraphNodeLabel"),
+    graphNodeShape: root.getElementById("drawingGraphNodeShape"),
     graphNodeAdd: root.getElementById("drawingGraphNodeAdd"),
+    graphRelationLabel: root.getElementById("drawingGraphRelationLabel"),
+    graphRelationType: root.getElementById("drawingGraphRelationType"),
+    graphConnect: root.getElementById("drawingGraphConnect"),
     mindRoot: root.getElementById("drawingMindRoot"),
     mindRootCreate: root.getElementById("drawingMindRootCreate"),
     mindChild: root.getElementById("drawingMindChild"),
     mindChildAdd: root.getElementById("drawingMindChildAdd"),
+    mermaidNodeLabel: root.getElementById("drawingMermaidNodeLabel"),
+    mermaidNodeShape: root.getElementById("drawingMermaidNodeShape"),
+    mermaidNodeAdd: root.getElementById("drawingMermaidNodeAdd"),
+    mermaidRelationLabel: root.getElementById("drawingMermaidRelationLabel"),
+    mermaidRelationType: root.getElementById("drawingMermaidRelationType"),
+    mermaidConnect: root.getElementById("drawingMermaidConnect"),
   };
 }
 

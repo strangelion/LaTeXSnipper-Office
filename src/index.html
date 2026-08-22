@@ -909,7 +909,7 @@
                   role="tab"
                   aria-selected="true"
                 >
-                  可视化编辑
+                  可视化结构编辑
                 </button>
                 <button
                   id="drawingSourceModeBtn"
@@ -1023,19 +1023,71 @@
                   data-drawing-workbench="pgf_plots"
                   hidden
                 >
-                  <div>
-                    <strong>PGFPlots 数据曲线</strong
-                    ><span>坐标轴、函数与图例</span>
+                  <div class="drawing-workbench-heading">
+                    <div>
+                      <strong>PGFPlots 数据曲线</strong>
+                      <span>多曲线、坐标范围、图例与采样精度</span>
+                    </div>
+                    <div class="drawing-profile-actions">
+                      <button
+                        type="button"
+                        data-drawing-profile-template="plot"
+                      >
+                        单函数模板
+                      </button>
+                      <button id="drawingPlotAdd" type="button">
+                        新增曲线
+                      </button>
+                    </div>
                   </div>
-                  <div class="drawing-task-builder drawing-task-builder-plot">
-                    <label class="drawing-profile-field"
-                      >曲线
-                      <select id="drawingPlotCurve">
-                        <option value="sin">正弦</option>
-                        <option value="quadratic">二次函数</option>
-                        <option value="gaussian">高斯曲线</option>
-                        <option value="linear">线性函数</option>
-                      </select>
+                  <div class="drawing-pgf-builder">
+                    <div class="drawing-builder-section">
+                      <strong>当前曲线</strong>
+                      <span>选中画布中的曲线后修改，或新增叠加曲线</span>
+                    </div>
+                    <label
+                      >函数类型
+                      <div
+                        id="drawingPlotCurve"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="sin"
+                          tabindex="0"
+                        >
+                          <span>正弦</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="sin"
+                          >
+                            正弦
+                          </div>
+                          <div class="custom-select-option" data-value="cos">
+                            余弦
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="quadratic"
+                          >
+                            二次函数
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="gaussian"
+                          >
+                            高斯曲线
+                          </div>
+                          <div class="custom-select-option" data-value="linear">
+                            线性函数
+                          </div>
+                          <div class="custom-select-option" data-value="custom">
+                            自定义表达式
+                          </div>
+                        </div>
+                      </div>
                     </label>
                     <label for="drawingPlotExpression"
                       >表达式
@@ -1045,6 +1097,49 @@
                         value="sin(x)"
                         spellcheck="false"
                       />
+                    </label>
+                    <label for="drawingPlotLegend"
+                      >图例名称
+                      <input
+                        id="drawingPlotLegend"
+                        type="text"
+                        value="sin(x)"
+                      />
+                    </label>
+                    <label
+                      >线型
+                      <div
+                        id="drawingPlotStyle"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="solid"
+                          tabindex="0"
+                        >
+                          <span>实线</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="solid"
+                          >
+                            实线
+                          </div>
+                          <div class="custom-select-option" data-value="dashed">
+                            虚线
+                          </div>
+                          <div class="custom-select-option" data-value="dotted">
+                            点线
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="dashdotted"
+                          >
+                            点划线
+                          </div>
+                        </div>
+                      </div>
                     </label>
                     <label for="drawingPlotMin"
                       >最小 x<input
@@ -1060,8 +1155,357 @@
                         value="6.28"
                         step="0.1"
                     /></label>
-                    <button type="button" data-drawing-profile-template="plot">
-                      绘制函数
+                    <label for="drawingPlotSamples"
+                      >采样点<input
+                        id="drawingPlotSamples"
+                        type="number"
+                        value="120"
+                        min="16"
+                        max="600"
+                        step="8"
+                    /></label>
+                    <button id="drawingPlotApply" type="button">
+                      更新当前曲线
+                    </button>
+                    <section
+                      class="drawing-pgf-wide drawing-plot-presets"
+                      aria-labelledby="drawingPlotPresetTitle"
+                    >
+                      <div>
+                        <strong id="drawingPlotPresetTitle">函数预设</strong>
+                        <span>点击只填入参数，确认后才写入源码</span>
+                      </div>
+                      <div class="drawing-plot-preset-grid">
+                        <button
+                          type="button"
+                          data-plot-expression="sin(x)"
+                          data-plot-legend="sin(x)"
+                          data-plot-x-min="-6.28"
+                          data-plot-x-max="6.28"
+                          data-plot-y-min="-1.5"
+                          data-plot-y-max="1.5"
+                        >
+                          sin(x)
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="cos(x)"
+                          data-plot-legend="cos(x)"
+                          data-plot-x-min="-6.28"
+                          data-plot-x-max="6.28"
+                          data-plot-y-min="-1.5"
+                          data-plot-y-max="1.5"
+                        >
+                          cos(x)
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="tan(x)"
+                          data-plot-legend="tan(x)"
+                          data-plot-x-min="-6.28"
+                          data-plot-x-max="6.28"
+                          data-plot-y-min="-6"
+                          data-plot-y-max="6"
+                        >
+                          tan(x)
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="x^2"
+                          data-plot-legend="x^2"
+                          data-plot-x-min="-4"
+                          data-plot-x-max="4"
+                          data-plot-y-min="-1"
+                          data-plot-y-max="17"
+                        >
+                          x²
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="x^3"
+                          data-plot-legend="x^3"
+                          data-plot-x-min="-3"
+                          data-plot-x-max="3"
+                          data-plot-y-min="-30"
+                          data-plot-y-max="30"
+                        >
+                          x³
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="exp(x)"
+                          data-plot-legend="exp(x)"
+                          data-plot-x-min="-4"
+                          data-plot-x-max="4"
+                          data-plot-y-min="-1"
+                          data-plot-y-max="60"
+                        >
+                          exp(x)
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="ln(x)"
+                          data-plot-legend="ln(x)"
+                          data-plot-x-min="0.05"
+                          data-plot-x-max="8"
+                          data-plot-y-min="-4"
+                          data-plot-y-max="3"
+                        >
+                          ln(x)
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="1/(1+exp(-x))"
+                          data-plot-legend="Logistic"
+                          data-plot-x-min="-8"
+                          data-plot-x-max="8"
+                          data-plot-y-min="-0.1"
+                          data-plot-y-max="1.1"
+                        >
+                          Logistic
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="exp(-x^2)"
+                          data-plot-legend="Gaussian"
+                          data-plot-x-min="-4"
+                          data-plot-x-max="4"
+                          data-plot-y-min="-0.1"
+                          data-plot-y-max="1.1"
+                        >
+                          Gaussian
+                        </button>
+                        <button
+                          type="button"
+                          data-plot-expression="exp(-0.15*x)*sin(x)"
+                          data-plot-legend="Damped sine"
+                          data-plot-x-min="0"
+                          data-plot-x-max="30"
+                          data-plot-y-min="-1.2"
+                          data-plot-y-max="1.2"
+                        >
+                          阻尼振荡
+                        </button>
+                      </div>
+                    </section>
+                    <details class="drawing-pgf-wide drawing-plot-help">
+                      <summary>函数写法速查</summary>
+                      <div>
+                        <code>sin(x)</code><span>三角函数按弧度输入</span>
+                        <code>sqrt(x)</code><span>平方根</span>
+                        <code>abs(x)</code><span>绝对值</span>
+                        <code>exp(x)</code><span>自然指数</span>
+                        <code>ln(x)</code><span>自然对数，要求 x &gt; 0</span>
+                        <code>x^n</code><span>幂函数，例如 x^3</span>
+                        <code>文字与符号</code
+                        ><span
+                          >内置 TeX 预览请使用 ASCII；数学符号用 \alpha、\angle
+                          等命令，避免直接输入 Unicode</span
+                        >
+                      </div>
+                    </details>
+                    <section
+                      class="drawing-pgf-wide drawing-plot-fit"
+                      aria-labelledby="drawingPlotFitTitle"
+                    >
+                      <div class="drawing-builder-section">
+                        <strong id="drawingPlotFitTitle">表格拟合</strong>
+                        <span
+                          >粘贴 CSV、TSV 或空格分隔的 x/y
+                          两列数据；计算完全离线</span
+                        >
+                      </div>
+                      <label for="drawingPlotData"
+                        >数据表
+                        <textarea
+                          id="drawingPlotData"
+                          rows="5"
+                          spellcheck="false"
+                        >
+x,y
+0,1
+1,2.1
+2,4.2
+3,8.1
+4,16.2</textarea
+                        >
+                      </label>
+                      <label
+                        >拟合模型
+                        <div
+                          id="drawingPlotFitModel"
+                          class="custom-select drawing-control-select wide"
+                        >
+                          <div
+                            class="custom-select-trigger"
+                            data-value="linear"
+                            tabindex="0"
+                          >
+                            <span>线性 y = a + bx</span>
+                          </div>
+                          <div class="custom-select-dropdown">
+                            <div
+                              class="custom-select-option selected"
+                              data-value="linear"
+                            >
+                              线性 y = a + bx
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="quadratic"
+                            >
+                              二次多项式
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="cubic"
+                            >
+                              三次多项式
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="exponential"
+                            >
+                              指数 y = ae^(bx)
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="logarithmic"
+                            >
+                              对数 y = a + b ln(x)
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="power"
+                            >
+                              幂函数 y = ax^b
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                      <button id="drawingPlotFit" type="button">
+                        计算并加入拟合曲线
+                      </button>
+                      <output
+                        id="drawingPlotFitStatus"
+                        class="drawing-plot-fit-status"
+                        aria-live="polite"
+                        >尚未计算</output
+                      >
+                    </section>
+                    <div
+                      class="drawing-builder-section drawing-builder-section-axes"
+                    >
+                      <strong>坐标轴与版式</strong>
+                      <span>这些选项直接写入 axis 环境</span>
+                    </div>
+                    <label for="drawingPlotXLabel"
+                      >X 轴名称<input
+                        id="drawingPlotXLabel"
+                        type="text"
+                        value="x"
+                    /></label>
+                    <label for="drawingPlotYLabel"
+                      >Y 轴名称<input
+                        id="drawingPlotYLabel"
+                        type="text"
+                        value="f(x)"
+                    /></label>
+                    <label for="drawingPlotYMin"
+                      >最小 y<input
+                        id="drawingPlotYMin"
+                        type="number"
+                        value="-1.5"
+                        step="0.1"
+                    /></label>
+                    <label for="drawingPlotYMax"
+                      >最大 y<input
+                        id="drawingPlotYMax"
+                        type="number"
+                        value="1.5"
+                        step="0.1"
+                    /></label>
+                    <label
+                      >网格
+                      <div
+                        id="drawingPlotGrid"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="major"
+                          tabindex="0"
+                        >
+                          <span>主网格</span>
+                        </div>
+                        <div class="custom-select-dropdown dropup">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="major"
+                          >
+                            主网格
+                          </div>
+                          <div class="custom-select-option" data-value="minor">
+                            次网格
+                          </div>
+                          <div class="custom-select-option" data-value="both">
+                            完整网格
+                          </div>
+                          <div class="custom-select-option" data-value="none">
+                            无网格
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <label
+                      >图例位置
+                      <div
+                        id="drawingPlotLegendPosition"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="north east"
+                          tabindex="0"
+                        >
+                          <span>右上</span>
+                        </div>
+                        <div class="custom-select-dropdown dropup">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="north east"
+                          >
+                            右上
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="north west"
+                          >
+                            左上
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="south east"
+                          >
+                            右下
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="south west"
+                          >
+                            左下
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="outer north east"
+                          >
+                            图外右上
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <button id="drawingPlotAxesApply" type="button">
+                      应用坐标设置
                     </button>
                   </div>
                 </div>
@@ -1075,15 +1519,44 @@
                     ><span>层级、网络与自动布局</span>
                   </div>
                   <label class="drawing-profile-field"
-                    >布局
-                    <select id="drawingGraphvizEngine">
-                      <option value="dot">Dot（层次）</option>
-                      <option value="neato">Neato（弹簧）</option>
-                      <option value="fdp">FDP（力导向）</option>
-                      <option value="circo">Circo（环形）</option>
-                      <option value="twopi">Twopi（径向）</option>
-                    </select>
+                    >布局（源码模式）
+                    <div
+                      id="drawingGraphvizEngine"
+                      class="custom-select drawing-control-select wide"
+                    >
+                      <div
+                        class="custom-select-trigger"
+                        data-value="dot"
+                        tabindex="0"
+                      >
+                        <span>Dot（层次）</span>
+                      </div>
+                      <div class="custom-select-dropdown">
+                        <div
+                          class="custom-select-option selected"
+                          data-value="dot"
+                        >
+                          Dot（层次）
+                        </div>
+                        <div class="custom-select-option" data-value="neato">
+                          Neato（固定坐标）
+                        </div>
+                        <div class="custom-select-option" data-value="fdp">
+                          FDP（力导向）
+                        </div>
+                        <div class="custom-select-option" data-value="circo">
+                          Circo（环形）
+                        </div>
+                        <div class="custom-select-option" data-value="twopi">
+                          Twopi（径向）
+                        </div>
+                      </div>
+                    </div>
                   </label>
+                  <p class="drawing-task-status">
+                    可视化模式固定使用 Neato 坐标，节点距离和大小直接写入
+                    DOT；切换源码模式后可使用自动布局。
+                  </p>
                   <div class="drawing-profile-actions">
                     <button
                       type="button"
@@ -1101,7 +1574,7 @@
                       环形图
                     </button>
                   </div>
-                  <div class="drawing-task-builder">
+                  <div class="drawing-task-builder drawing-task-builder-graph">
                     <label for="drawingGraphNodeLabel"
                       >节点名称<input
                         id="drawingGraphNodeLabel"
@@ -1109,8 +1582,87 @@
                         value="新节点"
                       />
                     </label>
+                    <label
+                      >节点形状
+                      <div
+                        id="drawingGraphNodeShape"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="node"
+                          tabindex="0"
+                        >
+                          <span>圆角矩形</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="node"
+                          >
+                            圆角矩形
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="rectangle"
+                          >
+                            矩形
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="ellipse"
+                          >
+                            椭圆
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="diamond"
+                          >
+                            判断菱形
+                          </div>
+                        </div>
+                      </div>
+                    </label>
                     <button id="drawingGraphNodeAdd" type="button">
                       添加关系节点
+                    </button>
+                    <label for="drawingGraphRelationLabel"
+                      >关系名称<input
+                        id="drawingGraphRelationLabel"
+                        type="text"
+                        value="关系"
+                    /></label>
+                    <label
+                      >连线类型
+                      <div
+                        id="drawingGraphRelationType"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="arrow"
+                          tabindex="0"
+                        >
+                          <span>有向边</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="arrow"
+                          >
+                            有向边
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="connector"
+                          >
+                            曲线关系
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <button id="drawingGraphConnect" type="button">
+                      从端口建立关系
                     </button>
                   </div>
                 </div>
@@ -1162,7 +1714,97 @@
                       />
                     </label>
                     <button id="drawingMindChildAdd" type="button">
-                      快速添加分支
+                      添加到选中分支
+                    </button>
+                  </div>
+                  <div class="drawing-task-builder drawing-task-builder-graph">
+                    <label for="drawingMermaidNodeLabel"
+                      >流程节点<input
+                        id="drawingMermaidNodeLabel"
+                        type="text"
+                        value="新步骤"
+                    /></label>
+                    <label
+                      >节点语义
+                      <div
+                        id="drawingMermaidNodeShape"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="node"
+                          tabindex="0"
+                        >
+                          <span>处理步骤</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="node"
+                          >
+                            处理步骤
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="ellipse"
+                          >
+                            开始/结束
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="diamond"
+                          >
+                            条件判断
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="rectangle"
+                          >
+                            矩形步骤
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <button id="drawingMermaidNodeAdd" type="button">
+                      添加流程节点
+                    </button>
+                    <label for="drawingMermaidRelationLabel"
+                      >关系/消息<input
+                        id="drawingMermaidRelationLabel"
+                        type="text"
+                        value="下一步"
+                    /></label>
+                    <label
+                      >关系样式
+                      <div
+                        id="drawingMermaidRelationType"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="arrow"
+                          tabindex="0"
+                        >
+                          <span>直接关系</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="arrow"
+                          >
+                            直接关系
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="connector"
+                          >
+                            语义关系
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <button id="drawingMermaidConnect" type="button">
+                      从端口建立关系
                     </button>
                   </div>
                 </div>
@@ -1174,6 +1816,42 @@
                 aria-labelledby="drawingVisualModeBtn"
               >
                 <div
+                  class="drawing-canvas-navigation"
+                  aria-label="画布观察工具"
+                >
+                  <span>观察画布</span>
+                  <div role="group" aria-label="画布缩放">
+                    <button
+                      id="drawingCanvasZoomOut"
+                      type="button"
+                      title="缩小画布"
+                    >
+                      −
+                    </button>
+                    <button
+                      id="drawingCanvasReset"
+                      type="button"
+                      title="恢复 100% 与居中"
+                    >
+                      <output id="drawingCanvasZoomValue">100%</output>
+                    </button>
+                    <button
+                      id="drawingCanvasZoomIn"
+                      type="button"
+                      title="放大画布"
+                    >
+                      +
+                    </button>
+                    <button id="drawingCanvasFit" type="button">
+                      适应内容
+                    </button>
+                  </div>
+                  <small
+                    >拖动空白处平移 · 滚轮缩放 ·
+                    双击节点或连线文字快速编辑</small
+                  >
+                </div>
+                <div
                   id="drawingVisualCanvas"
                   class="drawing-visual-canvas show-grid"
                   tabindex="0"
@@ -1181,7 +1859,9 @@
                 ></div>
                 <p>
                   选中对象后直接拖动；四角自由缩放，边中点单独调整宽高，Shift
-                  等比缩放，上方圆柄旋转，Delete 删除。
+                  等比缩放，上方圆柄旋转。选择“箭头/连接线”后，从节点端口拖到另一个节点即可建立稳定关系；移动节点时连线自动跟随。Delete
+                  删除。Mermaid
+                  的节点位置由其布局引擎决定，因此平移/缩放只用于观察连接，不会伪造源码无法表达的固定坐标。原生源码是唯一依据；下方安全预览展示实际编译结果。
                 </p>
               </div>
               <div

@@ -85,6 +85,11 @@ export function normalizeBundledSvg(svg, renderer = "绘图") {
 
 function normalizeTikzSource(source) {
   const text = assertSafeSource(source);
+  if (/[^\u0000-\u007f]/.test(text)) {
+    throw new Error(
+      "内置 TikZ/PGFPlots 运行时不包含 CJK/Unicode 数学字体；请将中文图例或节点改为 ASCII，并用 \\alpha、\\angle 等 LaTeX 命令输入数学符号",
+    );
+  }
   return /\\begin\s*\{tikzpicture\}/.test(text)
     ? text
     : `\\begin{tikzpicture}\n${text}\n\\end{tikzpicture}`;
@@ -140,6 +145,7 @@ async function loadTikzRuntime() {
 
 export async function renderTikz(source, { packageProfiles = [], host } = {}) {
   if (!host) throw new Error("TikZ 预览容器不可用");
+  const normalizedSource = normalizeTikzSource(source);
   await loadTikzRuntime();
   const script = document.createElement("script");
   script.type = "text/tikz";
@@ -153,7 +159,7 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
     script.dataset.texPackages = JSON.stringify({ pgfplots: "" });
     script.dataset.addToPreamble = "\\pgfplotsset{compat=1.18}";
   }
-  script.textContent = normalizeTikzSource(source);
+  script.textContent = normalizedSource;
 
   const rendered = new Promise((resolve, reject) => {
     const observer = new MutationObserver(() => {

@@ -3,19 +3,29 @@ import test from "node:test";
 import {
   computeFittedViewBox,
   createDrawingWorkspaceController,
+  fitPlotData,
+  parsePlotDataTable,
   resolveDrawingAuthoringInput,
   resolveVisualProfile,
   visualToolsForLanguage,
 } from "../src/features/drawing/workspace.js";
+import { toPgfPlotsExpression } from "../src/features/drawing/math-expression.js";
 import {
   MERMAID_RENDER_OPTIONS,
   normalizeBundledSvg,
   normalizeMermaidRenderId,
+  renderTikz,
 } from "../src/features/drawing/local-renderers.js";
 import {
   createProfileDocument,
+  evaluatePlotExpression,
+  materializeVisualObjects,
   serializeVisualDrawing,
 } from "../src/features/drawing/visual-editor.js";
+import {
+  parseVisualDocument,
+  serializeVisualDocument,
+} from "../src/features/drawing/source-adapters.js";
 
 class FakeClassList {
   constructor() {
@@ -78,6 +88,121 @@ test("PGFPlots resolves to an independent visual profile", () => {
   assert.equal(resolveVisualProfile("mermaid", []), "mermaid");
 });
 
+test("PGFPlots parses pasted tables and fits supported models offline", () => {
+  const points = parsePlotDataTable(
+    "x,y\n0,1\n1\t3\n2 5\n# comment\ninvalid,row",
+  );
+  assert.deepEqual(points, [
+    { x: 0, y: 1 },
+    { x: 1, y: 3 },
+    { x: 2, y: 5 },
+  ]);
+  const linear = fitPlotData(points, "linear");
+  assert.ok(linear.rSquared > 0.999999);
+  assert.equal(linear.expression, "(1)+(2)*x");
+  assert.equal(evaluatePlotExpression(linear.expression, 4), 9);
+
+  const quadratic = fitPlotData(
+    [
+      { x: -1, y: 1 },
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+      { x: 2, y: 4 },
+    ],
+    "quadratic",
+  );
+  assert.ok(quadratic.rSquared > 0.999999);
+  assert.ok(
+    Math.abs(evaluatePlotExpression(quadratic.expression, 3) - 9) < 1e-6,
+  );
+
+  const exponential = fitPlotData(
+    [
+      { x: 0, y: 2 },
+      { x: 1, y: 4 },
+      { x: 2, y: 8 },
+    ],
+    "exponential",
+  );
+  assert.ok(exponential.rSquared > 0.999999);
+  assert.ok(
+    Math.abs(evaluatePlotExpression(exponential.expression, 3) - 16) < 1e-5,
+  );
+});
+
+test("PGFPlots fitted data and curve share one native source contract", () => {
+  const objects = createProfileDocument("pgf_plots", "plot", {
+    expression: "cos(x)",
+    legend: "余弦",
+  });
+  const plot = objects.find((object) => object.type === "plot");
+  plot.lineStyle = "dashdotted";
+  plot.dataPoints = [
+    { x: 0, y: 1 },
+    { x: 1, y: 0.54 },
+  ];
+  const source = serializeVisualDocument("pgf_plots", objects).source;
+  assert.match(source, /table\[row sep=\\\\\]/);
+  assert.match(source, /0 1 \\\\/);
+  assert.match(source, /cos\(deg\(x\)\)/);
+  assert.match(source, /dashdotted/);
+  assert.match(source, /unbounded coords=jump/);
+  assert.match(source, /\\addlegendentry\{samples\}/);
+  assert.doesNotMatch(source, /采样点/);
+  assert.equal(parseVisualDocument("pgf_plots", source).lossless, true);
+});
+
+test("PGFPlots presets share one parser for visual values and native TeX", () => {
+  const presets = [
+    ["sin(x)", /sin\(deg\(x\)\)/],
+    ["cos(x)", /cos\(deg\(x\)\)/],
+    ["tan(x)", /tan\(deg\(x\)\)/],
+    ["x^2", /\(x\)\^\(2\)/],
+    ["x^3", /\(x\)\^\(3\)/],
+    ["exp(x)", /exp\(x\)/],
+    ["ln(x)", /ln\(x\)/],
+    ["1\/(1+exp(-x))", /exp\(-\(x\)\)/],
+    ["exp(-x^2)", /exp\(-\(\(x\)\^\(2\)\)\)/],
+    ["exp(-0.15*x)*sin(x)", /exp\(\(-\(0\.15\)\)\*\(x\)\).*sin\(deg\(x\)\)/],
+  ];
+  for (const [expression, expected] of presets) {
+    assert.match(toPgfPlotsExpression(expression), expected, expression);
+    assert.equal(
+      Number.isFinite(evaluatePlotExpression(expression, 0.75)),
+      true,
+      expression,
+    );
+  }
+  assert.throws(() => toPgfPlotsExpression("sin(x); shell"), /不支持/);
+});
+
+test("PGFPlots visual curves use the same axis range as native source", () => {
+  const objects = createProfileDocument("pgf_plots", "plot", {
+    expression: "x",
+    xMin: -1,
+    xMax: 1,
+  });
+  const axes = objects.find((object) => object.type === "axes");
+  const plot = objects.find((object) => object.type === "plot");
+  axes.yMin = -100;
+  axes.yMax = 100;
+  plot.yMin = -1;
+  plot.yMax = 1;
+
+  const svg = serializeVisualDrawing(objects);
+  const source = serializeVisualDocument("pgf_plots", objects).source;
+  assert.match(svg, /-150\.0,0\.8/);
+  assert.match(source, /ymin=-100/);
+  assert.match(source, /ymax=100/);
+});
+
+test("TikZ preview rejects unsupported CJK before an opaque DVI failure", async () => {
+  await assert.rejects(
+    renderTikz(String.raw`\\node {中文};`, { host: {} }),
+    /不包含 CJK\/Unicode 数学字体/,
+  );
+});
+
 test("language-specific documents expose different editing models", () => {
   const tikz = createProfileDocument("tikz", "geometry");
   const pgf = createProfileDocument("pgf_plots", "plot", {
@@ -88,7 +213,7 @@ test("language-specific documents expose different editing models", () => {
   const mindmap = createProfileDocument("mermaid", "mindmap", {
     root: "研究主题",
   });
-  assert.ok(tikz.some((item) => item.text === "∠ABC"));
+  assert.ok(tikz.some((item) => item.text === "angle ABC"));
   assert.equal(pgf.find((item) => item.type === "plot")?.curve, "gaussian");
   assert.ok(graph.some((item) => item.text === "根"));
   assert.deepEqual(
@@ -98,17 +223,87 @@ test("language-specific documents expose different editing models", () => {
   assert.ok(mindmap.some((item) => item.text === "研究主题"));
 });
 
-test("visual authoring stays available for non-SVG languages without forging native source", () => {
+test("relationship documents use stable endpoint ids and edges follow nodes", () => {
+  const graph = createProfileDocument("graphviz_dot", "hierarchy");
+  const nodes = graph.filter((item) => item.type === "node");
+  const edges = graph.filter((item) => item.type === "connector");
+  assert.equal(edges.length, 2);
+  assert.ok(edges.every((edge) => edge.fromId && edge.toId));
+  assert.ok(
+    edges.every(
+      (edge) =>
+        nodes.some((node) => node.id === edge.fromId) &&
+        nodes.some((node) => node.id === edge.toId),
+    ),
+  );
+  const before = materializeVisualObjects(graph).find(
+    (item) => item.id === edges[0].id,
+  );
+  nodes[0].x += 90;
+  const after = materializeVisualObjects(graph).find(
+    (item) => item.id === edges[0].id,
+  );
+  assert.notEqual(after.x, before.x);
+  const dot = serializeVisualDocument("graphviz_dot", graph).source;
+  assert.match(dot, /n\d+ -> n\d+/);
+});
+
+test("purpose-built relation labels and mind-map hierarchy reach native source", () => {
+  const sequence = createProfileDocument("mermaid", "sequence");
+  const sequenceEdge = sequence.find((item) => item.type === "arrow");
+  sequenceEdge.text = "提交公式";
+  assert.match(
+    serializeVisualDocument("mermaid", sequence).source,
+    /->>.*: 提交公式/,
+  );
+
+  const mindMap = createProfileDocument("mermaid", "mindmap", {
+    root: "研究",
+  });
+  const root = mindMap.find((item) => item.type === "ellipse");
+  const children = mindMap.filter((item) => item.type === "node");
+  const nested = {
+    ...children[1],
+    id: "nested-branch",
+    text: "子主题",
+    x: 650,
+    y: 410,
+    mindMapChild: true,
+  };
+  mindMap.push(nested, {
+    id: "nested-edge",
+    type: "connector",
+    fromId: children[0].id,
+    toId: nested.id,
+    mindMapEdge: true,
+    profile: "mermaid",
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 36,
+    rotation: 0,
+    color: "#2563EB",
+    fill: "#EFF6FF",
+    strokeWidth: 4,
+    text: "",
+  });
+  assert.ok(root);
+  const source = serializeVisualDocument("mermaid", mindMap).source;
+  assert.match(source, /^mindmap/m);
+  assert.match(source, /^      子主题$/m);
+});
+
+test("visual authoring compiles the synchronized native source", () => {
   assert.deepEqual(
     resolveDrawingAuthoringInput({
       editorMode: "visual",
       language: "mermaid",
       nativeSource: "flowchart LR\nA --> B",
-      visualSource: '<svg viewBox="0 0 10 10"/>',
+      packageProfiles: [],
     }),
     {
-      language: "svg_source",
-      source: '<svg viewBox="0 0 10 10"/>',
+      language: "mermaid",
+      source: "flowchart LR\nA --> B",
       packageProfiles: [],
       visual: true,
     },
@@ -118,9 +313,90 @@ test("visual authoring stays available for non-SVG languages without forging nat
       editorMode: "source",
       language: "mermaid",
       nativeSource: "flowchart LR\nA --> B",
-      visualSource: "<svg/>",
     }).language,
     "mermaid",
+  );
+});
+
+test("all visual profiles serialize to their native language and round-trip", () => {
+  const expectations = {
+    svg_source: /<svg\b/,
+    tikz: /\\(?:draw|node)/,
+    pgf_plots: /\\begin\{axis\}[\s\S]*\\addplot/,
+    graphviz_dot: /digraph LaTeXSnipper/,
+    mermaid: /(?:flowchart|sequenceDiagram|stateDiagram|mindmap)/,
+  };
+  for (const profile of Object.keys(expectations)) {
+    const objects = createProfileDocument(profile);
+    const serialized = serializeVisualDocument(profile, objects);
+    assert.match(serialized.source, expectations[profile], profile);
+    if (profile !== "svg_source") {
+      assert.doesNotMatch(serialized.source, /^<svg\b/, profile);
+    }
+    const parsed = parseVisualDocument(profile, serialized.source);
+    assert.equal(parsed.lossless, true, profile);
+    assert.deepEqual(parsed.objects, objects, profile);
+    assert.equal(
+      serializeVisualDocument(profile, parsed.objects).source,
+      serialized.source,
+      profile,
+    );
+  }
+});
+
+test("visual contract rejects stale metadata instead of overwriting edited source", () => {
+  const serialized = serializeVisualDocument(
+    "graphviz_dot",
+    createProfileDocument("graphviz_dot"),
+  );
+  const edited = serialized.source.replace(
+    "digraph LaTeXSnipper",
+    "digraph UserEdited",
+  );
+  const parsed = parseVisualDocument("graphviz_dot", edited);
+  assert.equal(parsed.lossless, false);
+  assert.equal(parsed.source, edited);
+  assert.match(parsed.warning, /锁定|内容丢失/);
+});
+
+test("recognized native subsets stay locked unless round-trip is provably lossless", () => {
+  const pgf = parseVisualDocument(
+    "pgf_plots",
+    "\\begin{axis}\\addplot[domain=-2:4]{x^2};\\end{axis}",
+  );
+  assert.equal(pgf.lossless, false);
+  assert.equal(pgf.origin, "supported-subset");
+  assert.equal(pgf.objects[0].expression, "x^2");
+  assert.equal(pgf.objects[0].xMin, -2);
+  assert.equal(pgf.objects[0].xMax, 4);
+
+  const mermaid = parseVisualDocument(
+    "mermaid",
+    'flowchart LR\n  A["输入"]\n  B{"通过？"}',
+  );
+  assert.equal(mermaid.lossless, false);
+  assert.deepEqual(
+    mermaid.objects.map((object) => object.text),
+    ["输入", "通过？"],
+  );
+});
+
+test("LaTeX formula objects remain native and survive visual round-trip", () => {
+  const objects = [
+    {
+      ...createProfileDocument("tikz")[0],
+      id: "formula-native",
+      type: "formula",
+      text: "\\frac{a}{b}",
+      formulaSvg:
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><path d="M0 5H20"/></svg>',
+    },
+  ];
+  const serialized = serializeVisualDocument("tikz", objects);
+  assert.match(serialized.source, /\$\\frac\{a\}\{b\}\$/);
+  assert.equal(
+    parseVisualDocument("tikz", serialized.source).objects[0].formulaSvg,
+    objects[0].formulaSvg,
   );
 });
 
@@ -282,6 +558,8 @@ test("clicking compile transitions state and enables real insert", async () => {
   elements.compileButton.click();
   await settle();
   assert.equal(compileRequests[0].language, "tikz");
+  assert.equal(compileRequests[0].source, elements.source.value);
+  assert.doesNotMatch(compileRequests[0].source, /^<svg\b/);
   assert.deepEqual(compileRequests[0].packageProfiles, ["pgf_plots"]);
   assert.equal(elements.preview.innerHTML, '<svg viewBox="0 0 10 10"/>');
   assert.equal(elements.insertButton.disabled, false);

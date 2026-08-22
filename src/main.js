@@ -51,6 +51,8 @@ import {
   scopedSettingKey,
 } from "./platform/settings-scope.js";
 
+const hasDesktopRuntime = () => Boolean(window.__TAURI_INTERNALS__);
+
 // ═══════════════════════════════════════════
 // Logging System
 // ═══════════════════════════════════════════
@@ -272,15 +274,64 @@ class CustomSelect {
   }
 
   init() {
+    this.element.setAttribute("role", "group");
+    this.trigger.setAttribute("role", "combobox");
+    this.trigger.setAttribute("aria-haspopup", "listbox");
+    this.trigger.setAttribute("aria-expanded", "false");
+    this.trigger.tabIndex =
+      this.trigger.tabIndex >= 0 ? this.trigger.tabIndex : 0;
+    this.dropdown.setAttribute("role", "listbox");
+    this.options.forEach((option) => {
+      option.setAttribute("role", "option");
+      option.tabIndex = -1;
+      option.setAttribute(
+        "aria-selected",
+        String(option.dataset.value === this.value),
+      );
+    });
+
     this.trigger.addEventListener("click", (e) => {
       e.stopPropagation();
       this.toggle();
+    });
+
+    this.trigger.addEventListener("keydown", (event) => {
+      if (this.disabled()) return;
+      if (["Enter", " ", "ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        this.open({
+          focusOption: true,
+          direction: event.key === "ArrowUp" ? -1 : 1,
+        });
+      } else if (event.key === "Escape") {
+        this.close({ restoreFocus: true });
+      }
     });
 
     this.options.forEach((option) => {
       option.addEventListener("click", (e) => {
         e.stopPropagation();
         this.select(option);
+      });
+      option.addEventListener("keydown", (event) => {
+        const currentIndex = [...this.options].indexOf(option);
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          let nextIndex = currentIndex;
+          if (event.key === "ArrowDown") nextIndex += 1;
+          if (event.key === "ArrowUp") nextIndex -= 1;
+          if (event.key === "Home") nextIndex = 0;
+          if (event.key === "End") nextIndex = this.options.length - 1;
+          this.options[
+            (nextIndex + this.options.length) % this.options.length
+          ]?.focus();
+        } else if (["Enter", " "].includes(event.key)) {
+          event.preventDefault();
+          this.select(option);
+          this.trigger.focus();
+        } else if (event.key === "Escape" || event.key === "Tab") {
+          this.close({ restoreFocus: event.key === "Escape" });
+        }
       });
     });
 
@@ -290,23 +341,57 @@ class CustomSelect {
   }
 
   toggle() {
+    if (this.disabled()) return;
     this.element.classList.contains("open") ? this.close() : this.open();
   }
 
-  open() {
-    document
-      .querySelectorAll(".custom-select.open")
-      .forEach((s) => s.classList.remove("open"));
-    this.element.classList.add("open");
+  disabled() {
+    return (
+      this.element.classList.contains("is-disabled") ||
+      this.trigger.getAttribute("aria-disabled") === "true"
+    );
   }
 
-  close() {
+  open({ focusOption = false, direction = 1 } = {}) {
+    if (this.disabled()) return;
+    document.querySelectorAll(".custom-select.open").forEach((select) => {
+      if (select._selectInstance) select._selectInstance.close();
+      else {
+        select.classList.remove("open");
+        select
+          .querySelector(".custom-select-trigger")
+          ?.setAttribute("aria-expanded", "false");
+      }
+    });
+    this.element.classList.add("open");
+    this.trigger.setAttribute("aria-expanded", "true");
+    if (focusOption) {
+      const selectedIndex = [...this.options].findIndex((option) =>
+        option.classList.contains("selected"),
+      );
+      const targetIndex =
+        selectedIndex >= 0
+          ? selectedIndex
+          : direction < 0
+            ? this.options.length - 1
+            : 0;
+      this.options[targetIndex]?.focus();
+    }
+  }
+
+  close({ restoreFocus = false } = {}) {
     this.element.classList.remove("open");
+    this.trigger.setAttribute("aria-expanded", "false");
+    if (restoreFocus) this.trigger.focus();
   }
 
   select(option) {
-    this.options.forEach((opt) => opt.classList.remove("selected"));
+    this.options.forEach((opt) => {
+      opt.classList.remove("selected");
+      opt.setAttribute("aria-selected", "false");
+    });
     option.classList.add("selected");
+    option.setAttribute("aria-selected", "true");
     this.value = option.dataset.value;
     this.trigger.querySelector("span").textContent = option.textContent;
     this.trigger.dataset.value = this.value;
@@ -349,6 +434,10 @@ class FormulaEditor {
       const { MathfieldElement } = await import("mathlive");
       MathfieldElement.strings = { "zh-CN": _MATHLIVE_I18N };
       MathfieldElement.locale = "zh-CN";
+      MathfieldElement.fontsDirectory = new URL(
+        "./vendor/mathlive-fonts/",
+        document.baseURI,
+      ).href;
 
       const container = document.getElementById("mathfieldHost");
       if (container) {
@@ -3258,16 +3347,18 @@ class UIController {
 
     // Initial ecosystem host selector setup
     this.updateEcosystemHostSelector();
-    // Immediately fetch online clients and populate selector
-    this.refreshEcosystemTargetSelector().catch((e) =>
-      Logger.warn("Ecosystem selector refresh failed:", e),
-    );
-    // Periodically refresh ecosystem target selector
-    setInterval(() => {
+    if (hasDesktopRuntime()) {
+      // Desktop-only client discovery. Browser preview keeps the selector UI
+      // available without repeatedly calling an unavailable Tauri backend.
       this.refreshEcosystemTargetSelector().catch((e) =>
         Logger.warn("Ecosystem selector refresh failed:", e),
       );
-    }, 10000);
+      setInterval(() => {
+        this.refreshEcosystemTargetSelector().catch((e) =>
+          Logger.warn("Ecosystem selector refresh failed:", e),
+        );
+      }, 10000);
+    }
 
     // Close dropdown on outside click
     document.addEventListener("click", () => {
@@ -3278,7 +3369,9 @@ class UIController {
 
     // Listen for session changes
     this.initNativeOfficeEvents();
-    void this.restoreRecoverableOfficeTransaction();
+    if (hasDesktopRuntime()) {
+      void this.restoreRecoverableOfficeTransaction();
+    }
 
     // Initial selector update
     this.updateOfficeHostSelector();
@@ -9341,21 +9434,28 @@ function createOfficeDockPreviewProvider(app) {
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
   const controller = new UIController();
-  initRecognitionSettings({
-    showToast: controller.showToast.bind(controller),
-    settingsManager: controller.settingsManager,
-    logger: Logger,
-  });
-  refreshRecognitionSettings().catch((error) =>
-    Logger.warn("Recognition settings initial refresh failed", error),
-  );
-  // Detect actual Office VSTO state on startup and auto-enable if pre-installed
-  controller
-    .initOfficeDetection()
-    .catch((error) => Logger.warn("Office startup detection failed", error));
-  setupBrowserImportInbox(controller).catch((error) =>
-    Logger.error("Browser import inbox setup failed", error),
-  );
+  if (hasDesktopRuntime()) {
+    initRecognitionSettings({
+      showToast: controller.showToast.bind(controller),
+      settingsManager: controller.settingsManager,
+      logger: Logger,
+    });
+    refreshRecognitionSettings().catch((error) =>
+      Logger.warn("Recognition settings initial refresh failed", error),
+    );
+    // Detect actual Office VSTO state on startup and auto-enable if pre-installed.
+    controller
+      .initOfficeDetection()
+      .catch((error) => Logger.warn("Office startup detection failed", error));
+    setupBrowserImportInbox(controller).catch((error) =>
+      Logger.error("Browser import inbox setup failed", error),
+    );
+  } else {
+    document.getElementById("browserImportsButton")?.setAttribute("hidden", "");
+    Logger.info(
+      "Browser preview mode: desktop recognition, Office, and import startup checks skipped",
+    );
+  }
   Logger.info("App ready");
   Logger.info("Global shortcut: Ctrl/Cmd+Shift+L (registered in Rust backend)");
 
@@ -9481,22 +9581,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // Initialize recognition workspace (lazy — no engine load until first use)
-  initRecognitionWorkspace().catch((error) =>
-    Logger.warn("Recognition workspace init failed", error),
-  );
+  if (hasDesktopRuntime()) {
+    // Initialize recognition workspace lazily; the model still loads on first use.
+    initRecognitionWorkspace().catch((error) =>
+      Logger.warn("Recognition workspace init failed", error),
+    );
 
-  try {
-    const { getVersion } = await import("@tauri-apps/api/app");
-    const version = await getVersion();
-    document.querySelectorAll(".app-version-text").forEach((el) => {
-      el.textContent = `v${version}`;
-    });
-    const appVersionEl = document.getElementById("appVersion");
-    if (appVersionEl) {
-      appVersionEl.textContent = `v${version}`;
+    try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      const version = await getVersion();
+      document.querySelectorAll(".app-version-text").forEach((el) => {
+        el.textContent = `v${version}`;
+      });
+      const appVersionEl = document.getElementById("appVersion");
+      if (appVersionEl) {
+        appVersionEl.textContent = `v${version}`;
+      }
+    } catch (e) {
+      Logger.warn("Failed to get app version:", e);
     }
-  } catch (e) {
-    Logger.warn("Failed to get app version:", e);
   }
 });
