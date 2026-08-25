@@ -22,6 +22,22 @@ param(
 $ErrorActionPreference = "Stop"
 $exitCode = 0
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$LiteralPath)
+
+    $stream = [System.IO.File]::OpenRead($LiteralPath)
+    try {
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([System.BitConverter]::ToString($sha256.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+        } finally {
+            $sha256.Dispose()
+        }
+    } finally {
+        $stream.Dispose()
+    }
+}
+
 Write-Host ("=" * 60)
 Write-Host "Native Office VSTO Payload Integrity Test"
 Write-Host "Root: $PayloadRoot"
@@ -167,7 +183,7 @@ if (Test-Path -LiteralPath $provenancePath -PathType Leaf) {
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
                 throw "Provenance payload file is missing: $relative"
             }
-            $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            $actual = Get-Sha256Hex -LiteralPath $file
             if ($actual -ne [string]$entry.Value) {
                 throw "Provenance hash mismatch: $relative expected=$($entry.Value) actual=$actual"
             }

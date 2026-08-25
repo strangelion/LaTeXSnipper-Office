@@ -16,6 +16,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "LaTeXSnipper.OfficePlugin.O
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Office.SampleHostTests", "LaTeXSnipper.Office.SampleHostTests\LaTeXSnipper.Office.SampleHostTests.csproj", "{B82655F5-2B56-4861-A3F6-D512F9CD5B42}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LaTeXSnipper.Word.HostTests", "LaTeXSnipper.Word.HostTests\LaTeXSnipper.Word.HostTests.csproj", "{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -110,6 +112,18 @@ Global
 		{B82655F5-2B56-4861-A3F6-D512F9CD5B42}.Release|Win32.Build.0 = Release|Any CPU
 		{B82655F5-2B56-4861-A3F6-D512F9CD5B42}.Release|x64.ActiveCfg = Release|Any CPU
 		{B82655F5-2B56-4861-A3F6-D512F9CD5B42}.Release|x64.Build.0 = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|Win32.ActiveCfg = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|Win32.Build.0 = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Debug|x64.Build.0 = Debug|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|Win32.ActiveCfg = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|Win32.Build.0 = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|x64.ActiveCfg = Release|Any CPU
+		{A4A8B58E-AB58-43F2-9A8B-7BBFDE4A9C31}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

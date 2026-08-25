@@ -8,10 +8,14 @@ namespace LaTeXSnipper.Excel.Host
     internal sealed class ExcelAdapter : ICommandHostAdapter
     {
         private readonly Microsoft.Office.Interop.Excel.Application _application;
+        private readonly int? _oleServerProcessId;
 
-        public ExcelAdapter(Microsoft.Office.Interop.Excel.Application application)
+        public ExcelAdapter(
+            Microsoft.Office.Interop.Excel.Application application,
+            int? oleServerProcessId = null)
         {
             _application = application;
+            _oleServerProcessId = oleServerProcessId;
         }
 
         public string HostType => "excel";
@@ -139,10 +143,10 @@ namespace LaTeXSnipper.Excel.Host
             try
             {
                 // Layer 1: check if a shape is selected
-                var sel = _application.Selection;
-                if (sel is Microsoft.Office.Interop.Excel.ShapeRange shapeRange && shapeRange.Count > 0)
+                dynamic? selectedShape = TryGetSelectedShape();
+                if (selectedShape != null)
                 {
-                    var shape = shapeRange.Item(1);
+                    var shape = selectedShape;
 
                     // Extract formulaId from shape name: LSNO_{formulaId}
                     var formulaId = ExtractFormulaIdFromShapeName(shape.Name as string);
@@ -207,24 +211,29 @@ namespace LaTeXSnipper.Excel.Host
                     }
                 }
 
-                // P1-4: Layer 1e: ShapeRange may not always detect OLE objects.
-                // Try ActiveSheet.OLEObjects() to find any matching object by name or alt text.
+                // Layer 1e: a single managed OLE object is an unambiguous fallback for
+                // older Excel builds that expose neither ShapeRange nor DrawingObjects.
+                // Never return the first item from a multi-object sheet: that can open
+                // the wrong editable formula after a user selects another object.
                 try
                 {
                     var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                     if (sheet != null)
                     {
                         var oleObjects = sheet.OLEObjects() as Microsoft.Office.Interop.Excel.OLEObjects;
-                        if (oleObjects != null)
+                        if (oleObjects != null && oleObjects.Count == 1)
                         {
                             foreach (Microsoft.Office.Interop.Excel.OLEObject oleObj in oleObjects)
                             {
                                 if (oleObj == null) continue;
                                 string? name = oleObj.Name as string;
-                                if (string.IsNullOrEmpty(name) || !name.StartsWith("LSNO_"))
+                                dynamic? hostShape = null;
+                                try { hostShape = oleObj.ShapeRange.Item(1); }
+                                catch (Exception ex) { OfficeOperationLog.Failure("read-ole-shape", "excel", null, ex); }
+                                string? extractedId = ExtractFormulaIdFromShapeName(name)
+                                    ?? (hostShape == null ? null : ExtractFormulaIdFromShapeMetadata(hostShape));
+                                if (string.IsNullOrEmpty(extractedId))
                                     continue;
-
-                                string? extractedId = ExtractFormulaIdFromShapeName(name);
 
                                 // Try reading payload via COM automation
                                 try
@@ -290,28 +299,158 @@ namespace LaTeXSnipper.Excel.Host
             return null;
         }
 
+        private dynamic? TryGetSelectedShape()
+        {
+            object? selection = null;
+            try
+            {
+                selection = _application.Selection;
+                if (selection is Microsoft.Office.Interop.Excel.ShapeRange shapeRange && shapeRange.Count > 0)
+                    return shapeRange.Item(1);
+
+                try
+                {
+                    object reflectedRange = selection.GetType().InvokeMember(
+                        "ShapeRange",
+                        System.Reflection.BindingFlags.GetProperty,
+                        null,
+                        selection,
+                        null);
+                    object reflectedShape = reflectedRange.GetType().InvokeMember(
+                        "Item",
+                        System.Reflection.BindingFlags.GetProperty |
+                        System.Reflection.BindingFlags.InvokeMethod,
+                        null,
+                        reflectedRange,
+                        new object[] { 1 });
+                    if (reflectedShape != null) return reflectedShape;
+                }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("resolve-selected-shape-range", "excel", null, ex);
+                }
+
+                try
+                {
+                    string? selectedName = Convert.ToString(selection.GetType().InvokeMember(
+                        "Name",
+                        System.Reflection.BindingFlags.GetProperty,
+                        null,
+                        selection,
+                        null));
+                    var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                    if (!string.IsNullOrWhiteSpace(selectedName) && sheet != null)
+                        return sheet.Shapes.Item(selectedName);
+                }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("resolve-selected-shape-name", "excel", null, ex);
+                }
+
+                // Excel normally exposes a selected embedded OLE object as the
+                // DrawingObjects COM interface. Its ShapeRange is only reachable via
+                // late binding, so a C# type check alone misses the current selection.
+                dynamic selected = selection;
+                try
+                {
+                    dynamic range = selected.ShapeRange;
+                    if (range != null && range.Count > 0) return range.Item(1);
+                }
+                catch { }
+
+                try
+                {
+                    dynamic item = selected.Item(1);
+                    dynamic range = item.ShapeRange;
+                    if (range != null && range.Count > 0) return range.Item(1);
+                }
+                catch { }
+            }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("resolve-selected-shape", "excel", null, ex);
+            }
+            return null;
+        }
+
+        private static FormulaPayload? ReadShapeMetadata(dynamic shape)
+        {
+            try
+            {
+                string? alternativeText = shape.AlternativeText as string;
+                if (string.IsNullOrWhiteSpace(alternativeText) || !alternativeText.StartsWith("{"))
+                    return null;
+                return System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(alternativeText,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? ExtractFormulaIdFromShapeMetadata(dynamic shape)
+        {
+            var payload = ReadShapeMetadata(shape);
+            return payload != null && FormulaIdHelper.IsCanonical(payload.FormulaId)
+                ? payload.FormulaId
+                : null;
+        }
+
+        private static bool ShapeMatchesFormulaId(dynamic shape, string formulaId)
+        {
+            string? namedId = null;
+            try { namedId = ExtractFormulaIdFromShapeName(shape.Name as string); }
+            catch { }
+            if (string.Equals(namedId, formulaId, StringComparison.Ordinal)) return true;
+            return string.Equals(ExtractFormulaIdFromShapeMetadata(shape), formulaId, StringComparison.Ordinal);
+        }
+
+        private static bool IsManagedShape(dynamic shape)
+        {
+            string? name = null;
+            try { name = shape.Name as string; } catch { }
+            return ExtractFormulaIdFromShapeName(name) != null
+                || ExtractFormulaIdFromShapeMetadata(shape) != null;
+        }
+
+        private static void WriteShapeIdentity(dynamic shape, FormulaPayload payload)
+        {
+            // Excel can reject OLEObject/Shape.Name changes even after insertion has
+            // completed. AlternativeText is therefore the canonical, portable identity
+            // channel; the LSNO_* name remains a best-effort compatibility index.
+            shape.AlternativeText = OleFormulaInterop.CreateHostMetadataJson(payload);
+            try { shape.Name = $"LSNO_{payload.FormulaId}"; }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("write-shape-name-fallback-metadata", "excel", payload.FormulaId, ex);
+            }
+        }
+
         private string EnsureShapeFormulaId(dynamic shape, string? formulaId)
         {
             if (!string.IsNullOrEmpty(formulaId) && FormulaIdHelper.IsCanonical(formulaId))
                 return formulaId;
             string newId = FormulaIdHelper.NewId();
-            shape.Name = $"LSNO_{newId}";
+            try { shape.Name = $"LSNO_{newId}"; }
+            catch (Exception ex) { OfficeOperationLog.Failure("write-shape-name", "excel", newId, ex); }
             OfficeOperationLog.Event("reassign-copied-formula-id", "excel", newId);
             return newId;
         }
 
         private FormulaPayload ReconcileCopiedFormulaIdentity(dynamic shape, FormulaPayload payload, dynamic? automation)
         {
-            string expectedName = $"LSNO_{payload.FormulaId}";
-            string actualName = shape.Name as string ?? "";
+            string actualId = ExtractFormulaIdFromShapeName(shape.Name as string)
+                ?? ExtractFormulaIdFromShapeMetadata(shape)
+                ?? "";
             int exactMatches = 0;
             var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
             if (sheet != null)
             {
-                foreach (Microsoft.Office.Core.Shape candidate in sheet.Shapes)
-                    if (string.Equals(candidate.Name, expectedName, StringComparison.Ordinal)) exactMatches++;
+                foreach (Microsoft.Office.Interop.Excel.Shape candidate in sheet.Shapes)
+                    if (ShapeMatchesFormulaId(candidate, payload.FormulaId)) exactMatches++;
             }
-            if (string.Equals(actualName, expectedName, StringComparison.Ordinal) && exactMatches <= 1)
+            if (string.Equals(actualId, payload.FormulaId, StringComparison.Ordinal) && exactMatches <= 1)
                 return payload;
 
             string previousId = payload.FormulaId;
@@ -322,8 +461,7 @@ namespace LaTeXSnipper.Excel.Host
                 payload.FormulaId = previousId;
                 throw new InvalidOperationException("Failed to persist a reassigned formulaId to the copied OLE object.");
             }
-            shape.Name = $"LSNO_{payload.FormulaId}";
-            shape.AlternativeText = System.Text.Json.JsonSerializer.Serialize(payload);
+            WriteShapeIdentity(shape, payload);
             OfficeOperationLog.Event("reassign-copied-formula-id", "excel", payload.FormulaId);
             return payload;
         }
@@ -336,6 +474,7 @@ namespace LaTeXSnipper.Excel.Host
             Microsoft.Office.Interop.Excel.Range cell,
             FormulaPayload payload)
         {
+            string stage = "normalize";
             try
             {
                 // Normalize OLE payload before insertion
@@ -348,14 +487,20 @@ namespace LaTeXSnipper.Excel.Host
                     return new InsertResult { Success = false, Error = ex.Message };
                 }
 
+                stage = "cell-position";
                 double cellLeft = 0, cellTop = 0;
                 try { cellLeft = Convert.ToDouble(cell.Left); cellTop = Convert.ToDouble(cell.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-cell-position", "excel", payload.FormulaId, ex); }
 
                 // Do not pass Width/Height here.
                 // The native OLE object exposes its padded natural extent through GetExtent().
 
-                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
+                using (PendingPayloadLease payloadLease = _oleServerProcessId.HasValue
+                    ? OleFormulaPendingPayloadStore.SaveForProcess(
+                        payload,
+                        _oleServerProcessId.Value)
+                    : OleFormulaPendingPayloadStore.Save(payload))
                 {
+                    stage = "add-ole-object";
                     var oleObjects = (Microsoft.Office.Interop.Excel.OLEObjects)sheet.OLEObjects();
                     var ole = oleObjects.Add(
                         ClassType: "LaTeXSnipper.Formula.1",
@@ -366,9 +511,17 @@ namespace LaTeXSnipper.Excel.Host
                         Top: (float)cellTop
                     );
 
-                    ole.Name = $"LSNO_{payload.FormulaId}";
+                    // Recent Excel builds expose OLEObject.Name as non-writable for
+                    // freshly embedded objects, and ShapeRange.Name can throw for a
+                    // newly activated OLE range. Resolve the backing worksheet Shape
+                    // immediately after Add; that is the identity selection readback
+                    // and document lifecycle operations use.
+                    stage = "resolve-host-shape";
+                    Microsoft.Office.Interop.Excel.Shape hostShape =
+                        ole.ShapeRange.Item(1);
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
 
+                    stage = "activate-and-verify";
                     using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => ole.Object,
                         payload,
@@ -380,6 +533,7 @@ namespace LaTeXSnipper.Excel.Host
                     }
 
                     // Query the OLE object's natural extent and compute display size with scale.
+                    stage = "read-natural-extent";
                     if (activation.AutomationObject == null ||
                         !OleFormulaInterop.TryGetExtentPoints(activation.AutomationObject, out OleExtentPoints naturalExtent))
                     {
@@ -390,9 +544,11 @@ namespace LaTeXSnipper.Excel.Host
                     OleExtentPoints targetExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, naturalExtent, OleHostKind.Excel);
 
                     // Deselect the OLE object so the host can finalize it
+                    stage = "finalize-selection";
                     cell.Select();
 
                     // CompleteInsertion BEFORE setting Width/Height so SetExtent is no longer ignored
+                    stage = "complete-insertion";
                     if (!OleFormulaInterop.CompleteInsertion(activation.AutomationObject))
                     {
                         ole.Delete();
@@ -412,6 +568,7 @@ namespace LaTeXSnipper.Excel.Host
                     }
 
                     // Now set final dimensions — SetExtent accepts them after CompleteInsertion
+                    stage = "apply-host-extent";
                     try { ole.ShapeRange.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse; }
                     catch (Exception ex) { OfficeOperationLog.Failure("unlock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
                     ole.Width = targetExtent.DisplayWidthPt;
@@ -420,6 +577,8 @@ namespace LaTeXSnipper.Excel.Host
                     catch (Exception ex) { OfficeOperationLog.Failure("lock-ole-aspect-ratio", "excel", payload.FormulaId, ex); }
 
                     ole.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
+                    stage = "write-host-identity";
+                    WriteShapeIdentity(hostShape, payload);
 
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
                     return new InsertResult { Success = true, FormulaId = payload.FormulaId };
@@ -433,7 +592,7 @@ namespace LaTeXSnipper.Excel.Host
                 return new InsertResult
                 {
                     Success = false,
-                    Error = $"OLE activation failed: {ex.GetType().Name}: {ex.Message}"
+                    Error = $"OLE activation failed at {stage}: {ex.GetType().Name}: {ex.Message}"
                 };
             }
         }
@@ -450,7 +609,7 @@ namespace LaTeXSnipper.Excel.Host
                 if (sel is Microsoft.Office.Interop.Excel.ShapeRange shapeRange)
                 {
                     var shape = shapeRange.Item(1);
-                    if (shape.Name?.StartsWith("LSNO_") == true)
+                    if (IsManagedShape(shape))
                     {
                         shape.Delete();
                         return true;
@@ -476,11 +635,10 @@ namespace LaTeXSnipper.Excel.Host
             {
                 var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                 if (excelSheet == null) return false;
-                string targetName = $"LSNO_{formulaId}";
                 for (int i = excelSheet.Shapes.Count; i >= 1; i--)
                 {
                     var shape = excelSheet.Shapes.Item(i);
-                    if (string.Equals(shape.Name, targetName, StringComparison.Ordinal))
+                    if (ShapeMatchesFormulaId(shape, formulaId))
                     {
                         shape.Delete();
                         return true;
@@ -500,7 +658,7 @@ namespace LaTeXSnipper.Excel.Host
 
                 foreach (Microsoft.Office.Interop.Excel.Shape shape in excelSheet.Shapes)
                 {
-                    if (shape.Name == $"LSNO_{formulaId}")
+                    if (ShapeMatchesFormulaId(shape, formulaId))
                     {
                         // OLE path: replace payload in-place via COM automation
                         try

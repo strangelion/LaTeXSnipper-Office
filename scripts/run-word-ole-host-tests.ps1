@@ -4,8 +4,14 @@ param(
     [string]$StagingRoot,
     [string]$FixtureContract = "",
     [string]$EvidenceDirectory = "",
+    [string]$ImageEvidenceDirectory = "",
     [string]$SvgDirectory = "",
-    [string]$HostTestExecutable = ""
+    [string]$HostTestExecutable = "",
+    [switch]$SkipWordHost,
+    [switch]$RunEditableMediaHosts,
+    [string]$SampleHostExecutable = "",
+    [string]$SampleDirectory = "",
+    [string]$EditableMediaEvidence = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +29,10 @@ if ([string]::IsNullOrWhiteSpace($FixtureContract)) {
 if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
     $EvidenceDirectory = Join-Path $repositoryRoot "src-tauri\target\word-ole-host-evidence"
 }
+if ([string]::IsNullOrWhiteSpace($ImageEvidenceDirectory)) {
+    $ImageEvidenceDirectory = Join-Path $repositoryRoot `
+        "src-tauri\target\word-editable-image-host-evidence"
+}
 if ([string]::IsNullOrWhiteSpace($SvgDirectory)) {
     $SvgDirectory = Join-Path $repositoryRoot "apps\native-office\fixtures\mathjax-svg"
 }
@@ -30,16 +40,42 @@ if ([string]::IsNullOrWhiteSpace($HostTestExecutable)) {
     $HostTestExecutable = Join-Path $repositoryRoot `
         "apps\native-office\LaTeXSnipper.Word.HostTests\bin\x64\Release\LaTeXSnipper.Word.HostTests.exe"
 }
+if ([string]::IsNullOrWhiteSpace($SampleHostExecutable)) {
+    $SampleHostExecutable = Join-Path $repositoryRoot `
+        "apps\native-office\LaTeXSnipper.Office.SampleHostTests\bin\x64\Release\LaTeXSnipper.Office.SampleHostTests.exe"
+}
+if ([string]::IsNullOrWhiteSpace($SampleDirectory)) {
+    $SampleDirectory = Join-Path $repositoryRoot "docs\manual-acceptance-samples"
+}
+if ([string]::IsNullOrWhiteSpace($EditableMediaEvidence)) {
+    $EditableMediaEvidence = Join-Path $repositoryRoot `
+        "src-tauri\target\office-editable-media-host-evidence\evidence.json"
+}
 
-foreach ($requiredFile in @($dll, $FixtureContract, $HostTestExecutable)) {
+$requiredFiles = @($dll)
+if (-not $SkipWordHost) {
+    $requiredFiles += @($FixtureContract, $HostTestExecutable)
+}
+foreach ($requiredFile in $requiredFiles) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "Required Word OLE host-test file is missing: $requiredFile"
     }
+}
+if ($RunEditableMediaHosts) {
+    if (-not (Test-Path -LiteralPath $SampleHostExecutable -PathType Leaf)) {
+        throw "Required Office editable-media host-test executable is missing: $SampleHostExecutable"
+    }
+    if (-not (Test-Path -LiteralPath $SampleDirectory -PathType Container)) {
+        throw "Office sample directory is missing: $SampleDirectory"
+    }
+    New-Item -ItemType Directory -Force -Path `
+        (Split-Path -Parent $EditableMediaEvidence) | Out-Null
 }
 if (-not (Test-Path -LiteralPath $SvgDirectory -PathType Container)) {
     throw "MathJax SVG fixture directory is missing: $SvgDirectory"
 }
 New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
+New-Item -ItemType Directory -Force -Path $ImageEvidenceDirectory | Out-Null
 
 $registryBackups = @()
 $registryKeys = @(
@@ -141,9 +177,22 @@ try {
     Register-TestHandler
     $previousNativeOleLog = $env:LATEXSNIPPER_OLE_LOG
     $env:LATEXSNIPPER_OLE_LOG = "1"
-    & $HostTestExecutable $FixtureContract $EvidenceDirectory --ole $SvgDirectory
-    if ($LASTEXITCODE -ne 0) {
-        throw "Word OLE host acceptance failed with exit code $LASTEXITCODE."
+    if (-not $SkipWordHost) {
+        & $HostTestExecutable $FixtureContract $EvidenceDirectory --ole $SvgDirectory
+        if ($LASTEXITCODE -ne 0) {
+            throw "Word OLE host acceptance failed with exit code $LASTEXITCODE."
+        }
+        & $HostTestExecutable $FixtureContract $ImageEvidenceDirectory `
+            --editable-image $SvgDirectory
+        if ($LASTEXITCODE -ne 0) {
+            throw "Word editable-image host acceptance failed with exit code $LASTEXITCODE."
+        }
+    }
+    if ($RunEditableMediaHosts) {
+        & $SampleHostExecutable $SampleDirectory $EditableMediaEvidence --editable-media
+        if ($LASTEXITCODE -ne 0) {
+            throw "Excel/PowerPoint editable-media host acceptance failed with exit code $LASTEXITCODE."
+        }
     }
 }
 finally {
@@ -156,5 +205,10 @@ finally {
     Restore-Registration
 }
 
-Write-Host "Word OLE host acceptance passed; registration was restored."
+if (-not $SkipWordHost) {
+    Write-Host "Word OLE and editable-image host acceptance passed; registration was restored."
+}
+if ($RunEditableMediaHosts) {
+    Write-Host "Excel/PowerPoint editable-media host acceptance passed: $EditableMediaEvidence"
+}
 exit 0

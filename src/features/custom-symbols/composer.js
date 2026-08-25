@@ -1564,6 +1564,59 @@ export function initCustomSymbolComposer({
     }
   });
 
+  const loadEditableState = async (editorState) => {
+    const bundle = editorState?.bundle;
+    const composition = bundle?.symbol?.composition;
+    if (
+      editorState?.schemaVersion !== 1 ||
+      editorState?.kind !== "customSymbol" ||
+      composition?.schemaVersion !== 1 ||
+      !Array.isArray(composition.layers)
+    ) {
+      throw new Error("EDITABLE_MEDIA_SYMBOL_STATE_INVALID");
+    }
+    state.layers = clone(composition.layers).map((layer, index) => ({
+      ...layer,
+      zIndex: index,
+    }));
+    for (const layer of state.layers) {
+      if (layer.source?.kind !== "formula" || !formulaRenderer) continue;
+      try {
+        const rendered = await formulaRenderer.renderFormulaSvg(
+          layer.source.latex,
+          { display: true, maxWidthPt: 360, maxHeightPt: 160 },
+        );
+        layer.source.renderedSvg = formulaLayer(
+          layer.source.latex,
+          rendered.svg,
+          rendered.widthPt,
+          rendered.heightPt,
+          layer.zIndex,
+        ).source.renderedSvg;
+      } catch (error) {
+        console.warn("[CustomSymbol] Formula layer rehydration failed", error);
+      }
+    }
+    state.selectedId = state.layers.at(-1)?.layerId || null;
+    state.history.length = 0;
+    state.future.length = 0;
+    if (el.name) el.name.value = bundle.symbol.name || "自定义符号";
+    if (el.latex) el.latex.value = bundle.latexFallback || "";
+    if (el.mathClass)
+      el.mathClass.value = bundle.symbol.mathClass || "ordinary";
+    if (el.snap) el.snap.checked = composition.snapToGrid !== false;
+    render();
+    message("已从 Office 可编辑对象恢复全部符号图层；请确认后保存");
+    return state.layers;
+  };
+
   render();
-  return { state, addLayer, render, buildRequest, renderFormula };
+  return {
+    state,
+    addLayer,
+    render,
+    buildRequest,
+    renderFormula,
+    loadEditableState,
+  };
 }

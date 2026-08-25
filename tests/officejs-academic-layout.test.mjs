@@ -474,7 +474,7 @@ test("Word replacement failure removes staged metadata and preserves old metadat
   assert.equal(oldDeletes, 0);
 });
 
-test("Native Word numbering owns a dedicated paragraph and is transactional", () => {
+test("Native Word numbering owns a fixed three-column table and is transactional", () => {
   const source = fs.readFileSync(
     path.join(
       "apps",
@@ -487,9 +487,11 @@ test("Native Word numbering owns a dedicated paragraph and is transactional", ()
   );
   assert.doesNotMatch(source, /TabStops\.ClearAll\s*\(/);
   assert.match(source, /PrepareNumberedOleInsertionRange\(doc, range\)/);
+  assert.match(source, /doc\.Tables\.Add\(insertionRange, 1, 3\)/);
+  assert.match(source, /layoutTable\.Cell\(1, 3\)\.Range\.Duplicate/);
   assert.match(
     source,
-    /var ownedRange = oleShape\.Range\.Paragraphs\[1\]\.Range\.Duplicate/,
+    /var ownedRange = layoutTable\.Range\.Duplicate/,
   );
   assert.match(source, /cc\.Delete\(false\)/);
   assert.match(source, /hide-numbered-ole-content-control/);

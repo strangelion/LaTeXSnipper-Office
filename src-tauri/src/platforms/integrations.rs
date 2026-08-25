@@ -4910,18 +4910,69 @@ fn check_host_status(host_name: &str, office_app: &str) -> HostInstallStatus {
     }
 }
 
-/// Start Native Office installation via bootstrapper.
+#[cfg(windows)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum NativeOfficeInstaller {
+    Msi(PathBuf),
+    Bootstrapper(PathBuf),
+}
+
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeOfficeInstallerOperation {
+    Install,
+    Repair,
+    Uninstall,
+}
+
+#[cfg(windows)]
+fn launch_native_office_installer(
+    installer: &NativeOfficeInstaller,
+    operation: NativeOfficeInstallerOperation,
+) -> Result<(), String> {
+    let mut command = match installer {
+        NativeOfficeInstaller::Msi(path) => {
+            let mut command = std::process::Command::new("msiexec.exe");
+            match operation {
+                NativeOfficeInstallerOperation::Install => {
+                    command.arg("/i");
+                }
+                // Supplying the verified package as the repair source also
+                // re-caches files that Windows Installer can no longer find.
+                NativeOfficeInstallerOperation::Repair => {
+                    command.arg("/fvomus");
+                }
+                NativeOfficeInstallerOperation::Uninstall => {
+                    command.arg("/x");
+                }
+            }
+            command.arg(path).arg("/norestart");
+            command
+        }
+        NativeOfficeInstaller::Bootstrapper(path) => {
+            let mut command = std::process::Command::new(path);
+            command.arg(match operation {
+                NativeOfficeInstallerOperation::Install => "/install",
+                NativeOfficeInstallerOperation::Repair => "/repair",
+                NativeOfficeInstallerOperation::Uninstall => "/uninstall",
+            });
+            command
+        }
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to start Native Office installer: {e}"))
+}
+
+/// Start Native Office installation via the bundled MSI or bootstrapper.
 #[cfg(windows)]
 pub fn start_native_office_install() -> Result<NativeOfficeOperationStarted, String> {
-    // Find bootstrapper executable
-    let bootstrapper = find_bootstrapper()?;
+    let installer = find_native_office_installer()?;
     let operation_id = format!("install-{}", uuid_simple());
 
-    // Launch bootstrapper
-    std::process::Command::new(&bootstrapper)
-        .arg("/install")
-        .spawn()
-        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+    launch_native_office_installer(&installer, NativeOfficeInstallerOperation::Install)?;
 
     Ok(NativeOfficeOperationStarted {
         operation_id,
@@ -4929,16 +4980,13 @@ pub fn start_native_office_install() -> Result<NativeOfficeOperationStarted, Str
     })
 }
 
-/// Start Native Office repair via bootstrapper.
+/// Start Native Office repair from the bundled, provenance-checked MSI source.
 #[cfg(windows)]
 pub fn start_native_office_repair() -> Result<NativeOfficeOperationStarted, String> {
-    let bootstrapper = find_bootstrapper()?;
+    let installer = find_native_office_installer()?;
     let operation_id = format!("repair-{}", uuid_simple());
 
-    std::process::Command::new(&bootstrapper)
-        .arg("/repair")
-        .spawn()
-        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+    launch_native_office_installer(&installer, NativeOfficeInstallerOperation::Repair)?;
 
     Ok(NativeOfficeOperationStarted {
         operation_id,
@@ -4946,16 +4994,13 @@ pub fn start_native_office_repair() -> Result<NativeOfficeOperationStarted, Stri
     })
 }
 
-/// Start Native Office uninstall via bootstrapper.
+/// Start Native Office uninstall via the bundled MSI or bootstrapper.
 #[cfg(windows)]
 pub fn start_native_office_uninstall() -> Result<NativeOfficeOperationStarted, String> {
-    let bootstrapper = find_bootstrapper()?;
+    let installer = find_native_office_installer()?;
     let operation_id = format!("uninstall-{}", uuid_simple());
 
-    std::process::Command::new(&bootstrapper)
-        .arg("/uninstall")
-        .spawn()
-        .map_err(|e| format!("Failed to start bootstrapper: {}", e))?;
+    launch_native_office_installer(&installer, NativeOfficeInstallerOperation::Uninstall)?;
 
     Ok(NativeOfficeOperationStarted {
         operation_id,
@@ -4963,13 +5008,21 @@ pub fn start_native_office_uninstall() -> Result<NativeOfficeOperationStarted, S
     })
 }
 
-/// Find the bootstrapper executable.
+/// Find the installer staged into the desktop package. MSI is authoritative;
+/// release bootstrappers are accepted for standalone distributions.
 #[cfg(windows)]
-fn find_bootstrapper() -> Result<PathBuf, String> {
+fn find_native_office_installer() -> Result<NativeOfficeInstaller, String> {
     // Check in app resources
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            // Check bundled resources for bootstrapper (new MSI-only model uses .exe directly)
+            let msi = exe_dir
+                .join("resources")
+                .join("NativeOffice")
+                .join("LaTeXSnipper.NativeOffice.msi");
+            if msi.exists() {
+                return Ok(NativeOfficeInstaller::Msi(msi));
+            }
+
             let candidates = [
                 exe_dir
                     .join("resources")
@@ -4983,7 +5036,7 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
             ];
             for p in &candidates {
                 if p.exists() {
-                    return Ok(p.clone());
+                    return Ok(NativeOfficeInstaller::Bootstrapper(p.clone()));
                 }
             }
         }
@@ -4993,22 +5046,26 @@ fn find_bootstrapper() -> Result<PathBuf, String> {
     let install_root = native_office_install_root();
     let bootstrapper = install_root.join("LaTeXSnipper.NativeOffice.exe");
     if bootstrapper.exists() {
-        return Ok(bootstrapper);
+        return Ok(NativeOfficeInstaller::Bootstrapper(bootstrapper));
     }
 
     if let Some(root) = repo_root_from_manifest() {
-        let candidate = root
+        let output = root
             .join("apps")
             .join("native-office")
             .join("Installer")
-            .join("output")
-            .join("LaTeXSnipper.NativeOffice.exe");
-        if candidate.exists() {
-            return Ok(candidate);
+            .join("output");
+        let msi = output.join("LaTeXSnipper.NativeOffice.msi");
+        if msi.exists() {
+            return Ok(NativeOfficeInstaller::Msi(msi));
+        }
+        let bootstrapper = output.join("LaTeXSnipper.NativeOffice.exe");
+        if bootstrapper.exists() {
+            return Ok(NativeOfficeInstaller::Bootstrapper(bootstrapper));
         }
     }
 
-    Err("Native Office bootstrapper was not found. Run apps/native-office/Installer/build.ps1, or use the quick Office switch in Settings > Platform to register existing VSTO build output.".to_string())
+    Err("Native Office MSI or bootstrapper was not found. Run apps/native-office/Installer/build.ps1, or use the quick Office switch in Settings > Platform to register existing VSTO build output.".to_string())
 }
 
 #[cfg(windows)]

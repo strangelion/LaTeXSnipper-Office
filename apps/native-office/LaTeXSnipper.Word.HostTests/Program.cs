@@ -30,6 +30,8 @@ namespace LaTeXSnipper.Word.HostTests
         public string OperandProbe { get; set; }
         public string Omml { get; set; }
         public string Svg { get; set; }
+        public string ContentKind { get; set; }
+        public JsonElement? EditorState { get; set; }
         public float RequestedWidthPt { get; set; }
         public float RequestedHeightPt { get; set; }
     }
@@ -44,12 +46,16 @@ namespace LaTeXSnipper.Word.HostTests
         public int MaximumBlankGapPixels { get; set; }
         public int RightBlankMarginPixels { get; set; }
         public string Screenshot { get; set; }
+        public string LayoutScreenshot { get; set; }
         public string StorageMode { get; set; }
         public bool OleInitialized { get; set; }
         public bool OleRoundTripVerified { get; set; }
         public float HostWidthPt { get; set; }
         public float HostHeightPt { get; set; }
+        public float EquationNumberHorizontalPositionPt { get; set; }
         public string OleDiagnostics { get; set; }
+        public string ContentKind { get; set; }
+        public bool EditorStateRoundTripVerified { get; set; }
         public string Status { get; set; }
     }
 
@@ -74,20 +80,25 @@ namespace LaTeXSnipper.Word.HostTests
         {
             bool oleMode = args.Length == 4 &&
                 string.Equals(args[2], "--ole", StringComparison.OrdinalIgnoreCase);
+            bool imageMode = args.Length == 4 &&
+                string.Equals(args[2], "--editable-image", StringComparison.OrdinalIgnoreCase);
             bool caseMode = args.Length == 4 &&
                 string.Equals(args[2], "--case", StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
-                (args.Length > 2 && !oleMode && !caseMode) ||
-                (oleMode && !Directory.Exists(args[3])))
+                (args.Length > 2 && !oleMode && !imageMode && !caseMode) ||
+                ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
-                    "[--ole <mathjax-svg-dir> | --case <fixture-name>]");
+                    "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
+                    "--case <fixture-name>]");
                 return 2;
             }
 
             string evidenceDirectory = Path.GetFullPath(args[1]);
-            string svgDirectory = oleMode ? Path.GetFullPath(args[3]) : null;
+            string svgDirectory = oleMode || imageMode
+                ? Path.GetFullPath(args[3])
+                : null;
             Directory.CreateDirectory(evidenceDirectory);
             AcceptanceContract contract = JsonSerializer.Deserialize<AcceptanceContract>(
                 File.ReadAllText(args[0]),
@@ -103,6 +114,9 @@ namespace LaTeXSnipper.Word.HostTests
                     item.Name,
                     args[3],
                     StringComparison.OrdinalIgnoreCase)).ToList()
+                : imageMode
+                    ? contract.Cases.Where(item =>
+                        !string.IsNullOrWhiteSpace(item.ContentKind)).ToList()
                 : contract.Cases;
             if (activeCases.Count == 0)
             {
@@ -127,7 +141,7 @@ namespace LaTeXSnipper.Word.HostTests
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 var adapter = new WordAdapter(application, oleServerProcessId);
-                if (!oleMode && !caseMode)
+                if (!oleMode && !imageMode && !caseMode)
                 {
                     ValidateNativeInlineRoundTrip(
                         document,
@@ -151,6 +165,7 @@ namespace LaTeXSnipper.Word.HostTests
                             modeName,
                             evidenceDirectory,
                             oleMode,
+                            imageMode,
                             svgDirectory);
                         evidence.Add(record);
                         Console.WriteLine(
@@ -163,14 +178,16 @@ namespace LaTeXSnipper.Word.HostTests
 
                 document.Fields.Update();
                 ValidateAutomaticNumberSequence(document, evidence);
-                if (!oleMode)
+                if (!oleMode && !imageMode)
                     ValidateChapterNumbering(
                         document,
                         adapter,
                         activeCases.First());
                 string documentPath = Path.Combine(
                     evidenceDirectory,
-                    oleMode ? "word-ole-acceptance.docx" : "word-nary-acceptance.docx");
+                    oleMode ? "word-ole-acceptance.docx" :
+                    imageMode ? "word-editable-image-acceptance.docx" :
+                    "word-nary-acceptance.docx");
                 document.SaveAs2(documentPath, InteropWord.WdSaveFormat.wdFormatXMLDocument);
                 File.WriteAllText(
                     Path.Combine(evidenceDirectory, "evidence.json"),
@@ -634,6 +651,7 @@ namespace LaTeXSnipper.Word.HostTests
             string modeName,
             string evidenceDirectory,
             bool oleMode,
+            bool imageMode,
             string svgDirectory)
         {
             var mode = ParseMode(modeName);
@@ -648,10 +666,13 @@ namespace LaTeXSnipper.Word.HostTests
                 FormulaId = formulaId,
                 Latex = fixture.Latex,
                 Omml = fixture.Omml,
-                Display = oleMode && mode == InsertMode.Inline ? "inline" :
-                    oleMode ? "block" : modeName,
-                StorageMode = oleMode ? "ole" : "native-omml",
-                Render = oleMode
+                Display = (oleMode || imageMode) && mode == InsertMode.Inline
+                    ? "inline"
+                    : (oleMode || imageMode) ? "block" : modeName,
+                StorageMode = oleMode ? "ole" : imageMode ? "image" : "native-omml",
+                ContentKind = oleMode || imageMode ? fixture.ContentKind : null,
+                EditorState = oleMode || imageMode ? fixture.EditorState : null,
+                Render = oleMode || imageMode
                     ? CreateOleRenderData(
                         Path.Combine(svgDirectory, fixture.Svg),
                         mode,
@@ -688,6 +709,14 @@ namespace LaTeXSnipper.Word.HostTests
                     out hostHeightPt,
                     out oleDiagnostics);
             }
+            else if (imageMode)
+            {
+                ValidateImageCandidate(adapter, candidate, payload, mode);
+                InteropWord.InlineShape image = candidate.Range.InlineShapes[1];
+                hostWidthPt = image.Width;
+                hostHeightPt = image.Height;
+                ReleaseComObject(image);
+            }
             else
             {
                 OmmlValidationResult expected = OmmlValidator.Validate(fixture.Omml);
@@ -701,8 +730,15 @@ namespace LaTeXSnipper.Word.HostTests
                 ValidateModeLayout(candidate, mode);
             }
 
+            float equationNumberHorizontalPositionPt = 0;
+            if (mode == InsertMode.DisplayNumbered)
+            {
+                equationNumberHorizontalPositionPt =
+                    ValidateEquationNumberRightLane(document, formulaId);
+            }
+
             string screenshotName = Sanitize(fixture.Name + "-" + modeName) + ".png";
-            InteropWord.Range visualRange = !oleMode && mode == InsertMode.DisplayNumbered
+            InteropWord.Range visualRange = mode == InsertMode.DisplayNumbered
                 ? candidate.Range.Tables[1].Cell(1, 2).Range
                 : candidate.Range;
             int rightBlankMargin;
@@ -722,6 +758,17 @@ namespace LaTeXSnipper.Word.HostTests
                 throw new InvalidOperationException(
                     $"{fixture.Name}/{modeName} screenshot ink reaches the right edge " +
                     $"(blank margin {rightBlankMargin}px, host width {hostWidthPt:F2}pt).");
+            string layoutScreenshotName = null;
+            if (mode == InsertMode.DisplayNumbered)
+            {
+                layoutScreenshotName =
+                    Sanitize(fixture.Name + "-" + modeName + "-layout") + ".png";
+                int ignoredRightMargin;
+                SaveRangeScreenshot(
+                    candidate.Range.Tables[1].Range,
+                    Path.Combine(evidenceDirectory, layoutScreenshotName),
+                    out ignoredRightMargin);
+            }
             return new EvidenceRecord
             {
                 Name = fixture.Name,
@@ -732,14 +779,96 @@ namespace LaTeXSnipper.Word.HostTests
                 MaximumBlankGapPixels = maximumBlankGap,
                 RightBlankMarginPixels = rightBlankMargin,
                 Screenshot = screenshotName,
+                LayoutScreenshot = layoutScreenshotName,
                 StorageMode = inserted.StorageMode,
                 OleInitialized = oleInitialized,
                 OleRoundTripVerified = oleRoundTripVerified,
                 HostWidthPt = hostWidthPt,
                 HostHeightPt = hostHeightPt,
+                EquationNumberHorizontalPositionPt = equationNumberHorizontalPositionPt,
                 OleDiagnostics = oleDiagnostics,
+                ContentKind = payload.ContentKind,
+                EditorStateRoundTripVerified =
+                    (oleMode || imageMode) &&
+                    EditorStateMatches(payload, adapter.ReadFormulaById(formulaId)),
                 Status = "passed"
             };
+        }
+
+        private static void ValidateImageCandidate(
+            WordAdapter adapter,
+            InteropWord.ContentControl candidate,
+            FormulaPayload payload,
+            InsertMode mode)
+        {
+            if (candidate.Range.InlineShapes.Count != 1)
+                throw new InvalidOperationException(
+                    "Word editable-image candidate does not contain exactly one inline image.");
+            FormulaPayload readBack = adapter.ReadFormulaById(payload.FormulaId);
+            if (readBack == null ||
+                !string.Equals(readBack.StorageMode, "image", StringComparison.Ordinal) ||
+                !string.Equals(readBack.ContentKind, payload.ContentKind, StringComparison.Ordinal) ||
+                !EditorStateMatches(payload, readBack) ||
+                string.IsNullOrWhiteSpace(readBack.Render?.Svg))
+            {
+                throw new InvalidOperationException(
+                    "Word editable-image manifest round-trip is incomplete.");
+            }
+            if (mode == InsertMode.DisplayNumbered)
+            {
+                if (candidate.Range.Tables.Count != 1 ||
+                    candidate.Range.Tables[1].Columns.Count != 3)
+                {
+                    throw new InvalidOperationException(
+                        "Numbered editable image must use the three-column equation layout.");
+                }
+                candidate.Range.Fields.Update();
+                if (!Regex.IsMatch(candidate.Range.Text ?? "", @"\(\s*\d+\s*\)"))
+                    throw new InvalidOperationException(
+                        "Numbered editable image has an invalid sequence label.");
+            }
+        }
+
+        private static float ValidateEquationNumberRightLane(
+            InteropWord.Document document,
+            string formulaId)
+        {
+            string bookmarkName = "LSNEq_" + Regex.Replace(
+                formulaId,
+                "[^A-Za-z0-9_]",
+                "_");
+            if (bookmarkName.Length > 40)
+                bookmarkName = bookmarkName.Substring(0, 40);
+            if (!document.Bookmarks.Exists(bookmarkName))
+                throw new InvalidOperationException(
+                    $"Numbered formula bookmark is missing: {bookmarkName}.");
+
+            InteropWord.Bookmark bookmark = null;
+            InteropWord.Range range = null;
+            try
+            {
+                bookmark = document.Bookmarks[bookmarkName];
+                range = bookmark.Range;
+                range.Fields.Update();
+                var pageSetup = range.Sections[1].PageSetup;
+                float position = Convert.ToSingle(range.get_Information(
+                    InteropWord.WdInformation.wdHorizontalPositionRelativeToPage));
+                float rightLaneStart =
+                    pageSetup.LeftMargin +
+                    (pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin) * 0.65f;
+                if (position < rightLaneStart)
+                {
+                    throw new InvalidOperationException(
+                        $"Equation number escaped the right lane: position={position:F2}pt, " +
+                        $"required>={rightLaneStart:F2}pt.");
+                }
+                return position;
+            }
+            finally
+            {
+                ReleaseComObject(range);
+                ReleaseComObject(bookmark);
+            }
         }
 
         private static RenderData CreateOleRenderData(
@@ -866,9 +995,18 @@ namespace LaTeXSnipper.Word.HostTests
             if (readBack == null ||
                 !string.Equals(readBack.StorageMode, "ole", StringComparison.Ordinal) ||
                 !string.Equals(readBack.Latex, payload.Latex, StringComparison.Ordinal) ||
+                !string.Equals(readBack.ContentKind, payload.ContentKind, StringComparison.Ordinal) ||
+                !EditorStateMatches(payload, readBack) ||
                 string.IsNullOrWhiteSpace(readBack.Render?.Svg))
             {
-                throw new InvalidOperationException("Word manifest OLE round-trip is incomplete.");
+                throw new InvalidOperationException(
+                    "Word manifest OLE round-trip is incomplete: " +
+                    $"readBack={(readBack == null ? "null" : "present")}, " +
+                    $"storage={readBack?.StorageMode ?? "null"}, " +
+                    $"latexMatch={string.Equals(readBack?.Latex, payload.Latex, StringComparison.Ordinal)}, " +
+                    $"contentKind={readBack?.ContentKind ?? "null"}/{payload.ContentKind ?? "null"}, " +
+                    $"editorStateMatch={EditorStateMatches(payload, readBack)}, " +
+                    $"hasSvg={!string.IsNullOrWhiteSpace(readBack?.Render?.Svg)}.");
             }
 
             if (mode == InsertMode.Display && candidate.Range.Paragraphs[1].Alignment !=
@@ -889,6 +1027,20 @@ namespace LaTeXSnipper.Word.HostTests
                 }
             }
             ReleaseComObject(shape);
+        }
+
+        private static bool EditorStateMatches(FormulaPayload expected, FormulaPayload actual)
+        {
+            if (actual == null)
+                return false;
+            if (!expected.EditorState.HasValue)
+                return !actual.EditorState.HasValue;
+            if (!actual.EditorState.HasValue)
+                return false;
+            return string.Equals(
+                JsonSerializer.Serialize(expected.EditorState.Value),
+                JsonSerializer.Serialize(actual.EditorState.Value),
+                StringComparison.Ordinal);
         }
 
         private static void DrainReleasedComObjects()

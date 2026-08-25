@@ -17,6 +17,8 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="office, Version=15.0.0.0, Culture=neutral, PublicKeyToken=71e9bce111e9429c, processorArchitecture=MSIL">
       <Private>False</Private>
     </Reference>
@@ -28,6 +30,23 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj">
+      <Project>{a1b2c3d4-1111-2222-3333-444455556666}</Project>
+      <Name>LaTeXSnipper.Shared</Name>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\LaTeXSnipper.Excel\LaTeXSnipper.Excel.csproj">
+      <Project>{29F1E47A-7210-40ED-83B5-9603A86846B4}</Project>
+      <Name>LaTeXSnipper.Excel</Name>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\LaTeXSnipper.PowerPoint\LaTeXSnipper.PowerPoint.csproj">
+      <Project>{F00793C0-1FFD-4878-A62C-F11D0D132A8F}</Project>
+      <Name>LaTeXSnipper.PowerPoint</Name>
+      <Private>True</Private>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

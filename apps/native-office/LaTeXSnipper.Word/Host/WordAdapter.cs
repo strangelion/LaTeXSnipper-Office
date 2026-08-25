@@ -12,6 +12,11 @@ namespace LaTeXSnipper.Word.Host
 {
     internal sealed class WordAdapter : ICommandHostAdapter
     {
+        // Keep numbered image/OLE content inside the same central lane used by
+        // native OMML's three-column equation table. This leaves a stable right
+        // lane for the number even when the formula is extremely wide.
+        private const float NumberedFormulaContentWidthRatio = 0.72f;
+
         private readonly Microsoft.Office.Interop.Word.Application _application;
         private readonly int? _oleServerProcessId;
 
@@ -1422,7 +1427,62 @@ namespace LaTeXSnipper.Word.Host
             Microsoft.Office.Interop.Word.Document doc,
             Microsoft.Office.Interop.Word.Range sourceRange)
         {
-            return PrepareBlockOleInsertionRange(doc, sourceRange);
+            var insertionRange = PrepareBlockOleInsertionRange(doc, sourceRange);
+            var paragraphFormat = insertionRange.ParagraphFormat;
+            var pageSetup = insertionRange.Sections[1].PageSetup;
+            float totalWidth =
+                pageSetup.PageWidth -
+                pageSetup.LeftMargin -
+                pageSetup.RightMargin -
+                Math.Max(0.0f, paragraphFormat.LeftIndent) -
+                Math.Max(0.0f, paragraphFormat.RightIndent);
+            try
+            {
+                var columns = insertionRange.Sections[1].PageSetup.TextColumns;
+                if (columns.Count > 1)
+                    totalWidth = columns[1].Width;
+            }
+            catch (Exception columnError)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[WordAdapter] Numbered table column width fallback: {columnError.Message}");
+            }
+
+            totalWidth = Math.Max(180.0f, totalWidth);
+            float sideWidth = Math.Max(54.0f, Math.Min(totalWidth * 0.14f, 82.0f));
+            float centerWidth = Math.Max(72.0f, totalWidth - sideWidth * 2.0f);
+            var table = doc.Tables.Add(insertionRange, 1, 3);
+            table.AllowAutoFit = false;
+            table.Borders.Enable = 0;
+            table.TopPadding = 0;
+            table.BottomPadding = 0;
+            table.LeftPadding = 0;
+            table.RightPadding = 0;
+            table.Columns[1].SetWidth(
+                sideWidth,
+                Microsoft.Office.Interop.Word.WdRulerStyle.wdAdjustNone);
+            table.Columns[2].SetWidth(
+                centerWidth,
+                Microsoft.Office.Interop.Word.WdRulerStyle.wdAdjustNone);
+            table.Columns[3].SetWidth(
+                sideWidth,
+                Microsoft.Office.Interop.Word.WdRulerStyle.wdAdjustNone);
+            table.Cell(1, 1).VerticalAlignment =
+                Microsoft.Office.Interop.Word.WdCellVerticalAlignment.wdCellAlignVerticalCenter;
+            table.Cell(1, 2).VerticalAlignment =
+                Microsoft.Office.Interop.Word.WdCellVerticalAlignment.wdCellAlignVerticalCenter;
+            table.Cell(1, 3).VerticalAlignment =
+                Microsoft.Office.Interop.Word.WdCellVerticalAlignment.wdCellAlignVerticalCenter;
+            table.Cell(1, 2).Range.ParagraphFormat.Alignment =
+                Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+            table.Cell(1, 3).Range.ParagraphFormat.Alignment =
+                Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphRight;
+
+            var centerRange = table.Cell(1, 2).Range.Duplicate;
+            centerRange.End = Math.Max(centerRange.Start, centerRange.End - 1);
+            centerRange.Collapse(
+                Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
+            return centerRange;
         }
 
         private static void ConfigureOleContentControl(
@@ -1465,7 +1525,12 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = false, Error = ex.Message };
                 }
 
-                FitOleRenderToWordContainer(range, payload);
+                FitOleRenderToWordContainer(
+                    range,
+                    payload,
+                    mode == InsertMode.DisplayNumbered
+                        ? NumberedFormulaContentWidthRatio
+                        : 1.0f);
 
                 if (mode != InsertMode.Inline)
                 {
@@ -1689,41 +1754,15 @@ namespace LaTeXSnipper.Word.Host
                 {
                     try
                     {
-                        var paragraph = oleShape.Range.Paragraphs[1];
-                        var paragraphFormat = paragraph.Format;
-                        float availableWidth;
-                        if ((bool)oleShape.Range.get_Information(Microsoft.Office.Interop.Word.WdInformation.wdWithInTable))
-                        {
-                            var cell = oleShape.Range.Cells[1];
-                            availableWidth = cell.Width - cell.LeftPadding - cell.RightPadding;
-                        }
-                        else
-                        {
-                            var pageSetup = oleShape.Range.Sections[1].PageSetup;
-                            availableWidth = pageSetup.PageWidth - pageSetup.LeftMargin - pageSetup.RightMargin;
-                            try
-                            {
-                                var columns = oleShape.Range.Sections[1].PageSetup.TextColumns;
-                                if (columns.Count > 1)
-                                    availableWidth = columns[1].Width;
-                            }
-                            catch (Exception columnError)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[WordAdapter] Column width fallback: {columnError.Message}");
-                            }
-                        }
-                        availableWidth = Math.Max(72.0f, availableWidth - paragraphFormat.LeftIndent - paragraphFormat.RightIndent);
-                        paragraphFormat.TabStops.Add(availableWidth / 2.0f, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
-                        paragraphFormat.TabStops.Add(availableWidth, Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
-
-                        // The object starts at the explicit center tab. The number
-                        // starts at the explicit right tab for this actual container.
-                        var beforeOle = doc.Range(oleShape.Range.Start, oleShape.Range.Start);
-                        beforeOle.Text = "\t";
-                        var numberedRange = cc?.Range ?? oleShape.Range;
-                        numberedRange = numberedRange.Duplicate;
-                        numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-                        var numberInsertion = InsertEquationNumberFields(doc, numberedRange, payload);
+                        var layoutTable = oleShape.Range.Tables[1];
+                        var numberedRange = layoutTable.Cell(1, 3).Range.Duplicate;
+                        numberedRange.End = Math.Max(numberedRange.Start, numberedRange.End - 1);
+                        numberedRange.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
+                        var numberInsertion = InsertEquationNumberFields(
+                            doc,
+                            numberedRange,
+                            payload,
+                            false);
                         var closingRange = numberInsertion.ClosingRange;
                         var bookmarkName = "LSNEq_" + System.Text.RegularExpressions.Regex.Replace(payload.FormulaId, "[^A-Za-z0-9_]", "_");
                         if (bookmarkName.Length > 40) bookmarkName = bookmarkName.Substring(0, 40);
@@ -1733,7 +1772,7 @@ namespace LaTeXSnipper.Word.Host
                         // The dedicated paragraph is the ownership boundary. Its
                         // paragraph mark carries the local tab stops, so deleting
                         // the control also removes every layout mutation.
-                        var ownedRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                        var ownedRange = layoutTable.Range.Duplicate;
                         if (cc == null)
                         {
                             throw new InvalidOperationException(
@@ -1811,7 +1850,9 @@ namespace LaTeXSnipper.Word.Host
                         // cannot remove user content and also removes local tabs.
                         try
                         {
-                            var rollbackRange = oleShape.Range.Paragraphs[1].Range.Duplicate;
+                            var rollbackRange = oleShape.Range.Tables.Count > 0
+                                ? oleShape.Range.Tables[1].Range.Duplicate
+                                : oleShape.Range.Paragraphs[1].Range.Duplicate;
                             if (cc != null)
                             {
                                 cc.Delete(false);
@@ -1870,7 +1911,8 @@ namespace LaTeXSnipper.Word.Host
 
         private static void FitOleRenderToWordContainer(
             Microsoft.Office.Interop.Word.Range range,
-            FormulaPayload payload)
+            FormulaPayload payload,
+            float widthRatio)
         {
             if (payload.Render == null ||
                 payload.Render.WidthPt <= 0 ||
@@ -1930,6 +1972,7 @@ namespace LaTeXSnipper.Word.Host
                 // requested formula content.
                 const float nativeMaximumHorizontalPaddingPt = 8.0f;
                 const float nativeMaximumVerticalPaddingPt = 6.0f;
+                availableWidth *= Math.Max(0.1f, Math.Min(1.0f, widthRatio));
                 float maximumRenderWidth =
                     Math.Max(
                         36.0f,
@@ -2009,13 +2052,25 @@ namespace LaTeXSnipper.Word.Host
                     try
                     {
                         var paragraphFormat = image.Range.ParagraphFormat;
-                        var pageSetup = image.Range.Sections[1].PageSetup;
-                        float availableWidth =
-                            pageSetup.PageWidth -
-                            pageSetup.LeftMargin -
-                            pageSetup.RightMargin -
-                            Math.Max(0.0f, paragraphFormat.LeftIndent) -
-                            Math.Max(0.0f, paragraphFormat.RightIndent) -
+                        float availableWidth;
+                        if (Convert.ToBoolean(image.Range.get_Information(
+                            Microsoft.Office.Interop.Word.WdInformation.wdWithInTable)))
+                        {
+                            var cell = image.Range.Cells[1];
+                            availableWidth =
+                                cell.Width - cell.LeftPadding - cell.RightPadding;
+                        }
+                        else
+                        {
+                            var pageSetup = image.Range.Sections[1].PageSetup;
+                            availableWidth =
+                                pageSetup.PageWidth -
+                                pageSetup.LeftMargin -
+                                pageSetup.RightMargin;
+                        }
+                        availableWidth -=
+                            Math.Max(0.0f, paragraphFormat.LeftIndent) +
+                            Math.Max(0.0f, paragraphFormat.RightIndent) +
                             4.0f;
                         targetWidth = Math.Min(
                             targetWidth,
@@ -2079,59 +2134,16 @@ namespace LaTeXSnipper.Word.Host
                                 "The image content control is unavailable.");
                         }
 
-                        var paragraph = image.Range.Paragraphs[1];
-                        var paragraphFormat = paragraph.Format;
-                        float availableWidth;
-                        if ((bool)image.Range.get_Information(
-                            Microsoft.Office.Interop.Word.WdInformation.wdWithInTable))
-                        {
-                            var cell = image.Range.Cells[1];
-                            availableWidth =
-                                cell.Width - cell.LeftPadding - cell.RightPadding;
-                        }
-                        else
-                        {
-                            var pageSetup = image.Range.Sections[1].PageSetup;
-                            availableWidth =
-                                pageSetup.PageWidth -
-                                pageSetup.LeftMargin -
-                                pageSetup.RightMargin;
-                            try
-                            {
-                                var columns =
-                                    image.Range.Sections[1].PageSetup.TextColumns;
-                                if (columns.Count > 1)
-                                {
-                                    availableWidth = columns[1].Width;
-                                }
-                            }
-                            catch (Exception columnError)
-                            {
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"[WordAdapter] Image column width fallback: {columnError.Message}");
-                            }
-                        }
-
-                        availableWidth = Math.Max(
-                            72.0f,
-                            availableWidth -
-                            paragraphFormat.LeftIndent -
-                            paragraphFormat.RightIndent);
-                        paragraphFormat.TabStops.Add(
-                            availableWidth / 2.0f,
-                            Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabCenter);
-                        paragraphFormat.TabStops.Add(
-                            availableWidth,
-                            Microsoft.Office.Interop.Word.WdTabAlignment.wdAlignTabRight);
-
-                        var beforeImage = doc.Range(
-                            image.Range.Start,
-                            image.Range.Start);
-                        beforeImage.Text = "\t";
-                        var numberedRange = cc.Range.Duplicate;
+                        var layoutTable = image.Range.Tables[1];
+                        var numberedRange = layoutTable.Cell(1, 3).Range.Duplicate;
+                        numberedRange.End = Math.Max(numberedRange.Start, numberedRange.End - 1);
                         numberedRange.Collapse(
-                            Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
-                        var numberInsertion = InsertEquationNumberFields(doc, numberedRange, payload);
+                            Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseStart);
+                        var numberInsertion = InsertEquationNumberFields(
+                            doc,
+                            numberedRange,
+                            payload,
+                            false);
                         var closingRange = numberInsertion.ClosingRange;
 
                         var bookmarkName =
@@ -2149,8 +2161,7 @@ namespace LaTeXSnipper.Word.Host
                             closingRange.End);
                         doc.Bookmarks.Add(bookmarkName, bookmarkRange);
 
-                        var ownedRange =
-                            image.Range.Paragraphs[1].Range.Duplicate;
+                        var ownedRange = layoutTable.Range.Duplicate;
                         cc.Delete(false);
                         cc = doc.ContentControls.Add(
                             Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
@@ -2170,7 +2181,10 @@ namespace LaTeXSnipper.Word.Host
                             ex);
                         try
                         {
-                            image.Range.Paragraphs[1].Range.Delete();
+                            var rollbackRange = image.Range.Tables.Count > 0
+                                ? image.Range.Tables[1].Range.Duplicate
+                                : image.Range.Paragraphs[1].Range.Duplicate;
+                            rollbackRange.Delete();
                         }
                         catch (Exception rollbackError)
                         {
@@ -2585,11 +2599,12 @@ namespace LaTeXSnipper.Word.Host
         private static EquationNumberInsertion InsertEquationNumberFields(
             Microsoft.Office.Interop.Word.Document doc,
             Microsoft.Office.Interop.Word.Range target,
-            FormulaPayload payload)
+            FormulaPayload payload,
+            bool includeLeadingTab = true)
         {
             var numbering = ResolveNumberingFormat(payload);
-            target.Text = "\t" + numbering.Prefix;
-            var bookmarkStart = target.Start + 1;
+            target.Text = (includeLeadingTab ? "\t" : "") + numbering.Prefix;
+            var bookmarkStart = target.Start + (includeLeadingTab ? 1 : 0);
             target.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
 
             if (numbering.IsChapterScoped)

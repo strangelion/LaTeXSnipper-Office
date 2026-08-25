@@ -8,6 +8,45 @@
       "svg": "arrow-in-superscript.svg"
     },
     {
+      "name": "editable-drawing-flowchart",
+      "latex": "drawing:mermaid",
+      "svg": "editable-drawing-flowchart.svg",
+      "contentKind": "drawing",
+      "editorState": {
+        "schemaVersion": 1,
+        "kind": "drawing",
+        "language": "mermaid",
+        "packageProfiles": ["mermaid"],
+        "source": "flowchart LR\n  capture[Capture] --> verify{Verify}\n  verify --> office[Office]"
+      },
+      "requestedWidthPt": 300,
+      "requestedHeightPt": 95
+    },
+    {
+      "name": "editable-custom-symbol",
+      "latex": "custom-symbol:vector-star",
+      "svg": "editable-custom-symbol.svg",
+      "contentKind": "customSymbol",
+      "editorState": {
+        "schemaVersion": 1,
+        "kind": "customSymbol",
+        "bundle": {
+          "schemaVersion": 1,
+          "symbol": {
+            "name": "Vector Star",
+            "composition": {
+              "layers": [
+                { "id": "star", "kind": "shape", "shape": "star", "x": 40, "y": 48, "width": 58, "height": 58, "rotation": 0, "color": "#2563EB", "opacity": 1 },
+                { "id": "arrow", "kind": "shape", "shape": "arrow", "x": 120, "y": 48, "width": 104, "height": 28, "rotation": 0, "color": "#7C3AED", "opacity": 1 }
+              ]
+            }
+          }
+        }
+      },
+      "requestedWidthPt": 230,
+      "requestedHeightPt": 95
+    },
+    {
       "name": "operator-limit-function-to-one",
       "latex": "\\lim_{x\\to1}\\frac{\\sin x}{x}",
       "svg": "operator-limit-function-to-one.svg"

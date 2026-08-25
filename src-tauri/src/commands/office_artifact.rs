@@ -90,6 +90,8 @@ pub async fn office_insert_artifact(
                     render: None,
                     source: None,
                     storage_mode: Some(storage_mode.to_string()),
+                    content_kind: None,
+                    editor_state: None,
                     revision: 0,
                     created_utc_ticks: 0,
                     host: Some(artifact.target.host.to_string()),

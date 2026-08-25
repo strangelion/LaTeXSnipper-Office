@@ -23,6 +23,12 @@ import {
   selectProductionDrawingRoute,
 } from "./features/drawing/workspace.js";
 import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
+import {
+  buildEditableMediaInsertArgs,
+  customSymbolEditorState,
+  drawingEditorState,
+  mergeEditableMediaOlePayload,
+} from "./services/editable-media-office.js";
 import { bindWorkspaceInteractions } from "./features/workspace/interactions.js";
 import {
   formulaCopyPlan,
@@ -2076,6 +2082,19 @@ class UIController {
   }
 
   async insertDrawingToOffice(result) {
+    const editorState = drawingEditorState(result);
+    const widthPt = result.payload.widthPoints;
+    const heightPt = result.payload.heightPoints;
+    if (this._oleSessionToken && this._oleContentKind === "drawing") {
+      return this._saveOleMediaEdit({
+        contentKind: "drawing",
+        editorState,
+        sourceLabel: editorState.source,
+        svg: result.svg,
+        widthPt,
+        heightPt,
+      });
+    }
     const { invoke } = await import("@tauri-apps/api/core");
     await this.updateOfficeHostSelector();
     const session = this._sessions?.find(
@@ -2086,27 +2105,30 @@ class UIController {
       payload: result.payload,
       host: session.host_type,
       os: navigator.userAgent.includes("Windows") ? "windows" : "other",
+      requestEditable: true,
+      drawingOleAvailable: this._oleStatus?.available === true,
     });
     if (!route.route) throw new Error(route.code);
-    if (route.route !== "svg") {
-      throw new Error(`DRAWING_ROUTE_NOT_IMPLEMENTED: ${route.route}`);
-    }
-    await invoke("native_office_insert_formula", {
-      sessionId: session.session_id,
-      expectedDocumentId: session.document_id || null,
-      formulaId: result.payload.drawingId,
-      latex: result.payload.source,
-      omml: "",
-      display: "block",
-      mode: "display",
-      svg: result.svg,
-      png: null,
-      widthPt: result.payload.widthPoints,
-      heightPt: result.payload.heightPoints,
-      integrationMode: "vector",
-      requestedRoute: "drawing",
-      actualRoute: route.route,
-    });
+    const editable = route.route === "drawingOle";
+    const png = editable
+      ? await this._svgToPngBase64(result.svg, widthPt, heightPt)
+      : null;
+    await invoke(
+      "native_office_insert_formula",
+      buildEditableMediaInsertArgs({
+        session,
+        formulaId: crypto.randomUUID(),
+        contentKind: "drawing",
+        editorState,
+        sourceLabel: editorState.source,
+        svg: result.svg,
+        png,
+        widthPt,
+        heightPt,
+        editable,
+        actualRoute: route.route,
+      }),
+    );
     this.showToast(
       `绘图已通过 ${route.route.toUpperCase()} 路线发送到 ${session.host_type}`,
     );
@@ -2126,15 +2148,55 @@ class UIController {
       (Number(bounds.maxY) || 700) - (Number(bounds.minY) || -200),
     );
     const height = Math.max(12, (glyphHeight / units) * 72);
-    return this.insertDrawingToOffice({
+    const widthPt = Math.min(144, width);
+    const heightPt = Math.min(144, height);
+    const editorState = customSymbolEditorState(result);
+    const sourceLabel =
+      result.bundle.latexFallback ||
+      result.bundle.symbol.name ||
+      "custom symbol";
+    if (this._oleSessionToken && this._oleContentKind === "customSymbol") {
+      return this._saveOleMediaEdit({
+        contentKind: "customSymbol",
+        editorState,
+        sourceLabel,
+        svg: result.canonicalSvg,
+        widthPt,
+        heightPt,
+      });
+    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    await this.updateOfficeHostSelector();
+    const session = this._sessions?.find(
+      (candidate) => candidate.session_id === this._selectedSessionId,
+    );
+    if (!session) throw new Error("请先选择已连接的 Office 宿主");
+    const editable =
+      navigator.userAgent.includes("Windows") &&
+      this._oleStatus?.available === true;
+    const png = await this._svgToPngBase64(
+      result.canonicalSvg,
+      widthPt,
+      heightPt,
+    );
+    const args = buildEditableMediaInsertArgs({
+      session,
+      formulaId: crypto.randomUUID(),
+      contentKind: "customSymbol",
+      editorState,
+      sourceLabel,
       svg: result.canonicalSvg,
-      payload: {
-        drawingId: `custom-symbol-${result.bundle.symbol.id}`,
-        source: result.bundle.latexFallback || result.bundle.symbol.name,
-        widthPoints: Math.min(144, width),
-        heightPoints: Math.min(144, height),
-      },
+      png,
+      widthPt,
+      heightPt,
+      editable,
+      actualRoute: editable ? "customSymbolOle" : "customSymbolImage",
     });
+    await invoke("native_office_insert_formula", args);
+    this.showToast(
+      `自定义符号已通过 ${editable ? "可编辑 OLE" : "图片"} 路线发送到 ${session.host_type}`,
+    );
+    return { route: args.actualRoute };
   }
 
   setFormulaInsertMode(value) {
@@ -3960,21 +4022,44 @@ class UIController {
           formulaId: formula_id,
           payloadJson: payload_json,
           revision: event.payload.revision ?? payload_json?.revision ?? 0,
+          contentKind: payload_json?.contentKind || null,
         });
 
-        // Load the formula into the editor
+        // Load the authoritative source into the matching editor. Formula,
+        // drawing and custom-symbol OLE objects share the transport but retain
+        // independent authoring state.
         this.switchSection("editor");
-
-        // If full payload is available, use omml for richer editing
-        if (payload_json?.omml) {
-          this.editor.setLatex(latex || "");
-        } else {
-          this.editor.setLatex(latex || "");
-        }
 
         // Mark current OLE session for save-with-response
         this._oleSessionToken = session_token;
         this._oleFormulaId = formula_id;
+        this._oleContentKind = payload_json?.contentKind || null;
+
+        try {
+          if (this._oleContentKind === "drawing" && payload_json?.editorState) {
+            this.drawingWorkspace?.loadEditableState(payload_json.editorState);
+          } else if (
+            this._oleContentKind === "customSymbol" &&
+            payload_json?.editorState
+          ) {
+            this.drawingWorkspace?.activateMode("symbol-composer");
+            await this.customSymbolComposer?.loadEditableState(
+              payload_json.editorState,
+            );
+          } else {
+            this._oleContentKind = null;
+            this.drawingWorkspace?.activateMode("formula");
+            this.editor.setLatex(latex || "");
+          }
+        } catch (error) {
+          Logger.error(
+            "[OLE] Editable media state could not be restored",
+            error,
+          );
+          this.showToast("可编辑对象源数据损坏，已停止载入以避免覆盖");
+          await this.cancelOleEdit();
+          return;
+        }
 
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
@@ -3989,6 +4074,7 @@ class UIController {
           this._oleSessions?.delete(sessionToken);
           this._oleSessionToken = null;
           this._oleFormulaId = null;
+          this._oleContentKind = null;
           Logger.info(
             `[OLE] Session ended and frontend state cleared: ${sessionToken}`,
           );
@@ -6919,11 +7005,74 @@ class UIController {
       this._oleSessions?.delete(sessionToken);
       this._oleSessionToken = null;
       this._oleFormulaId = null;
+      this._oleContentKind = null;
       this.showToast("公式已更新");
       this.addHistoryItem(latex);
     } catch (e) {
       Logger.error("[OLE] Save failed:", e);
       this.showToast(`OLE 保存失败: ${e.message}`);
+    }
+  }
+
+  async _saveOleMediaEdit({
+    contentKind,
+    editorState,
+    sourceLabel,
+    svg,
+    widthPt,
+    heightPt,
+  }) {
+    const sessionToken = this._oleSessionToken;
+    if (!sessionToken || this._oleContentKind !== contentKind) {
+      throw new Error("OLE_EDIT_MEDIA_SESSION_MISMATCH");
+    }
+    const sessionData = this._oleSessions?.get(sessionToken);
+    const previous = sessionData?.payloadJson;
+    try {
+      const { emit } = await import("@tauri-apps/api/event");
+      const png = await this._svgToPngBase64(svg, widthPt, heightPt);
+      const formula = mergeEditableMediaOlePayload({
+        previous,
+        formulaId:
+          sessionData?.formulaId || this._oleFormulaId || crypto.randomUUID(),
+        contentKind,
+        editorState,
+        sourceLabel,
+        svg,
+        png,
+        widthPt,
+        heightPt,
+        revision: (sessionData?.revision ?? previous?.revision ?? 0) + 1,
+      });
+      const commitWaiter = await this._createOleCommitWaiter(sessionToken);
+      let ack;
+      try {
+        await emit(`ole-edit-result-${sessionToken}`, {
+          action: "save",
+          formula,
+        });
+        ack = await commitWaiter.promise;
+      } catch (error) {
+        commitWaiter.cancel();
+        throw error;
+      }
+      if (!ack?.success) {
+        const error = new Error(ack?.errorCode || "OLE_EDIT_COMMIT_FAILED");
+        error.hresult = ack?.hresult;
+        throw error;
+      }
+      this._oleSessions?.delete(sessionToken);
+      this._oleSessionToken = null;
+      this._oleFormulaId = null;
+      this._oleContentKind = null;
+      this.showToast(
+        contentKind === "drawing" ? "绘图对象已更新" : "自定义符号已更新",
+      );
+      return { route: "ole", revision: formula.revision };
+    } catch (error) {
+      Logger.error("[OLE] Editable media save failed", error);
+      this.showToast(`OLE 保存失败: ${error.message || error}`);
+      throw error;
     }
   }
 
@@ -7071,6 +7220,7 @@ class UIController {
       this._oleSessions?.delete(this._oleSessionToken);
       this._oleSessionToken = null;
       this._oleFormulaId = null;
+      this._oleContentKind = null;
     }
   }
 

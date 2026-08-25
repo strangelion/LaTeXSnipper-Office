@@ -525,6 +525,12 @@ pub struct FormulaPayload {
     pub source: Option<SourceInfo>,
     #[serde(rename = "storageMode", skip_serializing_if = "Option::is_none")]
     pub storage_mode: Option<String>,
+    /// Editable payload kind. Omitted for ordinary formulas.
+    #[serde(rename = "contentKind", skip_serializing_if = "Option::is_none")]
+    pub content_kind: Option<String>,
+    /// Kind-specific, versioned authoring state used for OLE round trips.
+    #[serde(rename = "editorState", skip_serializing_if = "Option::is_none")]
+    pub editor_state: Option<serde_json::Value>,
     #[serde(rename = "revision")]
     pub revision: i32,
     #[serde(rename = "createdUtcTicks", default)]
@@ -845,6 +851,34 @@ mod numbering_scope_wire_tests {
         assert_eq!(wire["numberingScheme"], "chapter-hyphen");
         assert_eq!(wire["numberingChapterLevel"], 1);
         assert_eq!(wire["numberingSeparator"], "-");
+    }
+
+    #[test]
+    fn editable_media_metadata_round_trips_without_overloading_latex() {
+        let payload: FormulaPayload = serde_json::from_value(serde_json::json!({
+            "formulaId": "drawing-equation",
+            "latex": "drawing preview",
+            "omml": "",
+            "display": "block",
+            "contentKind": "drawing",
+            "editorState": {
+                "schemaVersion": 1,
+                "kind": "drawing",
+                "language": "mermaid",
+                "source": "flowchart LR; A-->B"
+            },
+            "revision": 2
+        }))
+        .expect("editable drawing payload must deserialize");
+
+        assert_eq!(payload.content_kind.as_deref(), Some("drawing"));
+        assert_eq!(
+            payload.editor_state.as_ref().unwrap()["language"],
+            "mermaid"
+        );
+        let wire = serde_json::to_value(payload).expect("payload must serialize");
+        assert_eq!(wire["contentKind"], "drawing");
+        assert_eq!(wire["editorState"]["source"], "flowchart LR; A-->B");
     }
 }
 

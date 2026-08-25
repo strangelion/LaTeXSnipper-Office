@@ -532,6 +532,14 @@ public class FormulaPayload
     [JsonPropertyName("render")] public RenderData? Render { get; set; }
     [JsonPropertyName("source")] public SourceInfo? Source { get; set; }
     [JsonPropertyName("storageMode")] public string? StorageMode { get; set; }
+    /// <summary>Editable payload kind (for example drawing or customSymbol).</summary>
+    [JsonPropertyName("contentKind")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ContentKind { get; set; }
+    /// <summary>Versioned, kind-specific source state retained by editable OLE objects.</summary>
+    [JsonPropertyName("editorState")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public System.Text.Json.JsonElement? EditorState { get; set; }
     [JsonPropertyName("revision")] public int Revision { get; set; }
     [JsonPropertyName("createdUtcTicks")] public long CreatedUtcTicks { get; set; }
 

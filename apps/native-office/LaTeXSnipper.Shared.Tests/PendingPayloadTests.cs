@@ -182,6 +182,50 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             }
         }
 
+        private static void TestEditableMediaMetadataPersists()
+        {
+            FormulaPayload payload = Payload("editable-drawing");
+            payload.ContentKind = "drawing";
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(
+                "{\"schemaVersion\":1,\"kind\":\"drawing\",\"language\":\"mermaid\",\"source\":\"flowchart LR; A--&gt;B\"}"))
+            {
+                payload.EditorState = document.RootElement.Clone();
+            }
+
+            string json;
+            using (OleFormulaPendingPayloadStore.Save(payload))
+                json = OleFormulaPendingPayloadStore.Consume();
+
+            Expect(json != null && json.Contains("\"contentKind\":\"drawing\""),
+                "editable payload kind was not persisted");
+            Expect(json != null && json.Contains("\"editorState\":") && json.Contains("\"language\":\"mermaid\""),
+                "editable payload source state was not persisted");
+        }
+
+        private static void TestHostMetadataKeepsEditorStateWithoutBinaryRender()
+        {
+            FormulaPayload payload = Payload(FormulaIdHelper.NewId());
+            payload.Render.Png = "data:image/png;base64,AAAA";
+            payload.Presentation = new PresentationData { EmfBase64 = "AAAA" };
+            payload.StorageMode = "ole";
+            payload.ContentKind = "customSymbol";
+            using (System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(
+                "{\"schemaVersion\":1,\"kind\":\"customSymbol\",\"bundle\":{\"layers\":[{\"id\":\"star\"}]}}"))
+            {
+                payload.EditorState = document.RootElement.Clone();
+            }
+
+            string json = OleFormulaInterop.CreateHostMetadataJson(payload);
+            FormulaPayload roundTrip = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json);
+            Expect(roundTrip != null && roundTrip.ContentKind == "customSymbol",
+                "host metadata lost editable content kind");
+            Expect(roundTrip != null && roundTrip.EditorState.HasValue &&
+                roundTrip.EditorState.Value.GetProperty("bundle").GetProperty("layers").GetArrayLength() == 1,
+                "host metadata lost editable source state");
+            Expect(roundTrip != null && roundTrip.Render == null && roundTrip.Presentation == null,
+                "host metadata copied binary render fields into shape alternative text");
+        }
+
         private static int ChildMain()
         {
             using (OleFormulaPendingPayloadStore.Save(Payload("child")))
@@ -221,6 +265,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             TestDifferentPidIsolation();
             Console.WriteLine("RUN TestIntegrityFailureCleanup");
             TestIntegrityFailureCleanup();
+            Console.WriteLine("RUN TestEditableMediaMetadataPersists");
+            TestEditableMediaMetadataPersists();
+            Console.WriteLine("RUN TestHostMetadataKeepsEditorStateWithoutBinaryRender");
+            TestHostMetadataKeepsEditorStateWithoutBinaryRender();
             Console.WriteLine("RUN StrictBase64Tests");
             failures += StrictBase64Tests.Run();
             Console.WriteLine("RUN OleExtentTests");

@@ -14,6 +14,47 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 public static class OleFormulaInterop
 {
     /// <summary>
+    /// Create compact host-shape metadata for selection readback when a host
+    /// cannot expose the native OLE automation object through its interop API.
+    /// Binary render and EMF fields remain in embedded OLE storage; editable
+    /// source state remains available to reopen the desktop editor.
+    /// </summary>
+    public static string CreateHostMetadataJson(FormulaPayload payload)
+    {
+        if (payload == null) throw new ArgumentNullException(nameof(payload));
+        var metadata = new FormulaPayload
+        {
+            SchemaVersion = payload.SchemaVersion,
+            FormulaId = payload.FormulaId,
+            Latex = payload.Latex,
+            Omml = payload.Omml,
+            Display = payload.Display,
+            NumberingTemplate = payload.NumberingTemplate,
+            NumberingStyle = payload.NumberingStyle,
+            NumberingScheme = payload.NumberingScheme,
+            NumberingChapterLevel = payload.NumberingChapterLevel,
+            NumberingSeparator = payload.NumberingSeparator,
+            Source = payload.Source,
+            StorageMode = payload.StorageMode,
+            ContentKind = payload.ContentKind,
+            EditorState = payload.EditorState,
+            Revision = payload.Revision,
+            CreatedUtcTicks = payload.CreatedUtcTicks,
+            Host = payload.Host,
+            DocumentContext = payload.DocumentContext,
+            ObjectContext = payload.ObjectContext,
+            ProtocolVersion = payload.ProtocolVersion,
+            RequestedRoute = payload.RequestedRoute,
+            ActualRoute = payload.ActualRoute
+        };
+        return JsonSerializer.Serialize(metadata, new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition =
+                System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        });
+    }
+
+    /// <summary>
     /// Call ILatexSnipperFormula.InitializeFromJson on the OLE automation object.
     /// Returns true on success.
     /// </summary>

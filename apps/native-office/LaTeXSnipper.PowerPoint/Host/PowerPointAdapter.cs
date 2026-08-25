@@ -9,10 +9,14 @@ namespace LaTeXSnipper.PowerPoint.Host
     internal sealed class PowerPointAdapter : ICommandHostAdapter
     {
         private readonly PowerPointApp _application;
+        private readonly int? _oleServerProcessId;
 
-        public PowerPointAdapter(PowerPointApp application)
+        public PowerPointAdapter(
+            PowerPointApp application,
+            int? oleServerProcessId = null)
         {
             _application = application;
+            _oleServerProcessId = oleServerProcessId;
         }
 
         public string HostType => "powerpoint";
@@ -246,9 +250,12 @@ namespace LaTeXSnipper.PowerPoint.Host
                 float slideWidth = _application.ActivePresentation.PageSetup.SlideWidth;
                 float top = 100f;
 
-                using (PendingPayloadLease payloadLease = OleFormulaPendingPayloadStore.Save(payload))
+                using (PendingPayloadLease payloadLease = _oleServerProcessId.HasValue
+                    ? OleFormulaPendingPayloadStore.SaveForProcess(
+                        payload,
+                        _oleServerProcessId.Value)
+                    : OleFormulaPendingPayloadStore.Save(payload))
                 {
-                    // P0-5/P2-A: FileName omitted (defaults to null), Link: msoFalse
                     var shape = slide.Shapes.AddOLEObject(
                         Left: (slideWidth - 120f) / 2f,
                         Top: top,
@@ -258,7 +265,6 @@ namespace LaTeXSnipper.PowerPoint.Host
                     );
 
                     shape.Name = $"LSNO_{payload.FormulaId}";
-                    shape.AlternativeText = $"LSNO:v3:id={payload.FormulaId};storage=ole";
 
                     using OleActivationResult activation = OleFormulaActivation.ActivateAndVerify(
                         () => shape.OLEFormat?.Object,
@@ -333,6 +339,11 @@ namespace LaTeXSnipper.PowerPoint.Host
                             "[PPTAdapter] OLE_EXTENT_VERIFY_FALLBACK: native display extent did not match the host Shape.");
                     }
 
+                    // PowerPoint may recreate the host shape while finalizing the OLE
+                    // cache. Write fallback metadata only after CompleteInsertion and
+                    // extent synchronization so it survives selection readback.
+                    shape.AlternativeText = OleFormulaInterop.CreateHostMetadataJson(payload);
+
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
                     return new InsertResult
                     {
@@ -382,7 +393,7 @@ namespace LaTeXSnipper.PowerPoint.Host
             var slide = _application.ActiveWindow?.View?.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
             if (slide != null)
             {
-                foreach (Microsoft.Office.Core.Shape candidate in slide.Shapes)
+                foreach (Microsoft.Office.Interop.PowerPoint.Shape candidate in slide.Shapes)
                     if (string.Equals(candidate.Name, expectedName, StringComparison.Ordinal)) exactMatches++;
             }
             if (string.Equals(actualName, expectedName, StringComparison.Ordinal) && exactMatches <= 1)

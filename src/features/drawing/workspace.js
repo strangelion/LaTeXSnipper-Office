@@ -771,6 +771,7 @@ export function createDrawingWorkspaceController({
       }
       result.originalSource = originalSource;
       result.originalLanguage = authoredLanguage;
+      result.originalPackageProfiles = [...authored.packageProfiles];
       state.lastResult = result;
       if (elements.preview) {
         elements.preview.innerHTML = result.svg;
@@ -2070,6 +2071,57 @@ export function createDrawingWorkspaceController({
   setEditorMode("visual");
   activateMode("formula");
 
+  const exportEditableState = () => ({
+    schemaVersion: 1,
+    kind: "drawing",
+    language: state.language,
+    packageProfiles: [...state.packageProfiles],
+    source: String(elements.source?.value || ""),
+  });
+
+  const loadEditableState = (editorState) => {
+    if (
+      editorState?.schemaVersion !== 1 ||
+      editorState?.kind !== "drawing" ||
+      typeof editorState.language !== "string" ||
+      typeof editorState.source !== "string"
+    ) {
+      throw new Error("EDITABLE_MEDIA_DRAWING_STATE_INVALID");
+    }
+    const profiles = Array.isArray(editorState.packageProfiles)
+      ? editorState.packageProfiles.filter((value) => typeof value === "string")
+      : [];
+    const profile = resolveVisualProfile(editorState.language, profiles);
+    const button = elements.languageButtons.find((candidate) => {
+      if (candidate.dataset.drawingLanguage !== editorState.language)
+        return false;
+      const candidateProfile =
+        candidate.dataset.drawingProfile || candidate.dataset.drawingLanguage;
+      return candidateProfile === profile || profiles.length === 0;
+    });
+    if (button) chooseLanguage(button);
+    state.language = editorState.language;
+    state.packageProfiles = profiles;
+    state.sourceByProfile.set(profile, editorState.source);
+    if (elements.source) elements.source.value = editorState.source;
+    const parsed = parseVisualDocument(profile, editorState.source);
+    state.visualLocked = !parsed.lossless;
+    if (visualEditor) {
+      visualEditor.setProfile(profile, { commit: false });
+      if (parsed.lossless) {
+        visualEditor.replaceDocument(profile, parsed.objects, {
+          commit: false,
+        });
+      }
+    }
+    activateMode("drawing");
+    invalidateCompilation();
+    setEditorMode(parsed.lossless ? "visual" : "source");
+    status("已从 Office 可编辑对象恢复绘图源码；请确认预览后保存");
+    schedulePreview();
+    return exportEditableState();
+  };
+
   return {
     state,
     activateMode,
@@ -2081,6 +2133,8 @@ export function createDrawingWorkspaceController({
     refreshReadiness,
     setEditorMode,
     visualEditor,
+    exportEditableState,
+    loadEditableState,
   };
 }
 
@@ -2311,16 +2365,23 @@ export function initDrawingWorkspace({
   return controller;
 }
 
-export function selectProductionDrawingRoute({ payload, host, os }) {
+export function selectProductionDrawingRoute({
+  payload,
+  host,
+  os,
+  requestEditable = true,
+  drawingOleAvailable = false,
+}) {
   return selectDrawingOfficeRoute({
     payload,
     host,
     os,
+    requestEditable,
     capabilities: {
       nativeShapes: false,
-      drawingOle: false,
+      drawingOle: drawingOleAvailable,
       svg: true,
-      png: false,
+      png: true,
       pdfExport: false,
     },
   });
