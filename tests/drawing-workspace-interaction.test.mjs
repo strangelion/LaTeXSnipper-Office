@@ -2,8 +2,10 @@ import { strict as assert } from "node:assert";
 import test from "node:test";
 import {
   computeFittedViewBox,
+  computePlotYRange,
   createDrawingWorkspaceController,
   fitPlotData,
+  migrateLegacyPlotLegend,
   parsePlotDataTable,
   resolveDrawingAuthoringInput,
   resolveVisualProfile,
@@ -21,6 +23,7 @@ import {
   evaluatePlotExpression,
   materializeVisualObjects,
   serializeVisualDrawing,
+  visualTransformCapabilities,
 } from "../src/features/drawing/visual-editor.js";
 import {
   parseVisualDocument,
@@ -196,6 +199,78 @@ test("PGFPlots visual curves use the same axis range as native source", () => {
   assert.match(source, /ymax=100/);
 });
 
+test("PGFPlots auto Y range follows every visible curve and ignores hidden curves", () => {
+  const objects = createProfileDocument("pgf_plots", "plot", {
+    expression: "x",
+    xMin: -2,
+    xMax: 2,
+  });
+  const plot = objects.find((object) => object.type === "plot");
+  objects.push({
+    ...structuredClone(plot),
+    id: "hidden-outlier",
+    expression: "1000*x",
+    visible: false,
+  });
+  const range = computePlotYRange(objects);
+  assert.ok(range.min < -2);
+  assert.ok(range.max > 2);
+  assert.ok(range.max < 10);
+  assert.ok(range.tick > 0);
+});
+
+test("PGFPlots curve visibility and legend layout serialize to native source", () => {
+  const objects = createProfileDocument("pgf_plots", "plot", {
+    expression: "sin(x)",
+  });
+  const axes = objects.find((object) => object.type === "axes");
+  const plot = objects.find((object) => object.type === "plot");
+  axes.yTick = 0.25;
+  axes.legendColumns = 2;
+  axes.legendFontSize = 8;
+  axes.legendOpacity = 0.75;
+  objects.push({
+    ...structuredClone(plot),
+    id: "hidden-curve",
+    expression: "12345*x^3",
+    visible: false,
+  });
+  const source = serializeVisualDocument("pgf_plots", objects).source;
+  assert.match(source, /ytick distance=0\.25/);
+  assert.match(source, /legend columns=2/);
+  assert.match(source, /\\fontsize\{8pt\}/);
+  assert.match(source, /fill opacity=0\.75/);
+  assert.match(source, /axis description cs:0\.5,-0\.16/);
+  assert.doesNotMatch(source, /12345/);
+  assert.equal(parseVisualDocument("pgf_plots", source).lossless, true);
+});
+
+test("legacy multi-curve PGFPlots legends migrate outside without overriding an explicit choice", () => {
+  const legacy = createProfileDocument("pgf_plots", "plot", {
+    expression: "sin(x)",
+  });
+  const axes = legacy.find((object) => object.type === "axes");
+  const plot = legacy.find((object) => object.type === "plot");
+  axes.legendPosition = "north east";
+  legacy.push({ ...structuredClone(plot), id: "second-curve" });
+
+  const migrated = migrateLegacyPlotLegend(legacy);
+  assert.equal(migrated.migrated, true);
+  assert.equal(
+    migrated.objects.find((object) => object.type === "axes").legendPosition,
+    "outer south",
+  );
+  assert.equal(axes.legendPosition, "north east", "input must stay immutable");
+
+  axes.legendPositionUserSet = true;
+  const explicit = migrateLegacyPlotLegend(legacy);
+  assert.equal(explicit.migrated, false);
+  assert.equal(
+    explicit.objects.find((object) => object.type === "axes").legendPosition,
+    "north east",
+  );
+});
+
 test("TikZ preview rejects unsupported CJK before an opaque DVI failure", async () => {
   await assert.rejects(
     renderTikz(String.raw`\\node {中文};`, { host: {} }),
@@ -291,6 +366,66 @@ test("purpose-built relation labels and mind-map hierarchy reach native source",
   const source = serializeVisualDocument("mermaid", mindMap).source;
   assert.match(source, /^mindmap/m);
   assert.match(source, /^      子主题$/m);
+});
+
+test("object appearance and typography reach each supported native source", () => {
+  const graph = createProfileDocument("graphviz_dot", "hierarchy");
+  const graphNode = graph.find((item) => item.type === "node");
+  Object.assign(graphNode, {
+    color: "#DC2626",
+    fill: "#FEF2F2",
+    textColor: "#7F1D1D",
+    opacity: 0.75,
+    fillOpacity: 0.6,
+    lineStyle: "dashed",
+    fontFamily: "Georgia",
+    fontSize: 34,
+    cornerRadius: 18,
+  });
+  const dot = serializeVisualDocument("graphviz_dot", graph).source;
+  assert.match(dot, /color="#DC2626BF"/);
+  assert.match(dot, /fillcolor="#FEF2F273"/);
+  assert.match(dot, /fontcolor="#7F1D1DBF"/);
+  assert.match(dot, /style="filled,dashed,rounded"/);
+  assert.match(dot, /fontname="Georgia"/);
+
+  const flow = createProfileDocument("mermaid", "flow");
+  const flowNode = flow.find((item) => item.type === "node");
+  Object.assign(flowNode, {
+    color: "#059669",
+    fill: "#ECFDF5",
+    textColor: "#064E3B",
+    lineStyle: "dotted",
+    fontFamily: "Arial",
+    fontSize: 28,
+  });
+  const mermaid = serializeVisualDocument("mermaid", flow).source;
+  assert.match(
+    mermaid,
+    /style n\d+ fill:#ECFDF5,stroke:#059669,stroke-width:4px,stroke-dasharray:2 5,color:#064E3B,font-family:Arial/,
+  );
+});
+
+test("Mermaid node movement is editor layout metadata, not fake native coordinates", () => {
+  const objects = createProfileDocument("mermaid", "mindmap");
+  const node = objects.find((item) => item.type === "node");
+  node.x = 731;
+  node.y = 417;
+  assert.deepEqual(visualTransformCapabilities(node), {
+    move: true,
+    resize: false,
+    rotate: false,
+  });
+  const serialized = serializeVisualDocument("mermaid", objects).source;
+  const body = serialized.replace(
+    /^%% latexsnipper-visual-v1:[^\r\n]+\r?\n/,
+    "",
+  );
+  assert.doesNotMatch(body, /731|417|pos=/);
+  const parsed = parseVisualDocument("mermaid", serialized);
+  assert.equal(parsed.lossless, true);
+  assert.equal(parsed.objects.find((item) => item.id === node.id).x, 731);
+  assert.equal(parsed.objects.find((item) => item.id === node.id).y, 417);
 });
 
 test("visual authoring compiles the synchronized native source", () => {

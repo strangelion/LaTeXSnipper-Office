@@ -3177,6 +3177,116 @@ body {
   background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
 }
 
+.drawing-plot-manager {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 3%, var(--card-bg));
+}
+
+.drawing-plot-manager-list {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.drawing-plot-manager-empty {
+  margin: 0;
+  padding: 0.55rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-align: center;
+}
+
+.drawing-plot-manager-row {
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 0.8fr) minmax(180px, 1.35fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 42px;
+  padding: 0.38rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+}
+
+.drawing-plot-manager-row.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border-color));
+  background: color-mix(in srgb, var(--accent) 7%, var(--card-bg));
+}
+
+.drawing-plot-manager-row.is-hidden {
+  opacity: 0.68;
+}
+
+.drawing-plot-manager-color {
+  width: 10px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--plot-color, var(--accent));
+}
+
+.drawing-plot-manager-summary {
+  min-width: 0;
+}
+
+.drawing-plot-manager-summary strong,
+.drawing-plot-manager-summary code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-plot-manager-summary strong {
+  color: var(--text);
+  font-size: 0.64rem;
+}
+
+.drawing-plot-manager-summary span,
+.drawing-plot-manager-summary code {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.drawing-plot-manager-summary code {
+  padding: 0.18rem 0.32rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--input-bg));
+}
+
+.drawing-plot-manager-actions {
+  display: flex;
+  gap: 0.26rem;
+}
+
+.drawing-plot-manager-actions button,
+.drawing-fit-behavior {
+  min-height: 30px;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.56rem;
+  font-weight: 700;
+}
+
+.drawing-plot-manager-actions button:hover,
+.drawing-fit-behavior:hover,
+.drawing-fit-behavior[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--card-bg));
+}
+
+.drawing-plot-manager-actions .danger {
+  color: #dc2626;
+}
+
 .drawing-plot-presets > div:first-child {
   display: flex;
   align-items: baseline;
@@ -3253,6 +3363,7 @@ body {
   grid-template-areas:
     "heading heading"
     "data model"
+    "data behavior"
     "data action"
     "status status";
   align-items: end;
@@ -3277,6 +3388,10 @@ body {
 
 .drawing-plot-fit > button {
   grid-area: action;
+}
+
+.drawing-plot-fit > .drawing-fit-behavior {
+  grid-area: behavior;
 }
 
 .drawing-plot-fit-status {
@@ -3688,6 +3803,207 @@ body {
   background: var(--input-bg, var(--card-bg));
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+
+.drawing-inspector-section {
+  display: grid;
+  gap: 0.52rem;
+  padding: 0.62rem;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+}
+
+.drawing-inspector-section[hidden] {
+  display: none;
+}
+
+.drawing-inspector-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.drawing-inspector-section-title strong {
+  color: var(--text);
+  font-size: 0.68rem;
+}
+
+.drawing-inspector-section-title span {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.drawing-color-field-grid {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.drawing-color-field-grid > label,
+.drawing-endpoint-field {
+  display: grid;
+  gap: 0.24rem;
+  color: var(--muted);
+  font-size: 0.59rem;
+  font-weight: 700;
+}
+
+.drawing-color-input {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  min-height: 36px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+}
+
+.drawing-color-input > span {
+  width: 18px;
+  height: 18px;
+  margin-inline-start: 7px;
+  border: 2px solid color-mix(in srgb, var(--card-bg) 85%, transparent);
+  border-radius: 6px;
+  background: var(--drawing-current-color, #2563eb);
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.drawing-color-input input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 0.45rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 0.64rem;
+  text-transform: uppercase;
+}
+
+.drawing-node-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.drawing-node-picker button,
+.drawing-quick-connect-actions button,
+.drawing-secondary-action {
+  min-height: 30px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.58rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drawing-node-picker button:hover,
+.drawing-quick-connect-actions button:hover,
+.drawing-secondary-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-color));
+  color: var(--accent);
+}
+
+.drawing-node-picker button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--card-bg));
+  color: var(--accent);
+}
+
+.drawing-quick-connect-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.drawing-relation-section .drawing-secondary-action {
+  justify-self: stretch;
+  border-color: color-mix(in srgb, #dc2626 30%, var(--border-color));
+  color: #dc2626;
+}
+
+.drawing-relation-overview-list,
+.drawing-relation-create-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.drawing-relation-row,
+.drawing-relation-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.42rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+
+.drawing-relation-summary {
+  min-width: 0;
+}
+
+.drawing-relation-summary strong,
+.drawing-relation-summary span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-relation-summary strong {
+  color: var(--text);
+  font-size: 0.61rem;
+}
+
+.drawing-relation-summary span {
+  margin-top: 0.12rem;
+  color: var(--muted);
+  font-size: 0.54rem;
+}
+
+.drawing-relation-row-actions,
+.drawing-relation-create-targets {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.24rem;
+}
+
+.drawing-relation-row button,
+.drawing-relation-create-row button {
+  min-height: 27px;
+  padding: 0.24rem 0.4rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-size: 0.54rem;
+  font-weight: 700;
+}
+
+.drawing-relation-row button:hover,
+.drawing-relation-create-row button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.drawing-relation-row button.danger {
+  color: #dc2626;
+}
+
+.drawing-relation-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.58rem;
+  line-height: 1.45;
 }
 
 .drawing-color-row > span {
@@ -5539,8 +5855,16 @@ input[type="file"]::file-selector-button {
       "heading"
       "data"
       "model"
+      "behavior"
       "action"
       "status";
+  }
+  .drawing-plot-manager-row {
+    grid-template-columns: 12px minmax(0, 1fr);
+  }
+  .drawing-plot-manager-row > code,
+  .drawing-plot-manager-actions {
+    grid-column: 2;
   }
   .drawing-pgf-builder label:nth-of-type(2),
   .drawing-pgf-builder label:nth-of-type(3) {

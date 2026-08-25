@@ -77,6 +77,17 @@ const escapeMermaid = (value) =>
 
 const colorName = (index) => `lscolor${index}`;
 
+const colorWithOpacity = (color, opacity = 1) => {
+  const normalized = /^#[0-9a-f]{6}$/i.test(color || "")
+    ? String(color).toUpperCase()
+    : "#2563EB";
+  const alpha = Math.round(Math.max(0, Math.min(1, Number(opacity))) * 255)
+    .toString(16)
+    .padStart(2, "0")
+    .toUpperCase();
+  return Number(opacity) < 0.999 ? `${normalized}${alpha}` : normalized;
+};
+
 function visualPayload(profile, objects) {
   return utf8ToBase64Url(
     JSON.stringify({
@@ -97,7 +108,11 @@ function tikzPoint(object, dx = 0, dy = 0) {
 
 function colorDefinitions(objects) {
   const colors = [
-    ...new Set(objects.map((object) => object.color).filter(Boolean)),
+    ...new Set(
+      objects
+        .flatMap((object) => [object.color, object.fill, object.textColor])
+        .filter((color) => /^#[0-9a-f]{6}$/i.test(color || "")),
+    ),
   ];
   return {
     colors,
@@ -112,11 +127,40 @@ function colorDefinitions(objects) {
 
 function tikzStyle(object, colors, extra = []) {
   const index = Math.max(0, colors.indexOf(object.color));
+  const fillIndex = Math.max(0, colors.indexOf(object.fill));
   return [
     `draw=${colorName(index)}`,
     `line width=${round(Math.max(1, Number(object.strokeWidth || 2)) / 3)}pt`,
+    object.fill ? `fill=${colorName(fillIndex)}` : null,
+    Number(object.fillOpacity ?? 1) < 1
+      ? `fill opacity=${round(object.fillOpacity)}`
+      : null,
+    Number(object.opacity ?? 1) < 1 ? `opacity=${round(object.opacity)}` : null,
+    object.lineStyle === "dashed"
+      ? "dashed"
+      : object.lineStyle === "dotted"
+        ? "dotted"
+        : object.lineStyle === "dashdotted"
+          ? "dash dot"
+          : null,
     ...extra,
-  ].join(", ");
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+function tikzTextStyle(object, colors) {
+  const index = Math.max(0, colors.indexOf(object.textColor || object.color));
+  const family =
+    object.fontFamily === "Georgia"
+      ? "\\rmfamily"
+      : object.fontFamily === "Consolas"
+        ? "\\ttfamily"
+        : "\\sffamily";
+  const weight = Number(object.fontWeight || 500) >= 650 ? "\\bfseries" : "";
+  const italic = object.fontStyle === "italic" ? "\\itshape" : "";
+  const size = round(Math.max(8, Number(object.fontSize || 30)) / 3, 1);
+  return `text=${colorName(index)}, font=${family}${weight}${italic}\\fontsize{${size}}{${round(size * 1.2, 1)}}\\selectfont`;
 }
 
 function serializeTikz(objects) {
@@ -164,13 +208,13 @@ function serializeTikz(objects) {
         return `\\draw[${tikzStyle(object, colors)}] (${centerX},${round(centerY + yRadius)}) -- (${round(centerX + xRadius)},${centerY}) -- (${centerX},${round(centerY - yRadius)}) -- (${round(centerX - xRadius)},${centerY}) -- cycle;${text ? `\n\\node at (${center}) {${text}};` : ""}`;
       }
       case "label":
-        return `\\node[text=${colorName(Math.max(0, colors.indexOf(object.color)))}${rotate}] at (${center}) {${text}};`;
+        return `\\node[${tikzTextStyle(object, colors)}${rotate}] at (${center}) {${text}};`;
       case "formula":
-        return `\\node[text=${colorName(Math.max(0, colors.indexOf(object.color)))}, inner sep=0pt${rotate}] at (${center}) {$${object.text || "x"}$};`;
+        return `\\node[${tikzTextStyle(object, colors)}, inner sep=0pt${rotate}] at (${center}) {$${object.text || "x"}$};`;
       case "plot":
         return `\\draw[${tikzStyle(object, colors)}] plot[smooth, domain=-3:3, samples=80] (\\x,{sin(\\x r)});`;
       default:
-        return `\\node[${tikzStyle(object, colors, [object.type === "node" ? "rounded corners=3pt" : "", `minimum width=${round(xRadius * 2)}cm`, `minimum height=${round(yRadius * 2)}cm`].filter(Boolean))}${rotate}] (n${index}) at (${center}) {${text}};`;
+        return `\\node[${tikzStyle(object, colors, [object.type === "node" ? `rounded corners=${round(Number(object.cornerRadius || 0) / 7)}pt` : "", tikzTextStyle(object, colors), `minimum width=${round(xRadius * 2)}cm`, `minimum height=${round(yRadius * 2)}cm`].filter(Boolean))}${rotate}] (n${index}) at (${center}) {${text}};`;
     }
   });
   return [definitions, ...rows].filter(Boolean).join("\n");
@@ -189,7 +233,9 @@ function pgfExpression(object) {
 }
 
 function serializePgfPlots(objects) {
-  const plots = objects.filter((object) => object.type === "plot");
+  const plots = objects.filter(
+    (object) => object.type === "plot" && object.visible !== false,
+  );
   const axes = objects.find((object) => object.type === "axes") || {};
   const xMin = plots.length
     ? Math.min(...plots.map((object) => Number(object.xMin ?? -6.28)))
@@ -237,6 +283,11 @@ function serializePgfPlots(objects) {
       );
       return `  \\node[text={rgb,255:red,${parseInt(object.color?.slice(1, 3) || "25", 16)};green,${parseInt(object.color?.slice(3, 5) || "63", 16)};blue,${parseInt(object.color?.slice(5, 7) || "EB", 16)}}] at (axis description cs:${x},${y}) {${escapeLatexText(object.text)}};`;
     });
+  const legendPosition = axes.legendPosition || "outer south";
+  const legendPlacement =
+    legendPosition === "outer south"
+      ? "at={(axis description cs:0.5,-0.16)}, anchor=north"
+      : "";
   const axisOptions = [
     `grid=${["none", "minor", "major", "both"].includes(axes.grid) ? axes.grid : "major"}`,
     "axis lines=middle",
@@ -245,9 +296,14 @@ function serializePgfPlots(objects) {
     `xmax=${round(xMax)}`,
     Number.isFinite(Number(axes.yMin)) ? `ymin=${round(axes.yMin)}` : null,
     Number.isFinite(Number(axes.yMax)) ? `ymax=${round(axes.yMax)}` : null,
+    Number.isFinite(Number(axes.yTick)) && Number(axes.yTick) > 0
+      ? `ytick distance=${round(axes.yTick)}`
+      : null,
     `xlabel={${escapeLatexText(axes.xLabel || "x")}}`,
     `ylabel={${escapeLatexText(axes.yLabel || "f(x)")}}`,
-    `legend pos=${axes.legendPosition || "north east"}`,
+    legendPosition === "outer south" ? null : `legend pos=${legendPosition}`,
+    `legend columns=${Math.max(1, Math.min(6, Math.round(Number(axes.legendColumns || 1))))}`,
+    `legend style={${legendPlacement ? `${legendPlacement}, ` : ""}font=\\fontsize{${round(Math.max(5, Math.min(24, Number(axes.legendFontSize || 9))))}pt}{${round(Math.max(6, Math.min(30, Number(axes.legendFontSize || 9) * 1.24)))}pt}\\selectfont, fill opacity=${round(Math.max(0, Math.min(1, Number(axes.legendOpacity ?? 0.92))))}, text opacity=1, draw opacity=1}`,
     "legend cell align=left",
   ].filter(Boolean);
   return [
@@ -304,8 +360,18 @@ function serializeGraphviz(objects) {
       diamond: "diamond",
       label: "plaintext",
     };
+    const lineStyle =
+      object.lineStyle === "dashed"
+        ? "dashed"
+        : object.lineStyle === "dotted"
+          ? "dotted"
+          : "solid";
+    const rounded =
+      object.type === "node" && Number(object.cornerRadius || 0) > 0
+        ? ",rounded"
+        : "";
     rows.push(
-      `  n${index} [label="${escapeQuoted(object.text || `节点 ${index + 1}`)}", shape=${shapes[object.type] || "box"}, color="${object.color || "#2563EB"}", fillcolor="${object.fill || "#FFFFFF"}", penwidth=${round(Math.max(1, Number(object.strokeWidth || 2)) * 0.75)}, pos="${round(Number(object.x) / 96)},${round((VIEW_HEIGHT - Number(object.y)) / 96)}!", pin=true, width=${round(Math.max(0.3, Number(object.width) / 96))}, height=${round(Math.max(0.2, Number(object.height) / 96))}];`,
+      `  n${index} [label="${escapeQuoted(object.text || `节点 ${index + 1}`)}", shape=${shapes[object.type] || "box"}, color="${colorWithOpacity(object.color, object.opacity ?? 1)}", fontcolor="${colorWithOpacity(object.textColor || "#172033", object.opacity ?? 1)}", fillcolor="${colorWithOpacity(object.fill || "#FFFFFF", Number(object.opacity ?? 1) * Number(object.fillOpacity ?? 1))}", style="filled,${lineStyle}${rounded}", fontname="${escapeQuoted(object.fontFamily || "Segoe UI")}", fontsize=${round(Math.max(8, Number(object.fontSize || 30)) * 0.45, 1)}, penwidth=${round(Math.max(1, Number(object.strokeWidth || 2)) * 0.75)}, pos="${round(Number(object.x) / 96)},${round((VIEW_HEIGHT - Number(object.y)) / 96)}!", pin=true, width=${round(Math.max(0.3, Number(object.width) / 96))}, height=${round(Math.max(0.2, Number(object.height) / 96))}];`,
     );
   }
   for (const object of objects.filter((item) =>
@@ -314,7 +380,14 @@ function serializeGraphviz(objects) {
     const endpoints = edgeEndpoints(object, nodes);
     if (endpoints) {
       const attributes = [
-        `color="${object.color || "#2563EB"}"`,
+        `color="${colorWithOpacity(object.color, object.opacity ?? 1)}"`,
+        `fontcolor="${object.textColor || object.color || "#2563EB"}"`,
+        `fontname="${escapeQuoted(object.fontFamily || "Segoe UI")}"`,
+        object.lineStyle === "dashed"
+          ? "style=dashed"
+          : object.lineStyle === "dotted"
+            ? "style=dotted"
+            : null,
         object.type === "line" ? "arrowhead=none" : null,
         object.text ? `label="${escapeQuoted(object.text)}"` : null,
         `penwidth=${round(Math.max(1, Number(object.strokeWidth || 2)) * 0.75)}`,
@@ -346,6 +419,28 @@ function inferMermaidKind(objects) {
   if (nodes.filter((object) => object.type === "ellipse").length >= 2)
     return "state";
   return "flow";
+}
+
+function mermaidNodeStyle(object) {
+  const strokeWidth = round(Math.max(1, Number(object.strokeWidth || 2)));
+  const dash =
+    object.lineStyle === "dashed"
+      ? ",stroke-dasharray:8 5"
+      : object.lineStyle === "dotted"
+        ? ",stroke-dasharray:2 5"
+        : object.lineStyle === "dashdotted"
+          ? ",stroke-dasharray:8 4 2 4"
+          : "";
+  return [
+    `fill:${object.fill || "#EEF2FF"}`,
+    `stroke:${object.color || "#2563EB"}`,
+    `stroke-width:${strokeWidth}px${dash}`,
+    `color:${object.textColor || "#172033"}`,
+    `font-family:${escapeMermaid(object.fontFamily || "Segoe UI")}`,
+    `font-size:${round(Math.max(8, Number(object.fontSize || 30)) * 0.55, 1)}px`,
+    `fill-opacity:${round(Number(object.fillOpacity ?? 1))}`,
+    `opacity:${round(Number(object.opacity ?? 1))}`,
+  ].join(",");
 }
 
 function serializeMermaid(objects) {
@@ -455,10 +550,7 @@ function serializeMermaid(objects) {
     }
   }
   for (const { object, index } of nodes) {
-    const strokeWidth = round(Math.max(1, Number(object.strokeWidth || 2)));
-    rows.push(
-      `  style n${index} fill:${object.fill || "#EEF2FF"},stroke:${object.color || "#2563EB"},stroke-width:${strokeWidth}px`,
-    );
+    rows.push(`  style n${index} ${mermaidNodeStyle(object)}`);
   }
   return rows.join("\n");
 }

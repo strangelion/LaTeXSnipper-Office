@@ -352,6 +352,32 @@ pub fn run() {
                 }
             }
 
+            // A release launch must always surface the main editor.  WebView2 can leave the
+            // configured window created but hidden when the executable is started directly
+            // from a build/output directory or reactivated through a tray/Office hand-off.
+            // Make that state explicit and log it so release smoke tests can distinguish a
+            // frontend/CSP failure from a window-visibility failure.
+            if let Some(window) = app.get_webview_window("main") {
+                let was_visible = window.is_visible().unwrap_or(false);
+                if !was_visible {
+                    window.show()?;
+                }
+                if !is_ole_edit {
+                    let _ = window.set_focus();
+                }
+                log::info!(
+                    "mainWindowReady wasVisible={} isVisible={}",
+                    was_visible,
+                    window.is_visible().unwrap_or(false)
+                );
+            } else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "configured main WebView window is missing",
+                )
+                .into());
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

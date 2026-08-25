@@ -163,7 +163,7 @@ const VISUAL_PROFILE_GUIDANCE = Object.freeze({
   graphviz_dot:
     "关系图工作台 · 节点坐标与端口关系直接写入 DOT；视觉模式固定 Neato 坐标",
   mermaid:
-    "语义图表工作台 · 流程、时序、状态和思维层级写入 Mermaid，由引擎负责最终排版",
+    "语义图表工作台 · 节点可移动以观察连接，位置保存在编辑契约中；流程、状态和思维层级写入 Mermaid，最终排版由引擎决定",
 });
 
 const finiteNumber = (value) => {
@@ -184,6 +184,80 @@ export function parsePlotDataTable(source) {
     points.push({ x, y });
   }
   return points;
+}
+
+const nicePlotStep = (value) => {
+  const positive = Math.abs(Number(value));
+  if (!Number.isFinite(positive) || positive <= 0) return 1;
+  const exponent = 10 ** Math.floor(Math.log10(positive));
+  const normalized = positive / exponent;
+  const factor =
+    normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * exponent;
+};
+
+export function computePlotYRange(objects, sampleCount = 161) {
+  const plots = (objects || []).filter(
+    (object) => object.type === "plot" && object.visible !== false,
+  );
+  const values = [];
+  for (const plot of plots) {
+    for (const point of plot.dataPoints || []) {
+      const value = Number(point?.y);
+      if (Number.isFinite(value)) values.push(value);
+    }
+    const xMin = Number(plot.xMin ?? -6.28);
+    const xMax = Number(plot.xMax ?? 6.28);
+    if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || xMin >= xMax)
+      continue;
+    try {
+      for (let index = 0; index < sampleCount; index += 1) {
+        const x = xMin + ((xMax - xMin) * index) / (sampleCount - 1);
+        const value = evaluatePlotExpression(plot.expression || "sin(x)", x);
+        if (Number.isFinite(value) && Math.abs(value) <= 1e12)
+          values.push(value);
+      }
+    } catch {
+      // The expression validator reports the actionable error when applied.
+    }
+  }
+  if (!values.length) throw new Error("没有可用于自动适配的可见曲线");
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  if (Math.abs(max - min) < 1e-10) {
+    const spread = Math.max(1, Math.abs(max) * 0.1);
+    min -= spread;
+    max += spread;
+  }
+  const padding = Math.max((max - min) * 0.08, 1e-6);
+  const paddedMin = min - padding;
+  const paddedMax = max + padding;
+  const tick = nicePlotStep((paddedMax - paddedMin) / 6);
+  return {
+    min: Number(paddedMin.toPrecision(8)),
+    max: Number(paddedMax.toPrecision(8)),
+    tick: Number(tick.toPrecision(8)),
+  };
+}
+
+export function migrateLegacyPlotLegend(objects) {
+  const migratedObjects = structuredClone(
+    Array.isArray(objects) ? objects : [],
+  );
+  const visiblePlotCount = migratedObjects.filter(
+    (object) => object.type === "plot" && object.visible !== false,
+  ).length;
+  const axes = migratedObjects.find((object) => object.type === "axes");
+  const migrated = Boolean(
+    visiblePlotCount > 1 &&
+    axes?.legendPosition === "north east" &&
+    axes.legendPositionUserSet !== true,
+  );
+  if (migrated) {
+    axes.legendPosition = "outer south";
+    axes.legendPositionMigrated = true;
+  }
+  return { objects: migratedObjects, migrated };
 }
 
 function solveLinearSystem(matrix, vector) {
@@ -738,12 +812,39 @@ export function createDrawingWorkspaceController({
   }
 
   let visualEditor = null;
-  const syncInspector = (object) => {
+  let quickConnectionType = "arrow";
+  let appendNextFit = false;
+  const syncInspector = (object, context = {}) => {
     if (elements.inspectorEmpty)
       elements.inspectorEmpty.hidden = Boolean(object);
     if (elements.inspectorControls) elements.inspectorControls.hidden = !object;
     if (!object) return;
     const capabilities = visualTransformCapabilities(object);
+    const isNode = ["node", "rectangle", "ellipse", "diamond"].includes(
+      object.type,
+    );
+    const isEdge = ["line", "arrow", "connector"].includes(object.type);
+    const hasText = isNode || isEdge || object.type === "label";
+    const contextObjects = context.objects || [];
+    const contextNodes = contextObjects.filter((candidate) =>
+      ["node", "rectangle", "ellipse", "diamond"].includes(candidate.type),
+    );
+    const mermaidUsesSpecialLayout =
+      context.profile === "mermaid" &&
+      (contextObjects.some(
+        (candidate) => candidate.mindMapChild || candidate.mindMapEdge,
+      ) ||
+        (contextNodes[0]?.type === "ellipse" &&
+          contextObjects.filter((candidate) => candidate.type === "connector")
+            .length >= 3) ||
+        (contextNodes.length >= 3 &&
+          contextNodes.every((candidate) => Number(candidate.y) < 170) &&
+          contextObjects.filter((candidate) => candidate.type === "arrow")
+            .length >= 2) ||
+        contextNodes.filter((candidate) => candidate.type === "ellipse")
+          .length >= 2);
+    const supportsPerObjectStyle = !mermaidUsesSpecialLayout;
+    const supportsFill = isNode && supportsPerObjectStyle;
     if (elements.inspectorType) {
       const objectNames = {
         line: "线段",
@@ -762,22 +863,68 @@ export function createDrawingWorkspaceController({
         objectNames[object.type] || object.type || "对象";
     }
     for (const [element, value] of [
+      [elements.inspectorX, object.x],
+      [elements.inspectorY, object.y],
       [elements.inspectorWidth, object.width],
       [elements.inspectorHeight, object.height],
       [elements.inspectorRotation, object.rotation],
       [elements.inspectorStroke, object.strokeWidth],
+      [elements.inspectorCornerRadius, object.cornerRadius ?? 0],
+      [elements.inspectorFontSize, object.fontSize ?? 30],
+      [elements.inspectorOpacity, Math.round((object.opacity ?? 1) * 100)],
+      [
+        elements.inspectorFillOpacity,
+        Math.round((object.fillOpacity ?? 1) * 100),
+      ],
     ]) {
       if (element && document.activeElement !== element)
         element.value = String(Math.round(Number(value) * 10) / 10);
     }
+    if (elements.inspectorX) elements.inspectorX.disabled = !capabilities.move;
+    if (elements.inspectorY) elements.inspectorY.disabled = !capabilities.move;
     if (elements.inspectorWidth)
       elements.inspectorWidth.disabled = !capabilities.resize;
     if (elements.inspectorHeight)
       elements.inspectorHeight.disabled = !capabilities.resize;
     if (elements.inspectorRotation)
       elements.inspectorRotation.disabled = !capabilities.rotate;
+    if (elements.inspectorCornerRadius)
+      elements.inspectorCornerRadius.disabled = !isNode;
+    if (elements.inspectorFill) elements.inspectorFill.disabled = !supportsFill;
+    if (elements.inspectorFillOpacity)
+      elements.inspectorFillOpacity.disabled = !supportsFill;
+    if (elements.inspectorStroke)
+      elements.inspectorStroke.disabled = !supportsPerObjectStyle;
+    if (elements.inspectorStrokeColor)
+      elements.inspectorStrokeColor.disabled = !supportsPerObjectStyle;
+    if (elements.inspectorOpacity)
+      elements.inspectorOpacity.disabled = !supportsPerObjectStyle;
+    if (elements.inspectorTextSection)
+      elements.inspectorTextSection.hidden = !hasText;
     if (elements.inspectorColor)
       elements.inspectorColor.textContent = object.color || "#2563EB";
+    const syncColor = (input, preview, value) => {
+      const color = /^#[0-9a-f]{6}$/i.test(value || "")
+        ? String(value).toUpperCase()
+        : "#2563EB";
+      if (input && document.activeElement !== input) input.value = color;
+      preview?.style?.setProperty("--drawing-current-color", color);
+    };
+    syncColor(
+      elements.inspectorStrokeColor,
+      elements.inspectorStrokePreview,
+      object.color,
+    );
+    syncColor(
+      elements.inspectorFill,
+      elements.inspectorFillPreview,
+      object.fill,
+    );
+    syncColor(
+      elements.inspectorTextColor,
+      elements.inspectorTextColorPreview,
+      object.textColor,
+    );
     if (
       elements.inspectorText &&
       document.activeElement !== elements.inspectorText
@@ -798,6 +945,226 @@ export function createDrawingWorkspaceController({
         setControlValue(element, value);
       }
     };
+    syncField(elements.inspectorFontFamily, object.fontFamily || "Segoe UI");
+    syncField(elements.inspectorFontWeight, object.fontWeight || 500);
+    syncField(elements.inspectorFontStyle, object.fontStyle || "normal");
+    syncField(elements.inspectorLineStyle, object.lineStyle || "solid");
+    setControlDisabled(
+      elements.inspectorFontFamily,
+      !hasText || !supportsPerObjectStyle,
+    );
+    setControlDisabled(
+      elements.inspectorFontWeight,
+      !hasText || !supportsPerObjectStyle,
+    );
+    setControlDisabled(
+      elements.inspectorFontStyle,
+      !hasText || !supportsPerObjectStyle,
+    );
+    setControlDisabled(elements.inspectorLineStyle, !supportsPerObjectStyle);
+    if (elements.inspectorFontSize)
+      elements.inspectorFontSize.disabled = !hasText || !supportsPerObjectStyle;
+    if (elements.inspectorTextColor)
+      elements.inspectorTextColor.disabled =
+        !hasText || !supportsPerObjectStyle;
+
+    const nodes = contextNodes;
+    const renderNodePicker = (container, currentId, property) => {
+      if (!container) return;
+      container.replaceChildren();
+      for (const node of nodes) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = node.text || "未命名节点";
+        button.classList.toggle("active", node.id === currentId);
+        button.disabled =
+          property === "fromId"
+            ? node.id === object.toId
+            : node.id === object.fromId;
+        button.addEventListener("click", () =>
+          visualEditor?.updateSelected({ [property]: node.id }),
+        );
+        container.appendChild(button);
+      }
+    };
+    if (elements.inspectorRelation) elements.inspectorRelation.hidden = !isEdge;
+    renderNodePicker(elements.inspectorFromNodes, object.fromId, "fromId");
+    renderNodePicker(elements.inspectorToNodes, object.toId, "toId");
+    if (elements.inspectorQuickConnectSection)
+      elements.inspectorQuickConnectSection.hidden = !isNode;
+    if (elements.inspectorQuickTargets) {
+      elements.inspectorQuickTargets.replaceChildren();
+      for (const node of nodes.filter(
+        (candidate) => candidate.id !== object.id,
+      )) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = `连接到 ${node.text || "未命名节点"}`;
+        button.addEventListener("click", () => {
+          visualEditor?.connectSelectedTo(node.id, quickConnectionType);
+          status("连接已建立，起点和终点已写入原生源码");
+        });
+        elements.inspectorQuickTargets.appendChild(button);
+      }
+    }
+    const relationProfile = ["graphviz_dot", "mermaid"].includes(
+      context.profile,
+    );
+    if (elements.inspectorRelationOverviewSection) {
+      elements.inspectorRelationOverviewSection.hidden = !relationProfile;
+    }
+    if (relationProfile && elements.inspectorRelationOverview) {
+      const nameOf = (node) => node?.text?.trim() || "未命名节点";
+      const nodeById = new Map(nodes.map((node) => [node.id, node]));
+      const edges = contextObjects.filter(
+        (candidate) =>
+          ["line", "arrow", "connector"].includes(candidate.type) &&
+          candidate.fromId &&
+          candidate.toId,
+      );
+      elements.inspectorRelationOverview.replaceChildren();
+      if (!edges.length) {
+        const empty = document.createElement("p");
+        empty.className = "drawing-relation-empty";
+        empty.textContent = "当前图还没有已绑定的连接。";
+        elements.inspectorRelationOverview.appendChild(empty);
+      }
+      for (const edge of edges) {
+        const row = document.createElement("div");
+        row.className = "drawing-relation-row";
+        const summary = document.createElement("div");
+        summary.className = "drawing-relation-summary";
+        const title = document.createElement("strong");
+        title.textContent = `${nameOf(nodeById.get(edge.fromId))} → ${nameOf(nodeById.get(edge.toId))}`;
+        const detail = document.createElement("span");
+        detail.textContent = `${edge.type === "connector" ? "曲线连接" : "箭头连接"}${edge.text ? ` · ${edge.text}` : " · 无标签"}`;
+        summary.append(title, detail);
+        const actions = document.createElement("div");
+        actions.className = "drawing-relation-row-actions";
+        const selectButton = document.createElement("button");
+        selectButton.type = "button";
+        selectButton.textContent = "选择";
+        selectButton.addEventListener("click", () =>
+          visualEditor?.selectObject(edge.id),
+        );
+        const disconnectButton = document.createElement("button");
+        disconnectButton.type = "button";
+        disconnectButton.className = "danger";
+        disconnectButton.textContent = "断开";
+        disconnectButton.addEventListener("click", () => {
+          visualEditor?.deleteObject(edge.id);
+          status("连接已断开，原生源码同步更新");
+        });
+        actions.append(selectButton, disconnectButton);
+        row.append(summary, actions);
+        elements.inspectorRelationOverview.appendChild(row);
+      }
+      if (elements.inspectorRelationCreate) {
+        elements.inspectorRelationCreate.replaceChildren();
+        const existingPairs = new Set(
+          edges.map((edge) => `${edge.fromId}\u0000${edge.toId}`),
+        );
+        for (const from of nodes) {
+          const targets = nodes.filter(
+            (to) =>
+              to.id !== from.id &&
+              !existingPairs.has(`${from.id}\u0000${to.id}`),
+          );
+          if (!targets.length) continue;
+          const row = document.createElement("div");
+          row.className = "drawing-relation-create-row";
+          const summary = document.createElement("div");
+          summary.className = "drawing-relation-summary";
+          const title = document.createElement("strong");
+          title.textContent = nameOf(from);
+          const detail = document.createElement("span");
+          detail.textContent = "选择要连接的目标节点";
+          summary.append(title, detail);
+          const targetList = document.createElement("div");
+          targetList.className = "drawing-relation-create-targets";
+          for (const to of targets) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = `→ ${nameOf(to)}`;
+            button.title = `${nameOf(from)} 连接到 ${nameOf(to)}`;
+            button.addEventListener("click", () => {
+              visualEditor?.connectNodes(from.id, to.id, quickConnectionType);
+              status(`${nameOf(from)} → ${nameOf(to)} 已写入原生源码`);
+            });
+            targetList.appendChild(button);
+          }
+          row.append(summary, targetList);
+          elements.inspectorRelationCreate.appendChild(row);
+        }
+      }
+    }
+    if (context.profile === "pgf_plots" && elements.plotManagerList) {
+      const plots = contextObjects.filter(
+        (candidate) => candidate.type === "plot",
+      );
+      elements.plotManagerList.replaceChildren();
+      if (!plots.length) {
+        const empty = document.createElement("p");
+        empty.className = "drawing-plot-manager-empty";
+        empty.textContent = "暂无曲线；可使用预设、新增曲线或表格拟合。";
+        elements.plotManagerList.appendChild(empty);
+      }
+      plots.forEach((plot, index) => {
+        const row = document.createElement("div");
+        row.className = "drawing-plot-manager-row";
+        row.classList.toggle("is-selected", plot.id === object.id);
+        row.classList.toggle("is-hidden", plot.visible === false);
+        const color = document.createElement("span");
+        color.className = "drawing-plot-manager-color";
+        color.style.setProperty("--plot-color", plot.color || "#2563EB");
+        const summary = document.createElement("div");
+        summary.className = "drawing-plot-manager-summary";
+        const name = document.createElement("strong");
+        name.textContent = plot.legend || `曲线 ${index + 1}`;
+        const kind = document.createElement("span");
+        kind.textContent = plot.fitModel
+          ? `拟合 · ${plot.fitModel}${Number.isFinite(plot.fitRSquared) ? ` · R² ${plot.fitRSquared.toFixed(4)}` : ""}`
+          : plot.dataPoints?.length
+            ? `数据曲线 · ${plot.dataPoints.length} 点`
+            : "函数曲线";
+        summary.append(name, kind);
+        const expression = document.createElement("code");
+        expression.textContent = plot.expression || "sin(x)";
+        const actions = document.createElement("div");
+        actions.className = "drawing-plot-manager-actions";
+        const addAction = (label, handler, className = "") => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = label;
+          button.className = className;
+          button.addEventListener("click", handler);
+          actions.appendChild(button);
+        };
+        addAction("编辑", () => visualEditor?.selectObject(plot.id));
+        addAction(plot.visible === false ? "显示" : "隐藏", () => {
+          visualEditor?.selectObject(plot.id);
+          visualEditor?.updateSelected({ visible: plot.visible === false });
+          status(
+            `${plot.legend || `曲线 ${index + 1}`}已${plot.visible === false ? "显示" : "隐藏"}`,
+          );
+        });
+        addAction("复制", () => {
+          visualEditor?.selectObject(plot.id);
+          visualEditor?.duplicateSelected();
+          status("曲线副本已创建并写入原生源码");
+        });
+        addAction(
+          "删除",
+          () => {
+            visualEditor?.deleteObject(plot.id);
+            status("曲线已删除并从原生源码移除");
+          },
+          "danger",
+        );
+        row.append(color, summary, expression, actions);
+        elements.plotManagerList.appendChild(row);
+      });
+    }
     if (object.type === "plot") {
       syncField(elements.plotCurve, object.curve || "sin");
       syncField(elements.plotExpression, object.expression || "sin(x)");
@@ -814,10 +1181,17 @@ export function createDrawingWorkspaceController({
       syncField(elements.plotYLabel, object.yLabel || "f(x)");
       syncField(elements.plotYMin, object.yMin ?? -1.5);
       syncField(elements.plotYMax, object.yMax ?? 1.5);
+      syncField(elements.plotYTick, object.yTick ?? 0.5);
       syncField(elements.plotGrid, object.grid || "major");
       syncField(
         elements.plotLegendPosition,
-        object.legendPosition || "north east",
+        object.legendPosition || "outer south",
+      );
+      syncField(elements.plotLegendColumns, object.legendColumns ?? 1);
+      syncField(elements.plotLegendFontSize, object.legendFontSize ?? 9);
+      syncField(
+        elements.plotLegendOpacity,
+        Math.round((object.legendOpacity ?? 0.92) * 100),
       );
     }
   };
@@ -829,7 +1203,11 @@ export function createDrawingWorkspaceController({
       parsed = parseVisualDocument(profile, elements.source.value);
       state.visualLocked = !parsed.lossless;
       if (parsed.lossless && visualEditor) {
-        visualEditor.replaceDocument(profile, parsed.objects, {
+        const parsedObjects =
+          profile === "pgf_plots"
+            ? migrateLegacyPlotLegend(parsed.objects).objects
+            : structuredClone(parsed.objects);
+        visualEditor.replaceDocument(profile, parsedObjects, {
           commit: false,
         });
       }
@@ -1248,11 +1626,21 @@ export function createDrawingWorkspaceController({
           createIfMissing: true,
         });
       }
+      const currentLegendPosition = controlValue(
+        elements.plotLegendPosition,
+        "outer south",
+      );
+      const legendPosition =
+        create && currentLegendPosition === "north east"
+          ? "outer south"
+          : currentLegendPosition;
+      setControlValue(elements.plotLegendPosition, legendPosition);
       visualEditor?.updateProfileObject(
         "axes",
         {
           yMin: patch.yMin,
           yMax: patch.yMax,
+          legendPosition,
         },
         { createIfMissing: true },
       );
@@ -1268,6 +1656,34 @@ export function createDrawingWorkspaceController({
     applyPlotBuilder({ create: true }),
   );
   const applyAxesBuilder = () => {
+    const yMin = Number(elements.plotYMin?.value || -1.5);
+    const yMax = Number(elements.plotYMax?.value || 1.5);
+    const yTick = Number(elements.plotYTick?.value || 0.5);
+    const legendColumns = Number(elements.plotLegendColumns?.value || 1);
+    const legendFontSize = Number(elements.plotLegendFontSize?.value || 9);
+    const legendOpacity = Number(elements.plotLegendOpacity?.value ?? 92) / 100;
+    if (!Number.isFinite(yMin) || !Number.isFinite(yMax) || yMin >= yMax) {
+      status("坐标设置未写入：最小 y 必须小于最大 y");
+      return;
+    }
+    if (!Number.isFinite(yTick) || yTick <= 0) {
+      status("坐标设置未写入：Y 轴主刻度必须大于 0");
+      return;
+    }
+    if (
+      !Number.isInteger(legendColumns) ||
+      legendColumns < 1 ||
+      legendColumns > 6 ||
+      !Number.isFinite(legendFontSize) ||
+      legendFontSize < 5 ||
+      legendFontSize > 24 ||
+      !Number.isFinite(legendOpacity) ||
+      legendOpacity < 0 ||
+      legendOpacity > 1
+    ) {
+      status("图例设置未写入：请检查列数、字号与背景透明度");
+      return;
+    }
     setEditorMode("visual");
     if (state.editorMode !== "visual") return;
     visualEditor?.updateProfileObject(
@@ -1275,16 +1691,38 @@ export function createDrawingWorkspaceController({
       {
         xLabel: elements.plotXLabel?.value || "x",
         yLabel: elements.plotYLabel?.value || "f(x)",
-        yMin: Number(elements.plotYMin?.value || -1.5),
-        yMax: Number(elements.plotYMax?.value || 1.5),
+        yMin,
+        yMax,
+        yTick,
         grid: controlValue(elements.plotGrid, "major"),
-        legendPosition: controlValue(elements.plotLegendPosition, "north east"),
+        legendPosition: controlValue(
+          elements.plotLegendPosition,
+          "outer south",
+        ),
+        legendPositionUserSet: true,
+        legendColumns,
+        legendFontSize,
+        legendOpacity,
       },
       { createIfMissing: true },
     );
-    status("坐标轴、网格与图例位置已写入 PGFPlots 源码");
+    status("Y 轴范围、主刻度、网格与图例位置已写入 PGFPlots 源码");
   };
   elements.plotAxesApply?.addEventListener("click", applyAxesBuilder);
+  elements.plotAutoY?.addEventListener("click", () => {
+    try {
+      const range = computePlotYRange(visualEditor?.state?.objects || []);
+      if (elements.plotYMin) elements.plotYMin.value = String(range.min);
+      if (elements.plotYMax) elements.plotYMax.value = String(range.max);
+      if (elements.plotYTick) elements.plotYTick.value = String(range.tick);
+      applyAxesBuilder();
+      status(
+        `Y 轴已适配全部可见曲线：${range.min} 至 ${range.max}，主刻度 ${range.tick}`,
+      );
+    } catch (error) {
+      status(`无法自动适配 Y 轴：${userFacingError(error)}`);
+    }
+  });
   for (const preset of elements.plotPresetButtons || []) {
     preset.addEventListener("click", () => {
       if (elements.plotExpression)
@@ -1306,6 +1744,13 @@ export function createDrawingWorkspaceController({
       );
     });
   }
+  elements.plotFitAppend?.addEventListener("click", () => {
+    appendNextFit = !appendNextFit;
+    elements.plotFitAppend.setAttribute("aria-pressed", String(appendNextFit));
+    elements.plotFitAppend.textContent = appendNextFit
+      ? "将另存为新拟合曲线"
+      : "本次另存为新拟合曲线";
+  });
   elements.plotFit?.addEventListener("click", () => {
     try {
       const points = parsePlotDataTable(elements.plotData?.value || "");
@@ -1334,7 +1779,7 @@ export function createDrawingWorkspaceController({
       const yPadding = Math.max(0.25, (yHigh - yLow) * 0.08);
       if (elements.plotYMin) elements.plotYMin.value = String(yLow - yPadding);
       if (elements.plotYMax) elements.plotYMax.value = String(yHigh + yPadding);
-      visualEditor?.add("plot", {
+      const fittedPlot = {
         ...plotPatch(),
         curve: "custom",
         expression: fitted.expression,
@@ -1343,6 +1788,7 @@ export function createDrawingWorkspaceController({
         fitCoefficients: fitted.coefficients,
         fitRSquared: fitted.rSquared,
         dataPoints: fitted.points,
+        dataLegend: `${modelNames[model] || model} samples`,
         xMin: fitted.xMin,
         xMax: fitted.xMax,
         yMin: yLow - yPadding,
@@ -1352,7 +1798,30 @@ export function createDrawingWorkspaceController({
         y: 260,
         width: 300,
         height: 160,
-      });
+        visible: true,
+      };
+      const existingFit = appendNextFit
+        ? null
+        : [...(visualEditor?.state?.objects || [])]
+            .reverse()
+            .find(
+              (candidate) => candidate.type === "plot" && candidate.fitModel,
+            );
+      if (existingFit) {
+        visualEditor?.selectObject(existingFit.id);
+        visualEditor?.updateSelected(fittedPlot);
+      } else {
+        visualEditor?.add("plot", fittedPlot);
+      }
+      const currentLegendPosition = controlValue(
+        elements.plotLegendPosition,
+        "outer south",
+      );
+      const fittedLegendPosition =
+        currentLegendPosition === "north east"
+          ? "outer south"
+          : currentLegendPosition;
+      setControlValue(elements.plotLegendPosition, fittedLegendPosition);
       visualEditor?.updateProfileObject(
         "axes",
         {
@@ -1360,19 +1829,23 @@ export function createDrawingWorkspaceController({
           yLabel: elements.plotYLabel?.value || "f(x)",
           yMin: yLow - yPadding,
           yMax: yHigh + yPadding,
+          yTick: nicePlotStep((yHigh - yLow + yPadding * 2) / 6),
           grid: controlValue(elements.plotGrid, "major"),
-          legendPosition: controlValue(
-            elements.plotLegendPosition,
-            "north east",
-          ),
+          legendPosition: fittedLegendPosition,
         },
         { createIfMissing: true },
       );
       if (elements.plotFitStatus) {
-        elements.plotFitStatus.textContent = `${points.length} 个点 · ${legend} · ${fitted.expression}`;
+        elements.plotFitStatus.textContent = `${points.length} 个点 · ${existingFit ? "已更新现有拟合" : "已建立拟合"} · ${legend} · ${fitted.expression}`;
         elements.plotFitStatus.dataset.state = "success";
       }
-      status("采样点与拟合曲线已同时写入 PGFPlots 源码");
+      appendNextFit = false;
+      elements.plotFitAppend?.setAttribute("aria-pressed", "false");
+      if (elements.plotFitAppend)
+        elements.plotFitAppend.textContent = "本次另存为新拟合曲线";
+      status(
+        `${existingFit ? "拟合曲线已更新" : "采样点与拟合曲线已建立"}并写入 PGFPlots 源码`,
+      );
     } catch (error) {
       if (elements.plotFitStatus) {
         elements.plotFitStatus.textContent = userFacingError(error);
@@ -1464,10 +1937,14 @@ export function createDrawingWorkspaceController({
     }
   });
   const inspectorUpdates = [
+    [elements.inspectorX, "x"],
+    [elements.inspectorY, "y"],
     [elements.inspectorWidth, "width"],
     [elements.inspectorHeight, "height"],
     [elements.inspectorRotation, "rotation"],
     [elements.inspectorStroke, "strokeWidth"],
+    [elements.inspectorCornerRadius, "cornerRadius"],
+    [elements.inspectorFontSize, "fontSize"],
   ];
   for (const [input, property] of inspectorUpdates) {
     input?.addEventListener("input", () => {
@@ -1477,11 +1954,71 @@ export function createDrawingWorkspaceController({
   elements.inspectorText?.addEventListener("input", () => {
     visualEditor?.updateSelected({ text: elements.inspectorText.value });
   });
+  const bindCustomInspector = (
+    element,
+    property,
+    transform = (value) => value,
+  ) => {
+    element?.addEventListener("change", () => {
+      visualEditor?.updateSelected({
+        [property]: transform(controlValue(element)),
+      });
+    });
+  };
+  bindCustomInspector(elements.inspectorFontFamily, "fontFamily");
+  bindCustomInspector(elements.inspectorFontWeight, "fontWeight", Number);
+  bindCustomInspector(elements.inspectorFontStyle, "fontStyle");
+  bindCustomInspector(elements.inspectorLineStyle, "lineStyle");
+  const bindColorInput = (element, property) => {
+    element?.addEventListener("input", () => {
+      const value = element.value.trim();
+      if (/^#[0-9a-f]{6}$/i.test(value)) {
+        visualEditor?.updateSelected({ [property]: value });
+      }
+    });
+  };
+  bindColorInput(elements.inspectorStrokeColor, "color");
+  bindColorInput(elements.inspectorFill, "fill");
+  bindColorInput(elements.inspectorTextColor, "textColor");
+  elements.inspectorOpacity?.addEventListener("input", () => {
+    visualEditor?.updateSelected({
+      opacity: Number(elements.inspectorOpacity.value) / 100,
+    });
+  });
+  elements.inspectorFillOpacity?.addEventListener("input", () => {
+    visualEditor?.updateSelected({
+      fillOpacity: Number(elements.inspectorFillOpacity.value) / 100,
+    });
+  });
   for (const swatch of elements.inspectorSwatches || []) {
     swatch.addEventListener("click", () => {
       visualEditor?.updateSelected({ color: swatch.dataset.drawingColor });
     });
   }
+  elements.inspectorDisconnect?.addEventListener("click", () => {
+    const selectedEdge = visualEditor?.selected();
+    if (
+      selectedEdge &&
+      ["line", "arrow", "connector"].includes(selectedEdge.type)
+    ) {
+      visualEditor?.deleteObject(selectedEdge.id);
+      status("当前连接已断开并从原生源码移除");
+    }
+  });
+  elements.inspectorQuickArrow?.addEventListener("click", () => {
+    quickConnectionType = "arrow";
+    visualEditor?.beginConnection("arrow");
+    status("箭头连接已开启，可点选目标按钮或从端口拖到目标节点");
+  });
+  elements.inspectorQuickConnector?.addEventListener("click", () => {
+    quickConnectionType = "connector";
+    visualEditor?.beginConnection("connector");
+    status("曲线连接已开启，可点选目标按钮或从端口拖到目标节点");
+  });
+  elements.inspectorCancelConnect?.addEventListener("click", () => {
+    visualEditor?.cancelConnection();
+    status("连接模式已取消");
+  });
   elements.inspectorDuplicate?.addEventListener("click", () =>
     visualEditor?.duplicateSelected(),
   );
@@ -1587,14 +2124,22 @@ export function drawingWorkspaceElements(root = document) {
     plotYLabel: root.getElementById("drawingPlotYLabel"),
     plotYMin: root.getElementById("drawingPlotYMin"),
     plotYMax: root.getElementById("drawingPlotYMax"),
+    plotYTick: root.getElementById("drawingPlotYTick"),
+    plotAutoY: root.getElementById("drawingPlotAutoY"),
     plotGrid: root.getElementById("drawingPlotGrid"),
     plotLegendPosition: root.getElementById("drawingPlotLegendPosition"),
+    plotLegendColumns: root.getElementById("drawingPlotLegendColumns"),
+    plotLegendFontSize: root.getElementById("drawingPlotLegendFontSize"),
+    plotLegendOpacity: root.getElementById("drawingPlotLegendOpacity"),
     plotAxesApply: root.getElementById("drawingPlotAxesApply"),
     plotPresetButtons: [...root.querySelectorAll("[data-plot-expression]")],
     plotData: root.getElementById("drawingPlotData"),
     plotFitModel: root.getElementById("drawingPlotFitModel"),
     plotFit: root.getElementById("drawingPlotFit"),
+    plotFitAppend: root.getElementById("drawingPlotFitAppend"),
     plotFitStatus: root.getElementById("drawingPlotFitStatus"),
+    plotManagerSection: root.getElementById("drawingPlotManagerSection"),
+    plotManagerList: root.getElementById("drawingPlotManagerList"),
     profilePanels: [...root.querySelectorAll("[data-drawing-workbench]")],
     profileTemplateButtons: [
       ...root.querySelectorAll("[data-drawing-profile-template]"),
@@ -1610,12 +2155,57 @@ export function drawingWorkspaceElements(root = document) {
     inspectorEmpty: root.getElementById("drawingInspectorEmpty"),
     inspectorControls: root.getElementById("drawingInspectorControls"),
     inspectorType: root.getElementById("drawingInspectorType"),
+    inspectorX: root.getElementById("drawingInspectorX"),
+    inspectorY: root.getElementById("drawingInspectorY"),
     inspectorWidth: root.getElementById("drawingInspectorWidth"),
     inspectorHeight: root.getElementById("drawingInspectorHeight"),
     inspectorRotation: root.getElementById("drawingInspectorRotation"),
     inspectorStroke: root.getElementById("drawingInspectorStroke"),
+    inspectorCornerRadius: root.getElementById("drawingInspectorCornerRadius"),
     inspectorColor: root.getElementById("drawingInspectorColor"),
     inspectorText: root.getElementById("drawingInspectorText"),
+    inspectorTextSection: root.getElementById("drawingInspectorTextSection"),
+    inspectorFontFamily: root.getElementById("drawingInspectorFontFamily"),
+    inspectorFontSize: root.getElementById("drawingInspectorFontSize"),
+    inspectorFontWeight: root.getElementById("drawingInspectorFontWeight"),
+    inspectorFontStyle: root.getElementById("drawingInspectorFontStyle"),
+    inspectorStrokeColor: root.getElementById("drawingInspectorStrokeColor"),
+    inspectorStrokePreview: root.getElementById(
+      "drawingInspectorStrokePreview",
+    ),
+    inspectorFill: root.getElementById("drawingInspectorFill"),
+    inspectorFillPreview: root.getElementById("drawingInspectorFillPreview"),
+    inspectorTextColor: root.getElementById("drawingInspectorTextColor"),
+    inspectorTextColorPreview: root.getElementById(
+      "drawingInspectorTextColorPreview",
+    ),
+    inspectorLineStyle: root.getElementById("drawingInspectorLineStyle"),
+    inspectorOpacity: root.getElementById("drawingInspectorOpacity"),
+    inspectorFillOpacity: root.getElementById("drawingInspectorFillOpacity"),
+    inspectorRelation: root.getElementById("drawingInspectorRelation"),
+    inspectorFromNodes: root.getElementById("drawingInspectorFromNodes"),
+    inspectorToNodes: root.getElementById("drawingInspectorToNodes"),
+    inspectorDisconnect: root.getElementById("drawingInspectorDisconnect"),
+    inspectorQuickConnectSection: root.getElementById(
+      "drawingInspectorQuickConnectSection",
+    ),
+    inspectorQuickTargets: root.getElementById("drawingInspectorQuickTargets"),
+    inspectorQuickArrow: root.getElementById("drawingInspectorQuickArrow"),
+    inspectorQuickConnector: root.getElementById(
+      "drawingInspectorQuickConnector",
+    ),
+    inspectorCancelConnect: root.getElementById(
+      "drawingInspectorCancelConnect",
+    ),
+    inspectorRelationOverviewSection: root.getElementById(
+      "drawingInspectorRelationOverviewSection",
+    ),
+    inspectorRelationOverview: root.getElementById(
+      "drawingInspectorRelationOverview",
+    ),
+    inspectorRelationCreate: root.getElementById(
+      "drawingInspectorRelationCreate",
+    ),
     inspectorSwatches: [...root.querySelectorAll("[data-drawing-color]")],
     inspectorDuplicate: root.getElementById("drawingInspectorDuplicate"),
     inspectorForward: root.getElementById("drawingInspectorForward"),

@@ -1045,6 +1045,20 @@
                       <strong>当前曲线</strong>
                       <span>选中画布中的曲线后修改，或新增叠加曲线</span>
                     </div>
+                    <section
+                      id="drawingPlotManagerSection"
+                      class="drawing-pgf-wide drawing-plot-manager"
+                      aria-labelledby="drawingPlotManagerTitle"
+                    >
+                      <div class="drawing-builder-section">
+                        <strong id="drawingPlotManagerTitle">曲线管理器</strong>
+                        <span>显隐、选中、复制和删除都会立即同步源码</span>
+                      </div>
+                      <div
+                        id="drawingPlotManagerList"
+                        class="drawing-plot-manager-list"
+                      ></div>
+                    </section>
                     <label
                       >函数类型
                       <div
@@ -1383,8 +1397,16 @@ x,y
                           </div>
                         </div>
                       </label>
+                      <button
+                        id="drawingPlotFitAppend"
+                        type="button"
+                        class="drawing-fit-behavior"
+                        aria-pressed="false"
+                      >
+                        本次另存为新拟合曲线
+                      </button>
                       <button id="drawingPlotFit" type="button">
-                        计算并加入拟合曲线
+                        计算并更新拟合曲线
                       </button>
                       <output
                         id="drawingPlotFitStatus"
@@ -1425,6 +1447,17 @@ x,y
                         value="1.5"
                         step="0.1"
                     /></label>
+                    <label for="drawingPlotYTick"
+                      >Y 轴主刻度<input
+                        id="drawingPlotYTick"
+                        type="number"
+                        value="0.5"
+                        min="0.000001"
+                        step="0.1"
+                    /></label>
+                    <button id="drawingPlotAutoY" type="button">
+                      根据全部可见曲线适配 Y 轴
+                    </button>
                     <label
                       >网格
                       <div
@@ -1465,14 +1498,20 @@ x,y
                       >
                         <div
                           class="custom-select-trigger"
-                          data-value="north east"
+                          data-value="outer south"
                           tabindex="0"
                         >
-                          <span>右上</span>
+                          <span>图外下方（推荐）</span>
                         </div>
                         <div class="custom-select-dropdown dropup">
                           <div
                             class="custom-select-option selected"
+                            data-value="outer south"
+                          >
+                            图外下方（推荐）
+                          </div>
+                          <div
+                            class="custom-select-option"
                             data-value="north east"
                           >
                             右上
@@ -1504,6 +1543,33 @@ x,y
                         </div>
                       </div>
                     </label>
+                    <label for="drawingPlotLegendColumns"
+                      >图例列数<input
+                        id="drawingPlotLegendColumns"
+                        type="number"
+                        value="1"
+                        min="1"
+                        max="6"
+                        step="1"
+                    /></label>
+                    <label for="drawingPlotLegendFontSize"
+                      >图例字号<input
+                        id="drawingPlotLegendFontSize"
+                        type="number"
+                        value="9"
+                        min="5"
+                        max="24"
+                        step="0.5"
+                    /></label>
+                    <label for="drawingPlotLegendOpacity"
+                      >图例背景透明度<input
+                        id="drawingPlotLegendOpacity"
+                        type="number"
+                        value="92"
+                        min="0"
+                        max="100"
+                        step="1"
+                    /></label>
                     <button id="drawingPlotAxesApply" type="button">
                       应用坐标设置
                     </button>
@@ -1959,59 +2025,385 @@ x,y
                   >
                 </div>
                 <p id="drawingInspectorEmpty" class="drawing-inspector-empty">
-                  在画布中选择对象后，可在这里精确调整尺寸、角度、线宽和层级。
+                  在画布中选择对象后，可在这里精确调整位置、尺寸、文字、外观和连接关系。
                 </p>
                 <div
                   id="drawingInspectorControls"
                   class="drawing-inspector-controls"
                   hidden
                 >
-                  <div class="drawing-number-grid">
-                    <label
-                      >宽度<input
-                        id="drawingInspectorWidth"
-                        type="number"
-                        min="32"
-                        max="1200"
-                        step="1"
-                    /></label>
-                    <label
-                      >高度<input
-                        id="drawingInspectorHeight"
-                        type="number"
-                        min="24"
-                        max="900"
-                        step="1"
-                    /></label>
-                    <label
-                      >角度<input
-                        id="drawingInspectorRotation"
-                        type="number"
-                        min="-360"
-                        max="360"
-                        step="0.1"
-                    /></label>
-                    <label
-                      >线宽<input
-                        id="drawingInspectorStroke"
-                        type="number"
-                        min="1"
-                        max="24"
-                        step="0.5"
-                    /></label>
-                  </div>
-                  <label
-                    class="drawing-inspector-text"
-                    for="drawingInspectorText"
+                  <section class="drawing-inspector-section">
+                    <div class="drawing-inspector-section-title">
+                      <strong>几何与位置</strong><span>画布坐标</span>
+                    </div>
+                    <div class="drawing-number-grid">
+                      <label
+                        >X 坐标<input
+                          id="drawingInspectorX"
+                          type="number"
+                          min="-2400"
+                          max="2400"
+                          step="1"
+                      /></label>
+                      <label
+                        >Y 坐标<input
+                          id="drawingInspectorY"
+                          type="number"
+                          min="-1600"
+                          max="1600"
+                          step="1"
+                      /></label>
+                      <label
+                        >宽度<input
+                          id="drawingInspectorWidth"
+                          type="number"
+                          min="32"
+                          max="1200"
+                          step="1"
+                      /></label>
+                      <label
+                        >高度<input
+                          id="drawingInspectorHeight"
+                          type="number"
+                          min="24"
+                          max="900"
+                          step="1"
+                      /></label>
+                      <label
+                        >角度<input
+                          id="drawingInspectorRotation"
+                          type="number"
+                          min="-360"
+                          max="360"
+                          step="0.1"
+                      /></label>
+                      <label
+                        >线宽<input
+                          id="drawingInspectorStroke"
+                          type="number"
+                          min="1"
+                          max="24"
+                          step="0.5"
+                      /></label>
+                      <label
+                        >圆角<input
+                          id="drawingInspectorCornerRadius"
+                          type="number"
+                          min="0"
+                          max="240"
+                          step="1"
+                      /></label>
+                    </div>
+                  </section>
+                  <section
+                    class="drawing-inspector-section"
+                    id="drawingInspectorTextSection"
                   >
-                    对象文字
-                    <input
-                      id="drawingInspectorText"
-                      type="text"
-                      maxlength="120"
-                      placeholder="当前对象没有文本"
-                    />
-                  </label>
+                    <div class="drawing-inspector-section-title">
+                      <strong>文字</strong><span>双击画布也可编辑</span>
+                    </div>
+                    <label
+                      class="drawing-inspector-text"
+                      for="drawingInspectorText"
+                    >
+                      对象文字
+                      <input
+                        id="drawingInspectorText"
+                        type="text"
+                        maxlength="120"
+                        placeholder="当前对象没有文本"
+                      />
+                    </label>
+                    <div class="drawing-number-grid">
+                      <label
+                        >字体
+                        <div
+                          id="drawingInspectorFontFamily"
+                          class="custom-select drawing-control-select wide"
+                        >
+                          <div
+                            class="custom-select-trigger"
+                            data-value="Segoe UI"
+                            tabindex="0"
+                          >
+                            <span>Segoe UI</span>
+                          </div>
+                          <div class="custom-select-dropdown">
+                            <div
+                              class="custom-select-option selected"
+                              data-value="Segoe UI"
+                            >
+                              Segoe UI
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="Arial"
+                            >
+                              Arial
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="Georgia"
+                            >
+                              Georgia
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="Cambria Math"
+                            >
+                              Cambria Math
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="Consolas"
+                            >
+                              Consolas
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                      <label
+                        >字号<input
+                          id="drawingInspectorFontSize"
+                          type="number"
+                          min="8"
+                          max="120"
+                          step="1"
+                      /></label>
+                      <label
+                        >字重
+                        <div
+                          id="drawingInspectorFontWeight"
+                          class="custom-select drawing-control-select wide"
+                        >
+                          <div
+                            class="custom-select-trigger"
+                            data-value="500"
+                            tabindex="0"
+                          >
+                            <span>常规</span>
+                          </div>
+                          <div class="custom-select-dropdown">
+                            <div class="custom-select-option" data-value="400">
+                              正常
+                            </div>
+                            <div
+                              class="custom-select-option selected"
+                              data-value="500"
+                            >
+                              常规
+                            </div>
+                            <div class="custom-select-option" data-value="700">
+                              粗体
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                      <label
+                        >字形
+                        <div
+                          id="drawingInspectorFontStyle"
+                          class="custom-select drawing-control-select wide"
+                        >
+                          <div
+                            class="custom-select-trigger"
+                            data-value="normal"
+                            tabindex="0"
+                          >
+                            <span>常规</span>
+                          </div>
+                          <div class="custom-select-dropdown">
+                            <div
+                              class="custom-select-option selected"
+                              data-value="normal"
+                            >
+                              常规
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="italic"
+                            >
+                              斜体
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </section>
+                  <section class="drawing-inspector-section">
+                    <div class="drawing-inspector-section-title">
+                      <strong>填充与边框</strong><span>精确颜色代码</span>
+                    </div>
+                    <div class="drawing-color-field-grid">
+                      <label
+                        >边框颜色
+                        <div class="drawing-color-input">
+                          <span id="drawingInspectorStrokePreview"></span
+                          ><input
+                            id="drawingInspectorStrokeColor"
+                            type="text"
+                            maxlength="7"
+                            value="#2563EB"
+                          /></div
+                      ></label>
+                      <label
+                        >内部填充
+                        <div class="drawing-color-input">
+                          <span id="drawingInspectorFillPreview"></span
+                          ><input
+                            id="drawingInspectorFill"
+                            type="text"
+                            maxlength="7"
+                            value="#EFF6FF"
+                          /></div
+                      ></label>
+                      <label
+                        >文字颜色
+                        <div class="drawing-color-input">
+                          <span id="drawingInspectorTextColorPreview"></span
+                          ><input
+                            id="drawingInspectorTextColor"
+                            type="text"
+                            maxlength="7"
+                            value="#172033"
+                          /></div
+                      ></label>
+                    </div>
+                    <div class="drawing-number-grid">
+                      <label
+                        >边框样式
+                        <div
+                          id="drawingInspectorLineStyle"
+                          class="custom-select drawing-control-select wide"
+                        >
+                          <div
+                            class="custom-select-trigger"
+                            data-value="solid"
+                            tabindex="0"
+                          >
+                            <span>实线</span>
+                          </div>
+                          <div class="custom-select-dropdown">
+                            <div
+                              class="custom-select-option selected"
+                              data-value="solid"
+                            >
+                              实线
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="dashed"
+                            >
+                              虚线
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="dotted"
+                            >
+                              点线
+                            </div>
+                            <div
+                              class="custom-select-option"
+                              data-value="dashdotted"
+                            >
+                              点划线
+                            </div>
+                          </div>
+                        </div>
+                      </label>
+                      <label
+                        >整体透明度<input
+                          id="drawingInspectorOpacity"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                      /></label>
+                      <label
+                        >填充透明度<input
+                          id="drawingInspectorFillOpacity"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="1"
+                      /></label>
+                    </div>
+                  </section>
+                  <section
+                    id="drawingInspectorRelation"
+                    class="drawing-inspector-section drawing-relation-section"
+                    hidden
+                  >
+                    <div class="drawing-inspector-section-title">
+                      <strong>连接关系</strong><span>选择起点和终点</span>
+                    </div>
+                    <div class="drawing-endpoint-field">
+                      <span>起点</span>
+                      <div
+                        id="drawingInspectorFromNodes"
+                        class="drawing-node-picker"
+                      ></div>
+                    </div>
+                    <div class="drawing-endpoint-field">
+                      <span>终点</span>
+                      <div
+                        id="drawingInspectorToNodes"
+                        class="drawing-node-picker"
+                      ></div>
+                    </div>
+                    <button
+                      id="drawingInspectorDisconnect"
+                      type="button"
+                      class="drawing-secondary-action"
+                    >
+                      取消当前连接
+                    </button>
+                  </section>
+                  <section
+                    id="drawingInspectorQuickConnectSection"
+                    class="drawing-inspector-section"
+                  >
+                    <div class="drawing-inspector-section-title">
+                      <strong>快速连接</strong><span>从当前节点开始</span>
+                    </div>
+                    <div
+                      id="drawingInspectorQuickTargets"
+                      class="drawing-node-picker"
+                      aria-label="快速连接目标"
+                    ></div>
+                    <div class="drawing-quick-connect-actions">
+                      <button id="drawingInspectorQuickArrow" type="button">
+                        箭头连接
+                      </button>
+                      <button id="drawingInspectorQuickConnector" type="button">
+                        曲线连接
+                      </button>
+                      <button id="drawingInspectorCancelConnect" type="button">
+                        取消连接模式
+                      </button>
+                    </div>
+                  </section>
+                  <section
+                    id="drawingInspectorRelationOverviewSection"
+                    class="drawing-inspector-section drawing-relation-overview"
+                    hidden
+                  >
+                    <div class="drawing-inspector-section-title">
+                      <strong>整图连接管理</strong
+                      ><span>按名称快速选择、断开或建立关系</span>
+                    </div>
+                    <div
+                      id="drawingInspectorRelationOverview"
+                      class="drawing-relation-overview-list"
+                    ></div>
+                    <div class="drawing-inspector-section-title">
+                      <strong>快速新建</strong><span>无需画布拖线</span>
+                    </div>
+                    <div
+                      id="drawingInspectorRelationCreate"
+                      class="drawing-relation-create-list"
+                    ></div>
+                  </section>
                   <div class="drawing-color-row">
                     <span
                       >描边

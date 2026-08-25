@@ -31,7 +31,8 @@ try {
   page.on("response", (response) => {
     if (
       /mathlive-fonts|KaTeX_.*\.woff2/i.test(response.url()) &&
-      !response.ok()
+      !response.ok() &&
+      response.status() !== 304
     ) {
       failedFontRequests.push(`${response.status()} ${response.url()}`);
     }
@@ -45,6 +46,7 @@ try {
   await page.locator("#drawingVisualModeBtn").click();
   const firstMermaidNode = page
     .locator("#drawingVisualCanvas [data-drawing-object]")
+    .filter({ hasText: /\S/ })
     .first();
   await firstMermaidNode.dblclick();
   await page.locator(".drawing-inline-text-editor").fill("Start edited");
@@ -54,17 +56,22 @@ try {
     /Start edited/,
   );
   const canvasBox = await page.locator("#drawingVisualCanvas").boundingBox();
-  const viewBoxBefore = await page
+  await page.mouse.move(
+    canvasBox.x + canvasBox.width / 2,
+    canvasBox.y + canvasBox.height / 2,
+  );
+  await page.mouse.wheel(0, -480);
+  const viewBoxBeforePan = await page
     .locator("#drawingVisualCanvas svg")
     .getAttribute("viewBox");
-  await page.mouse.move(canvasBox.x + 24, canvasBox.y + canvasBox.height - 24);
+  await page.mouse.move(canvasBox.x + 24, canvasBox.y + 24);
   await page.mouse.down();
-  await page.mouse.move(canvasBox.x + 150, canvasBox.y + canvasBox.height - 90);
+  await page.mouse.move(canvasBox.x + 150, canvasBox.y + 90);
   await page.mouse.up();
   const viewBoxAfter = await page
     .locator("#drawingVisualCanvas svg")
     .getAttribute("viewBox");
-  assert.notEqual(viewBoxAfter, viewBoxBefore);
+  assert.notEqual(viewBoxAfter, viewBoxBeforePan);
   await page.locator("#drawingCanvasFit").click();
   await page.locator("#drawingSourceModeBtn").click();
   await page
@@ -139,8 +146,19 @@ try {
     await page.locator("#drawingSource").inputValue(),
     /table\[row sep=\\\\\]/,
   );
-  assert.match(await page.locator("#drawingSource").inputValue(), /exp\(/);
+  const fittedPgfSource = await page.locator("#drawingSource").inputValue();
+  assert.match(fittedPgfSource, /exp\(/);
+  assert.match(
+    fittedPgfSource,
+    /at=\{\(axis description cs:0\.5,-0\.16\)\}, anchor=north/,
+    "PGFPlots legend must be laid out below the plot instead of covering data",
+  );
   await compilePgf("exponential table fitting");
+  if (process.env.DRAWING_PGF_SCREENSHOT) {
+    await page.locator("#drawingPreview").screenshot({
+      path: process.env.DRAWING_PGF_SCREENSHOT,
+    });
+  }
 
   await page
     .locator('[data-drawing-language="tikz"]:not([data-drawing-profile])')
@@ -158,7 +176,18 @@ try {
     /TikZ 编译失败/,
   );
 
-  await page.locator("#drawingVisualModeBtn").click();
+  await page.reload({ waitUntil: "networkidle" });
+  await page.locator("#drawingModeTab").click();
+  await page
+    .locator('[data-drawing-language="tikz"]:not([data-drawing-profile])')
+    .click();
+  if (
+    !(
+      await page.locator("#drawingVisualModeBtn").getAttribute("class")
+    )?.includes("active")
+  ) {
+    await page.locator("#drawingVisualModeBtn").click();
+  }
   await page
     .locator("#drawingTikzLatex")
     .fill(String.raw`\frac{a}{b}=\sqrt{x}`);

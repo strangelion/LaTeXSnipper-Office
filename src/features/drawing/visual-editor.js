@@ -43,6 +43,16 @@ function createObject(type, index) {
     rotation: 0,
     color: "#2563EB",
     fill: "#EFF6FF",
+    textColor: "#172033",
+    fillOpacity: 1,
+    opacity: 1,
+    lineStyle: "solid",
+    cornerRadius: type === "node" ? 24 : 10,
+    fontFamily: "Segoe UI",
+    fontSize: type === "label" ? 42 : 30,
+    fontWeight: 500,
+    fontStyle: "normal",
+    visible: true,
     strokeWidth: ["line", "arrow", "connector", "plot"].includes(type) ? 5 : 4,
     text:
       type === "label"
@@ -250,8 +260,12 @@ export function createProfileDocument(
             yLabel: "f(x)",
             yMin: -1.5,
             yMax: 1.5,
+            yTick: 0.5,
             grid: "major",
-            legendPosition: "north east",
+            legendPosition: "outer south",
+            legendColumns: 1,
+            legendFontSize: 9,
+            legendOpacity: 0.92,
           },
         ],
         [
@@ -280,8 +294,12 @@ export function createProfileDocument(
             yLabel: options.yLabel || "f(x)",
             yMin: Number(options.yMin ?? -1.5),
             yMax: Number(options.yMax ?? 1.5),
+            yTick: Number(options.yTick ?? 0.5),
             grid: options.grid || "major",
-            legendPosition: options.legendPosition || "north east",
+            legendPosition: options.legendPosition || "outer south",
+            legendColumns: Number(options.legendColumns ?? 1),
+            legendFontSize: Number(options.legendFontSize ?? 9),
+            legendOpacity: Number(options.legendOpacity ?? 0.92),
           },
         ],
         [
@@ -413,36 +431,57 @@ function objectBody(object, objects = []) {
   const x = -width / 2;
   const y = -height / 2;
   const stroke = clamp(object.strokeWidth, 1, 24);
+  const opacity = clamp(object.opacity ?? 1, 0, 1);
+  const fillOpacity = clamp(object.fillOpacity ?? 1, 0, 1);
+  const lineStyle = ["solid", "dashed", "dotted", "dashdotted"].includes(
+    object.lineStyle,
+  )
+    ? object.lineStyle
+    : "solid";
+  const dash =
+    lineStyle === "dashed"
+      ? ' stroke-dasharray="18 12"'
+      : lineStyle === "dotted"
+        ? ' stroke-dasharray="3 10"'
+        : lineStyle === "dashdotted"
+          ? ' stroke-dasharray="18 8 3 8"'
+          : "";
   const vectorStroke = ' vector-effect="non-scaling-stroke"';
   const profileFill =
-    object.profile === "tikz"
+    object.fill ||
+    (object.profile === "tikz"
       ? "#FFFFFF"
       : object.profile === "graphviz_dot"
         ? "#F8FAFC"
         : object.profile === "mermaid"
           ? "#EEF2FF"
-          : object.fill;
-  const labelColor = object.profile === "mermaid" ? "#312E81" : "#172033";
+          : "#EFF6FF");
+  const labelColor =
+    object.textColor || (object.profile === "mermaid" ? "#312E81" : "#172033");
+  const fontFamily = escapeXml(object.fontFamily || "Segoe UI");
+  const fontSize = clamp(object.fontSize ?? 30, 8, 120);
+  const fontWeight = clamp(object.fontWeight ?? 500, 100, 900);
+  const fontStyle = object.fontStyle === "italic" ? "italic" : "normal";
   const label = (fontSize = 30) =>
     object.text
-      ? `<text x="0" y="${Math.round(fontSize * 0.34)}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="${fontSize}" fill="${labelColor}">${escapeXml(object.text)}</text>`
+      ? `<text x="0" y="${Math.round((object.fontSize || fontSize) * 0.34)}" text-anchor="middle" font-family="${fontFamily}, sans-serif" font-size="${object.fontSize || fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" opacity="${opacity}" fill="${labelColor}">${escapeXml(object.text)}</text>`
       : "";
   switch (object.type) {
     case "line":
-      return `<path d="M${x} 0H${width / 2}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round"${vectorStroke}/>`;
+      return `<path d="M${x} 0H${width / 2}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" opacity="${opacity}"${dash}${vectorStroke}/>`;
     case "arrow":
     case "connector":
       return `<path d="${
         object.type === "connector"
           ? `M${x} 0C${-width / 4} ${-height},${width / 4} ${height},${width / 2} 0`
           : `M${x} 0H${width / 2}`
-      }" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" marker-end="url(#drawing-arrow)"${vectorStroke}/>${object.text ? `<text x="0" y="-14" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="22" fill="${object.color}">${escapeXml(object.text)}</text>` : ""}`;
+      }" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" marker-end="url(#drawing-arrow)" opacity="${opacity}"${dash}${vectorStroke}/>${object.text ? `<text x="0" y="-14" text-anchor="middle" font-family="${fontFamily}, sans-serif" font-size="${Math.min(fontSize, 30)}" font-weight="${fontWeight}" font-style="${fontStyle}" fill="${labelColor}">${escapeXml(object.text)}</text>` : ""}`;
     case "ellipse":
-      return `<ellipse rx="${width / 2}" ry="${height / 2}" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}"${vectorStroke}/>${label()}`;
+      return `<ellipse rx="${width / 2}" ry="${height / 2}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash}${vectorStroke}/>${label()}`;
     case "diamond":
-      return `<path d="M0 ${y}L${width / 2} 0L0 ${height / 2}L${x} 0Z" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}" stroke-linejoin="round"${vectorStroke}/>${label(28)}`;
+      return `<path d="M0 ${y}L${width / 2} 0L0 ${height / 2}L${x} 0Z" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash} stroke-linejoin="round"${vectorStroke}/>${label(28)}`;
     case "label":
-      return `<text x="0" y="12" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="42" fill="${object.color}">${escapeXml(object.text)}</text>`;
+      return `<text x="0" y="${Math.round(fontSize * 0.34)}" text-anchor="middle" font-family="${fontFamily}, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" opacity="${opacity}" fill="${labelColor}">${escapeXml(object.text)}</text>`;
     case "formula": {
       const formula = embeddedSvgParts(object.formulaSvg);
       if (!formula) {
@@ -456,7 +495,7 @@ function objectBody(object, objects = []) {
       return `<g transform="translate(${tx} ${ty}) scale(${scale})">${formula.body}</g>`;
     }
     case "axes":
-      return `<path d="M${x} 0H${width / 2}M0 ${height / 2}V${y}" fill="none" stroke="${object.color}" stroke-width="${stroke}" marker-end="url(#drawing-arrow)"${vectorStroke}/><text x="${width / 2 - 18}" y="-14" font-size="30" fill="${object.color}">x</text><text x="16" y="${y + 28}" font-size="30" fill="${object.color}">y</text>`;
+      return `<path d="M${x} 0H${width / 2}M0 ${height / 2}V${y}" fill="none" stroke="${object.color}" stroke-width="${stroke}" marker-end="url(#drawing-arrow)" opacity="${opacity}"${dash}${vectorStroke}/><text x="${width / 2 - 18}" y="-14" font-size="30" fill="${object.color}">x</text><text x="16" y="${y + 28}" font-size="30" fill="${object.color}">y</text>`;
     case "plot": {
       const axes = objects.find((candidate) => candidate.type === "axes") || {};
       const xMin = Number.isFinite(Number(object.xMin))
@@ -518,23 +557,15 @@ function objectBody(object, objects = []) {
         Number.isFinite(xMin) && Number.isFinite(xMax)
           ? `<text x="${x}" y="${height / 2 - 6}" font-size="18" fill="${object.color}">${escapeXml(xMin)}</text><text x="${width / 2}" y="${height / 2 - 6}" text-anchor="end" font-size="18" fill="${object.color}">${escapeXml(xMax)}</text>`
           : "";
-      const dash =
-        object.lineStyle === "dashed"
-          ? ' stroke-dasharray="18 12"'
-          : object.lineStyle === "dotted"
-            ? ' stroke-dasharray="3 10"'
-            : object.lineStyle === "dashdotted"
-              ? ' stroke-dasharray="18 8 3 8"'
-              : "";
       const curve = points
         ? `<polyline points="${points}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"${dash}${vectorStroke}/>`
         : `<text x="0" y="8" text-anchor="middle" font-size="20" fill="#DC2626">表达式仅在安全预览中显示</text>`;
       return `${curve}${rawPoints}${rangeLabels}`;
     }
     case "node":
-      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${object.profile === "graphviz_dot" ? 8 : object.profile === "tikz" ? 3 : 24}" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}"${vectorStroke}/>${label(36)}`;
+      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${clamp(object.cornerRadius ?? (object.profile === "graphviz_dot" ? 8 : object.profile === "tikz" ? 3 : 24), 0, Math.min(width, height) / 2)}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash}${vectorStroke}/>${label(36)}`;
     default:
-      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${object.profile === "tikz" ? 2 : 10}" fill="${profileFill}" stroke="${object.color}" stroke-width="${stroke}"${vectorStroke}/>${label()}`;
+      return `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${clamp(object.cornerRadius ?? (object.profile === "tikz" ? 2 : 10), 0, Math.min(width, height) / 2)}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash}${vectorStroke}/>${label()}`;
   }
 }
 
@@ -558,7 +589,7 @@ export function visualTransformCapabilities(object) {
     return { move: false, resize: false, rotate: false };
   }
   if (object.profile === "mermaid") {
-    return { move: false, resize: false, rotate: false };
+    return { move: NODE_TYPES.has(object.type), resize: false, rotate: false };
   }
   if (object.profile === "pgf_plots") {
     return {
@@ -579,6 +610,7 @@ function objectMarkup(
   objects = [],
   connectionMode = false,
 ) {
+  if (originalObject.visible === false) return "";
   const object = resolvedEdgeObject(originalObject, objects);
   const capabilities = visualTransformCapabilities(object);
   const left = -object.width / 2 - 18;
@@ -641,13 +673,17 @@ export function createVisualDrawingEditor({
     connectionType: null,
     connectionLabel: "",
     connectionPreview: null,
+    lastObjectPointerDown: null,
     viewport: { x: 0, y: 0, width: VIEW_WIDTH, height: VIEW_HEIGHT },
     inlineEditor: null,
   };
   const selected = () =>
     state.objects.find((object) => object.id === state.selectedId) || null;
   const notifySelection = () =>
-    onSelectionChange?.(structuredClone(selected()));
+    onSelectionChange?.(structuredClone(selected()), {
+      profile: state.profile,
+      objects: structuredClone(state.objects),
+    });
   const render = () => {
     state.frame = null;
     const preview = state.connectionPreview
@@ -823,8 +859,24 @@ export function createVisualDrawingEditor({
       render();
       return;
     }
-    state.selectedId = objectNode.dataset.drawingObject;
+    const objectId = objectNode.dataset.drawingObject;
+    const pointerTime = globalThis.performance?.now?.() ?? Date.now();
+    const repeatedObjectPointer =
+      state.lastObjectPointerDown?.objectId === objectId &&
+      pointerTime - state.lastObjectPointerDown.time <= 420;
+    state.lastObjectPointerDown = { objectId, time: pointerTime };
+    state.selectedId = objectId;
     const object = selected();
+    if (
+      repeatedObjectPointer &&
+      event.button === 0 &&
+      !event.target.closest("[data-drawing-handle], [data-drawing-port]")
+    ) {
+      event.preventDefault();
+      state.drag = null;
+      openInlineEditor(object, event);
+      return;
+    }
     const cursor = point(event);
     const port = event.target.closest("[data-drawing-port]");
     if (port && NODE_TYPES.has(object.type)) {
@@ -1156,6 +1208,8 @@ export function createVisualDrawingEditor({
   };
   const applyObjectPatch = (object, patch) => {
     if (!object || !patch || typeof patch !== "object") return false;
+    if (patch.x !== undefined) object.x = clamp(patch.x, -2400, 2400);
+    if (patch.y !== undefined) object.y = clamp(patch.y, -1600, 1600);
     if (patch.width !== undefined) object.width = clamp(patch.width, 32, 1200);
     if (patch.height !== undefined)
       object.height = clamp(patch.height, 24, 900);
@@ -1163,10 +1217,25 @@ export function createVisualDrawingEditor({
       object.rotation = clamp(patch.rotation, -360, 360);
     if (patch.strokeWidth !== undefined)
       object.strokeWidth = clamp(patch.strokeWidth, 1, 24);
+    if (patch.fillOpacity !== undefined)
+      object.fillOpacity = clamp(patch.fillOpacity, 0, 1);
+    if (patch.opacity !== undefined)
+      object.opacity = clamp(patch.opacity, 0, 1);
+    if (patch.cornerRadius !== undefined)
+      object.cornerRadius = clamp(patch.cornerRadius, 0, 240);
+    if (patch.fontSize !== undefined)
+      object.fontSize = clamp(patch.fontSize, 8, 120);
+    if (patch.fontWeight !== undefined)
+      object.fontWeight = clamp(patch.fontWeight, 100, 900);
     if (typeof patch.color === "string" && /^#[0-9a-f]{6}$/i.test(patch.color))
       object.color = patch.color.toUpperCase();
     if (typeof patch.fill === "string" && /^#[0-9a-f]{6}$/i.test(patch.fill))
       object.fill = patch.fill.toUpperCase();
+    if (
+      typeof patch.textColor === "string" &&
+      /^#[0-9a-f]{6}$/i.test(patch.textColor)
+    )
+      object.textColor = patch.textColor.toUpperCase();
     if (typeof patch.text === "string") object.text = patch.text.slice(0, 80);
     for (const property of [
       "expression",
@@ -1176,12 +1245,26 @@ export function createVisualDrawingEditor({
       "yLabel",
       "grid",
       "legendPosition",
+      "fitModel",
+      "dataLegend",
+      "fontFamily",
+      "fontStyle",
     ]) {
       if (typeof patch[property] === "string") {
         object[property] = patch[property].slice(0, 160);
       }
     }
-    for (const property of ["xMin", "xMax", "yMin", "yMax", "samples"]) {
+    for (const property of [
+      "xMin",
+      "xMax",
+      "yMin",
+      "yMax",
+      "yTick",
+      "legendColumns",
+      "legendFontSize",
+      "legendOpacity",
+      "samples",
+    ]) {
       if (
         patch[property] !== undefined &&
         Number.isFinite(Number(patch[property]))
@@ -1189,7 +1272,35 @@ export function createVisualDrawingEditor({
         object[property] = Number(patch[property]);
       }
     }
+    if (typeof patch.visible === "boolean") object.visible = patch.visible;
+    if (Array.isArray(patch.fitCoefficients)) {
+      object.fitCoefficients = patch.fitCoefficients
+        .map(Number)
+        .filter(Number.isFinite)
+        .slice(0, 8);
+    }
+    if (Number.isFinite(Number(patch.fitRSquared))) {
+      object.fitRSquared = Number(patch.fitRSquared);
+    }
+    if (Array.isArray(patch.dataPoints)) {
+      object.dataPoints = patch.dataPoints
+        .map((point) => ({ x: Number(point?.x), y: Number(point?.y) }))
+        .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+        .slice(0, 5000);
+    }
     if (typeof patch.curve === "string") object.curve = patch.curve;
+    if (patch.fromId === null) object.fromId = null;
+    else if (
+      typeof patch.fromId === "string" &&
+      state.objects.some((candidate) => candidate.id === patch.fromId)
+    )
+      object.fromId = patch.fromId;
+    if (patch.toId === null) object.toId = null;
+    else if (
+      typeof patch.toId === "string" &&
+      state.objects.some((candidate) => candidate.id === patch.toId)
+    )
+      object.toId = patch.toId;
     return true;
   };
   const updateSelected = (patch) => {
@@ -1197,6 +1308,70 @@ export function createVisualDrawingEditor({
     if (!applyObjectPatch(object, patch)) return false;
     render();
     commit();
+    return true;
+  };
+  const cancelConnection = () => {
+    state.connectionType = null;
+    state.connectionLabel = "";
+    state.connectionPreview = null;
+    render();
+    return true;
+  };
+  const connectSelectedTo = (targetId, type = "arrow", label = "") => {
+    const from = selected();
+    return connectNodes(from?.id, targetId, type, label);
+  };
+  const connectNodes = (fromId, targetId, type = "arrow", label = "") => {
+    const from = state.objects.find((object) => object.id === fromId);
+    const to = state.objects.find((object) => object.id === targetId);
+    if (
+      !from ||
+      !to ||
+      from.id === to.id ||
+      !NODE_TYPES.has(from.type) ||
+      !NODE_TYPES.has(to.type)
+    ) {
+      return false;
+    }
+    const edge = createObject(
+      type === "connector" ? "connector" : "arrow",
+      state.objects.length,
+    );
+    Object.assign(edge, {
+      profile: state.profile,
+      fromId: from.id,
+      toId: to.id,
+      text: String(label || "").slice(0, 80),
+      graphEdge: ["graphviz_dot", "mermaid"].includes(state.profile),
+    });
+    state.objects.push(edge);
+    state.selectedId = edge.id;
+    render();
+    commit();
+    return true;
+  };
+  const deleteObject = (objectId) => {
+    if (!state.objects.some((object) => object.id === objectId)) return false;
+    state.objects = state.objects.filter(
+      (candidate) =>
+        candidate.id !== objectId &&
+        candidate.fromId !== objectId &&
+        candidate.toId !== objectId,
+    );
+    if (state.selectedId === objectId) {
+      state.selectedId =
+        state.objects.find((candidate) => NODE_TYPES.has(candidate.type))?.id ||
+        state.objects[0]?.id ||
+        null;
+    }
+    render();
+    commit();
+    return true;
+  };
+  const selectObject = (objectId) => {
+    if (!state.objects.some((object) => object.id === objectId)) return false;
+    state.selectedId = objectId;
+    render();
     return true;
   };
   const updateProfileObject = (
@@ -1224,7 +1399,10 @@ export function createVisualDrawingEditor({
         candidate.fromId !== object.id &&
         candidate.toId !== object.id,
     );
-    state.selectedId = null;
+    state.selectedId =
+      state.objects.find((candidate) => NODE_TYPES.has(candidate.type))?.id ||
+      state.objects[0]?.id ||
+      null;
     render();
     commit();
     return true;
@@ -1362,6 +1540,11 @@ export function createVisualDrawingEditor({
     state,
     add,
     beginConnection,
+    cancelConnection,
+    connectSelectedTo,
+    connectNodes,
+    deleteObject,
+    selectObject,
     addFormula,
     addGraphNode,
     addMindMapChild,
