@@ -3,7 +3,7 @@
     "installerType":  "msi",
     "msiFile":  "LaTeXSnipper.NativeOffice.msi",
     "provenanceFile":  "LaTeXSnipper.NativeOffice.provenance.json",
-    "sourceCommitSha":  "62209b2da252c4fad05dc18b46472bcc421659df",
+    "sourceCommitSha":  "868e2457a61e9b241f8d3a1979c81c3394b7cee5",
     "coreCommitSha":  "4f4e2fedff5e0daa3cc84985b375cfbd2d4b9a88",
-    "msiSha256":  "4856cec7930b7c8e078f931ce2323882b367fc29d6c8a978073055a876ab3fef"
+    "msiSha256":  "3d955efd7c6c2d481a958c8d8b70397d6cd5f351f4262329382bbf0de7f4b522"
 }
