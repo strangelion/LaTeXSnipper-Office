@@ -356,7 +356,10 @@ namespace LaTeXSnipper.Excel.Host
                     dynamic range = selected.ShapeRange;
                     if (range != null && range.Count > 0) return range.Item(1);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("resolve-selected-shape-direct-range", "excel", null, ex);
+                }
 
                 try
                 {
@@ -364,7 +367,10 @@ namespace LaTeXSnipper.Excel.Host
                     dynamic range = item.ShapeRange;
                     if (range != null && range.Count > 0) return range.Item(1);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    OfficeOperationLog.Failure("resolve-selected-shape-item-range", "excel", null, ex);
+                }
             }
             catch (Exception ex)
             {
@@ -401,7 +407,10 @@ namespace LaTeXSnipper.Excel.Host
         {
             string? namedId = null;
             try { namedId = ExtractFormulaIdFromShapeName(shape.Name as string); }
-            catch { }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("read-shape-name-for-match", "excel", formulaId, ex);
+            }
             if (string.Equals(namedId, formulaId, StringComparison.Ordinal)) return true;
             return string.Equals(ExtractFormulaIdFromShapeMetadata(shape), formulaId, StringComparison.Ordinal);
         }
@@ -409,7 +418,11 @@ namespace LaTeXSnipper.Excel.Host
         private static bool IsManagedShape(dynamic shape)
         {
             string? name = null;
-            try { name = shape.Name as string; } catch { }
+            try { name = shape.Name as string; }
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("read-managed-shape-name", "excel", null, ex);
+            }
             return ExtractFormulaIdFromShapeName(name) != null
                 || ExtractFormulaIdFromShapeMetadata(shape) != null;
         }

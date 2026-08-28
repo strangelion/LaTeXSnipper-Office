@@ -35,6 +35,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
     {
         private const int ExpectedImages = 4;
         private const int ExpectedOleObjects = 4;
+        private static readonly ManualResetEventSlim OfficeUiDelay = new ManualResetEventSlim(false);
 
         [DllImport("user32.dll")]
         private static extern uint GetWindowThreadProcessId(
@@ -158,7 +159,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                         {
                             application.ActiveWindow.Activate();
                             shape.Select(OfficeCore.MsoTriState.msoTrue);
-                            Thread.Sleep(100);
+                            PumpOfficeMessages(100);
                             FormulaPayload readBack = adapter.ReadSelection();
                             VerifyEditableReadBack("PowerPoint", payload, readBack);
                             oleNames.Add(shape.Name);
@@ -467,7 +468,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 range.Select();
                 application.Goto(range, true);
                 Application.DoEvents();
-                Thread.Sleep(800);
+                PumpOfficeMessages(800);
                 for (int copyAttempt = 0; copyAttempt < 4; copyAttempt++)
                 {
                     try
@@ -478,7 +479,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                         for (int clipboardAttempt = 0; clipboardAttempt < 15; clipboardAttempt++)
                         {
                             Application.DoEvents();
-                            Thread.Sleep(100);
+                            PumpOfficeMessages(100);
                             if (!Clipboard.ContainsImage()) continue;
                             using Image image = Clipboard.GetImage();
                             image.Save(path, ImageFormat.Png);
@@ -488,7 +489,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     catch (COMException)
                     {
                         Application.DoEvents();
-                        Thread.Sleep(250);
+                        PumpOfficeMessages(250);
                     }
                 }
 
@@ -741,6 +742,18 @@ namespace LaTeXSnipper.Office.SampleHostTests
         {
             if (!System.IO.File.Exists(path))
                 throw new FileNotFoundException("Office sample is missing.", path);
+        }
+
+        private static void PumpOfficeMessages(int milliseconds)
+        {
+            int duration = Math.Max(0, milliseconds);
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds < duration)
+            {
+                Application.DoEvents();
+                long remaining = duration - stopwatch.ElapsedMilliseconds;
+                OfficeUiDelay.Wait((int)Math.Min(remaining, 15));
+            }
         }
 
         private static void Release(object value)
