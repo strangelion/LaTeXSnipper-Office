@@ -806,6 +806,15 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
   );
 }
 
+[data-theme="dark"] .liquid-nav[data-hover-glow="true"] .liquid-dock-sheen {
+  background: radial-gradient(
+    circle at var(--liquid-glow-x) var(--liquid-glow-y),
+    rgba(147, 197, 253, 0.13),
+    rgba(147, 197, 253, 0.035) 24%,
+    transparent 48%
+  );
+}
+
 /* Top-nav Lens material: more transparent than the action dock — it sits
    on a plain glass bar, so the lens must not turn milky. Since the nav
    background is nearly uniform, thickness comes from self-visible edges

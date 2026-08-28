@@ -21,7 +21,14 @@ const uid = () =>
   `drawing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const COLOR_PRESETS = ["#2563EB", "#7C3AED", "#DC2626", "#059669", "#D97706"];
-const NODE_TYPES = new Set(["node", "rectangle", "ellipse", "diamond"]);
+const NODE_TYPES = new Set([
+  "node",
+  "rectangle",
+  "ellipse",
+  "diamond",
+  "triangle",
+  "star",
+]);
 const EDGE_TYPES = new Set(["line", "arrow", "connector"]);
 
 const clamp = (value, min, max) => {
@@ -53,6 +60,7 @@ function createObject(type, index) {
     fontWeight: 500,
     fontStyle: "normal",
     visible: true,
+    locked: false,
     strokeWidth: ["line", "arrow", "connector", "plot"].includes(type) ? 5 : 4,
     text:
       type === "label"
@@ -75,6 +83,22 @@ function createObject(type, index) {
   if (type === "label") {
     base.width = 170;
     base.height = 70;
+  }
+  if (["triangle", "star"].includes(type)) {
+    base.width = 170;
+    base.height = 150;
+  }
+  if (type === "freehand") {
+    base.width = 120;
+    base.height = 80;
+    base.fill = "none";
+    base.strokeWidth = 4;
+    base.points = [
+      { x: -60, y: 0 },
+      { x: 60, y: 0 },
+    ];
+    base.pathWidth = 120;
+    base.pathHeight = 1;
   }
   return base;
 }
@@ -228,8 +252,8 @@ export function createProfileDocument(
         ["label", 590, 145, "v"],
       ],
       geometry: [
-        ["ellipse", 300, 270],
-        ["rectangle", 510, 270],
+        ["ellipse", 300, 270, "center O"],
+        ["rectangle", 510, 270, "construction"],
         ["line", 405, 270],
         ["label", 405, 155, "angle ABC"],
       ],
@@ -246,6 +270,12 @@ export function createProfileDocument(
         ["node", 580, 380, "D"],
         ["arrow", 400, 160],
         ["arrow", 400, 380],
+      ],
+      chinese: [
+        ["node", 210, 260, "输入"],
+        ["arrow", 400, 260, "处理"],
+        ["node", 590, 260, "输出"],
+        ["label", 400, 120, "中文 TikZ 流程图"],
       ],
     },
     pgf_plots: {
@@ -425,6 +455,64 @@ export function createProfileDocument(
   );
 }
 
+const pathNumber = (value) =>
+  Math.round((Number.isFinite(Number(value)) ? Number(value) : 0) * 100) / 100;
+
+export function pointerInsideDrawingViewport(
+  clientX,
+  clientY,
+  width = globalThis.innerWidth,
+  height = globalThis.innerHeight,
+) {
+  return (
+    Number.isFinite(clientX) &&
+    Number.isFinite(clientY) &&
+    clientX > 0 &&
+    clientY > 0 &&
+    clientX < Number(width || 0) &&
+    clientY < Number(height || 0)
+  );
+}
+
+export function smoothFreehandPath(points, scaleX = 1, scaleY = 1) {
+  const projected = (Array.isArray(points) ? points : []).map((point) => ({
+    x: pathNumber(Number(point.x) * Number(scaleX || 1)),
+    y: pathNumber(Number(point.y) * Number(scaleY || 1)),
+  }));
+  if (!projected.length) return "";
+  if (projected.length === 1) return `M${projected[0].x} ${projected[0].y}`;
+  if (projected.length === 2) {
+    return `M${projected[0].x} ${projected[0].y}L${projected[1].x} ${projected[1].y}`;
+  }
+  const coordinate = (point) => `${point.x} ${point.y}`;
+  let path = `M${coordinate(projected[0])}`;
+  for (let index = 1; index < projected.length - 1; index += 1) {
+    const current = projected[index];
+    const next = projected[index + 1];
+    const midpoint = {
+      x: pathNumber((current.x + next.x) / 2),
+      y: pathNumber((current.y + next.y) / 2),
+    };
+    path += `Q${coordinate(current)} ${coordinate(midpoint)}`;
+  }
+  path += `T${coordinate(projected.at(-1))}`;
+  return path;
+}
+
+function radialPolygonPoints(width, height, vertices, innerRatio = null) {
+  const points = [];
+  const count = innerRatio === null ? vertices : vertices * 2;
+  for (let index = 0; index < count; index += 1) {
+    const angle = -Math.PI / 2 + (index * Math.PI * 2) / count;
+    const radius =
+      innerRatio === null || index % 2 === 0 ? 1 : Number(innerRatio);
+    points.push(
+      `${pathNumber(Math.cos(angle) * (width / 2) * radius)},${pathNumber(Math.sin(angle) * (height / 2) * radius)}`,
+    );
+  }
+  return points.join(" ");
+}
+
 function objectBody(object, objects = []) {
   const width = object.width;
   const height = object.height;
@@ -480,6 +568,22 @@ function objectBody(object, objects = []) {
       return `<ellipse rx="${width / 2}" ry="${height / 2}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash}${vectorStroke}/>${label()}`;
     case "diamond":
       return `<path d="M0 ${y}L${width / 2} 0L0 ${height / 2}L${x} 0Z" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash} stroke-linejoin="round"${vectorStroke}/>${label(28)}`;
+    case "triangle":
+      return `<polygon points="${radialPolygonPoints(width, height, 3)}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash} stroke-linejoin="round"${vectorStroke}/>${label(26)}`;
+    case "star":
+      return `<polygon points="${radialPolygonPoints(width, height, 5, 0.45)}" fill="${profileFill}" fill-opacity="${fillOpacity}" stroke="${object.color}" stroke-width="${stroke}" opacity="${opacity}"${dash} stroke-linejoin="round"${vectorStroke}/>${label(24)}`;
+    case "freehand": {
+      const points = Array.isArray(object.points) ? object.points : [];
+      const pathWidth = Math.max(1, Number(object.pathWidth || object.width));
+      const pathHeight = Math.max(
+        1,
+        Number(object.pathHeight || object.height),
+      );
+      const scaleX = width / pathWidth;
+      const scaleY = height / pathHeight;
+      const path = smoothFreehandPath(points, scaleX, scaleY);
+      return `<path d="${path || "M-1 0L1 0"}" fill="none" stroke="${object.color}" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}"${dash}${vectorStroke}/>`;
+    }
     case "label":
       return `<text x="0" y="${Math.round(fontSize * 0.34)}" text-anchor="middle" font-family="${fontFamily}, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" font-style="${fontStyle}" opacity="${opacity}" fill="${labelColor}">${escapeXml(object.text)}</text>`;
     case "formula": {
@@ -584,6 +688,7 @@ function connectionPorts(object, visible) {
 export function visualTransformCapabilities(object) {
   if (
     !object ||
+    object.locked === true ||
     (EDGE_TYPES.has(object.type) && object.fromId && object.toId)
   ) {
     return { move: false, resize: false, rotate: false };
@@ -646,7 +751,7 @@ function objectMarkup(
       </g>`
     : "";
   const ports = connectionPorts(object, connectionMode || selected);
-  return `<g class="drawing-visual-object${selected ? " is-selected" : ""}" data-drawing-object="${object.id}" transform="translate(${object.x} ${object.y}) rotate(${object.rotation})">${objectBody(object, objects)}${controls}${ports}</g>`;
+  return `<g class="drawing-visual-object${selected ? " is-selected" : ""}${object.locked ? " is-locked" : ""}" data-drawing-object="${object.id}" transform="translate(${object.x} ${object.y}) rotate(${object.rotation})">${objectBody(object, objects)}${controls}${ports}</g>`;
 }
 
 export function serializeVisualDrawing(objects) {
@@ -661,6 +766,7 @@ export function createVisualDrawingEditor({
   onSourceChange,
   onSelectionChange,
   onViewportChange,
+  onHistoryChange,
 }) {
   const state = {
     profile: "svg_source",
@@ -676,6 +782,9 @@ export function createVisualDrawingEditor({
     lastObjectPointerDown: null,
     viewport: { x: 0, y: 0, width: VIEW_WIDTH, height: VIEW_HEIGHT },
     inlineEditor: null,
+    activeTool: "select",
+    snapToGrid: false,
+    history: { undo: [], redo: [], current: null },
   };
   const selected = () =>
     state.objects.find((object) => object.id === state.selectedId) || null;
@@ -690,6 +799,12 @@ export function createVisualDrawingEditor({
       ? `<path class="drawing-connection-preview" d="M${state.connectionPreview.start.x} ${state.connectionPreview.start.y} L${state.connectionPreview.end.x} ${state.connectionPreview.end.y}" marker-end="url(#drawing-arrow)"/>`
       : "";
     canvas.classList.toggle("is-connecting", Boolean(state.connectionType));
+    canvas.classList.toggle(
+      "is-drawing-freehand",
+      state.activeTool === "freehand",
+    );
+    canvas.classList.toggle("is-hand-tool", state.activeTool === "pan");
+    canvas.dataset.drawingActiveTool = state.activeTool;
     const viewport = state.viewport;
     canvas.innerHTML = `<svg viewBox="${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}" role="img" aria-label="可视化绘图画布"><defs><marker id="drawing-arrow" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="18" markerHeight="18" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="context-stroke"/></marker></defs>${state.objects.map((object) => objectMarkup(object, object.id === state.selectedId, state.objects, Boolean(state.connectionType))).join("")}${preview}</svg>`;
     onViewportChange?.({
@@ -702,11 +817,26 @@ export function createVisualDrawingEditor({
     if (state.frame !== null) return;
     state.frame = requestAnimationFrame(render);
   };
-  const commit = () => {
+  const commit = ({ recordHistory = true } = {}) => {
+    const snapshot = JSON.stringify(state.objects);
+    if (
+      recordHistory &&
+      state.history.current !== null &&
+      state.history.current !== snapshot
+    ) {
+      state.history.undo.push(state.history.current);
+      if (state.history.undo.length > 80) state.history.undo.shift();
+      state.history.redo = [];
+    }
+    state.history.current = snapshot;
     state.documents[state.profile] = structuredClone(state.objects);
     onSourceChange?.(serializeVisualDrawing(state.objects), {
       profile: state.profile,
       objects: structuredClone(state.objects),
+    });
+    onHistoryChange?.({
+      canUndo: state.history.undo.length > 0,
+      canRedo: state.history.redo.length > 0,
     });
   };
   const point = (event) => {
@@ -722,13 +852,18 @@ export function createVisualDrawingEditor({
     const bounds = canvas.getBoundingClientRect();
     return {
       x:
-        ((event.clientX - bounds.left) * VIEW_WIDTH) /
-        Math.max(1, bounds.width),
+        state.viewport.x +
+        ((event.clientX - bounds.left) * state.viewport.width) /
+          Math.max(1, bounds.width),
       y:
-        ((event.clientY - bounds.top) * VIEW_HEIGHT) /
-        Math.max(1, bounds.height),
+        state.viewport.y +
+        ((event.clientY - bounds.top) * state.viewport.height) /
+          Math.max(1, bounds.height),
     };
   };
+
+  const snap = (value) =>
+    state.snapToGrid ? Math.round(Number(value) / 20) * 20 : Number(value);
 
   const setViewport = (next) => {
     const width = clamp(next.width, VIEW_WIDTH / 4, VIEW_WIDTH * 2.5);
@@ -842,10 +977,67 @@ export function createVisualDrawingEditor({
     input.select();
   };
 
+  const finishFreehand = (object) => {
+    const points = Array.isArray(object?.points) ? object.points : [];
+    if (points.length < 2) return false;
+    const absolute = points.map((entry) => ({
+      x: Number(object.x) + Number(entry.x),
+      y: Number(object.y) + Number(entry.y),
+    }));
+    const minX = Math.min(...absolute.map((entry) => entry.x));
+    const maxX = Math.max(...absolute.map((entry) => entry.x));
+    const minY = Math.min(...absolute.map((entry) => entry.y));
+    const maxY = Math.max(...absolute.map((entry) => entry.y));
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    object.x = centerX;
+    object.y = centerY;
+    object.pathWidth = Math.max(1, maxX - minX);
+    object.pathHeight = Math.max(1, maxY - minY);
+    object.width = Math.max(4, object.pathWidth);
+    object.height = Math.max(4, object.pathHeight);
+    object.points = absolute.map((entry) => ({
+      x: pathNumber(entry.x - centerX),
+      y: pathNumber(entry.y - centerY),
+    }));
+    return true;
+  };
+
   canvas.addEventListener("pointerdown", (event) => {
     if (!state.enabled) return;
+    if (event.button !== 0) return;
+    const cursor = point(event);
+    if (state.activeTool === "freehand") {
+      event.preventDefault();
+      const object = createObject("freehand", state.objects.length);
+      Object.assign(object, {
+        profile: state.profile,
+        x: cursor.x,
+        y: cursor.y,
+        width: 4,
+        height: 4,
+        pathWidth: 1,
+        pathHeight: 1,
+        points: [{ x: 0, y: 0 }],
+      });
+      const profileColors = PROFILE_COLORS[state.profile];
+      if (profileColors?.length) {
+        object.color =
+          profileColors[state.objects.length % profileColors.length];
+      }
+      state.objects.push(object);
+      state.selectedId = object.id;
+      state.drag = {
+        kind: "freehand",
+        pointerId: event.pointerId,
+        objectId: object.id,
+      };
+      canvas.setPointerCapture?.(event.pointerId);
+      render();
+      return;
+    }
     const objectNode = event.target.closest("[data-drawing-object]");
-    if (!objectNode) {
+    if (!objectNode || state.activeTool === "pan") {
       state.selectedId = null;
       state.drag = {
         kind: "pan",
@@ -877,7 +1069,6 @@ export function createVisualDrawingEditor({
       openInlineEditor(object, event);
       return;
     }
-    const cursor = point(event);
     const port = event.target.closest("[data-drawing-port]");
     if (port && NODE_TYPES.has(object.type)) {
       state.connectionType ||= "arrow";
@@ -936,6 +1127,15 @@ export function createVisualDrawingEditor({
   });
   canvas.addEventListener("pointermove", (event) => {
     if (!state.drag || state.drag.pointerId !== event.pointerId) return;
+    if (
+      !pointerInsideDrawingViewport(
+        event.clientX,
+        event.clientY,
+        globalThis.innerWidth,
+        globalThis.innerHeight,
+      )
+    )
+      return;
     if (state.drag.kind === "pan") {
       const bounds = canvas.getBoundingClientRect();
       const viewport = state.drag.viewport;
@@ -953,6 +1153,47 @@ export function createVisualDrawingEditor({
       scheduleRender();
       return;
     }
+    if (state.drag.kind === "freehand") {
+      const object = state.objects.find(
+        (candidate) => candidate.id === state.drag.objectId,
+      );
+      if (!object) return;
+      const coalesced = event.getCoalescedEvents?.();
+      const samples =
+        Array.isArray(coalesced) && coalesced.length
+          ? coalesced.filter((sample) =>
+              pointerInsideDrawingViewport(
+                sample.clientX,
+                sample.clientY,
+                globalThis.innerWidth,
+                globalThis.innerHeight,
+              ),
+            )
+          : [event];
+      for (const sample of samples) {
+        const cursor = point(sample);
+        const next = {
+          x: pathNumber(cursor.x - object.x),
+          y: pathNumber(cursor.y - object.y),
+        };
+        const previous = object.points[object.points.length - 1];
+        if (
+          previous &&
+          Math.hypot(next.x - previous.x, next.y - previous.y) < 1.25
+        ) {
+          continue;
+        }
+        object.points.push(next);
+      }
+      const xs = object.points.map((entry) => Number(entry.x));
+      const ys = object.points.map((entry) => Number(entry.y));
+      object.pathWidth = Math.max(1, Math.max(...xs) - Math.min(...xs));
+      object.pathHeight = Math.max(1, Math.max(...ys) - Math.min(...ys));
+      object.width = Math.max(4, object.pathWidth);
+      object.height = Math.max(4, object.pathHeight);
+      scheduleRender();
+      return;
+    }
     const object = selected();
     const cursor = point(event);
     if (state.drag.kind === "connect") {
@@ -961,8 +1202,8 @@ export function createVisualDrawingEditor({
         end: cursor,
       };
     } else if (state.drag.kind === "move") {
-      object.x = state.drag.x + cursor.x - state.drag.start.x;
-      object.y = state.drag.y + cursor.y - state.drag.start.y;
+      object.x = snap(state.drag.x + cursor.x - state.drag.start.x);
+      object.y = snap(state.drag.y + cursor.y - state.drag.start.y);
     } else if (
       state.drag.kind === "scale" ||
       state.drag.kind === "scale-x" ||
@@ -998,15 +1239,13 @@ export function createVisualDrawingEditor({
         ),
       );
       if (state.drag.kind !== "scale-y") {
-        object.width = Math.max(
-          32,
-          state.drag.width * (event.shiftKey ? ratio : ratioX),
+        object.width = snap(
+          Math.max(32, state.drag.width * (event.shiftKey ? ratio : ratioX)),
         );
       }
       if (state.drag.kind !== "scale-x") {
-        object.height = Math.max(
-          24,
-          state.drag.height * (event.shiftKey ? ratio : ratioY),
+        object.height = snap(
+          Math.max(24, state.drag.height * (event.shiftKey ? ratio : ratioY)),
         );
       }
     } else if (state.drag.kind === "rotate") {
@@ -1022,6 +1261,17 @@ export function createVisualDrawingEditor({
   const endDrag = (event) => {
     if (!state.drag) return;
     const draggedKind = state.drag.kind;
+    if (state.drag.kind === "freehand") {
+      const object = state.objects.find(
+        (candidate) => candidate.id === state.drag.objectId,
+      );
+      if (!finishFreehand(object)) {
+        state.objects = state.objects.filter(
+          (candidate) => candidate.id !== state.drag.objectId,
+        );
+        state.selectedId = null;
+      }
+    }
     if (state.drag.kind === "connect") {
       const canHitTest =
         Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY);
@@ -1076,6 +1326,26 @@ export function createVisualDrawingEditor({
     { passive: false },
   );
   canvas.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault();
+      if (event.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      redo();
+      return;
+    }
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === "d" &&
+      selected()
+    ) {
+      event.preventDefault();
+      duplicateSelected();
+      return;
+    }
     if (event.key === "Escape" && state.connectionType) {
       event.preventDefault();
       state.connectionType = null;
@@ -1083,6 +1353,40 @@ export function createVisualDrawingEditor({
       state.connectionPreview = null;
       state.drag = null;
       render();
+      return;
+    }
+    if (event.key === "Escape" && state.activeTool !== "select") {
+      event.preventDefault();
+      state.activeTool = "select";
+      render();
+      return;
+    }
+    if (
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key) &&
+      selected() &&
+      visualTransformCapabilities(selected()).move
+    ) {
+      event.preventDefault();
+      const distance = event.shiftKey ? 10 : 1;
+      const patch = {
+        x:
+          Number(selected().x) +
+          (event.key === "ArrowLeft"
+            ? -distance
+            : event.key === "ArrowRight"
+              ? distance
+              : 0),
+        y:
+          Number(selected().y) +
+          (event.key === "ArrowUp"
+            ? -distance
+            : event.key === "ArrowDown"
+              ? distance
+              : 0),
+      };
+      applyObjectPatch(selected(), patch);
+      render();
+      commit();
       return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && selected()) {
@@ -1109,6 +1413,9 @@ export function createVisualDrawingEditor({
       "rectangle",
       "ellipse",
       "diamond",
+      "triangle",
+      "star",
+      "freehand",
       "axes",
       "plot",
       "label",
@@ -1273,6 +1580,7 @@ export function createVisualDrawingEditor({
       }
     }
     if (typeof patch.visible === "boolean") object.visible = patch.visible;
+    if (typeof patch.locked === "boolean") object.locked = patch.locked;
     if (Array.isArray(patch.fitCoefficients)) {
       object.fitCoefficients = patch.fitCoefficients
         .map(Number)
@@ -1306,6 +1614,57 @@ export function createVisualDrawingEditor({
   const updateSelected = (patch) => {
     const object = selected();
     if (!applyObjectPatch(object, patch)) return false;
+    render();
+    commit();
+    return true;
+  };
+  const updateObject = (objectId, patch) => {
+    const object = state.objects.find((candidate) => candidate.id === objectId);
+    if (!applyObjectPatch(object, patch)) return false;
+    render();
+    commit();
+    return true;
+  };
+  const restoreHistorySnapshot = (snapshot, destination) => {
+    if (!snapshot) return false;
+    destination.push(state.history.current || JSON.stringify(state.objects));
+    state.objects = JSON.parse(snapshot);
+    if (!state.objects.some((object) => object.id === state.selectedId)) {
+      state.selectedId = state.objects[0]?.id || null;
+    }
+    render();
+    commit({ recordHistory: false });
+    return true;
+  };
+  const undo = () =>
+    restoreHistorySnapshot(state.history.undo.pop(), state.history.redo);
+  const redo = () =>
+    restoreHistorySnapshot(state.history.redo.pop(), state.history.undo);
+  const setTool = (tool = "select") => {
+    state.activeTool = ["select", "pan", "freehand"].includes(tool)
+      ? tool
+      : "select";
+    if (state.activeTool !== "select") cancelConnection();
+    else render();
+    return state.activeTool;
+  };
+  const setSnapToGrid = (enabled) => {
+    state.snapToGrid = Boolean(enabled);
+    render();
+    return state.snapToGrid;
+  };
+  const alignSelected = (alignment) => {
+    const object = selected();
+    if (!object || !visualTransformCapabilities(object).move) return false;
+    const patch = {};
+    if (alignment === "left") patch.x = object.width / 2;
+    if (alignment === "center-x") patch.x = VIEW_WIDTH / 2;
+    if (alignment === "right") patch.x = VIEW_WIDTH - object.width / 2;
+    if (alignment === "top") patch.y = object.height / 2;
+    if (alignment === "center-y") patch.y = VIEW_HEIGHT / 2;
+    if (alignment === "bottom") patch.y = VIEW_HEIGHT - object.height / 2;
+    if (!Object.keys(patch).length) return false;
+    applyObjectPatch(object, patch);
     render();
     commit();
     return true;
@@ -1441,6 +1800,10 @@ export function createVisualDrawingEditor({
     commit();
     return true;
   };
+  const moveObjectLayer = (objectId, direction) => {
+    if (!selectObject(objectId)) return false;
+    return moveLayer(direction);
+  };
   const applyPreset = (preset) => {
     const definitions = {
       process: [
@@ -1492,8 +1855,13 @@ export function createVisualDrawingEditor({
       state.documents[nextProfile] || createProfileDocument(nextProfile),
     );
     state.selectedId = state.objects[0]?.id || null;
+    state.history = { undo: [], redo: [], current: null };
     render();
-    if (shouldCommit) commit();
+    if (shouldCommit) commit({ recordHistory: false });
+    else {
+      state.history.current = JSON.stringify(state.objects);
+      onHistoryChange?.({ canUndo: false, canRedo: false });
+    }
     return nextProfile;
   };
   const replaceDocument = (
@@ -1516,8 +1884,13 @@ export function createVisualDrawingEditor({
     }));
     state.documents[nextProfile] = structuredClone(state.objects);
     state.selectedId = state.objects[0]?.id || null;
+    state.history = { undo: [], redo: [], current: null };
     render();
-    if (shouldCommit) commit();
+    if (shouldCommit) commit({ recordHistory: false });
+    else {
+      state.history.current = JSON.stringify(state.objects);
+      onHistoryChange?.({ canUndo: false, canRedo: false });
+    }
     return true;
   };
   const applyProfileTemplate = (profile, template, options = {}) => {
@@ -1541,10 +1914,13 @@ export function createVisualDrawingEditor({
     add,
     beginConnection,
     cancelConnection,
+    setTool,
+    setSnapToGrid,
     connectSelectedTo,
     connectNodes,
     deleteObject,
     selectObject,
+    updateObject,
     addFormula,
     addGraphNode,
     addMindMapChild,
@@ -1557,9 +1933,13 @@ export function createVisualDrawingEditor({
     selected,
     updateSelected,
     updateProfileObject,
+    alignSelected,
     deleteSelected,
     duplicateSelected,
     moveLayer,
+    moveObjectLayer,
+    undo,
+    redo,
     applyPreset,
     setProfile,
     replaceDocument,

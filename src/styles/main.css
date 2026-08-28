@@ -3502,7 +3502,7 @@ body {
 
 .drawing-canvas-navigation {
   display: grid;
-  grid-template-columns: auto auto minmax(180px, 1fr);
+  grid-template-columns: auto auto auto auto minmax(180px, 1fr);
   align-items: center;
   gap: 0.55rem;
   padding: 0.42rem 0.5rem;
@@ -3511,13 +3511,9 @@ body {
   background: color-mix(in srgb, var(--card-bg) 94%, var(--accent));
 }
 
-.drawing-canvas-navigation > span {
-  color: var(--text);
-  font-size: 0.66rem;
-  font-weight: 750;
-}
-
-.drawing-canvas-navigation > div {
+.drawing-canvas-tool-group,
+.drawing-canvas-history-group,
+.drawing-canvas-zoom-group {
   display: flex;
   overflow: hidden;
   width: fit-content;
@@ -3546,6 +3542,23 @@ body {
 .drawing-canvas-navigation button:focus-visible {
   background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
   color: var(--accent);
+}
+
+.drawing-canvas-navigation button.active,
+.drawing-canvas-navigation button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--card-bg));
+  color: var(--accent);
+}
+
+.drawing-canvas-navigation button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.drawing-canvas-view-options {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .drawing-canvas-navigation output {
@@ -3595,6 +3608,16 @@ body {
   cursor: grabbing;
 }
 
+.drawing-visual-canvas.is-hand-tool,
+.drawing-visual-canvas.is-hand-tool .drawing-visual-object {
+  cursor: grab;
+}
+
+.drawing-visual-canvas.is-drawing-freehand,
+.drawing-visual-canvas.is-drawing-freehand .drawing-visual-object {
+  cursor: crosshair;
+}
+
 .drawing-inline-text-editor {
   position: absolute;
   z-index: 4;
@@ -3616,6 +3639,10 @@ body {
 
 .drawing-visual-object:active {
   cursor: grabbing;
+}
+
+.drawing-visual-object.is-locked {
+  cursor: not-allowed;
 }
 
 .drawing-selection-frame,
@@ -3733,6 +3760,134 @@ body {
   width: 100%;
   height: auto;
   max-height: 420px;
+}
+
+.drawing-object-manager {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.68rem;
+  border: 1px solid var(--border-color);
+  border-radius: 11px;
+  background: var(--card-bg);
+}
+
+.drawing-object-manager[hidden] {
+  display: none;
+}
+
+.drawing-object-manager-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.drawing-object-manager-heading > div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.drawing-object-manager-heading strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.drawing-object-manager-heading span {
+  color: var(--muted);
+  font-size: 0.56rem;
+}
+
+.drawing-object-manager-list {
+  display: grid;
+  max-height: 250px;
+  gap: 0.3rem;
+  overflow: auto;
+}
+
+.drawing-object-manager-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.32rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--input-bg, var(--card-bg));
+}
+
+.drawing-object-manager-row.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--card-bg));
+}
+
+.drawing-object-manager-row.is-hidden .drawing-object-manager-select,
+.drawing-object-manager-row.is-locked .drawing-object-manager-select {
+  opacity: 0.62;
+}
+
+.drawing-object-manager-select {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+  padding: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawing-object-manager-select strong,
+.drawing-object-manager-select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawing-object-manager-select strong {
+  font-size: 0.61rem;
+}
+
+.drawing-object-manager-select span,
+.drawing-object-manager-empty {
+  color: var(--muted);
+  font-size: 0.54rem;
+}
+
+.drawing-object-manager-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(44px, 1fr));
+  gap: 0.2rem;
+}
+
+.drawing-object-manager-actions button,
+.drawing-align-actions button {
+  min-height: 27px;
+  padding: 0.2rem 0.38rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.54rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.drawing-object-manager-actions button:hover,
+.drawing-align-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.drawing-object-manager-actions button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color));
+  color: var(--accent);
+}
+
+.drawing-object-manager-empty {
+  margin: 0;
+  padding: 0.55rem;
+  text-align: center;
 }
 
 .drawing-inspector {
@@ -4052,6 +4207,12 @@ body {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.3rem;
+}
+
+.drawing-align-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.28rem;
 }
 
 .drawing-inspector-actions button {

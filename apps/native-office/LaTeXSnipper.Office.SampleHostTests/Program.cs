@@ -347,13 +347,13 @@ namespace LaTeXSnipper.Office.SampleHostTests
             string formulaId = Guid.NewGuid().ToString("N");
             string svg = CreateFixtureSvg(specification.Kind);
             string stateJson = specification.Kind == "drawing"
-                ? "{\"schemaVersion\":1,\"kind\":\"drawing\",\"language\":\"mermaid\",\"packageProfiles\":[\"mermaid\"],\"source\":\"flowchart LR\\nCapture-->Verify-->Office\"}"
+                ? "{\"schemaVersion\":1,\"kind\":\"drawing\",\"language\":\"tikz\",\"packageProfiles\":[],\"source\":\"\\\\node {中文 TikZ：输入 → 处理 → Office};\"}"
                 : "{\"schemaVersion\":1,\"kind\":\"customSymbol\",\"bundle\":{\"schemaVersion\":1,\"symbol\":{\"name\":\"Vector Star\",\"composition\":{\"layers\":[{\"id\":\"star\",\"kind\":\"shape\",\"shape\":\"star\",\"x\":40,\"y\":48,\"width\":58,\"height\":58,\"color\":\"#2563EB\"},{\"id\":\"arrow\",\"kind\":\"shape\",\"shape\":\"arrow\",\"x\":120,\"y\":48,\"width\":104,\"height\":28,\"color\":\"#7C3AED\"}]}}}}";
             using JsonDocument document = JsonDocument.Parse(stateJson);
             return new FormulaPayload
             {
                 FormulaId = formulaId,
-                Latex = specification.Kind == "drawing" ? "drawing:mermaid" : "custom-symbol:vector-star",
+                Latex = specification.Kind == "drawing" ? "drawing:tikz-cjk" : "custom-symbol:vector-star",
                 Display = "block",
                 StorageMode = specification.StorageMode,
                 ContentKind = specification.Kind,
@@ -398,7 +398,8 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     "<path d=\"M260 25L350 95L260 165L170 95Z\" fill=\"#faf5ff\" stroke=\"#7c3aed\" stroke-width=\"6\"/>" +
                     "<rect x=\"360\" y=\"55\" width=\"140\" height=\"80\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"6\"/>" +
                     "<path d=\"M160 90H174V80L188 95L174 110V100H160ZM350 90H364V80L378 95L364 110V100H350Z\" fill=\"#2563eb\"/>" +
-                    "<circle cx=\"90\" cy=\"95\" r=\"17\" fill=\"#2563eb\"/><circle cx=\"260\" cy=\"95\" r=\"17\" fill=\"#7c3aed\"/><circle cx=\"430\" cy=\"95\" r=\"17\" fill=\"#059669\"/></svg>";
+                    "<circle cx=\"90\" cy=\"95\" r=\"17\" fill=\"#2563eb\"/><circle cx=\"260\" cy=\"95\" r=\"17\" fill=\"#7c3aed\"/><circle cx=\"430\" cy=\"95\" r=\"17\" fill=\"#059669\"/>" +
+                    "<text x=\"260\" y=\"28\" text-anchor=\"middle\" font-family=\"Microsoft YaHei,Segoe UI,sans-serif\" font-size=\"20\" fill=\"#172033\">中文 TikZ：输入 → 处理 → Office</text></svg>";
             }
             return "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 460 190\">" +
                 "<path d=\"M95 18L114 69L168 71L126 105L141 157L95 127L49 157L64 105L22 71L76 69Z\" fill=\"#2563eb\"/>" +
@@ -423,9 +424,12 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 graphics.DrawRectangle(outline, new Rectangle(30, 80, 210, 120));
                 graphics.DrawLine(violet, 250, 140, 500, 140);
                 graphics.DrawRectangle(outline, new Rectangle(520, 80, 220, 120));
-                using var font = new Font("Segoe UI", 25f, FontStyle.Bold);
+                using var font = new Font("Microsoft YaHei", 25f, FontStyle.Bold);
+                using var titleFont = new Font("Microsoft YaHei", 20f, FontStyle.Bold);
                 using var ink = new SolidBrush(Color.FromArgb(23, 32, 51));
-                graphics.DrawString("Capture", font, ink, 70, 120);
+                graphics.DrawString("中文 TikZ：输入 → 处理 → Office", titleFont, ink, 180, 24);
+                graphics.DrawString("输入", font, ink, 94, 120);
+                graphics.DrawString("处理", font, ink, 364, 120);
                 graphics.DrawString("Office", font, ink, 575, 120);
             }
             else

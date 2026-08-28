@@ -489,10 +489,7 @@ test("Native Word numbering owns a fixed three-column table and is transactional
   assert.match(source, /PrepareNumberedOleInsertionRange\(doc, range\)/);
   assert.match(source, /doc\.Tables\.Add\(insertionRange, 1, 3\)/);
   assert.match(source, /layoutTable\.Cell\(1, 3\)\.Range\.Duplicate/);
-  assert.match(
-    source,
-    /var ownedRange = layoutTable\.Range\.Duplicate/,
-  );
+  assert.match(source, /var ownedRange = layoutTable\.Range\.Duplicate/);
   assert.match(source, /cc\.Delete\(false\)/);
   assert.match(source, /hide-numbered-ole-content-control/);
   assert.match(source, /recover-numbered-ole-content-control/);

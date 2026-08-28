@@ -1,3 +1,6 @@
+import { parseVisualDocument } from "./source-adapters.js";
+import { serializeVisualDrawing } from "./visual-editor.js";
+
 const MAX_SOURCE_BYTES = 256 * 1024;
 const RENDER_TIMEOUT_MS = 35_000;
 
@@ -83,16 +86,32 @@ export function normalizeBundledSvg(svg, renderer = "绘图") {
     .replace(/http:\/\/www\.w3\.org\/1999\/xhtml/gi, "");
 }
 
-function normalizeTikzSource(source) {
+function normalizeTikzSource(source, packageProfiles = []) {
   const text = assertSafeSource(source);
   if (/[^\u0000-\u007f]/.test(text)) {
+    const profile = packageProfiles.includes("pgf_plots")
+      ? "pgf_plots"
+      : "tikz";
+    const visual = parseVisualDocument(profile, text);
+    if (visual.ok && visual.lossless && visual.origin === "contract") {
+      return {
+        source: text,
+        visualSvg: normalizeBundledSvg(
+          serializeVisualDrawing(visual.objects),
+          "TikZ 中文画板",
+        ),
+      };
+    }
     throw new Error(
-      "内置 TikZ/PGFPlots 运行时不包含 CJK/Unicode 数学字体；请将中文图例或节点改为 ASCII，并用 \\alpha、\\angle 等 LaTeX 命令输入数学符号",
+      "内置 TeX 字体不能直接编译未结构化的 CJK 源码；请在“可视化结构编辑”中加入中文标签，应用会从同一份 TikZ 源码契约生成一致的离线 SVG",
     );
   }
-  return /\\begin\s*\{tikzpicture\}/.test(text)
-    ? text
-    : `\\begin{tikzpicture}\n${text}\n\\end{tikzpicture}`;
+  return {
+    source: /\\begin\s*\{tikzpicture\}/.test(text)
+      ? text
+      : `\\begin{tikzpicture}\n${text}\n\\end{tikzpicture}`,
+    visualSvg: null,
+  };
 }
 
 async function loadTikzRuntime() {
@@ -145,7 +164,8 @@ async function loadTikzRuntime() {
 
 export async function renderTikz(source, { packageProfiles = [], host } = {}) {
   if (!host) throw new Error("TikZ 预览容器不可用");
-  const normalizedSource = normalizeTikzSource(source);
+  const normalized = normalizeTikzSource(source, packageProfiles);
+  if (normalized.visualSvg) return normalized.visualSvg;
   await loadTikzRuntime();
   const script = document.createElement("script");
   script.type = "text/tikz";
@@ -159,7 +179,7 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
     script.dataset.texPackages = JSON.stringify({ pgfplots: "" });
     script.dataset.addToPreamble = "\\pgfplotsset{compat=1.18}";
   }
-  script.textContent = normalizedSource;
+  script.textContent = normalized.source;
 
   const rendered = new Promise((resolve, reject) => {
     const observer = new MutationObserver(() => {

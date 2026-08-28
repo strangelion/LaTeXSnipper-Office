@@ -925,6 +925,9 @@
                 role="toolbar"
                 aria-label="高级绘图工具"
               >
+                <button type="button" data-drawing-tool="freehand">
+                  自由画笔
+                </button>
                 <button type="button" data-drawing-tool="line">线段</button>
                 <button type="button" data-drawing-tool="arrow">箭头</button>
                 <button type="button" data-drawing-tool="connector">
@@ -936,6 +939,10 @@
                 </button>
                 <button type="button" data-drawing-tool="ellipse">椭圆</button>
                 <button type="button" data-drawing-tool="diamond">菱形</button>
+                <button type="button" data-drawing-tool="triangle">
+                  三角形
+                </button>
+                <button type="button" data-drawing-tool="star">星形</button>
                 <button type="button" data-drawing-tool="axes">坐标轴</button>
                 <button type="button" data-drawing-tool="plot">函数图</button>
                 <button type="button" data-drawing-tool="label">标签</button>
@@ -998,10 +1005,80 @@
                     >
                       交换图
                     </button>
+                    <button
+                      type="button"
+                      data-drawing-profile-template="chinese"
+                    >
+                      中文流程
+                    </button>
                   </div>
                   <div class="drawing-task-builder drawing-task-builder-wide">
+                    <label for="drawingTikzChineseText">
+                      中文标签
+                      <input
+                        id="drawingTikzChineseText"
+                        type="text"
+                        value="中文标注"
+                        maxlength="80"
+                        placeholder="输入节点、说明或图题"
+                      />
+                    </label>
+                    <label>
+                      标签类型
+                      <div
+                        id="drawingTikzChineseType"
+                        class="custom-select drawing-control-select wide"
+                      >
+                        <div
+                          class="custom-select-trigger"
+                          data-value="label"
+                          tabindex="0"
+                        >
+                          <span>纯文本</span>
+                        </div>
+                        <div class="custom-select-dropdown">
+                          <div
+                            class="custom-select-option selected"
+                            data-value="label"
+                          >
+                            纯文本
+                          </div>
+                          <div class="custom-select-option" data-value="node">
+                            圆角节点
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="rectangle"
+                          >
+                            矩形节点
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="ellipse"
+                          >
+                            椭圆节点
+                          </div>
+                          <div
+                            class="custom-select-option"
+                            data-value="diamond"
+                          >
+                            判断节点
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                    <button id="drawingTikzChineseAdd" type="button">
+                      加入中文标签
+                    </button>
+                  </div>
+                  <p id="drawingTikzChineseStatus" class="drawing-task-status">
+                    中文内容会保留在原生 TikZ
+                    源码契约中，并从同一对象模型生成离线 SVG，确保画板、预览和
+                    Office 插入一致。
+                  </p>
+                  <div class="drawing-task-builder drawing-task-builder-wide">
                     <label for="drawingTikzLatex">
-                      数学标注
+                      LaTeX 公式标注
                       <input
                         id="drawingTikzLatex"
                         type="text"
@@ -1885,8 +1962,51 @@ x,y
                   class="drawing-canvas-navigation"
                   aria-label="画布观察工具"
                 >
-                  <span>观察画布</span>
-                  <div role="group" aria-label="画布缩放">
+                  <div
+                    class="drawing-canvas-tool-group"
+                    role="group"
+                    aria-label="画板工具"
+                  >
+                    <button
+                      type="button"
+                      class="active"
+                      data-drawing-canvas-tool="select"
+                      aria-pressed="true"
+                    >
+                      选择
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-canvas-tool="pan"
+                      aria-pressed="false"
+                    >
+                      抓手
+                    </button>
+                    <button
+                      type="button"
+                      data-drawing-canvas-tool="freehand"
+                      aria-pressed="false"
+                    >
+                      画笔
+                    </button>
+                  </div>
+                  <div
+                    class="drawing-canvas-history-group"
+                    role="group"
+                    aria-label="编辑历史"
+                  >
+                    <button id="drawingCanvasUndo" type="button" disabled>
+                      撤销
+                    </button>
+                    <button id="drawingCanvasRedo" type="button" disabled>
+                      重做
+                    </button>
+                  </div>
+                  <div
+                    class="drawing-canvas-zoom-group"
+                    role="group"
+                    aria-label="画布缩放"
+                  >
                     <button
                       id="drawingCanvasZoomOut"
                       type="button"
@@ -1912,9 +2032,23 @@ x,y
                       适应内容
                     </button>
                   </div>
+                  <div class="drawing-canvas-view-options">
+                    <label class="control-switch compact">
+                      <input
+                        id="drawingCanvasGridToggle"
+                        type="checkbox"
+                        checked
+                      />
+                      <span>网格</span>
+                    </label>
+                    <label class="control-switch compact">
+                      <input id="drawingCanvasSnapToggle" type="checkbox" />
+                      <span>吸附</span>
+                    </label>
+                  </div>
                   <small
-                    >拖动空白处平移 · 滚轮缩放 ·
-                    双击节点或连线文字快速编辑</small
+                    >滚轮缩放，双击文字快速编辑；方向键微移，Shift + 方向键移动
+                    10 像素，Ctrl + Z 撤销。</small
                   >
                 </div>
                 <div
@@ -2011,6 +2145,23 @@ x,y
                 />
                 <output id="drawingZoomValue">100%</output>
               </label>
+              <section
+                id="drawingObjectManagerSection"
+                class="drawing-object-manager"
+                aria-labelledby="drawingObjectManagerHeading"
+              >
+                <div class="drawing-object-manager-heading">
+                  <div>
+                    <strong id="drawingObjectManagerHeading">对象与图层</strong>
+                    <span>顶层对象显示在最上方</span>
+                  </div>
+                  <span>选择、显隐、锁定、重排</span>
+                </div>
+                <div
+                  id="drawingObjectManagerList"
+                  class="drawing-object-manager-list"
+                ></div>
+              </section>
               <section
                 class="drawing-inspector"
                 aria-labelledby="drawingInspectorHeading"
@@ -2403,6 +2554,34 @@ x,y
                       id="drawingInspectorRelationCreate"
                       class="drawing-relation-create-list"
                     ></div>
+                  </section>
+                  <section class="drawing-inspector-section">
+                    <div class="drawing-inspector-section-title">
+                      <strong>画板对齐</strong
+                      ><span>相对 800 × 520 工作区</span>
+                    </div>
+                    <div
+                      class="drawing-align-actions"
+                      role="group"
+                      aria-label="画板对齐"
+                    >
+                      <button type="button" data-drawing-align="left">
+                        左
+                      </button>
+                      <button type="button" data-drawing-align="center-x">
+                        水平居中
+                      </button>
+                      <button type="button" data-drawing-align="right">
+                        右
+                      </button>
+                      <button type="button" data-drawing-align="top">上</button>
+                      <button type="button" data-drawing-align="center-y">
+                        垂直居中
+                      </button>
+                      <button type="button" data-drawing-align="bottom">
+                        下
+                      </button>
+                    </div>
                   </section>
                   <div class="drawing-color-row">
                     <span

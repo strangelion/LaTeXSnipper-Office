@@ -48,6 +48,10 @@ const TOOL_SNIPPETS = Object.freeze({
     graphviz_dot: 'A -> B [label="关系"];',
     mermaid: "A -->|关系| B",
   },
+  freehand: {
+    svg_source:
+      '<path d="M40 120 C90 35 170 185 280 80" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>',
+  },
   node: {
     svg_source:
       '<rect x="60" y="50" width="160" height="80" rx="16" fill="none" stroke="currentColor" stroke-width="4"/>',
@@ -71,6 +75,14 @@ const TOOL_SNIPPETS = Object.freeze({
     tikz: "\\node[draw, diamond, aspect=2] {Decision};",
     mermaid: "A{判断}",
   },
+  triangle: {
+    svg_source:
+      '<polygon points="160,30 285,165 35,165" fill="none" stroke="currentColor" stroke-width="4"/>',
+  },
+  star: {
+    svg_source:
+      '<polygon points="160,25 190,105 278,108 208,160 230,245 160,196 90,245 112,160 42,108 130,105" fill="none" stroke="currentColor" stroke-width="4"/>',
+  },
   axes: {
     tikz: "\\draw[->] (-3,0) -- (3,0) node[right] {$x$};\n\\draw[->] (0,-2) -- (0,2) node[above] {$y$};",
     svg_source:
@@ -91,6 +103,7 @@ const TOOL_SNIPPETS = Object.freeze({
 
 const VISUAL_TOOLSETS = Object.freeze({
   svg_source: {
+    freehand: "自由画笔",
     line: "线段",
     arrow: "箭头",
     connector: "连接线",
@@ -98,6 +111,8 @@ const VISUAL_TOOLSETS = Object.freeze({
     rectangle: "矩形",
     ellipse: "椭圆",
     diamond: "菱形",
+    triangle: "三角形",
+    star: "星形",
     axes: "坐标轴",
     plot: "函数图",
     label: "标签",
@@ -157,7 +172,7 @@ const VISUAL_PROFILE_NAMES = Object.freeze({
 const VISUAL_PROFILE_GUIDANCE = Object.freeze({
   svg_source:
     "路径与图层编辑 · 拖动、独立宽高、连续旋转均直接写入 SVG transform",
-  tikz: "数学构图 · 几何对象与 LaTeX 标注直接写入 TikZ；安全预览是实际编译效果",
+  tikz: "数学构图 · 几何对象与 LaTeX 标注直接写入 TikZ；ASCII 由内置 TeX 编译，中文由同一源码契约离线生成一致 SVG",
   pgf_plots:
     "函数与数据工作台 · 曲线、采样点和坐标设置直接生成 axis / addplot 源码",
   graphviz_dot:
@@ -815,20 +830,117 @@ export function createDrawingWorkspaceController({
   let visualEditor = null;
   let quickConnectionType = "arrow";
   let appendNextFit = false;
+  const objectTypeNames = Object.freeze({
+    line: "线段",
+    arrow: "箭头",
+    connector: "连接线",
+    freehand: "自由路径",
+    node: "节点",
+    rectangle: "矩形",
+    ellipse: "椭圆",
+    diamond: "判断节点",
+    triangle: "三角形",
+    star: "星形",
+    axes: "坐标轴",
+    plot: "函数曲线",
+    label: "文本标注",
+    formula: "LaTeX 数学标注",
+  });
+  const objectDisplayName = (object, index = 0) =>
+    String(object?.text || "").trim() ||
+    `${objectTypeNames[object?.type] || "对象"} ${index + 1}`;
   const syncInspector = (object, context = {}) => {
+    const contextObjects = context.objects || [];
+    const managerVisible = ["svg_source", "tikz"].includes(context.profile);
+    if (elements.objectManagerSection)
+      elements.objectManagerSection.hidden = !managerVisible;
+    if (managerVisible && elements.objectManagerList) {
+      elements.objectManagerList.replaceChildren();
+      if (!contextObjects.length) {
+        const empty = document.createElement("p");
+        empty.className = "drawing-object-manager-empty";
+        empty.textContent = "画板为空。可从上方工具栏添加图形或自由绘制。";
+        elements.objectManagerList.appendChild(empty);
+      }
+      [...contextObjects].reverse().forEach((candidate) => {
+        const originalIndex = contextObjects.findIndex(
+          (entry) => entry.id === candidate.id,
+        );
+        const row = document.createElement("div");
+        row.className = "drawing-object-manager-row";
+        row.classList.toggle("is-selected", candidate.id === object?.id);
+        row.classList.toggle("is-hidden", candidate.visible === false);
+        row.classList.toggle("is-locked", candidate.locked === true);
+        const select = document.createElement("button");
+        select.type = "button";
+        select.className = "drawing-object-manager-select";
+        const title = document.createElement("strong");
+        title.textContent = objectDisplayName(candidate, originalIndex);
+        const detail = document.createElement("span");
+        detail.textContent = `${objectTypeNames[candidate.type] || candidate.type} · 第 ${originalIndex + 1} 层`;
+        select.append(title, detail);
+        select.addEventListener("click", () =>
+          visualEditor?.selectObject(candidate.id),
+        );
+        const actions = document.createElement("div");
+        actions.className = "drawing-object-manager-actions";
+        const action = (label, titleText, handler, pressed = null) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = label;
+          button.title = titleText;
+          if (pressed !== null)
+            button.setAttribute("aria-pressed", String(Boolean(pressed)));
+          button.addEventListener("click", handler);
+          actions.appendChild(button);
+        };
+        action(
+          candidate.visible === false ? "显示" : "隐藏",
+          candidate.visible === false ? "显示对象" : "隐藏对象",
+          () =>
+            visualEditor?.updateObject(candidate.id, {
+              visible: candidate.visible === false,
+            }),
+          candidate.visible !== false,
+        );
+        action(
+          candidate.locked ? "解锁" : "锁定",
+          candidate.locked ? "允许编辑对象" : "锁定对象位置和尺寸",
+          () =>
+            visualEditor?.updateObject(candidate.id, {
+              locked: !candidate.locked,
+            }),
+          candidate.locked === true,
+        );
+        action("上移", "向前移动一层", () =>
+          visualEditor?.moveObjectLayer(candidate.id, "forward"),
+        );
+        action("下移", "向后移动一层", () =>
+          visualEditor?.moveObjectLayer(candidate.id, "back"),
+        );
+        row.append(select, actions);
+        elements.objectManagerList.appendChild(row);
+      });
+    }
     if (elements.inspectorEmpty)
       elements.inspectorEmpty.hidden = Boolean(object);
     if (elements.inspectorControls) elements.inspectorControls.hidden = !object;
     if (!object) return;
     const capabilities = visualTransformCapabilities(object);
-    const isNode = ["node", "rectangle", "ellipse", "diamond"].includes(
-      object.type,
-    );
+    const isNode = [
+      "node",
+      "rectangle",
+      "ellipse",
+      "diamond",
+      "triangle",
+      "star",
+    ].includes(object.type);
     const isEdge = ["line", "arrow", "connector"].includes(object.type);
     const hasText = isNode || isEdge || object.type === "label";
-    const contextObjects = context.objects || [];
     const contextNodes = contextObjects.filter((candidate) =>
-      ["node", "rectangle", "ellipse", "diamond"].includes(candidate.type),
+      ["node", "rectangle", "ellipse", "diamond", "triangle", "star"].includes(
+        candidate.type,
+      ),
     );
     const mermaidUsesSpecialLayout =
       context.profile === "mermaid" &&
@@ -847,21 +959,8 @@ export function createDrawingWorkspaceController({
     const supportsPerObjectStyle = !mermaidUsesSpecialLayout;
     const supportsFill = isNode && supportsPerObjectStyle;
     if (elements.inspectorType) {
-      const objectNames = {
-        line: "线段",
-        arrow: "箭头",
-        connector: "连接线",
-        node: "节点",
-        rectangle: "矩形",
-        ellipse: "椭圆",
-        diamond: "判断节点",
-        axes: "坐标轴",
-        plot: "函数曲线",
-        label: "文本标注",
-        formula: "LaTeX 数学标注",
-      };
       elements.inspectorType.textContent =
-        objectNames[object.type] || object.type || "对象";
+        objectTypeNames[object.type] || object.type || "对象";
     }
     for (const [element, value] of [
       [elements.inspectorX, object.x],
@@ -1285,7 +1384,54 @@ export function createDrawingWorkspaceController({
           elements.canvasZoomValue.textContent = `${viewport.zoom}%`;
         }
       },
+      onHistoryChange: ({ canUndo, canRedo }) => {
+        if (elements.canvasUndo) elements.canvasUndo.disabled = !canUndo;
+        if (elements.canvasRedo) elements.canvasRedo.disabled = !canRedo;
+      },
     });
+    const setCanvasTool = (tool) => {
+      const active = visualEditor.setTool(tool);
+      for (const button of elements.canvasToolButtons || []) {
+        const selected = button.dataset.drawingCanvasTool === active;
+        button.classList.toggle("active", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      }
+      status(
+        active === "freehand"
+          ? "自由画笔已开启：按住并拖动绘制连续路径，Esc 返回选择工具"
+          : active === "pan"
+            ? "抓手工具已开启：拖动画板调整观察位置"
+            : "选择工具已开启：可选择、移动、缩放和编辑对象",
+      );
+    };
+    for (const button of elements.canvasToolButtons || []) {
+      button.addEventListener("click", () =>
+        setCanvasTool(button.dataset.drawingCanvasTool),
+      );
+    }
+    elements.canvasUndo?.addEventListener("click", () => visualEditor.undo());
+    elements.canvasRedo?.addEventListener("click", () => visualEditor.redo());
+    elements.canvasGridToggle?.addEventListener("change", () => {
+      elements.visualCanvas.classList.toggle(
+        "show-grid",
+        elements.canvasGridToggle.checked,
+      );
+    });
+    elements.canvasSnapToggle?.addEventListener("change", () => {
+      visualEditor.setSnapToGrid(elements.canvasSnapToggle.checked);
+      status(
+        elements.canvasSnapToggle.checked
+          ? "已开启 20 像素网格吸附"
+          : "已关闭网格吸附",
+      );
+    });
+    for (const button of elements.alignButtons || []) {
+      button.addEventListener("click", () => {
+        if (visualEditor.alignSelected(button.dataset.drawingAlign)) {
+          status("对象已相对画板对齐，原生源码同步更新");
+        }
+      });
+    }
     elements.canvasZoomOut?.addEventListener("click", () =>
       visualEditor.zoomOut(),
     );
@@ -1298,6 +1444,7 @@ export function createDrawingWorkspaceController({
     elements.canvasFit?.addEventListener("click", () =>
       visualEditor.fitViewport(),
     );
+    setCanvasTool("select");
   }
 
   const insert = async () => {
@@ -1901,6 +2048,32 @@ export function createDrawingWorkspaceController({
     elements.visualCanvas?.focus?.();
     status("Mermaid 关系模式已开启：拖动两个端口建立带语义标签的关系");
   });
+  elements.tikzChineseAdd?.addEventListener("click", () => {
+    const text = String(elements.tikzChineseText?.value || "").trim();
+    if (!text) {
+      if (elements.tikzChineseStatus)
+        elements.tikzChineseStatus.textContent = "请先输入中文标签";
+      return;
+    }
+    setEditorMode("visual");
+    const requested = controlValue(elements.tikzChineseType, "label");
+    const type = ["label", "node", "rectangle", "ellipse", "diamond"].includes(
+      requested,
+    )
+      ? requested
+      : "label";
+    visualEditor?.add(type, {
+      text,
+      fontFamily: "Microsoft YaHei",
+      fontSize: type === "label" ? 34 : 28,
+      textColor: "#172033",
+      fill: "#F8FAFC",
+    });
+    if (elements.tikzChineseStatus)
+      elements.tikzChineseStatus.textContent =
+        "中文标签已写入 TikZ 源码契约；预览和 Office 插入由同一对象模型离线生成";
+    status("TikZ 中文标签已加入画布并同步原生源码");
+  });
   elements.tikzLatexAdd?.addEventListener("click", async () => {
     const latex = String(elements.tikzLatex?.value || "").trim();
     if (!latex) {
@@ -2036,10 +2209,30 @@ export function createDrawingWorkspaceController({
     tool.addEventListener("click", () => {
       if (state.editorMode === "visual" && visualEditor) {
         const type = tool.dataset.drawingTool;
-        if (["arrow", "connector"].includes(type)) {
+        if (type === "freehand") {
+          visualEditor.setTool("freehand");
+          for (const button of elements.canvasToolButtons || []) {
+            const active = button.dataset.drawingCanvasTool === "freehand";
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+          }
+          status("自由画笔已开启：按住并拖动即可绘制平滑矢量路径");
+        } else if (["arrow", "connector"].includes(type)) {
+          visualEditor.setTool("select");
+          for (const button of elements.canvasToolButtons || []) {
+            const active = button.dataset.drawingCanvasTool === "select";
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+          }
           visualEditor.beginConnection(type);
           status("连接模式已开启：从起点端口拖到目标节点即可建立关系");
         } else {
+          visualEditor.setTool("select");
+          for (const button of elements.canvasToolButtons || []) {
+            const active = button.dataset.drawingCanvasTool === "select";
+            button.classList.toggle("active", active);
+            button.setAttribute("aria-pressed", String(active));
+          }
           visualEditor.add(type);
           status("对象已添加；可直接拖动、缩放或旋转");
         }
@@ -2158,6 +2351,12 @@ export function drawingWorkspaceElements(root = document) {
     canvasReset: root.getElementById("drawingCanvasReset"),
     canvasFit: root.getElementById("drawingCanvasFit"),
     canvasZoomValue: root.getElementById("drawingCanvasZoomValue"),
+    canvasUndo: root.getElementById("drawingCanvasUndo"),
+    canvasRedo: root.getElementById("drawingCanvasRedo"),
+    canvasGridToggle: root.getElementById("drawingCanvasGridToggle"),
+    canvasSnapToggle: root.getElementById("drawingCanvasSnapToggle"),
+    canvasToolButtons: [...root.querySelectorAll("[data-drawing-canvas-tool]")],
+    alignButtons: [...root.querySelectorAll("[data-drawing-align]")],
     editorModeHint: root.getElementById("drawingEditorModeHint"),
     compileButton: root.getElementById("drawingCompileBtn"),
     insertButton: root.getElementById("drawingInsertBtn"),
@@ -2265,6 +2464,12 @@ export function drawingWorkspaceElements(root = document) {
     inspectorForward: root.getElementById("drawingInspectorForward"),
     inspectorBack: root.getElementById("drawingInspectorBack"),
     inspectorDelete: root.getElementById("drawingInspectorDelete"),
+    objectManagerSection: root.getElementById("drawingObjectManagerSection"),
+    objectManagerList: root.getElementById("drawingObjectManagerList"),
+    tikzChineseText: root.getElementById("drawingTikzChineseText"),
+    tikzChineseType: root.getElementById("drawingTikzChineseType"),
+    tikzChineseAdd: root.getElementById("drawingTikzChineseAdd"),
+    tikzChineseStatus: root.getElementById("drawingTikzChineseStatus"),
     tikzLatex: root.getElementById("drawingTikzLatex"),
     tikzLatexAdd: root.getElementById("drawingTikzLatexAdd"),
     tikzLatexStatus: root.getElementById("drawingTikzLatexStatus"),

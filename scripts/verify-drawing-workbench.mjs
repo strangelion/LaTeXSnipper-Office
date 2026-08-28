@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
+import { join } from "node:path";
+
+const evidenceIndex = process.argv.indexOf("--evidence");
+const evidenceDir =
+  evidenceIndex >= 0 ? process.argv[evidenceIndex + 1]?.trim() : "";
+if (evidenceDir) mkdirSync(evidenceDir, { recursive: true });
+const evidencePath = (environmentName, filename) =>
+  process.env[environmentName] ||
+  (evidenceDir ? join(evidenceDir, filename) : "");
 
 const require = createRequire(import.meta.url);
 const playwrightRoot =
@@ -42,13 +52,93 @@ try {
   });
 
   await page.locator("#drawingModeTab").click();
+  await page.locator('[data-drawing-language="svg_source"]').first().click();
+  await page.locator("#drawingVisualModeBtn").click();
+  const svgAutoPreview = page.locator("#drawingAutoPreview");
+  if (await svgAutoPreview.isChecked()) await svgAutoPreview.setChecked(false);
+  const svgObjectCountBefore = await page
+    .locator("#drawingVisualCanvas [data-drawing-object]")
+    .count();
+  await page.locator('[data-drawing-canvas-tool="freehand"]').click();
+  const svgCanvasBox = await page.locator("#drawingVisualCanvas").boundingBox();
+  await page.mouse.move(
+    svgCanvasBox.x + 45,
+    svgCanvasBox.y + svgCanvasBox.height * 0.55,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    svgCanvasBox.x + svgCanvasBox.width - 45,
+    svgCanvasBox.y + svgCanvasBox.height * 0.42,
+    { steps: 28 },
+  );
+  await page.mouse.up();
+  assert.equal(
+    await page.locator("#drawingCanvasUndo").isEnabled(),
+    true,
+    "freehand must produce an undoable object",
+  );
+  assert.equal(
+    await page.locator("#drawingVisualCanvas [data-drawing-object]").count(),
+    svgObjectCountBefore + 1,
+  );
+  assert.match(await page.locator("#drawingSource").inputValue(), /<path\b/);
+  assert.equal(
+    await page
+      .locator("#drawingObjectManagerList .drawing-object-manager-row")
+      .count(),
+    svgObjectCountBefore + 1,
+  );
+  await page.locator("#drawingCanvasUndo").click();
+  assert.equal(
+    await page.locator("#drawingVisualCanvas [data-drawing-object]").count(),
+    svgObjectCountBefore,
+  );
+  await page.locator("#drawingCanvasRedo").click();
+  assert.equal(
+    await page.locator("#drawingVisualCanvas [data-drawing-object]").count(),
+    svgObjectCountBefore + 1,
+  );
+  const selectedSvgRow = page
+    .locator(
+      "#drawingObjectManagerList .drawing-object-manager-row.is-selected",
+    )
+    .first();
+  await selectedSvgRow.getByTitle("锁定对象位置和尺寸").click();
+  assert.equal(
+    await page
+      .locator("#drawingVisualCanvas .drawing-visual-object.is-locked")
+      .count(),
+    1,
+  );
+  await selectedSvgRow.getByTitle("允许编辑对象").click();
+  const svgScreenshot = evidencePath(
+    "DRAWING_SVG_SCREENSHOT",
+    "svg-professional.png",
+  );
+  if (svgScreenshot) {
+    await page.screenshot({
+      path: svgScreenshot,
+      fullPage: true,
+    });
+  }
+
   await page.locator('[data-drawing-language="mermaid"]').first().click();
   await page.locator("#drawingVisualModeBtn").click();
   const firstMermaidNode = page
     .locator("#drawingVisualCanvas [data-drawing-object]")
     .filter({ hasText: /\S/ })
     .first();
-  await firstMermaidNode.dblclick();
+  await firstMermaidNode.evaluate((node) => {
+    const bounds = node.getBoundingClientRect();
+    node.dispatchEvent(
+      new MouseEvent("dblclick", {
+        bubbles: true,
+        cancelable: true,
+        clientX: bounds.left + bounds.width / 2,
+        clientY: bounds.top + bounds.height / 2,
+      }),
+    );
+  });
   await page.locator(".drawing-inline-text-editor").fill("Start edited");
   await page.locator(".drawing-inline-text-editor").press("Enter");
   assert.match(
@@ -64,10 +154,12 @@ try {
   const viewBoxBeforePan = await page
     .locator("#drawingVisualCanvas svg")
     .getAttribute("viewBox");
+  await page.locator('[data-drawing-canvas-tool="pan"]').click();
   await page.mouse.move(canvasBox.x + 24, canvasBox.y + 24);
   await page.mouse.down();
   await page.mouse.move(canvasBox.x + 150, canvasBox.y + 90);
   await page.mouse.up();
+  await page.waitForTimeout(80);
   const viewBoxAfter = await page
     .locator("#drawingVisualCanvas svg")
     .getAttribute("viewBox");
@@ -154,9 +246,10 @@ try {
     "PGFPlots legend must be laid out below the plot instead of covering data",
   );
   await compilePgf("exponential table fitting");
-  if (process.env.DRAWING_PGF_SCREENSHOT) {
+  const pgfScreenshot = evidencePath("DRAWING_PGF_SCREENSHOT", "pgfplots.png");
+  if (pgfScreenshot) {
     await page.locator("#drawingPreview").screenshot({
-      path: process.env.DRAWING_PGF_SCREENSHOT,
+      path: pgfScreenshot,
     });
   }
 
@@ -188,6 +281,20 @@ try {
   ) {
     await page.locator("#drawingVisualModeBtn").click();
   }
+  await page.locator('[data-drawing-profile-template="chinese"]').click();
+  const chineseTikzSource = await page.locator("#drawingSource").inputValue();
+  assert.match(chineseTikzSource, /中文 TikZ 流程图/);
+  assert.match(chineseTikzSource, /输入/);
+  await page.locator("#drawingCompileBtn").click();
+  await page.locator("#drawingPreview svg").waitFor({ timeout: 20_000 });
+  assert.match(
+    await page.locator("#drawingPreview").innerHTML(),
+    /中文 TikZ 流程图/,
+  );
+  assert.doesNotMatch(
+    await page.locator("#drawingCompileStatus").textContent(),
+    /编译失败|CJK/,
+  );
   await page
     .locator("#drawingTikzLatex")
     .fill(String.raw`\frac{a}{b}=\sqrt{x}`);
@@ -200,9 +307,56 @@ try {
       0,
     true,
   );
-  if (process.env.DRAWING_SCREENSHOT) {
+  const drawingScreenshot = evidencePath("DRAWING_SCREENSHOT", "tikz-cjk.png");
+  if (drawingScreenshot) {
     await page.screenshot({
-      path: process.env.DRAWING_SCREENSHOT,
+      path: drawingScreenshot,
+      fullPage: true,
+    });
+  }
+
+  if ((await page.locator("html").getAttribute("data-theme")) !== "dark") {
+    await page.locator("#themeToggle").click();
+  }
+  assert.equal(
+    await page.locator("html").getAttribute("data-theme"),
+    "dark",
+    "theme toggle must switch the complete drawing workspace to dark mode",
+  );
+  const darkThemeContrast = await page.evaluate(() => {
+    const read = (selector) => {
+      const element = document.querySelector(selector);
+      const style = element ? getComputedStyle(element) : null;
+      return style
+        ? {
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+            opacity: style.opacity,
+          }
+        : null;
+    };
+    return {
+      nav: read("#drawingModeTab"),
+      themeToggle: read("#themeToggle"),
+      workbench: read("#drawingVisualEditor"),
+    };
+  });
+  for (const [name, style] of Object.entries(darkThemeContrast)) {
+    assert.ok(style, `${name} must remain present in dark mode`);
+    assert.notEqual(
+      style.color,
+      style.backgroundColor,
+      `${name} foreground must remain distinguishable in dark mode`,
+    );
+    assert.notEqual(style.opacity, "0", `${name} must remain visible`);
+  }
+  const darkScreenshot = evidencePath(
+    "DRAWING_DARK_SCREENSHOT",
+    "dark-drawing.png",
+  );
+  if (darkScreenshot) {
+    await page.screenshot({
+      path: darkScreenshot,
       fullPage: true,
     });
   }
@@ -213,7 +367,7 @@ try {
   assert.deepEqual(relevantErrors, []);
   assert.deepEqual(failedFontRequests, []);
   console.log(
-    "Drawing workbench real-browser smoke OK: Mermaid navigation/inline edit, safety, PNG raster, every PGF preset, fitting, fonts, stale-preview reset, TikZ, LaTeX object",
+    "Drawing workbench real-browser smoke OK: professional SVG freehand/history/layers, Mermaid navigation/inline edit, safety, PNG raster, every PGF preset, fitting, fonts, stale-preview reset, TikZ CJK, LaTeX object, dark theme contrast",
   );
 } finally {
   await browser.close();

@@ -22,7 +22,9 @@ import {
   createProfileDocument,
   evaluatePlotExpression,
   materializeVisualObjects,
+  pointerInsideDrawingViewport,
   serializeVisualDrawing,
+  smoothFreehandPath,
   visualTransformCapabilities,
 } from "../src/features/drawing/visual-editor.js";
 import {
@@ -271,10 +273,28 @@ test("legacy multi-curve PGFPlots legends migrate outside without overriding an 
   );
 });
 
-test("TikZ preview rejects unsupported CJK before an opaque DVI failure", async () => {
+test("TikZ visual contracts render CJK offline while raw CJK fails clearly", async () => {
+  const chinese = serializeVisualDocument(
+    "tikz",
+    createProfileDocument("tikz", "chinese"),
+  ).source;
+  const rendered = await renderTikz(chinese, { host: {} });
+  assert.match(rendered, /中文 TikZ 流程图/);
+  assert.match(rendered, /输入/);
+
+  const plotObjects = createProfileDocument("pgf_plots", "plot");
+  plotObjects.find((object) => object.type === "plot").legend = "中文曲线";
+  plotObjects.find((object) => object.type === "label").text = "中文曲线";
+  const chinesePlot = serializeVisualDocument("pgf_plots", plotObjects).source;
+  const renderedPlot = await renderTikz(chinesePlot, {
+    host: {},
+    packageProfiles: ["pgf_plots"],
+  });
+  assert.match(renderedPlot, /中文曲线/);
+
   await assert.rejects(
     renderTikz(String.raw`\\node {中文};`, { host: {} }),
-    /不包含 CJK\/Unicode 数学字体/,
+    /不能直接编译未结构化的 CJK 源码/,
   );
 });
 
@@ -532,6 +552,69 @@ test("LaTeX formula objects remain native and survive visual round-trip", () => 
   assert.equal(
     parseVisualDocument("tikz", serialized.source).objects[0].formulaSvg,
     objects[0].formulaSvg,
+  );
+});
+
+test("professional SVG freehand objects round-trip without editor overlays", () => {
+  const object = {
+    ...createProfileDocument("svg_source")[0],
+    id: "freehand-contract",
+    type: "freehand",
+    x: 400,
+    y: 260,
+    width: 320,
+    height: 120,
+    pathWidth: 320,
+    pathHeight: 120,
+    points: [
+      { x: 0, y: 80 },
+      { x: 80, y: 10 },
+      { x: 180, y: 105 },
+      { x: 320, y: 40 },
+    ],
+    color: "#0F172A",
+    fill: "none",
+    strokeWidth: 5,
+    locked: false,
+  };
+  const serialized = serializeVisualDocument("svg_source", [object]);
+  const parsed = parseVisualDocument("svg_source", serialized.source);
+
+  assert.equal(parsed.lossless, true);
+  assert.deepEqual(parsed.objects[0].points, object.points);
+  assert.match(serialized.source, /<path\b/);
+  assert.doesNotMatch(serialized.source, /resize-handle|rotation-handle/);
+});
+
+test("locked SVG objects cannot move, resize or rotate", () => {
+  const capabilities = visualTransformCapabilities({
+    ...createProfileDocument("svg_source")[0],
+    locked: true,
+  });
+  assert.deepEqual(capabilities, {
+    move: false,
+    resize: false,
+    rotate: false,
+  });
+});
+
+test("professional canvas ignores WebView edge sentinel pointer coordinates", () => {
+  assert.equal(pointerInsideDrawingViewport(640, 400, 1280, 800), true);
+  assert.equal(pointerInsideDrawingViewport(0, 400, 1280, 800), false);
+  assert.equal(pointerInsideDrawingViewport(640, 0, 1280, 800), false);
+  assert.equal(pointerInsideDrawingViewport(1280, 400, 1280, 800), false);
+  assert.equal(pointerInsideDrawingViewport(640, 800, 1280, 800), false);
+});
+
+test("professional SVG freehand paths use midpoint smoothing", () => {
+  assert.equal(
+    smoothFreehandPath([
+      { x: 0, y: 0 },
+      { x: 20, y: 30 },
+      { x: 50, y: 10 },
+      { x: 80, y: 20 },
+    ]),
+    "M0 0Q20 30 35 20Q50 10 65 15T80 20",
   );
 });
 
