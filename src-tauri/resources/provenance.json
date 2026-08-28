@@ -1,7 +1,7 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "723e36502706c2af0661dfe8fd5ba94c305011ed",
+    "sourceCommitSha":  "62209b2da252c4fad05dc18b46472bcc421659df",
     "packageVersion":  "1.7.1",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
@@ -23,7 +23,7 @@
                     "nativeOffice":  {
                                          "name":  "msi-installer",
                                          "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\NativeOffice",
-                                         "sourceCommitSha":  "723e36502706c2af0661dfe8fd5ba94c305011ed",
+                                         "sourceCommitSha":  "62209b2da252c4fad05dc18b46472bcc421659df",
                                          "coreCommitSha":  "4f4e2fedff5e0daa3cc84985b375cfbd2d4b9a88"
                                      },
                     "obsidian":  {
@@ -118,8 +118,8 @@
                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
                   },
     "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "4265F0F4234E7D34BF898F962A5756C9F2438F295A248A687131634BA97BFC8D",
-                               "LaTeXSnipper.NativeOffice.provenance.json":  "7920F84E78BFB063DDAD886E4F64BA4230214840EAD5AAA4C9FFF5ADF760E07A",
-                               "installer.json":  "B6615C8CBEC95AF54EB37CA6B0FC17404A0E7E21C895BC6AE3B410F82764549C"
+                               "LaTeXSnipper.NativeOffice.msi":  "4856CEC7930B7C8E078F931CE2323882B367FC29D6C8A978073055A876AB3FEF",
+                               "LaTeXSnipper.NativeOffice.provenance.json":  "05E2A2F82DA72E8E70F20C4FE97F9C211C151158315C5108DDEBC445C4301C1D",
+                               "installer.json":  "6CB50C2F291A959D90BFFBB7D5FE63531E379A6BDC6035EF03BEE4C7AD0BB24E"
                            }
 }
