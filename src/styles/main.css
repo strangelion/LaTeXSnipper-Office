@@ -2483,7 +2483,9 @@ html[data-background-style="image"] body::before {
   opacity: var(--appearance-background-image-opacity, 0.82);
 }
 
-html[data-icon-style] :where(button, .appearance-preview-icon) > svg:first-child,
+html[data-icon-style]
+  :where(button, .appearance-preview-icon)
+  > svg:first-child,
 html[data-icon-style] .settings-item > svg:first-child {
   transform: scale(var(--appearance-icon-scale, 1));
   transform-origin: center;

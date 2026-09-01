@@ -385,10 +385,7 @@ export function initAppearanceSettings({ notify = () => {} } = {}) {
           reader.addEventListener("error", () => reject(reader.error));
           reader.readAsDataURL(file);
         });
-        commit(
-          { backgroundStyle: "image", backgroundImage },
-          "本地背景已应用",
-        );
+        commit({ backgroundStyle: "image", backgroundImage }, "本地背景已应用");
       } catch (error) {
         notify(
           `背景图片读取失败：${error instanceof Error ? error.message : error}`,
