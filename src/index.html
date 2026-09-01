@@ -4106,7 +4106,7 @@ x,y
                   <div>
                     <span class="settings-label">程序色彩风格</span>
                     <p class="settings-hint">
-                      预设与自定义色彩会立即应用到编辑、识别、绘图和设置界面，并保存在本机。
+                      明暗模式独立解析；浅色与深色自定义颜色分别保存，切换时不会互相覆盖。
                     </p>
                   </div>
                   <button
@@ -4117,23 +4117,56 @@ x,y
                     恢复默认
                   </button>
                 </div>
-                <label class="appearance-control">
-                  <span>色彩方案</span>
-                  <select id="appearancePalette" class="appearance-select">
-                    <option value="system">跟随明暗主题</option>
-                    <option value="ocean">海蓝</option>
-                    <option value="forest">森绿</option>
-                    <option value="violet">紫罗兰</option>
-                    <option value="rose">蔷薇</option>
-                    <option value="amber">琥珀</option>
-                    <option value="custom">完全自定义</option>
-                  </select>
-                </label>
+                <div class="appearance-two-column">
+                  <label class="appearance-control">
+                    <span>明暗模式</span>
+                    <select id="appearanceThemeMode" class="appearance-select">
+                      <option value="system">跟随系统</option>
+                      <option value="light">浅色</option>
+                      <option value="dark">深色</option>
+                    </select>
+                  </label>
+                  <label class="appearance-control">
+                    <span>色彩方案</span>
+                    <select id="appearancePalette" class="appearance-select">
+                      <option value="system">主题默认</option>
+                      <option value="ocean">海蓝</option>
+                      <option value="forest">森绿</option>
+                      <option value="violet">紫罗兰</option>
+                      <option value="rose">蔷薇</option>
+                      <option value="amber">琥珀</option>
+                      <option value="custom">完全自定义</option>
+                    </select>
+                  </label>
+                </div>
+                <div
+                  class="appearance-theme-previews"
+                  aria-label="浅色与深色主题预览"
+                >
+                  <article data-appearance-preview="light">
+                    <span>浅色</span>
+                    <div><i></i><b></b><em></em></div>
+                  </article>
+                  <article data-appearance-preview="dark">
+                    <span>深色</span>
+                    <div><i></i><b></b><em></em></div>
+                  </article>
+                </div>
                 <div
                   id="appearanceCustomColors"
                   class="appearance-color-grid"
                   hidden
                 >
+                  <label class="appearance-control appearance-editing-theme">
+                    <span>正在编辑</span>
+                    <select
+                      id="appearanceEditingTheme"
+                      class="appearance-select"
+                    >
+                      <option value="light">浅色样式</option>
+                      <option value="dark">深色样式</option>
+                    </select>
+                  </label>
                   <label class="appearance-color-field">
                     <span>强调色</span>
                     <span class="appearance-color-control">
@@ -4202,6 +4235,11 @@ x,y
                       />
                     </span>
                   </label>
+                  <p
+                    id="appearanceContrastStatus"
+                    class="appearance-contrast-status"
+                    role="status"
+                  ></p>
                 </div>
               </div>
             </div>
@@ -4603,7 +4641,7 @@ x,y
     <button
       class="sidebar-trigger"
       id="sidebarTrigger"
-      title="打开公式库（单击展开，可上下拖动）"
+      title="打开公式库（单击展开，可上下拖动，右键查看更多操作）"
       aria-label="打开公式库"
       aria-controls="sidebarPanel"
       aria-expanded="false"
@@ -4619,6 +4657,30 @@ x,y
         <polyline points="15 18 9 12 15 6" />
       </svg>
     </button>
+    <div
+      class="sidebar-trigger-menu"
+      id="sidebarTriggerMenu"
+      role="menu"
+      aria-label="公式库缩略按钮操作"
+      hidden
+    >
+      <button type="button" role="menuitem" data-sidebar-trigger-action="open">
+        打开公式库
+      </button>
+      <button type="button" role="menuitem" data-sidebar-trigger-action="lock">
+        锁定位置
+      </button>
+      <button type="button" role="menuitem" data-sidebar-trigger-action="reset">
+        复位位置
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-sidebar-trigger-action="appearance"
+      >
+        外观设置
+      </button>
+    </div>
 
     <div id="browserImportsModal" class="browser-imports-modal" hidden>
       <section

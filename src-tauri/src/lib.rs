@@ -93,13 +93,48 @@ mod screenshot {
 
 use std::sync::Arc;
 use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    AppHandle, Manager, Runtime,
 };
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[cfg(target_os = "windows")]
 use platforms::session::SessionManager;
+
+const TRAY_SHOW_ID: &str = "tray-show-main";
+const TRAY_HIDE_ID: &str = "tray-hide-main";
+const TRAY_QUIT_ID: &str = "tray-quit";
+
+fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
+fn toggle_main_window<R: Runtime>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let should_hide = window.is_visible().unwrap_or(false)
+        && !window.is_minimized().unwrap_or(false)
+        && window.is_focused().unwrap_or(false);
+    if should_hide {
+        let _ = window.hide();
+    } else {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
 
 pub fn run() {
     // Set up panic hook to write crash info to a file
@@ -232,10 +267,26 @@ pub fn run() {
             // The office bridge is still needed for formula rendering.
             if !is_ole_edit {
                 // System tray
+                let tray_show =
+                    MenuItem::with_id(app, TRAY_SHOW_ID, "显示主窗口", true, None::<&str>)?;
+                let tray_hide =
+                    MenuItem::with_id(app, TRAY_HIDE_ID, "隐藏到托盘", true, None::<&str>)?;
+                let tray_separator = PredefinedMenuItem::separator(app)?;
+                let tray_quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出", true, None::<&str>)?;
+                let tray_menu =
+                    Menu::with_items(app, &[&tray_show, &tray_hide, &tray_separator, &tray_quit])?;
                 let _tray = TrayIconBuilder::new()
                     .icon(app.default_window_icon().unwrap().clone())
                     .tooltip("LaTeXSnipper Office")
                     .icon_as_template(true)
+                    .menu(&tray_menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        TRAY_SHOW_ID => show_main_window(app),
+                        TRAY_HIDE_ID => hide_main_window(app),
+                        TRAY_QUIT_ID => app.exit(0),
+                        _ => {}
+                    })
                     .on_tray_icon_event(|tray_icon, event| {
                         if let TrayIconEvent::Click {
                             button: MouseButton::Left,
@@ -243,22 +294,19 @@ pub fn run() {
                             ..
                         } = event
                         {
-                            let app = tray_icon.app_handle();
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            toggle_main_window(tray_icon.app_handle());
                         }
                     })
                     .build(app)?;
 
-                // Exit app when main window is closed
-                let handle = app.handle().clone();
+                // Keep the desktop/Office bridge alive when the main window is closed.
+                // Explicit exit remains available from the tray menu.
                 if let Some(window) = app.get_webview_window("main") {
-                    let _h = handle.clone();
+                    let window_to_hide = window.clone();
                     window.on_window_event(move |event| {
-                        if let tauri::WindowEvent::CloseRequested { .. } = event {
-                            std::process::exit(0);
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            api.prevent_close();
+                            let _ = window_to_hide.hide();
                         }
                     });
                 }
@@ -274,10 +322,7 @@ pub fn run() {
                 app.global_shortcut()
                     .on_shortcut(shortcut, move |_app, _shortcut, event| {
                         if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                            if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                            show_main_window(&handle);
                         }
                     })?;
             } else {

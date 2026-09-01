@@ -1104,26 +1104,60 @@ ${latex}
 // ═══════════════════════════════════════════
 class ThemeManager {
   constructor() {
-    this.currentTheme = localStorage.getItem("theme") || "light";
-    Logger.info(`Theme: ${this.currentTheme}`);
+    const savedMode = localStorage.getItem("themeMode");
+    const legacyTheme = localStorage.getItem("theme");
+    this.mode = ["system", "light", "dark"].includes(savedMode)
+      ? savedMode
+      : ["light", "dark"].includes(legacyTheme)
+        ? legacyTheme
+        : "system";
+    this.systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    this.systemThemeQuery?.addEventListener?.("change", () => {
+      if (this.mode === "system") {
+        this.apply();
+        this.updateButton();
+      }
+    });
     this.apply();
+    Logger.info(`Theme mode: ${this.mode} → ${this.currentTheme}`);
   }
 
   toggle() {
-    this.currentTheme = this.currentTheme === "light" ? "dark" : "light";
-    localStorage.setItem("theme", this.currentTheme);
+    this.setMode(this.currentTheme === "light" ? "dark" : "light");
+  }
+
+  setMode(mode) {
+    this.mode = ["system", "light", "dark"].includes(mode) ? mode : "system";
+    localStorage.setItem("themeMode", this.mode);
+    if (this.mode !== "system") localStorage.setItem("theme", this.mode);
     this.apply();
     this.updateButton();
-    Logger.info(`Theme → ${this.currentTheme}`);
+    Logger.info(`Theme mode → ${this.mode} (${this.currentTheme})`);
   }
 
   apply() {
+    this.currentTheme =
+      this.mode === "system"
+        ? this.systemThemeQuery?.matches
+          ? "dark"
+          : "light"
+        : this.mode;
     document.documentElement.setAttribute("data-theme", this.currentTheme);
+    document.documentElement.setAttribute("data-theme-mode", this.mode);
+    window.dispatchEvent(
+      new CustomEvent("latexsnipper:theme-change", {
+        detail: { mode: this.mode, theme: this.currentTheme },
+      }),
+    );
   }
 
   updateButton() {
     const btn = document.getElementById("themeToggle");
     if (btn) {
+      btn.title =
+        this.mode === "system"
+          ? `跟随系统（当前${this.currentTheme === "dark" ? "深色" : "浅色"}），点击固定切换`
+          : `当前${this.currentTheme === "dark" ? "深色" : "浅色"}，点击切换`;
       if (this.currentTheme === "light") {
         btn.innerHTML = `<svg class="theme-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
       } else {
@@ -2534,6 +2568,7 @@ class UIController {
     const sidebarPanel = document.getElementById("sidebarPanel");
     const sidebarOverlay = document.getElementById("sidebarOverlay");
     const sidebarTrigger = document.getElementById("sidebarTrigger");
+    const sidebarTriggerMenu = document.getElementById("sidebarTriggerMenu");
     const sidebarClose = document.getElementById("sidebarClose");
 
     const openSidebar = () => {
@@ -2566,22 +2601,34 @@ class UIController {
     sidebarClose?.addEventListener("click", closeSidebar);
     sidebarOverlay?.addEventListener("click", closeSidebar);
 
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && sidebarPanel?.classList.contains("open")) {
-        closeSidebar();
-      }
-    });
-
     let isDragging = false;
     let dragStartY = 0;
     let triggerStartY = 0;
     let sidebarPointerId = null;
+    let isSidebarTriggerLocked =
+      localStorage.getItem("latexsnipper.sidebarTriggerLocked") === "true";
+
+    const syncSidebarTriggerLock = () => {
+      if (!sidebarTrigger) return;
+      sidebarTrigger.dataset.locked = String(isSidebarTriggerLocked);
+      sidebarTrigger.title = isSidebarTriggerLocked
+        ? "打开公式库（位置已锁定，右键可解锁）"
+        : "打开公式库（单击展开，可上下拖动，右键查看更多操作）";
+      const lockAction = sidebarTriggerMenu?.querySelector(
+        '[data-sidebar-trigger-action="lock"]',
+      );
+      if (lockAction) {
+        lockAction.textContent = isSidebarTriggerLocked
+          ? "解锁位置"
+          : "锁定位置";
+      }
+    };
 
     const restoreSidebarTriggerPosition = () => {
       if (!sidebarTrigger) return;
-      const savedTop = Number(
-        localStorage.getItem("latexsnipper.sidebarTriggerTop"),
-      );
+      const storedTop = localStorage.getItem("latexsnipper.sidebarTriggerTop");
+      if (storedTop === null) return;
+      const savedTop = Number(storedTop);
       if (!Number.isFinite(savedTop)) return;
       const minTop = 60;
       const maxTop = Math.max(minTop, window.innerHeight - 110);
@@ -2589,11 +2636,15 @@ class UIController {
       sidebarTrigger.style.transform = "none";
     };
 
+    syncSidebarTriggerLock();
     restoreSidebarTriggerPosition();
-    window.addEventListener("resize", restoreSidebarTriggerPosition);
+    window.addEventListener("resize", () => {
+      restoreSidebarTriggerPosition();
+      if (sidebarTriggerMenu) sidebarTriggerMenu.hidden = true;
+    });
 
     sidebarTrigger?.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || isSidebarTriggerLocked) return;
       isDragging = true;
       suppressSidebarClick = false;
       sidebarPointerId = e.pointerId;
@@ -2628,11 +2679,93 @@ class UIController {
     sidebarTrigger?.addEventListener("pointerup", finishSidebarDrag);
     sidebarTrigger?.addEventListener("pointercancel", finishSidebarDrag);
 
+    const closeSidebarTriggerMenu = ({ restoreFocus = false } = {}) => {
+      if (!sidebarTriggerMenu || sidebarTriggerMenu.hidden) return;
+      sidebarTriggerMenu.hidden = true;
+      sidebarTriggerMenu.style.removeProperty("left");
+      sidebarTriggerMenu.style.removeProperty("top");
+      if (restoreFocus) sidebarTrigger?.focus({ preventScroll: true });
+    };
+
+    const openSidebarTriggerMenu = (clientX, clientY) => {
+      if (!sidebarTriggerMenu) return;
+      sidebarTriggerMenu.hidden = false;
+      sidebarTriggerMenu.style.visibility = "hidden";
+      sidebarTriggerMenu.style.left = "0px";
+      sidebarTriggerMenu.style.top = "0px";
+      requestAnimationFrame(() => {
+        const rect = sidebarTriggerMenu.getBoundingClientRect();
+        const left = Math.max(
+          8,
+          Math.min(window.innerWidth - rect.width - 8, clientX - rect.width),
+        );
+        const top = Math.max(
+          8,
+          Math.min(window.innerHeight - rect.height - 8, clientY),
+        );
+        sidebarTriggerMenu.style.left = `${left}px`;
+        sidebarTriggerMenu.style.top = `${top}px`;
+        sidebarTriggerMenu.style.removeProperty("visibility");
+        sidebarTriggerMenu
+          .querySelector("button")
+          ?.focus({ preventScroll: true });
+      });
+    };
+
+    sidebarTrigger?.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      suppressSidebarClick = true;
+      openSidebarTriggerMenu(event.clientX, event.clientY);
+    });
+
+    sidebarTriggerMenu?.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-sidebar-trigger-action]")
+        ?.dataset.sidebarTriggerAction;
+      if (!action) return;
+      closeSidebarTriggerMenu();
+      if (action === "open") {
+        openSidebar();
+      } else if (action === "lock") {
+        isSidebarTriggerLocked = !isSidebarTriggerLocked;
+        localStorage.setItem(
+          "latexsnipper.sidebarTriggerLocked",
+          String(isSidebarTriggerLocked),
+        );
+        syncSidebarTriggerLock();
+      } else if (action === "reset") {
+        localStorage.removeItem("latexsnipper.sidebarTriggerTop");
+        sidebarTrigger?.style.removeProperty("top");
+        sidebarTrigger?.style.removeProperty("transform");
+      } else if (action === "appearance") {
+        this.switchSection("settings");
+        this.openSettingsPage("settingsAppearance");
+      }
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      if (
+        !sidebarTriggerMenu?.hidden &&
+        !sidebarTriggerMenu.contains(event.target) &&
+        !sidebarTrigger?.contains(event.target)
+      ) {
+        closeSidebarTriggerMenu();
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!sidebarTriggerMenu?.hidden) {
+        closeSidebarTriggerMenu({ restoreFocus: true });
+      } else if (sidebarPanel?.classList.contains("open")) {
+        closeSidebar();
+      }
+    });
+
     let openTimeout = null;
     let closeTimeout = null;
 
     document.addEventListener("mousemove", (e) => {
-      if (isDragging) return;
+      if (isDragging || !sidebarTriggerMenu?.hidden) return;
       const threshold = 30;
       const isNearRightEdge = e.clientX >= window.innerWidth - threshold;
       const isInsideSidebar = sidebarPanel?.contains(e.target);
@@ -9711,6 +9844,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const glassState = initLiquidGlass();
   initAppearanceSettings({
     notify: (message) => controller.showToast(message),
+    getThemeMode: () => controller.themeManager.mode,
+    setThemeMode: (mode) => controller.themeManager.setMode(mode),
   });
 
   // ── Liquid Dock controllers (main dock + top nav + settings preview) ──
