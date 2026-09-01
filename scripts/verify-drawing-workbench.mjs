@@ -12,13 +12,9 @@ const evidencePath = (environmentName, filename) =>
   (evidenceDir ? join(evidenceDir, filename) : "");
 
 const require = createRequire(import.meta.url);
-const playwrightRoot =
-  process.env.PW_CORE ||
-  "C:/Users/WangWenXuan/AppData/Local/Temp/pwtest/node_modules/playwright-core";
-const chromiumPath =
-  process.env.PW_CHROMIUM ||
-  "C:/Users/WangWenXuan/AppData/Local/ms-playwright/chromium-1237/chrome-win64/chrome.exe";
+const playwrightRoot = process.env.PW_CORE || "playwright-core";
 const { chromium } = require(playwrightRoot);
+const chromiumPath = process.env.PW_CHROMIUM || chromium.executablePath();
 
 const browser = await chromium.launch({
   executablePath: chromiumPath,
@@ -195,6 +191,30 @@ try {
     .locator('[data-drawing-language="tikz"][data-drawing-profile="pgf_plots"]')
     .click();
   await page.locator("#drawingVisualModeBtn").click();
+  const excelImportButton = page.locator("#drawingPlotImportExcel");
+  await excelImportButton.waitFor({ state: "visible" });
+  assert.equal(
+    (await excelImportButton.textContent())?.trim(),
+    "从 Excel 读取当前选区",
+  );
+  const [plotDataBox, excelImportBox] = await Promise.all([
+    page.locator("#drawingPlotData").boundingBox(),
+    excelImportButton.boundingBox(),
+  ]);
+  assert.ok(
+    plotDataBox && excelImportBox,
+    "Excel import controls must be laid out",
+  );
+  assert.ok(
+    excelImportBox.x >= plotDataBox.x + plotDataBox.width,
+    "Excel import button must not overlap the data table",
+  );
+  await excelImportButton.click();
+  await page
+    .locator("#drawingCompileStatus")
+    .filter({ hasText: /读取 Excel 选区失败|Excel 选区读取仅在桌面应用中可用/ })
+    .waitFor({ timeout: 5_000 });
+  assert.equal(await excelImportButton.isEnabled(), true);
   const autoPreview = page.locator("#drawingAutoPreview");
   if (await autoPreview.isChecked()) await autoPreview.setChecked(false);
   const compilePgf = async (name) => {
@@ -367,7 +387,7 @@ try {
   assert.deepEqual(relevantErrors, []);
   assert.deepEqual(failedFontRequests, []);
   console.log(
-    "Drawing workbench real-browser smoke OK: professional SVG freehand/history/layers, Mermaid navigation/inline edit, safety, PNG raster, every PGF preset, fitting, fonts, stale-preview reset, TikZ CJK, LaTeX object, dark theme contrast",
+    "Drawing workbench real-browser smoke OK: professional SVG freehand/history/layers, Mermaid navigation/inline edit, safety, PNG raster, Excel-to-PGF entry, every PGF preset, fitting, fonts, stale-preview reset, TikZ CJK, LaTeX object, dark theme contrast",
   );
 } finally {
   await browser.close();

@@ -3363,6 +3363,7 @@ body {
   grid-template-areas:
     "heading heading"
     "data model"
+    "data import"
     "data behavior"
     "data action"
     "status status";
@@ -3392,6 +3393,10 @@ body {
 
 .drawing-plot-fit > .drawing-fit-behavior {
   grid-area: behavior;
+}
+
+.drawing-plot-fit > .drawing-plot-import-excel {
+  grid-area: import;
 }
 
 .drawing-plot-fit-status {

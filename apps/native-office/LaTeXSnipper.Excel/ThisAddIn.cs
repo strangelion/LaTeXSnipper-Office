@@ -120,7 +120,7 @@ namespace LaTeXSnipper.Excel
                                 ReplaceFormula = true,
                                 ReadSelection = true,
                                 InsertTable = false,
-                                ReadTable = false,
+                                ReadTable = true,
                             },
                             ctx);
                     }
@@ -225,6 +225,33 @@ namespace LaTeXSnipper.Excel
                         RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
                         Formula = formula, RangeXml = formula?.Omml
                     });
+                    break;
+                }
+                case DesktopRequestReadTable readTableCmd:
+                {
+                    try
+                    {
+                        var table = _adapter.ReadTableSelection();
+                        _ = _pipeClient.SendAsync(new VstoReadTable
+                        {
+                            RequestId = readTableCmd.RequestId,
+                            SessionId = readTableCmd.SessionId,
+                            Table = table,
+                            TableXml = table == null
+                                ? null
+                                : System.Text.Json.JsonSerializer.Serialize(table)
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoHostError
+                        {
+                            RequestId = readTableCmd.RequestId,
+                            SessionId = readTableCmd.SessionId,
+                            ErrorCode = "EXCEL_TABLE_READ_FAILED",
+                            Error = ex.Message
+                        });
+                    }
                     break;
                 }
                 case DesktopDeleteCurrent delCmd:

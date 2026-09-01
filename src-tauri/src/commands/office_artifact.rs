@@ -5,6 +5,14 @@
 
 use crate::office_integration::dto::OfficeHost;
 use crate::office_integration::{OfficeCoordinator, ResolvedRoute};
+use latexsnipper_conversion::{plan_conversion, ConversionPlan, ConversionRequest};
+
+/// Ask Core to select the highest-fidelity eligible conversion route.
+/// Host adapters report observed capabilities; Core owns scoring and loss accounting.
+#[tauri::command]
+pub fn core_plan_conversion(request: ConversionRequest) -> ConversionPlan {
+    plan_conversion(&request)
+}
 
 /// Resolve the integration route for a given Office host.
 /// Auto → NativeOffice if VSTO session available, else error.
@@ -215,4 +223,48 @@ fn uuid_simple() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("{:x}", t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use latexsnipper_conversion::{
+        ArtifactKind, ConversionRequirements, ConversionRoute, RouteCapability, RouteFidelity,
+    };
+
+    #[test]
+    fn office_command_delegates_route_selection_to_core() {
+        let plan = core_plan_conversion(ConversionRequest {
+            artifact: ArtifactKind::Drawing,
+            host: "powerPoint".to_string(),
+            platform: "windows".to_string(),
+            requirements: ConversionRequirements {
+                minimum_editability: Some(1),
+                prefer_native: true,
+                prefer_vector: true,
+                ..ConversionRequirements::default()
+            },
+            capabilities: vec![
+                RouteCapability {
+                    route: ConversionRoute::NativeShapes,
+                    available: true,
+                    fidelity: RouteFidelity::new(900, 920, 1_000, 950),
+                    evidence: vec!["officeShapeScene".to_string()],
+                    losses: Vec::new(),
+                },
+                RouteCapability {
+                    route: ConversionRoute::Png,
+                    available: true,
+                    fidelity: RouteFidelity::new(0, 970, 0, 0),
+                    evidence: vec!["pngArtifact".to_string()],
+                    losses: Vec::new(),
+                },
+            ],
+        });
+        assert_eq!(
+            plan.selected.map(|candidate| candidate.route),
+            Some(ConversionRoute::NativeShapes)
+        );
+        assert_eq!(plan.rejected.len(), 1);
+    }
 }

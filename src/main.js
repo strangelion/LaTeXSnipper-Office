@@ -19,8 +19,8 @@ import { decideAutoInsert } from "./features/recognition/auto-insert-decision.js
 import { shouldPresentRecognitionResult } from "./features/recognition/result-selection.js";
 import {
   initDrawingWorkspace,
+  planProductionDrawingRoute,
   rasterizeDrawingSvg,
-  selectProductionDrawingRoute,
 } from "./features/drawing/workspace.js";
 import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
 import {
@@ -2062,6 +2062,10 @@ class UIController {
         invoke,
         insertDrawing: (result) => this.insertDrawingToOffice(result),
         formulaRenderer: this.formulaSvgRenderer,
+        readSpreadsheetTable: async () => {
+          const requested = await this.readTableFromWord("pgf");
+          if (!requested) throw new Error("未能向 Excel 发送选区读取请求");
+        },
       });
       this.customSymbolComposer = initCustomSymbolComposer({
         invoke,
@@ -2101,7 +2105,7 @@ class UIController {
       (candidate) => candidate.session_id === this._selectedSessionId,
     );
     if (!session) throw new Error("请先选择已连接的 Office 宿主");
-    const route = selectProductionDrawingRoute({
+    const route = await planProductionDrawingRoute({
       payload: result.payload,
       host: session.host_type,
       os: navigator.userAgent.includes("Windows") ? "windows" : "other",
@@ -3715,6 +3719,32 @@ class UIController {
       listen("native-office-table-loaded", async (event) => {
         const { table, xml, sessionId } = event.payload;
         Logger.info(`Native Office: loaded table from ${sessionId}`);
+
+        const tableTarget = this._pendingOfficeTableTarget || "formula";
+        this._pendingOfficeTableTarget = null;
+        if (this._pendingOfficeTableTimer) {
+          clearTimeout(this._pendingOfficeTableTimer);
+          this._pendingOfficeTableTimer = null;
+        }
+
+        if (tableTarget === "pgf") {
+          if (!table) {
+            this.showToast("Excel 当前选区没有可读取的表格数据");
+            return;
+          }
+          try {
+            this.switchSection("editor");
+            const imported = this.drawingWorkspace?.loadPlotTable(table);
+            this.showToast(
+              `已从 Excel 导入 ${imported?.points?.length || 0} 个数据点`,
+            );
+          } catch (error) {
+            this.showToast(
+              `Excel 数据无法导入 PGFPlots：${error.message || error}`,
+            );
+          }
+          return;
+        }
 
         if (table) {
           // Structured TablePayload - handle nested structure
@@ -7318,7 +7348,7 @@ class UIController {
     const sessionId = this._selectedSessionId;
     if (!sessionId) {
       this.showToast("请先选择目标 Office 宿主");
-      return;
+      return false;
     }
     if (!this.supportsOfficeCapability("insert_table")) {
       this.showToast("当前 Office 宿主暂不支持表格插入");
@@ -7503,7 +7533,7 @@ class UIController {
     };
   }
 
-  async readTableFromWord() {
+  async readTableFromWord(target = "formula") {
     const sessionId = this._selectedSessionId;
     if (!sessionId) {
       this.showToast("请先选择目标 Office 宿主");
@@ -7511,14 +7541,37 @@ class UIController {
     }
     if (!this.supportsOfficeCapability("read_table")) {
       this.showToast("当前 Office 宿主暂不支持表格读取");
-      return;
+      return false;
+    }
+    if (
+      target === "pgf" &&
+      String(this._selectedHostType || "").toLowerCase() !== "excel"
+    ) {
+      this.showToast("PGFPlots 数据导入需要连接 Excel 并选择两列数据");
+      return false;
     }
     try {
       const { invoke } = await import("@tauri-apps/api/core");
+      this._pendingOfficeTableTarget = target;
+      if (this._pendingOfficeTableTimer)
+        clearTimeout(this._pendingOfficeTableTimer);
+      this._pendingOfficeTableTimer = setTimeout(() => {
+        this._pendingOfficeTableTarget = null;
+        this._pendingOfficeTableTimer = null;
+      }, 15000);
       await invoke("native_office_request_read_table", { sessionId });
-      this.showToast("表格读取请求已发送");
+      this.showToast(
+        target === "pgf" ? "正在读取 Excel 选区…" : "表格读取请求已发送",
+      );
+      return true;
     } catch (e) {
+      this._pendingOfficeTableTarget = null;
+      if (this._pendingOfficeTableTimer) {
+        clearTimeout(this._pendingOfficeTableTimer);
+        this._pendingOfficeTableTimer = null;
+      }
       this.showToast("读取表格失败: " + (e.message || e));
+      throw e;
     }
   }
 

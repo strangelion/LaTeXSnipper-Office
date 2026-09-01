@@ -121,6 +121,111 @@ export function selectDrawingOfficeRoute({
   };
 }
 
+function capability(route, available, fidelity, evidence = []) {
+  return { route, available, fidelity, evidence, losses: [] };
+}
+
+/**
+ * Translate an observed drawing payload and host state into Core planner input.
+ * This layer reports facts only; route scoring and loss accounting stay in Core.
+ */
+export function buildDrawingConversionRequest({
+  payload,
+  host,
+  os,
+  requestEditable = false,
+  requestPrint = false,
+  capabilities = {},
+}) {
+  const validation = validateDrawingPayload(payload);
+  if (!validation.valid) return { request: null, validation };
+
+  const hasSvg = Boolean(findDrawingArtifact(payload, "svg"));
+  const hasPng = Boolean(findDrawingArtifact(payload, "png"));
+  const hasPdf = Boolean(findDrawingArtifact(payload, "pdf"));
+  const observed = [
+    capability(
+      "nativeShapes",
+      requestEditable &&
+        payload.officeShapeScene != null &&
+        capabilities.nativeShapes === true,
+      { semantic: 900, visual: 920, editability: 1000, roundTrip: 950 },
+      ["officeShapeScene"],
+    ),
+    capability(
+      "drawingOle",
+      requestEditable &&
+        os === "windows" &&
+        capabilities.drawingOle === true &&
+        (hasSvg || hasPng),
+      { semantic: 980, visual: 990, editability: 960, roundTrip: 960 },
+      ["windowsOle", hasSvg ? "svgArtifact" : "pngArtifact"],
+    ),
+    capability(
+      "svg",
+      capabilities.svg !== false && hasSvg,
+      { semantic: 600, visual: 1000, editability: 250, roundTrip: 300 },
+      ["svgArtifact"],
+    ),
+    capability(
+      "png",
+      capabilities.png !== false && hasPng,
+      { semantic: 0, visual: 970, editability: 0, roundTrip: 0 },
+      ["pngArtifact"],
+    ),
+    capability(
+      "pdf",
+      requestPrint && capabilities.pdfExport === true && hasPdf,
+      { semantic: 450, visual: 990, editability: 100, roundTrip: 150 },
+      ["pdfArtifact", "printRequested"],
+    ),
+  ];
+
+  return {
+    validation,
+    request: {
+      artifact: "drawing",
+      host: String(host || "unknown"),
+      platform: String(os || "unknown"),
+      requirements: {
+        minimumSemanticFidelity: null,
+        minimumVisualFidelity: requestPrint ? 900 : null,
+        minimumEditability: requestEditable ? 1 : null,
+        minimumRoundTripFidelity: null,
+        preferNative: requestEditable,
+        preferVector: true,
+        allowRaster: !requestPrint,
+      },
+      capabilities: observed,
+    },
+  };
+}
+
+/** Resolve a drawing route through the Core Conversion Planner. */
+export async function planDrawingOfficeRoute(args, planner) {
+  const { request, validation } = buildDrawingConversionRequest(args);
+  if (!request) {
+    return { route: null, code: "DRAWING_OFFICE_PAYLOAD_INVALID", validation };
+  }
+  const execute =
+    planner ||
+    (async (conversionRequest) => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      return invoke("core_plan_conversion", { request: conversionRequest });
+    });
+  const plan = await execute(request);
+  const selected = plan?.selected || null;
+  return {
+    route: selected?.route || null,
+    code: selected
+      ? "DRAWING_ROUTE_PLANNED"
+      : "DRAWING_OFFICE_ROUTE_UNAVAILABLE",
+    validation,
+    plan,
+    lossLedger: selected?.losses || [],
+  };
+}
+
 export function drawingAdapterReadiness(coreReadiness) {
   return (coreReadiness?.adapters || []).map((adapter) => ({
     language: adapter.language,

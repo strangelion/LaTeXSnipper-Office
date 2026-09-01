@@ -9,6 +9,7 @@ import {
   parsePlotDataTable,
   resolveDrawingAuthoringInput,
   resolveVisualProfile,
+  tablePayloadToPlotData,
   visualToolsForLanguage,
 } from "../src/features/drawing/workspace.js";
 import { toPgfPlotsExpression } from "../src/features/drawing/math-expression.js";
@@ -31,6 +32,30 @@ import {
   parseVisualDocument,
   serializeVisualDocument,
 } from "../src/features/drawing/source-adapters.js";
+
+test("Excel TablePayload maps its first two numeric columns to PGFPlots", () => {
+  const cell = (text) => ({ inlines: [{ type: "text", text }] });
+  const payload = {
+    tableId: "excel-1",
+    table: {
+      rows: [
+        { cells: [cell("time"), cell("voltage"), cell("ignored")] },
+        { cells: [cell("0"), cell("1.25"), cell("a")] },
+        { cells: [cell("1"), cell("2.5"), cell("b")] },
+        { cells: [cell("bad"), cell("3"), cell("c")] },
+      ],
+    },
+  };
+
+  assert.deepEqual(tablePayloadToPlotData(payload), {
+    headers: ["time", "voltage"],
+    points: [
+      { x: 0, y: 1.25 },
+      { x: 1, y: 2.5 },
+    ],
+    source: "time,voltage\n0,1.25\n1,2.5",
+  });
+});
 
 class FakeClassList {
   constructor() {

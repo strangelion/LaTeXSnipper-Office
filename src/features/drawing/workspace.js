@@ -1,5 +1,6 @@
 import {
   drawingAdapterReadiness,
+  planDrawingOfficeRoute,
   selectDrawingOfficeRoute,
 } from "./office-routing.js";
 import { renderDrawingLocally } from "./local-renderers.js";
@@ -199,6 +200,49 @@ export function parsePlotDataTable(source) {
     points.push({ x, y });
   }
   return points;
+}
+
+const tableCellText = (cell, formulas = {}) =>
+  (cell?.inlines || [])
+    .map((inline) => {
+      if (inline?.type === "formula") {
+        return (
+          inline.formula?.latex || formulas[inline.formulaRef]?.latex || ""
+        );
+      }
+      return inline?.text || "";
+    })
+    .join(" ")
+    .trim();
+
+export function tablePayloadToPlotData(payload) {
+  const table = payload?.table || payload;
+  const rows = Array.isArray(table?.rows) ? table.rows : [];
+  const formulas = payload?.formulas || {};
+  const values = rows.map((row) =>
+    (row?.cells || []).slice(0, 2).map((cell) => tableCellText(cell, formulas)),
+  );
+  const first = values[0] || [];
+  const firstIsHeader =
+    first.length >= 2 &&
+    (finiteNumber(first[0]) === null || finiteNumber(first[1]) === null);
+  const headers = firstIsHeader
+    ? [first[0] || "x", first[1] || "y"]
+    : ["x", "y"];
+  const points = values.slice(firstIsHeader ? 1 : 0).flatMap((row) => {
+    if (row.length < 2) return [];
+    const x = finiteNumber(row[0]);
+    const y = finiteNumber(row[1]);
+    return x === null || y === null ? [] : [{ x, y }];
+  });
+  if (points.length < 2) {
+    throw new Error("Excel 选区至少需要两行有效的 x/y 数值");
+  }
+  return {
+    headers,
+    points,
+    source: `${headers.join(",")}\n${points.map(({ x, y }) => `${x},${y}`).join("\n")}`,
+  };
 }
 
 const nicePlotStep = (value) => {
@@ -569,6 +613,7 @@ export function createDrawingWorkspaceController({
   rasterizeDrawing = rasterizeDrawingSvg,
   loadReadiness,
   formulaRenderer,
+  readSpreadsheetTable,
 }) {
   const state = {
     mode: "formula",
@@ -1899,6 +1944,21 @@ export function createDrawingWorkspaceController({
       ? "将另存为新拟合曲线"
       : "本次另存为新拟合曲线";
   });
+  elements.plotImportExcel?.addEventListener("click", async () => {
+    if (typeof readSpreadsheetTable !== "function") {
+      status("Excel 选区读取仅在桌面应用中可用");
+      return;
+    }
+    try {
+      elements.plotImportExcel.disabled = true;
+      status("正在从 Excel 读取当前选区…");
+      await readSpreadsheetTable();
+    } catch (error) {
+      status(`读取 Excel 选区失败：${userFacingError(error)}`);
+    } finally {
+      elements.plotImportExcel.disabled = false;
+    }
+  });
   elements.plotFit?.addEventListener("click", () => {
     try {
       const points = parsePlotDataTable(elements.plotData?.value || "");
@@ -2315,6 +2375,26 @@ export function createDrawingWorkspaceController({
     return exportEditableState();
   };
 
+  const loadPlotTable = (tablePayload) => {
+    const imported = tablePayloadToPlotData(tablePayload);
+    const pgfButton = elements.languageButtons.find(
+      (button) =>
+        (button.dataset.drawingProfile || button.dataset.drawingLanguage) ===
+        "pgf_plots",
+    );
+    if (pgfButton) chooseLanguage(pgfButton);
+    activateMode("drawing");
+    if (elements.plotData) elements.plotData.value = imported.source;
+    if (elements.plotXLabel) elements.plotXLabel.value = imported.headers[0];
+    if (elements.plotYLabel) elements.plotYLabel.value = imported.headers[1];
+    if (elements.plotFitStatus) {
+      elements.plotFitStatus.textContent = `已从 Excel 导入 ${imported.points.length} 个有效数据点；请选择模型后执行拟合`;
+      elements.plotFitStatus.dataset.state = "success";
+    }
+    status(`Excel 选区已导入 PGFPlots：${imported.points.length} 个数据点`);
+    return imported;
+  };
+
   return {
     state,
     activateMode,
@@ -2328,6 +2408,7 @@ export function createDrawingWorkspaceController({
     visualEditor,
     exportEditableState,
     loadEditableState,
+    loadPlotTable,
   };
 }
 
@@ -2387,6 +2468,7 @@ export function drawingWorkspaceElements(root = document) {
     plotAxesApply: root.getElementById("drawingPlotAxesApply"),
     plotPresetButtons: [...root.querySelectorAll("[data-plot-expression]")],
     plotData: root.getElementById("drawingPlotData"),
+    plotImportExcel: root.getElementById("drawingPlotImportExcel"),
     plotFitModel: root.getElementById("drawingPlotFitModel"),
     plotFit: root.getElementById("drawingPlotFit"),
     plotFitAppend: root.getElementById("drawingPlotFitAppend"),
@@ -2499,6 +2581,7 @@ export function initDrawingWorkspace({
   invoke,
   insertDrawing,
   formulaRenderer,
+  readSpreadsheetTable,
   root = document,
 }) {
   const waitForAction = async (actionId, timeoutMs = 20000) => {
@@ -2565,6 +2648,7 @@ export function initDrawingWorkspace({
     rasterizeDrawing: rasterizeDrawingSvg,
     loadReadiness: () => invoke("get_drawing_readiness"),
     formulaRenderer,
+    readSpreadsheetTable,
   });
   void controller.refreshReadiness();
   return controller;
@@ -2578,6 +2662,28 @@ export function selectProductionDrawingRoute({
   drawingOleAvailable = false,
 }) {
   return selectDrawingOfficeRoute({
+    payload,
+    host,
+    os,
+    requestEditable,
+    capabilities: {
+      nativeShapes: false,
+      drawingOle: drawingOleAvailable,
+      svg: true,
+      png: true,
+      pdfExport: false,
+    },
+  });
+}
+
+export async function planProductionDrawingRoute({
+  payload,
+  host,
+  os,
+  requestEditable = true,
+  drawingOleAvailable = false,
+}) {
+  return planDrawingOfficeRoute({
     payload,
     host,
     os,

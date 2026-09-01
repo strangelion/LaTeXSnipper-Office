@@ -1,6 +1,7 @@
 mod clipboard;
 mod commands;
 mod engine;
+pub mod generated;
 mod math;
 pub mod office_integration;
 mod platforms;
@@ -428,6 +429,7 @@ pub fn run() {
             commands::office_batch::office_batch_convert_plan,
             #[cfg(target_os = "windows")]
             commands::office_batch::office_batch_execute,
+            commands::office_artifact::core_plan_conversion,
             commands::office_artifact::office_resolve_route,
             #[cfg(target_os = "windows")]
             commands::office_artifact::office_insert_artifact,

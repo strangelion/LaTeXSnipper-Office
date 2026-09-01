@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 4,
+  "namespace": "LaTeXSnipper.NativeOffice.ProtocolV4",
+  "baseFields": [
+    { "name": "requestId", "type": "string" },
+    { "name": "sessionId", "type": "string" },
+    { "name": "protocolVersion", "type": "u64" }
+  ],
+  "messages": [
+    {
+      "name": "InsertObject",
+      "wireType": "INSERT_OBJECT",
+      "direction": "desktopToHost",
+      "fields": [
+        { "name": "expectedContextId", "type": "optionalString" },
+        { "name": "object", "type": "json" },
+        { "name": "capabilities", "type": "stringArray" }
+      ]
+    },
+    {
+      "name": "GetObject",
+      "wireType": "GET_OBJECT",
+      "direction": "desktopToHost",
+      "fields": [
+        { "name": "expectedContextId", "type": "optionalString" },
+        { "name": "objectId", "type": "optionalString" }
+      ]
+    },
+    {
+      "name": "UpdateObject",
+      "wireType": "UPDATE_OBJECT",
+      "direction": "desktopToHost",
+      "fields": [
+        { "name": "expectedContextId", "type": "optionalString" },
+        { "name": "objectId", "type": "string" },
+        { "name": "expectedRevision", "type": "u64" },
+        { "name": "object", "type": "json" }
+      ]
+    },
+    {
+      "name": "DeleteObject",
+      "wireType": "DELETE_OBJECT",
+      "direction": "desktopToHost",
+      "fields": [
+        { "name": "expectedContextId", "type": "optionalString" },
+        { "name": "objectId", "type": "string" },
+        { "name": "expectedRevision", "type": "u64" }
+      ]
+    },
+    {
+      "name": "CancelRequest",
+      "wireType": "CANCEL_REQUEST",
+      "direction": "desktopToHost",
+      "fields": [{ "name": "targetRequestId", "type": "string" }]
+    },
+    {
+      "name": "ObjectResult",
+      "wireType": "OBJECT_RESULT",
+      "direction": "hostToDesktop",
+      "fields": [
+        { "name": "success", "type": "bool" },
+        { "name": "action", "type": "string" },
+        { "name": "objectId", "type": "optionalString" },
+        { "name": "revision", "type": "optionalU64" },
+        { "name": "object", "type": "optionalJson" },
+        { "name": "diagnostics", "type": "json" }
+      ]
+    },
+    {
+      "name": "ObjectProgress",
+      "wireType": "OBJECT_PROGRESS",
+      "direction": "hostToDesktop",
+      "fields": [
+        { "name": "targetRequestId", "type": "string" },
+        { "name": "stage", "type": "string" },
+        { "name": "completed", "type": "u64" },
+        { "name": "total", "type": "optionalU64" }
+      ]
+    },
+    {
+      "name": "ObjectDiagnostic",
+      "wireType": "OBJECT_DIAGNOSTIC",
+      "direction": "hostToDesktop",
+      "fields": [
+        { "name": "code", "type": "string" },
+        { "name": "severity", "type": "string" },
+        { "name": "message", "type": "string" },
+        { "name": "recoverable", "type": "bool" },
+        { "name": "data", "type": "optionalJson" }
+      ]
+    },
+    {
+      "name": "HostCapabilities",
+      "wireType": "HOST_CAPABILITIES",
+      "direction": "hostToDesktop",
+      "fields": [
+        { "name": "host", "type": "string" },
+        { "name": "capabilities", "type": "stringArray" }
+      ]
+    }
+  ]
+}

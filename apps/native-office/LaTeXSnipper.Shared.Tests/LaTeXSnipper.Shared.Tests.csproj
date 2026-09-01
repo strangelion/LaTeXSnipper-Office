@@ -49,6 +49,8 @@
     <Compile Include="LatexDelimiterScannerTests.cs" />
     <Compile Include="OmmlValidatorTests.cs" />
     <Compile Include="WordNaryFixtureTests.cs" />
+    <Compile Include="ProtocolV4Tests.cs" />
+    <Compile Include="SpreadsheetTablePayloadTests.cs" />
     <Compile Include="..\LaTeXSnipper.Visio\Model\VisioFormulaMetadataCodec.cs">
       <Link>Visio\VisioFormulaMetadataCodec.cs</Link>
     </Compile>

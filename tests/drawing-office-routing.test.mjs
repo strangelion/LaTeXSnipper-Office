@@ -2,8 +2,10 @@ import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  buildDrawingConversionRequest,
   drawingAdapterReadiness,
   findDrawingArtifact,
+  planDrawingOfficeRoute,
   selectDrawingOfficeRoute,
   validateDrawingPayload,
 } from "../src/features/drawing/office-routing.js";
@@ -90,4 +92,66 @@ test("old handwritten payload shape fails closed", () => {
   const result = selectDrawingOfficeRoute({ payload: oldPayload });
   assert.equal(result.route, null);
   assert.equal(result.code, "DRAWING_OFFICE_PAYLOAD_INVALID");
+});
+
+test("drawing host facts are translated into Core planner input", () => {
+  const payload = coreFixture("drawing-office-payload-v1.json");
+  const { request, validation } = buildDrawingConversionRequest({
+    payload,
+    host: "powerPoint",
+    os: "windows",
+    requestEditable: true,
+    capabilities: {
+      nativeShapes: true,
+      drawingOle: true,
+      svg: true,
+      png: true,
+    },
+  });
+  assert.equal(validation.valid, true);
+  assert.equal(request.artifact, "drawing");
+  assert.equal(request.requirements.preferNative, true);
+  assert.equal(request.requirements.minimumEditability, 1);
+  assert.equal(
+    request.capabilities.find(({ route }) => route === "nativeShapes")
+      .available,
+    true,
+  );
+  assert.equal(
+    request.capabilities.find(({ route }) => route === "drawingOle").available,
+    true,
+  );
+});
+
+test("production drawing route consumes Core plan and exposes its loss ledger", async () => {
+  const payload = coreFixture("drawing-office-payload-v1.json");
+  let captured;
+  const result = await planDrawingOfficeRoute(
+    {
+      payload,
+      host: "excel",
+      os: "windows",
+      requestEditable: true,
+      capabilities: { drawingOle: true, svg: true, png: true },
+    },
+    async (request) => {
+      captured = request;
+      return {
+        schemaVersion: 1,
+        status: "planned",
+        selected: {
+          route: "drawingOle",
+          losses: [{ code: "visual-degradation", severity: "low" }],
+        },
+        fallbacks: [],
+        rejected: [],
+      };
+    },
+  );
+  assert.equal(captured.host, "excel");
+  assert.equal(result.route, "drawingOle");
+  assert.equal(result.code, "DRAWING_ROUTE_PLANNED");
+  assert.deepEqual(result.lossLedger, [
+    { code: "visual-degradation", severity: "low" },
+  ]);
 });

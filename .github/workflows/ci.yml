@@ -49,6 +49,8 @@ jobs:
       - run: npm ci
       - name: Source hygiene, manifests, versions, and protocol constants
         run: node scripts/source-hygiene.mjs
+      - name: Protocol v4 generated bindings are current
+        run: npm run protocol:check
       - name: ESLint
         run: npm run lint
       - name: Prettier

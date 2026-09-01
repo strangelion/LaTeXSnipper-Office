@@ -51,12 +51,15 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Protocol.cs" />
+    <Compile Include="Generated\ProtocolV4.g.cs" />
     <Compile Include="PipeClient.cs" />
     <Compile Include="PipeReconnectCoordinator.cs" />
     <Compile Include="Handshake.cs" />
     <Compile Include="WindowsIdentityHelper.cs" />
     <Compile Include="CommandMessage.cs" />
     <Compile Include="ICommandHostAdapter.cs" />
+    <Compile Include="EditableObjectHostAdapter.cs" />
+    <Compile Include="SpreadsheetTablePayload.cs" />
     <Compile Include="Metadata\FormulaDocumentManifest.cs" />
     <Compile Include="OleFormulaInterop.cs" />
     <Compile Include="OleFormulaActivation.cs" />

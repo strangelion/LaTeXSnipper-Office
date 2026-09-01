@@ -290,6 +290,20 @@ namespace LaTeXSnipper.Excel.Host
             return null;
         }
 
+        public TablePayload? ReadTableSelection()
+        {
+            if (_application.Selection is not Microsoft.Office.Interop.Excel.Range range)
+                return null;
+
+            int rows = range.Rows.Count;
+            int columns = range.Columns.Count;
+            return SpreadsheetTablePayload.FromValues(
+                range.Value2,
+                rows,
+                columns,
+                FormulaIdHelper.NewId());
+        }
+
         private static string? ExtractFormulaIdFromShapeName(string? name)
         {
             if (string.IsNullOrEmpty(name)) return null;
