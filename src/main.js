@@ -3,6 +3,7 @@
 import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
 import { initLiquidGlass } from "./features/appearance/liquid-glass.js";
+import { initAppearanceSettings } from "./features/appearance/custom-theme.js";
 import { initRecognitionWorkspace } from "./features/recognition/index.js";
 import {
   initRecognitionSettings,
@@ -2538,16 +2539,30 @@ class UIController {
     const openSidebar = () => {
       sidebarPanel?.classList.add("open");
       sidebarOverlay?.classList.add("visible");
-      sidebarTrigger.style.display = "none";
+      if (sidebarTrigger) {
+        sidebarTrigger.style.display = "none";
+        sidebarTrigger.setAttribute("aria-expanded", "true");
+      }
     };
 
     const closeSidebar = () => {
       sidebarPanel?.classList.remove("open");
       sidebarOverlay?.classList.remove("visible");
-      sidebarTrigger.style.display = "flex";
+      if (sidebarTrigger) {
+        sidebarTrigger.style.display = "flex";
+        sidebarTrigger.setAttribute("aria-expanded", "false");
+        sidebarTrigger.focus({ preventScroll: true });
+      }
     };
 
-    sidebarTrigger?.addEventListener("click", openSidebar);
+    let suppressSidebarClick = false;
+    sidebarTrigger?.addEventListener("click", () => {
+      if (suppressSidebarClick) {
+        suppressSidebarClick = false;
+        return;
+      }
+      openSidebar();
+    });
     sidebarClose?.addEventListener("click", closeSidebar);
     sidebarOverlay?.addEventListener("click", closeSidebar);
 
@@ -2560,17 +2575,37 @@ class UIController {
     let isDragging = false;
     let dragStartY = 0;
     let triggerStartY = 0;
+    let sidebarPointerId = null;
 
-    sidebarTrigger?.addEventListener("mousedown", (e) => {
+    const restoreSidebarTriggerPosition = () => {
+      if (!sidebarTrigger) return;
+      const savedTop = Number(
+        localStorage.getItem("latexsnipper.sidebarTriggerTop"),
+      );
+      if (!Number.isFinite(savedTop)) return;
+      const minTop = 60;
+      const maxTop = Math.max(minTop, window.innerHeight - 110);
+      sidebarTrigger.style.top = `${Math.max(minTop, Math.min(maxTop, savedTop))}px`;
+      sidebarTrigger.style.transform = "none";
+    };
+
+    restoreSidebarTriggerPosition();
+    window.addEventListener("resize", restoreSidebarTriggerPosition);
+
+    sidebarTrigger?.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
       isDragging = true;
+      suppressSidebarClick = false;
+      sidebarPointerId = e.pointerId;
       dragStartY = e.clientY;
       triggerStartY = sidebarTrigger.offsetTop;
-      e.preventDefault();
+      sidebarTrigger.setPointerCapture?.(e.pointerId);
     });
 
-    document.addEventListener("mousemove", (e) => {
-      if (!isDragging) return;
+    sidebarTrigger?.addEventListener("pointermove", (e) => {
+      if (!isDragging || e.pointerId !== sidebarPointerId) return;
       const delta = e.clientY - dragStartY;
+      if (Math.abs(delta) > 5) suppressSidebarClick = true;
       const newTop = triggerStartY + delta;
       const minTop = 60;
       const maxTop = window.innerHeight - 110;
@@ -2579,9 +2614,19 @@ class UIController {
       sidebarTrigger.style.transform = "none";
     });
 
-    document.addEventListener("mouseup", () => {
+    const finishSidebarDrag = (e) => {
+      if (!isDragging || e.pointerId !== sidebarPointerId) return;
       isDragging = false;
-    });
+      sidebarPointerId = null;
+      if (sidebarTrigger) {
+        localStorage.setItem(
+          "latexsnipper.sidebarTriggerTop",
+          String(sidebarTrigger.offsetTop),
+        );
+      }
+    };
+    sidebarTrigger?.addEventListener("pointerup", finishSidebarDrag);
+    sidebarTrigger?.addEventListener("pointercancel", finishSidebarDrag);
 
     let openTimeout = null;
     let closeTimeout = null;
@@ -9664,6 +9709,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Initialize liquid glass appearance (before UI renders)
   const glassState = initLiquidGlass();
+  initAppearanceSettings({
+    notify: (message) => controller.showToast(message),
+  });
 
   // ── Liquid Dock controllers (main dock + top nav + settings preview) ──
   let mainLiquidDock = null;

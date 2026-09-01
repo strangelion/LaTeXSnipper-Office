@@ -79,6 +79,8 @@ body {
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 a {
@@ -2442,6 +2444,284 @@ body {
       transparent 32%
     ),
     var(--bg);
+}
+
+html[data-background-style="solid"] body {
+  background: var(--bg);
+}
+
+html[data-background-style="grid"] body {
+  background:
+    linear-gradient(
+        color-mix(in srgb, var(--accent) 9%, transparent) 1px,
+        transparent 1px
+      )
+      0 0 / 28px 28px,
+    linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--accent) 9%, transparent) 1px,
+        transparent 1px
+      )
+      0 0 / 28px 28px,
+    var(--bg);
+}
+
+html[data-background-style="image"] body {
+  background: var(--bg);
+}
+
+html[data-background-style="image"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--appearance-background-image, none);
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  opacity: var(--appearance-background-image-opacity, 0.82);
+}
+
+html[data-icon-style] :where(button, .appearance-preview-icon) > svg:first-child,
+html[data-icon-style] .settings-item > svg:first-child {
+  transform: scale(var(--appearance-icon-scale, 1));
+  transform-origin: center;
+}
+
+html[data-icon-style="outline"] :where(button, .appearance-preview-icon) > svg,
+html[data-icon-style="outline"] .settings-item > svg:first-child {
+  stroke-width: 2;
+}
+
+html[data-icon-style="soft"] :where(button, .appearance-preview-icon) > svg,
+html[data-icon-style="soft"] .settings-item > svg:first-child {
+  stroke-width: 2.15;
+}
+
+html[data-icon-style="filled"] :where(button, .appearance-preview-icon) > svg,
+html[data-icon-style="filled"] .settings-item > svg:first-child {
+  stroke-width: 2.35;
+}
+
+html[data-icon-style="minimal"] :where(button, .appearance-preview-icon) > svg,
+html[data-icon-style="minimal"] .settings-item > svg:first-child {
+  stroke-width: 1.55;
+}
+
+html[data-icon-style="soft"] :where(.theme-toggle, .appearance-preview-icon) {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-color));
+}
+
+html[data-icon-style="filled"] :where(.theme-toggle, .appearance-preview-icon) {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+html[data-icon-style="filled"] .settings-item > svg:first-child {
+  color: var(--accent);
+  fill: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+html[data-icon-style="minimal"]
+  :where(.theme-toggle, .appearance-preview-icon) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.appearance-settings-card .settings-row-column {
+  gap: 0.9rem;
+}
+
+.appearance-card-heading,
+.appearance-two-column,
+.appearance-file-row,
+.appearance-range-row,
+.appearance-live-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.appearance-card-heading {
+  justify-content: space-between;
+}
+
+.appearance-card-heading > div {
+  min-width: 0;
+}
+
+.appearance-two-column,
+.appearance-color-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.appearance-control,
+.appearance-color-field {
+  display: grid;
+  gap: 0.38rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.appearance-select,
+.appearance-color-control {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--accent) 4%);
+  color: var(--fg);
+}
+
+.appearance-select {
+  padding: 0 2.25rem 0 0.75rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 17px,
+    calc(100% - 11px) 17px;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+
+.appearance-color-control {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  padding: 0.28rem;
+}
+
+.appearance-color-control input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 2px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: var(--card-bg);
+  cursor: pointer;
+}
+
+.appearance-color-control input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.appearance-color-control input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 6px;
+}
+
+.appearance-color-control input[type="text"] {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  text-transform: uppercase;
+}
+
+.appearance-range-row {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) minmax(120px, 1fr) 52px;
+}
+
+.appearance-range-row label,
+.appearance-range-row output {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.appearance-range-row output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.appearance-image-controls {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--card-bg));
+}
+
+.appearance-file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+}
+
+.appearance-file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.appearance-live-preview {
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-color));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card-bg) 90%, var(--accent) 4%);
+}
+
+.appearance-live-preview > div {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+}
+
+.appearance-live-preview small {
+  color: var(--muted);
+}
+
+.appearance-preview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--card-bg);
+}
+
+.appearance-settings-card [hidden] {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .appearance-two-column,
+  .appearance-color-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .appearance-card-heading,
+  .appearance-file-row,
+  .appearance-live-preview {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .appearance-range-row {
+    grid-template-columns: minmax(76px, auto) minmax(90px, 1fr) 46px;
+  }
 }
 
 /* Glass action dock (floating bottom toolbar) */

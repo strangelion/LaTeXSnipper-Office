@@ -4100,6 +4100,225 @@ x,y
               <span>外观</span>
             </div>
 
+            <div class="settings-card appearance-settings-card">
+              <div class="settings-row settings-row-column">
+                <div class="appearance-card-heading">
+                  <div>
+                    <span class="settings-label">程序色彩风格</span>
+                    <p class="settings-hint">
+                      预设与自定义色彩会立即应用到编辑、识别、绘图和设置界面，并保存在本机。
+                    </p>
+                  </div>
+                  <button
+                    id="appearanceReset"
+                    class="btn secondary"
+                    type="button"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+                <label class="appearance-control">
+                  <span>色彩方案</span>
+                  <select id="appearancePalette" class="appearance-select">
+                    <option value="system">跟随明暗主题</option>
+                    <option value="ocean">海蓝</option>
+                    <option value="forest">森绿</option>
+                    <option value="violet">紫罗兰</option>
+                    <option value="rose">蔷薇</option>
+                    <option value="amber">琥珀</option>
+                    <option value="custom">完全自定义</option>
+                  </select>
+                </label>
+                <div
+                  id="appearanceCustomColors"
+                  class="appearance-color-grid"
+                  hidden
+                >
+                  <label class="appearance-color-field">
+                    <span>强调色</span>
+                    <span class="appearance-color-control">
+                      <input
+                        id="appearanceAccentColor"
+                        type="color"
+                        value="#2563eb"
+                      />
+                      <input
+                        id="appearanceAccentHex"
+                        type="text"
+                        value="#2563EB"
+                        maxlength="7"
+                        spellcheck="false"
+                      />
+                    </span>
+                  </label>
+                  <label class="appearance-color-field">
+                    <span>程序背景</span>
+                    <span class="appearance-color-control">
+                      <input
+                        id="appearanceBackgroundColor"
+                        type="color"
+                        value="#f8fafc"
+                      />
+                      <input
+                        id="appearanceBackgroundHex"
+                        type="text"
+                        value="#F8FAFC"
+                        maxlength="7"
+                        spellcheck="false"
+                      />
+                    </span>
+                  </label>
+                  <label class="appearance-color-field">
+                    <span>面板颜色</span>
+                    <span class="appearance-color-control">
+                      <input
+                        id="appearanceSurfaceColor"
+                        type="color"
+                        value="#ffffff"
+                      />
+                      <input
+                        id="appearanceSurfaceHex"
+                        type="text"
+                        value="#FFFFFF"
+                        maxlength="7"
+                        spellcheck="false"
+                      />
+                    </span>
+                  </label>
+                  <label class="appearance-color-field">
+                    <span>主要文字</span>
+                    <span class="appearance-color-control">
+                      <input
+                        id="appearanceForegroundColor"
+                        type="color"
+                        value="#0f172a"
+                      />
+                      <input
+                        id="appearanceForegroundHex"
+                        type="text"
+                        value="#0F172A"
+                        maxlength="7"
+                        spellcheck="false"
+                      />
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card appearance-settings-card">
+              <div class="settings-row settings-row-column">
+                <span class="settings-label">背景</span>
+                <div class="appearance-two-column">
+                  <label class="appearance-control">
+                    <span>背景样式</span>
+                    <select
+                      id="appearanceBackgroundStyle"
+                      class="appearance-select"
+                    >
+                      <option value="ambient">柔和光晕</option>
+                      <option value="solid">纯色</option>
+                      <option value="grid">细网格</option>
+                      <option value="image">本地图片</option>
+                    </select>
+                  </label>
+                  <label class="appearance-control">
+                    <span>图标样式</span>
+                    <select id="appearanceIconStyle" class="appearance-select">
+                      <option value="outline">线框</option>
+                      <option value="soft">柔和底色</option>
+                      <option value="filled">强调填充</option>
+                      <option value="minimal">极简无框</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="appearance-range-row">
+                  <label for="appearanceIconScale">图标大小</label>
+                  <input
+                    id="appearanceIconScale"
+                    type="range"
+                    min="80"
+                    max="130"
+                    step="5"
+                    value="100"
+                  />
+                  <output
+                    id="appearanceIconScaleValue"
+                    for="appearanceIconScale"
+                    >100%</output
+                  >
+                </div>
+                <div
+                  id="appearanceImageControls"
+                  class="appearance-image-controls"
+                  hidden
+                >
+                  <div class="appearance-file-row">
+                    <label class="btn secondary appearance-file-button">
+                      选择本地图片
+                      <input
+                        id="appearanceBackgroundFile"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                      />
+                    </label>
+                    <button
+                      id="appearanceClearBackground"
+                      class="btn secondary"
+                      type="button"
+                    >
+                      清除图片
+                    </button>
+                    <span id="appearanceImageState" class="settings-hint"
+                      >尚未选择背景图片</span
+                    >
+                  </div>
+                  <div class="appearance-range-row">
+                    <label for="appearanceImageOpacity">图片强度</label>
+                    <input
+                      id="appearanceImageOpacity"
+                      type="range"
+                      min="10"
+                      max="100"
+                      step="1"
+                      value="82"
+                    />
+                    <output
+                      id="appearanceImageOpacityValue"
+                      for="appearanceImageOpacity"
+                      >82%</output
+                    >
+                  </div>
+                  <p class="settings-hint">
+                    图片只保存在当前设备，最大 1.5 MB；不会写入公式、SVG 或
+                    Office 插入内容。
+                  </p>
+                </div>
+                <div
+                  class="appearance-live-preview"
+                  aria-label="自定义外观预览"
+                >
+                  <span class="appearance-preview-icon" aria-hidden="true">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M12 3v18M3 12h18" />
+                    </svg>
+                  </span>
+                  <div>
+                    <strong>实时预览</strong
+                    ><small>图标、强调色、面板和背景会同步更新</small>
+                  </div>
+                  <button class="btn primary" type="button">示例按钮</button>
+                </div>
+              </div>
+            </div>
+
             <div class="settings-card">
               <div class="settings-row settings-row-column">
                 <span class="settings-label">液态玻璃</span>
@@ -4384,8 +4603,10 @@ x,y
     <button
       class="sidebar-trigger"
       id="sidebarTrigger"
-      title="打开公式库"
+      title="打开公式库（单击展开，可上下拖动）"
       aria-label="打开公式库"
+      aria-controls="sidebarPanel"
+      aria-expanded="false"
     >
       <svg
         width="12"
