@@ -10,6 +10,7 @@ import {
   resolveDrawingAuthoringInput,
   resolveVisualProfile,
   tablePayloadToPlotData,
+  visualCanvasToolsForLanguage,
   visualToolsForLanguage,
 } from "../src/features/drawing/workspace.js";
 import { toPgfPlotsExpression } from "../src/features/drawing/math-expression.js";
@@ -79,6 +80,18 @@ test("drawing previews fit actual ink bounds with stable padding", () => {
     computeFittedViewBox({ x: 0, y: 0, width: 0, height: 10 }),
     null,
   );
+});
+
+test("freehand canvas tool is exposed only by lossless SVG editing", () => {
+  assert.equal(visualCanvasToolsForLanguage("svg_source").freehand, true);
+  assert.equal(visualCanvasToolsForLanguage("tikz").freehand, false);
+  assert.equal(visualCanvasToolsForLanguage("graphviz_dot").freehand, false);
+  assert.equal(visualCanvasToolsForLanguage("mermaid").freehand, false);
+  assert.equal(
+    visualCanvasToolsForLanguage("tikz", ["pgf_plots"]).freehand,
+    false,
+  );
+  assert.equal(visualCanvasToolsForLanguage("mermaid").pan, true);
 });
 
 test("Mermaid render ids always form valid CSS id selectors", () => {

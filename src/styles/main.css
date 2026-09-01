@@ -2045,6 +2045,67 @@ a:hover {
     padding-bottom: 0.35rem;
     scrollbar-width: thin;
   }
+
+  .workspace-command-bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .workspace-command-cluster {
+    min-width: 0;
+  }
+
+  .workspace-command-cluster > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workspace-command-bar > .command-palette-launcher {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .editor-rail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .editor-rail > strong {
+    grid-column: 1 / -1;
+  }
+
+  .ai-generate-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ai-generate-row .btn {
+    width: auto;
+  }
+
+  .office-action-dock {
+    position: relative;
+    bottom: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+    margin: 1rem 0 0.25rem;
+    border-radius: 18px;
+  }
+
+  .office-action-dock .btn {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .office-action-dock .custom-select {
+    grid-column: 1 / -1;
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
   .main {
     padding: 0.75rem;
   }
@@ -4886,7 +4947,7 @@ body {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .nav-tabs {
     overflow-x: auto;
     justify-content: flex-start;
@@ -4897,7 +4958,12 @@ body {
   }
 
   .editor-rail {
-    grid-template-columns: repeat(5, minmax(108px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .editor-rail > strong {
+    grid-column: 1 / -1;
   }
 
   .workspace-heading {
@@ -4905,7 +4971,47 @@ body {
   }
 
   .workspace-command-bar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.55rem;
+    overflow-x: visible;
+  }
+
+  .workspace-command-cluster {
+    min-width: 0;
+  }
+
+  .workspace-command-cluster > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .workspace-command-cluster > div .btn,
+  .workspace-command-bar > .command-palette-launcher {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-command-bar > .command-palette-launcher {
+    grid-column: 1 / -1;
+  }
+
+  .office-action-dock {
+    position: relative;
+    bottom: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+    margin: 1rem 0 0.25rem;
+    padding: 0.5rem;
+    border-radius: 18px;
+  }
+
+  .office-action-dock .btn {
+    width: 100%;
+    min-width: 0;
   }
 
   .command-palette-layer {

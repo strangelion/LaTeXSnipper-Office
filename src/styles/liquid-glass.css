@@ -874,9 +874,26 @@ html[data-liquid-glass="off"] .liquid-dock-preview {
 }
 
 /* Keep the responsive flex behavior from main.css intact. */
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .liquid-nav {
     margin-left: 0;
+  }
+
+  .office-action-dock.liquid-dock {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    max-width: none;
+    margin: 1rem 0 0.25rem;
+    padding: 0.5rem;
+    border-radius: 18px;
+  }
+
+  .office-action-dock .liquid-lens-positioner,
+  .office-action-dock .liquid-lens-bridge,
+  .office-action-dock .liquid-dock-sheen,
+  .office-action-dock .liquid-dock-preview {
+    display: none !important;
   }
 }
 

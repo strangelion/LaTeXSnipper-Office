@@ -158,6 +158,15 @@ export function visualToolsForLanguage(language, packageProfiles = []) {
   return { ...(VISUAL_TOOLSETS[key] || VISUAL_TOOLSETS.svg_source) };
 }
 
+export function visualCanvasToolsForLanguage(language, packageProfiles = []) {
+  const profile = resolveVisualProfile(language, packageProfiles);
+  return Object.freeze({
+    select: true,
+    pan: true,
+    freehand: profile === "svg_source",
+  });
+}
+
 export function resolveVisualProfile(language, packageProfiles = []) {
   return packageProfiles.includes("pgf_plots") ? "pgf_plots" : language;
 }
@@ -729,6 +738,28 @@ export function createDrawingWorkspaceController({
         "";
       state.visualLocked = !parseVisualDocument(profile, elements.source.value)
         .lossless;
+    }
+    const canvasTools = visualCanvasToolsForLanguage(
+      language,
+      state.packageProfiles,
+    );
+    const hadUnsupportedActiveTool = (elements.canvasToolButtons || []).some(
+      (tool) =>
+        tool.classList.contains("active") &&
+        !canvasTools[tool.dataset.drawingCanvasTool],
+    );
+    if (hadUnsupportedActiveTool) visualEditor?.setTool("select");
+    for (const tool of elements.canvasToolButtons || []) {
+      const type = tool.dataset.drawingCanvasTool;
+      const supported = Boolean(canvasTools[type]);
+      const selected =
+        supported &&
+        (hadUnsupportedActiveTool
+          ? type === "select"
+          : tool.classList.contains("active"));
+      tool.hidden = !supported;
+      tool.classList.toggle("active", selected);
+      tool.setAttribute("aria-pressed", String(selected));
     }
     for (const panel of elements.profilePanels || []) {
       const selected = panel.dataset.drawingWorkbench === profile;
