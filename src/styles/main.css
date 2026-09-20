@@ -749,6 +749,15 @@ a:hover {
   justify-content: center;
 }
 
+.custom-symbol-preview {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 18rem);
+  max-height: 12rem;
+  object-fit: contain;
+}
+
 /* ═══════════════════════════════════════════
    History
    ═══════════════════════════════════════════ */
@@ -1571,6 +1580,63 @@ a:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 0.15rem;
+}
+.formula-rendered-preview {
+  min-height: 2.2rem;
+  margin: 0.3rem 0.2rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 1rem;
+}
+.formula-rendered-preview > math,
+.formula-rendered-preview > .custom-symbol-preview {
+  max-width: 100%;
+  max-height: 2.7rem;
+}
+.formula-latex-source {
+  display: block;
+  width: 100%;
+}
+.custom-symbol-library-item {
+  appearance: none;
+  font: inherit;
+}
+.custom-symbol-library-item.is-invalid {
+  border-color: color-mix(in srgb, var(--warning, #d97706) 48%, var(--border));
+  cursor: default;
+}
+.custom-symbol-command-issue {
+  display: block;
+  color: var(--warning-text, #9a5b00);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+.custom-symbol-command-repair {
+  width: 100%;
+  min-height: 2rem;
+  margin-top: 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 0.65rem;
+  background: var(--surface-elevated, var(--surface));
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.custom-symbol-command-repair:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+.formula-library-symbol-image {
+  display: block;
+  width: 100%;
+  height: 3.5rem;
+  margin: 0.35rem auto 0;
+  object-fit: contain;
 }
 .formula-item:hover {
   border-color: var(--accent);

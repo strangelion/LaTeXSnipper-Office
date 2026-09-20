@@ -64,6 +64,9 @@ pub async fn ocr_recognize(
         #[cfg(target_os = "windows")]
         {
             log::info!("Starting OCR recognition (legacy path, routed through RecognitionService)");
+            let permit = state.workers.clone().try_acquire_owned().map_err(|_| {
+                "RECOGNITION_BUSY: native recognition workers are occupied".to_string()
+            })?;
 
             // Decode base64 image data
             use base64::Engine;
@@ -101,7 +104,37 @@ pub async fn ocr_recognize(
 
             // Route through managed RecognitionService (NOT raw Snipper::from_file)
             let service = state.service().await?;
-            let document = service.recognize(&source_path, &request).await?;
+            let timeout = std::time::Duration::from_secs(120);
+            let cancellation = latexsnipper_pipeline::PipelineCancellationToken::new();
+            let worker_cancellation = cancellation.clone();
+            let runtime = tokio::runtime::Handle::current();
+            let result = crate::recognition::execution::supervise(
+                tokio_util::sync::CancellationToken::new(),
+                timeout,
+                move || {
+                    let _permit = permit;
+                    let result = runtime.block_on(service.recognize(
+                        &source_path,
+                        &request,
+                        worker_cancellation,
+                        timeout,
+                    ));
+                    if result.is_ok() {
+                        screenshot_job_lease.complete()?;
+                    }
+                    result
+                },
+            )
+            .await;
+            let document = result.map_err(|error| {
+                cancellation.cancel();
+                match error {
+                    crate::recognition::execution::ExecutionError::Failed(message) => message,
+                    crate::recognition::execution::ExecutionError::Cancelled => {
+                        "RECOGNITION_CANCELLED".to_string()
+                    }
+                }
+            })?;
 
             // Convert Document AST to OcrResult using the conversion crate
             use latexsnipper_conversion::{DocumentConverter, OutputFormat};
@@ -145,7 +178,6 @@ pub async fn ocr_recognize(
                 confidence
             );
 
-            screenshot_job_lease.complete()?;
             Ok(OcrResult {
                 latex,
                 confidence: confidence as f64,

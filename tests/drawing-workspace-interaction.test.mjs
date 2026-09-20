@@ -4,6 +4,7 @@ import {
   computeFittedViewBox,
   computePlotYRange,
   createDrawingWorkspaceController,
+  fitAndSerializeDrawingPreview,
   fitPlotData,
   migrateLegacyPlotLegend,
   parsePlotDataTable,
@@ -74,12 +75,39 @@ class FakeClassList {
 test("drawing previews fit actual ink bounds with stable padding", () => {
   assert.equal(
     computeFittedViewBox({ x: 100, y: 50, width: 200, height: 100 }),
-    "84 34 232 132",
+    "84 42 232 116",
   );
   assert.equal(
     computeFittedViewBox({ x: 0, y: 0, width: 0, height: 10 }),
     null,
   );
+});
+
+test("fitted preview geometry is serialized before Core and Office delivery", () => {
+  const attributes = new Map([
+    ["viewBox", "0 0 800 520"],
+    ["width", "800"],
+    ["height", "520"],
+  ]);
+  const svg = {
+    getBBox: () => ({ x: 100, y: 50, width: 200, height: 100 }),
+    setAttribute: (name, value) => attributes.set(name, value),
+    removeAttribute: (name) => attributes.delete(name),
+    get outerHTML() {
+      return `<svg viewBox="${attributes.get("viewBox")}" preserveAspectRatio="${attributes.get("preserveAspectRatio")}"></svg>`;
+    },
+  };
+  const preview = { querySelector: () => svg };
+
+  const serialized = fitAndSerializeDrawingPreview(
+    preview,
+    '<svg viewBox="0 0 800 520"></svg>',
+  );
+
+  assert.match(serialized, /viewBox="84 42 232 116"/);
+  assert.match(serialized, /preserveAspectRatio="xMidYMid meet"/);
+  assert.equal(attributes.has("width"), false);
+  assert.equal(attributes.has("height"), false);
 });
 
 test("freehand canvas tool is exposed only by lossless SVG editing", () => {

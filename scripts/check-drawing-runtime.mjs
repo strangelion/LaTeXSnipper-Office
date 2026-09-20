@@ -42,6 +42,11 @@ assert.doesNotMatch(
   /'unsafe-eval'/,
   "Tauri CSP must not enable general unsafe-eval",
 );
+assert.match(
+  csp,
+  /worker-src\s+[^;]*'self'[^;]*blob:/,
+  "Tauri CSP must allow only bundled and blob-backed drawing workers",
+);
 
 const tikzWasm = gunzipSync(readFileSync(join(root, "tex.wasm.gz")));
 assert.equal(tikzWasm.subarray(0, 4).toString("hex"), "0061736d");

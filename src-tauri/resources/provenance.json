@@ -1,7 +1,7 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "40f0893e526fdfe7a04ec6a8a869bd748197db91",
+    "sourceCommitSha":  "108db65574d88fb206ac2d9c1edb7f516f28ca31",
     "packageVersion":  "1.7.1",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
@@ -23,8 +23,8 @@
                     "nativeOffice":  {
                                          "name":  "msi-installer",
                                          "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\NativeOffice",
-                                         "sourceCommitSha":  "40f0893e526fdfe7a04ec6a8a869bd748197db91",
-                                         "coreCommitSha":  "a79f7eb5d806bf33e789a21771b321aeefd6242c"
+                                         "sourceCommitSha":  "108db65574d88fb206ac2d9c1edb7f516f28ca31",
+                                         "coreCommitSha":  "4639c80237100b76b70c85159d4c86a2cac66845"
                                      },
                     "obsidian":  {
                                      "name":  "local-build",
@@ -118,8 +118,8 @@
                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
                   },
     "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "E9C2459BA8587537EBF0DEC05097261520A525EFD04BE6A4DE85BA843E45BAFE",
-                               "LaTeXSnipper.NativeOffice.provenance.json":  "A4E057CDAB665DD827B26B89DE4D686D8A92030FE8639BBF8922CE754F1B369D",
-                               "installer.json":  "1AF7FA0806E471D2F2315109274BD78D88C4A5803B70F2F6D7365137EFC95D3E"
+                               "LaTeXSnipper.NativeOffice.msi":  "752BA29F3B34654A3561F4EB982FA871FF06827DB6D8EFD9087AEC7898DA9A39",
+                               "LaTeXSnipper.NativeOffice.provenance.json":  "A4DBD12E4247B8CD032AE273987595E853DF3CB4FAF2F754CC95A73F540CCF15",
+                               "installer.json":  "2A1584115E1CAF2CCC970DF8A447E7891DCC95C2785AFD9F451BD5C3B1F7FCC5"
                            }
 }

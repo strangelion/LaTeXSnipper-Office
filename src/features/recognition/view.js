@@ -47,9 +47,9 @@ function renderStatus(state) {
   if (!badge) return;
   const jobs = state.jobs || [];
   const running = jobs.filter((j) =>
-    ["Queued", "Running", "CancelRequested"].includes(j.status),
+    ["queued", "running", "cancelRequested"].includes(j.status),
   );
-  const failed = jobs.some((j) => j.status === "Failed");
+  const failed = jobs.some((j) => j.status === "failed");
 
   badge.classList.remove("is-ready", "is-busy", "is-error", "is-warning");
   if (running.length > 0) {
@@ -91,8 +91,8 @@ function renderStatus(state) {
     return;
   }
   const quality = readiness.quality || [];
-  const anyValidated = quality.some(
-    (entry) => entry.status === "Validated" || entry.status === "Experimental",
+  const anyValidated = quality.some((entry) =>
+    ["validated", "experimental"].includes(String(entry.status).toLowerCase()),
   );
   if (quality.length > 0 && !anyValidated) {
     badge.textContent = "基线未验证";
@@ -129,9 +129,9 @@ function renderJobList(jobs, selectedJobId) {
 function renderJob(job, selectedJobId) {
   const sel = job.id === selectedJobId;
   const status = String(job.status || "Unknown");
-  const cancellable = ["Queued", "Running"].includes(status);
+  const cancellable = ["queued", "running"].includes(status);
   const progress = normalizeProgress(job.progress);
-  const message = String(job.message || "");
+  const message = String(job.error || job.message || "");
 
   const item = document.createElement("div");
   item.className = `recognition-job-item${sel ? " selected" : ""}`;
@@ -148,7 +148,15 @@ function renderJob(job, selectedJobId) {
   statusSpan.className = `recognition-job-status status-${status
     .toLowerCase()
     .replace(/[^a-z]/g, "")}`;
-  statusSpan.textContent = status;
+  statusSpan.textContent =
+    {
+      queued: "等待中",
+      running: "正在识别",
+      cancelRequested: "正在取消",
+      completed: "已完成",
+      failed: "失败",
+      cancelled: "已取消",
+    }[status] || status;
   title.append(idSpan);
   title.append(statusSpan);
 

@@ -27,7 +27,7 @@ export async function initRecognitionWorkspace() {
   store.initJobStore();
 
   // Listen for job updates from the backend
-  controller.registerJobUpdateListener();
+  await controller.registerJobUpdateListener();
 
   // Wire up UI elements if the recognition tab exists
   if (view.hasRecognitionTab()) {

@@ -119,6 +119,9 @@ pub async fn recognition_start(
 
     #[cfg(feature = "recognition")]
     {
+        let worker_permit = state.workers.clone().try_acquire_owned().map_err(|_| {
+            "RECOGNITION_BUSY: 已有识别任务在运行或退出中，请稍后再试。".to_string()
+        })?;
         let path = PathBuf::from(&request.path);
         let screenshot_job_lease =
             crate::screenshot::lease::ScreenshotJobLeaseGuard::acquire(&path);
@@ -150,7 +153,16 @@ pub async fn recognition_start(
         let app_clone = app.clone();
 
         tauri::async_runtime::spawn(async move {
-            run_recognition_job(app_clone, service, job, path, request, screenshot_job_lease).await;
+            run_recognition_job(
+                app_clone,
+                service,
+                job,
+                path,
+                request,
+                screenshot_job_lease,
+                worker_permit,
+            )
+            .await;
         });
 
         Ok(RecognitionStartResponse { job_id })
@@ -266,7 +278,10 @@ async fn run_recognition_job(
     path: PathBuf,
     request: RecognitionStartRequest,
     mut screenshot_job_lease: crate::screenshot::lease::ScreenshotJobLeaseGuard,
+    worker_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
+    use crate::recognition::execution::{supervise, ExecutionError};
+
     // Transition to Running
     {
         let mut snap = job.snapshot.write().await;
@@ -278,50 +293,83 @@ async fn run_recognition_job(
 
     // Check cancellation before starting
     if job.cancellation.is_cancelled() {
-        finish_cancelled(&app, &job);
+        finish_cancelled(&app, &job).await;
         let _ = screenshot_job_lease.cancel();
         return;
     }
 
-    let mode_label = request.mode.clone();
+    let mode_label = request
+        .input_kind
+        .clone()
+        .unwrap_or_else(|| request.mode.clone());
     log::info!(
         "[Recognition] Starting job {} mode={mode_label} path={}",
         job.snapshot.read().await.id,
         path.display()
     );
 
-    let result = {
+    {
         let mut snap = job.snapshot.write().await;
         // Set stage based on actual mode, not hard-coded "RecognizingFormula"
         snap.stage = match mode_label.as_str() {
-            "formula" => RecognitionStage::RecognizingFormula,
+            "formula" | "cropped-formula" | "handwriting" => RecognitionStage::RecognizingFormula,
             "text" => RecognitionStage::RecognizingText,
             "table" => RecognitionStage::RecognizingTable,
             _ => RecognitionStage::DetectingLayout,
         };
-        snap.message = Some(format!("Recognizing ({mode_label})..."));
-        drop(snap);
+        snap.message = Some(format!("加载模型并执行识别（{mode_label}）…"));
+    }
+    emit_job_update(&app, &*job.snapshot.read().await);
 
-        // Route through managed RecognitionService (NOT raw Snipper::from_file)
-        service.recognize(&path, &request).await
-    };
+    let timeout = std::time::Duration::from_secs(
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+        {
+            600
+        } else {
+            120
+        },
+    );
+    let core_cancellation = latexsnipper_pipeline::PipelineCancellationToken::new();
+    let worker_cancellation = core_cancellation.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let result = supervise(job.cancellation.clone(), timeout, move || {
+        // Native loading/inference may block. Keep the input lease and slot in
+        // this worker even when its supervisor stops waiting for a result.
+        let _permit = worker_permit;
+        let result = runtime.block_on(service.recognize(
+            &path,
+            &request,
+            worker_cancellation.clone(),
+            timeout,
+        ));
+        if worker_cancellation.is_cancelled() {
+            let _ = screenshot_job_lease.cancel();
+        } else if result.is_ok() {
+            let _ = screenshot_job_lease.complete();
+        } else {
+            let _ = screenshot_job_lease.fail();
+        }
+        result
+    })
+    .await;
 
     // Check cancellation
     if job.cancellation.is_cancelled() {
-        finish_cancelled(&app, &job);
-        let _ = screenshot_job_lease.cancel();
+        core_cancellation.cancel();
+        finish_cancelled(&app, &job).await;
         return;
     }
 
     match result {
         Ok(document) => {
-            let mode = request
-                .input_kind
-                .clone()
-                .unwrap_or_else(|| request.mode.clone());
             // Store result
             *job.result.write().await = Some(std::sync::Arc::new(
-                crate::recognition::jobs::RecognitionResult { document, mode },
+                crate::recognition::jobs::RecognitionResult {
+                    document,
+                    mode: mode_label,
+                },
             ));
 
             // Transition to Completed
@@ -338,9 +386,13 @@ async fn run_recognition_job(
                 "[Recognition] Job {} completed successfully",
                 job.snapshot.read().await.id
             );
-            let _ = screenshot_job_lease.complete();
         }
-        Err(error) => {
+        Err(ExecutionError::Cancelled) => {
+            core_cancellation.cancel();
+            finish_cancelled(&app, &job).await;
+        }
+        Err(ExecutionError::Failed(error)) => {
+            core_cancellation.cancel();
             // Transition to Failed
             {
                 let mut snap = job.snapshot.write().await;
@@ -354,7 +406,6 @@ async fn run_recognition_job(
                 "[Recognition] Job {} failed: {error}",
                 job.snapshot.read().await.id
             );
-            let _ = screenshot_job_lease.fail();
         }
     }
 }
@@ -477,12 +528,8 @@ const fn quality_status_name(status: latexsnipper_api_types::ModelQualityStatus)
 }
 
 #[cfg(feature = "recognition")]
-fn finish_cancelled(app: &tauri::AppHandle, job: &RecognitionJobEntry) {
-    let mut snap = loop {
-        if let Ok(s) = job.snapshot.try_write() {
-            break s;
-        }
-    };
+async fn finish_cancelled(app: &tauri::AppHandle, job: &RecognitionJobEntry) {
+    let mut snap = job.snapshot.write().await;
     snap.status = RecognitionJobStatus::Cancelled;
     snap.message = Some("Cancelled".to_string());
     emit_job_update(app, &snap);

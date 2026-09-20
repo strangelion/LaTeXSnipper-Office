@@ -25,6 +25,13 @@ import {
 } from "./features/drawing/workspace.js";
 import { initCustomSymbolComposer } from "./features/custom-symbols/composer.js";
 import {
+  createCustomSymbolPreviewNode,
+  customSymbolRenderSupport,
+  isTrustedCustomSymbolHtmlContext,
+  listCustomSymbolPreviews,
+  renameCustomSymbolCommand,
+} from "./features/custom-symbols/library-preview.js";
+import {
   buildEditableMediaInsertArgs,
   customSymbolEditorState,
   drawingEditorState,
@@ -59,6 +66,7 @@ import {
 } from "./platform/settings-scope.js";
 
 const hasDesktopRuntime = () => Boolean(window.__TAURI_INTERNALS__);
+const CUSTOM_SYMBOL_LIBRARY_CATEGORY = "__custom_symbols__";
 
 // ═══════════════════════════════════════════
 // Logging System
@@ -196,6 +204,7 @@ class TemmlRenderer {
   constructor() {
     Logger.info("TemmlRenderer initializing...");
     this.loaded = false;
+    this.customMacros = {};
   }
 
   async init() {
@@ -229,6 +238,11 @@ class TemmlRenderer {
     try {
       const html = this.temml.renderToString(latex, {
         displayMode: display,
+        macros: { ...this.macros, ...this.customMacros },
+        // Custom-symbol macros only need a generated class to attach their
+        // safe data-URL artwork. Keep every other HTML-producing command
+        // rejected by Temml's trust gate.
+        trust: isTrustedCustomSymbolHtmlContext,
         throwOnError: false,
       });
       return html;
@@ -236,6 +250,10 @@ class TemmlRenderer {
       Logger.error("Temml render error:", e);
       return `<span>${latex}</span>`;
     }
+  }
+
+  setCustomMacros(macros) {
+    this.customMacros = { ...(macros || {}) };
   }
 
   // LaTeX → MathML
@@ -250,7 +268,8 @@ class TemmlRenderer {
       };
       return this.temml.renderToString(latex, {
         xml: true,
-        macros: macros,
+        macros: { ...macros, ...this.customMacros },
+        trust: isTrustedCustomSymbolHtmlContext,
         throwOnError: false,
       });
     } catch (e) {
@@ -269,6 +288,19 @@ class TemmlRenderer {
 // ═══════════════════════════════════════════
 // Custom Select Component
 // ═══════════════════════════════════════════
+function setCustomSelectTriggerLabel(trigger, text) {
+  if (!trigger) return;
+  let label = trigger.querySelector("span");
+  if (!label) {
+    for (const node of [...trigger.childNodes]) {
+      if (node.nodeType === Node.TEXT_NODE) node.remove();
+    }
+    label = document.createElement("span");
+    trigger.prepend(label);
+  }
+  label.textContent = String(text || "");
+}
+
 class CustomSelect {
   constructor(element) {
     this.element = element;
@@ -400,7 +432,7 @@ class CustomSelect {
     option.classList.add("selected");
     option.setAttribute("aria-selected", "true");
     this.value = option.dataset.value;
-    this.trigger.querySelector("span").textContent = option.textContent;
+    setCustomSelectTriggerLabel(this.trigger, option.textContent);
     this.trigger.dataset.value = this.value;
     this.close();
 
@@ -431,6 +463,9 @@ class FormulaEditor {
     Logger.info("FormulaEditor initializing...");
     this.mathfield = null;
     this.renderer = new TemmlRenderer();
+    this.previewRevision = 0;
+    this.mathfieldBaseMacros = null;
+    this.customSymbolSupport = customSymbolRenderSupport();
     this.init();
   }
 
@@ -451,6 +486,8 @@ class FormulaEditor {
         this.mathfield = new MathfieldElement();
         this.mathfield.setAttribute("virtual-keyboard-mode", "manual");
         container.appendChild(this.mathfield);
+        this.mathfieldBaseMacros = { ...this.mathfield.macros };
+        this.refreshCustomSymbolSupport({ reparse: false });
 
         this.mathfield.addEventListener("input", () => {
           const latex = this.mathfield.getValue("latex");
@@ -476,6 +513,14 @@ class FormulaEditor {
         Logger.info("MathLive editor initialized");
       }
 
+      window.addEventListener(
+        "latexsnipper:custom-symbol-library-changed",
+        () => {
+          this.refreshCustomSymbolSupport();
+          this._app?.refreshCustomSymbolLibraryCategory?.();
+        },
+      );
+
       this.renderer.init().then(() => {
         Logger.info("Temml preloaded");
       });
@@ -484,13 +529,57 @@ class FormulaEditor {
     }
   }
 
+  _installCustomSymbolStyles(root, cssText) {
+    if (!root) return;
+    const host = root.nodeType === Node.DOCUMENT_NODE ? root.head : root;
+    if (!host) return;
+    let style = host.querySelector?.(
+      'style[data-latexsnipper-custom-symbols="true"]',
+    );
+    if (!style) {
+      const ownerDocument = root.ownerDocument || root;
+      style = ownerDocument.createElement("style");
+      style.dataset.latexsnipperCustomSymbols = "true";
+      host.appendChild(style);
+    }
+    style.textContent = cssText;
+  }
+
+  refreshCustomSymbolSupport({ reparse = true } = {}) {
+    this.customSymbolSupport = customSymbolRenderSupport();
+    this.renderer.setCustomMacros(this.customSymbolSupport.temmlMacros);
+    this._installCustomSymbolStyles(document, this.customSymbolSupport.cssText);
+    if (!this.mathfield) return;
+    this.mathfield.macros = {
+      ...(this.mathfieldBaseMacros || this.mathfield.macros),
+      ...this.customSymbolSupport.mathLiveMacros,
+    };
+    this._installCustomSymbolStyles(
+      this.mathfield.shadowRoot,
+      this.customSymbolSupport.cssText,
+    );
+    if (reparse) {
+      const latex = this.mathfield.getValue("latex");
+      if (latex) this.mathfield.setValue(latex);
+      this.updatePreview(latex);
+    }
+  }
+
   async updatePreview(latex) {
     const previewHost = document.getElementById("previewHost");
     if (!previewHost) return;
+    const revision = ++this.previewRevision;
 
     if (!latex) {
       previewHost.innerHTML =
         '<span style="color: var(--muted);">输入公式后预览</span>';
+      return;
+    }
+
+    const customSymbol = createCustomSymbolPreviewNode(latex);
+    if (customSymbol) {
+      previewHost.dataset.previewKind = "custom-symbol";
+      previewHost.replaceChildren(customSymbol);
       return;
     }
 
@@ -503,6 +592,8 @@ class FormulaEditor {
     }
 
     const svg = await this.renderer.render(latex, display);
+    if (revision !== this.previewRevision) return;
+    previewHost.dataset.previewKind = "formula";
     previewHost.innerHTML = svg;
   }
 
@@ -524,6 +615,8 @@ class FormulaEditor {
    * Read-only: never triggers Office invoke.
    */
   async createPreviewNode(latex, display = false) {
+    const customSymbol = createCustomSymbolPreviewNode(latex);
+    if (customSymbol) return customSymbol;
     if (!this.renderer.loaded) {
       await this.renderer.init();
     }
@@ -2025,6 +2118,9 @@ class UIController {
     this.updateMdCopyButton();
 
     // Listen for recognition results from new workspace
+    window.addEventListener("recognition:job-started", (event) => {
+      this._activeRecognitionJobId = event.detail.jobId;
+    });
     window.addEventListener("recognition:result-ready", async (event) => {
       const jobId = event.detail.jobId;
       if (
@@ -3216,14 +3312,24 @@ class UIController {
 
     document
       .getElementById("officeOleInstallBtn")
-      ?.addEventListener("click", async () => {
+      ?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        if (button.disabled) return;
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = "正在安装并验证 OLE…";
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("native_office_install_ole");
-          this.showToast("OLE 安装成功");
-          this.checkOleStatus();
+          const result = await invoke("native_office_install_ole");
+          this.showToast(
+            result.message || "OLE 安装并验证成功，请重新打开 Office",
+          );
         } catch (e) {
           this.showToast("OLE 安装失败: " + (e.message || e));
+        } finally {
+          button.textContent = label;
+          button.disabled = false;
+          await this.checkOleStatus();
         }
       });
     document
@@ -5055,23 +5161,41 @@ class UIController {
           .querySelectorAll(".custom-select-option")
           .forEach((o) => o.classList.remove("selected"));
         option.classList.add("selected");
-        categorySelect.querySelector(
-          ".custom-select-trigger span",
-        ).textContent = cat.name;
-        categorySelect.querySelector(".custom-select-trigger").dataset.value =
-          cat.id;
+        const trigger = categorySelect.querySelector(".custom-select-trigger");
+        setCustomSelectTriggerLabel(trigger, cat.name);
+        trigger.dataset.value = cat.id;
+        categorySelect._selectInstance?.close();
         categorySelect.classList.remove("open");
+        trigger.setAttribute("aria-expanded", "false");
         this.renderFormulas(cat.id);
       });
       categoryDropdown.appendChild(option);
     });
 
+    const customSymbolOption = document.createElement("div");
+    customSymbolOption.className = "custom-select-option";
+    customSymbolOption.dataset.value = CUSTOM_SYMBOL_LIBRARY_CATEGORY;
+    customSymbolOption.addEventListener("click", () => {
+      categorySelect
+        .querySelectorAll(".custom-select-option")
+        .forEach((option) => option.classList.remove("selected"));
+      customSymbolOption.classList.add("selected");
+      const trigger = categorySelect.querySelector(".custom-select-trigger");
+      trigger.dataset.value = CUSTOM_SYMBOL_LIBRARY_CATEGORY;
+      setCustomSelectTriggerLabel(trigger, customSymbolOption.textContent);
+      categorySelect._selectInstance?.close();
+      categorySelect.classList.remove("open");
+      trigger.setAttribute("aria-expanded", "false");
+      this.renderFormulas(CUSTOM_SYMBOL_LIBRARY_CATEGORY);
+    });
+    categoryDropdown.appendChild(customSymbolOption);
+    this.refreshCustomSymbolLibraryCategory();
+
     if (this.library.getCategories().length > 0) {
       const firstCategory = this.library.getCategories()[0];
-      categorySelect.querySelector(".custom-select-trigger span").textContent =
-        firstCategory.name;
-      categorySelect.querySelector(".custom-select-trigger").dataset.value =
-        firstCategory.id;
+      const trigger = categorySelect.querySelector(".custom-select-trigger");
+      setCustomSelectTriggerLabel(trigger, firstCategory.name);
+      trigger.dataset.value = firstCategory.id;
       Logger.debug(`Rendering first category: ${firstCategory.name}`);
       this.renderFormulas(firstCategory.id);
     }
@@ -5084,6 +5208,11 @@ class UIController {
     const grid = document.getElementById("libraryGrid");
     if (!grid) {
       Logger.warn("libraryGrid not found");
+      return;
+    }
+
+    if (categoryId === CUSTOM_SYMBOL_LIBRARY_CATEGORY) {
+      this.renderCustomSymbolLibrary(grid);
       return;
     }
 
@@ -5141,8 +5270,11 @@ class UIController {
       label.className = "formula-label";
       label.textContent = formula.label;
       const latex = document.createElement("div");
-      latex.className = "formula-latex";
+      latex.className = "formula-latex formula-latex-source";
       latex.textContent = formula.latex;
+      const preview = document.createElement("div");
+      preview.className = "formula-rendered-preview";
+      preview.setAttribute("aria-label", `${formula.label} 预览`);
       const actions = document.createElement("div");
       actions.className = "formula-item-actions";
       const actionSpecs = [
@@ -5167,15 +5299,124 @@ class UIController {
         });
         actions.append(action);
       }
-      item.append(label, latex, actions);
+      item.append(label, preview, latex, actions);
       item.addEventListener("click", () => {
         this.library.recordUse(formula);
         this.insertFormula(formula.latex);
       });
       grid.appendChild(item);
+      void this.renderFormulaLibraryPreview(preview, formula.latex);
     });
 
     Logger.debug(`Rendered ${formulas.length} formula items`);
+  }
+
+  refreshCustomSymbolLibraryCategory() {
+    const categorySelect = document.getElementById("categorySelect");
+    const option = categorySelect?.querySelector(
+      `.custom-select-option[data-value="${CUSTOM_SYMBOL_LIBRARY_CATEGORY}"]`,
+    );
+    const previews = listCustomSymbolPreviews();
+    if (option) option.textContent = `自定义符号（${previews.length}）`;
+    const trigger = categorySelect?.querySelector(".custom-select-trigger");
+    if (trigger?.dataset.value === CUSTOM_SYMBOL_LIBRARY_CATEGORY) {
+      setCustomSelectTriggerLabel(trigger, `自定义符号（${previews.length}）`);
+      const grid = document.getElementById("libraryGrid");
+      if (grid) this.renderCustomSymbolLibrary(grid);
+    }
+  }
+
+  renderCustomSymbolLibrary(grid) {
+    const previews = listCustomSymbolPreviews();
+    grid.replaceChildren();
+    if (previews.length === 0) {
+      const empty = document.createElement("section");
+      empty.className = "formula-library-empty";
+      const title = document.createElement("strong");
+      title.textContent = "尚未保存自定义符号";
+      const detail = document.createElement("p");
+      detail.textContent =
+        "在自定义符号画板中验证并保存后，会在这里显示图形与命令。";
+      empty.append(title, detail);
+      grid.append(empty);
+      return;
+    }
+
+    for (const preview of previews) {
+      const item = document.createElement(
+        preview.usable ? "button" : "article",
+      );
+      if (preview.usable) item.type = "button";
+      item.className = "formula-item custom-symbol-library-item";
+      item.classList.toggle("is-invalid", !preview.usable);
+      item.title = preview.usable ? `插入 ${preview.command}` : preview.issue;
+      const label = document.createElement("span");
+      label.className = "formula-label";
+      label.textContent = preview.name;
+      const image = document.createElement("img");
+      image.className = "formula-library-symbol-image";
+      image.src = preview.dataUrl;
+      image.alt = `${preview.name}（${preview.command}）`;
+      image.decoding = "async";
+      image.draggable = false;
+      const command = document.createElement("code");
+      command.className = "formula-latex formula-latex-source";
+      command.textContent = preview.command;
+      item.append(label, image, command);
+      if (preview.usable) {
+        item.addEventListener("click", () =>
+          this.insertFormula(preview.command),
+        );
+      } else {
+        const issue = document.createElement("span");
+        issue.className = "custom-symbol-command-issue";
+        issue.textContent = "命令含数字或标点，TeX 会拆开解析";
+        const repair = document.createElement("button");
+        repair.type = "button";
+        repair.className = "custom-symbol-command-repair";
+        repair.textContent = `重命名为 ${preview.suggestedCommand}`;
+        repair.addEventListener("click", () => {
+          try {
+            const nextCommand = renameCustomSymbolCommand({
+              symbolId: preview.symbolId,
+              currentCommand: preview.command,
+              nextCommand: preview.suggestedCommand,
+            });
+            window.dispatchEvent(
+              new CustomEvent("latexsnipper:custom-symbol-library-changed", {
+                detail: { command: nextCommand },
+              }),
+            );
+            this.showToast(`已重命名为 ${nextCommand}，现在可以插入公式`);
+          } catch (error) {
+            const reason = String(error?.message || error);
+            this.showToast(
+              reason.includes("DUPLICATE")
+                ? "建议命令已存在，请回到自定义符号画板换一个英文命令"
+                : "符号重命名失败，请回到自定义符号画板检查命令",
+            );
+          }
+        });
+        item.append(issue, repair);
+      }
+      grid.append(item);
+    }
+  }
+
+  async renderFormulaLibraryPreview(host, latex) {
+    const token = crypto.randomUUID();
+    host.dataset.renderToken = token;
+    try {
+      const node = await this.editor.createPreviewNode(latex, false);
+      if (!host.isConnected || host.dataset.renderToken !== token) return;
+      host.replaceChildren(node);
+      host.dataset.renderState = "ready";
+    } catch (error) {
+      if (!host.isConnected || host.dataset.renderToken !== token) return;
+      host.dataset.renderState = "failed";
+      host.textContent = "预览不可用";
+      Logger.warn("Formula library preview failed", error);
+    }
   }
 
   searchLibrary(query) {
@@ -5203,15 +5444,22 @@ class UIController {
     }
 
     results.forEach(({ formula, category }) => {
-      const item = document.createElement("div");
+      const item = document.createElement("button");
+      item.type = "button";
       item.className = "formula-item";
       item.title = `${formula.latex}\n分类: ${category}`;
-      item.innerHTML = `
-        <div class="formula-label">${formula.label}</div>
-        <div class="formula-latex">${formula.latex}</div>
-      `;
+      const label = document.createElement("span");
+      label.className = "formula-label";
+      label.textContent = formula.label;
+      const preview = document.createElement("span");
+      preview.className = "formula-rendered-preview";
+      const latex = document.createElement("code");
+      latex.className = "formula-latex formula-latex-source";
+      latex.textContent = formula.latex;
+      item.append(label, preview, latex);
       item.addEventListener("click", () => this.insertFormula(formula.latex));
       grid.appendChild(item);
+      void this.renderFormulaLibraryPreview(preview, formula.latex);
     });
 
     Logger.debug(`Search results: ${results.length}`);
@@ -5227,6 +5475,33 @@ class UIController {
   }
 
   selectFormulaLibraryCategory(categoryId) {
+    if (categoryId === CUSTOM_SYMBOL_LIBRARY_CATEGORY) {
+      const categorySelect = document.getElementById("categorySelect");
+      const trigger = categorySelect?.querySelector(".custom-select-trigger");
+      const option = categorySelect?.querySelector(
+        `[data-value="${CUSTOM_SYMBOL_LIBRARY_CATEGORY}"]`,
+      );
+      if (trigger) {
+        trigger.dataset.value = CUSTOM_SYMBOL_LIBRARY_CATEGORY;
+        setCustomSelectTriggerLabel(
+          trigger,
+          option?.textContent || "自定义符号",
+        );
+      }
+      categorySelect
+        ?.querySelectorAll(".custom-select-option")
+        .forEach((candidate) =>
+          candidate.classList.toggle(
+            "selected",
+            candidate.dataset.value === CUSTOM_SYMBOL_LIBRARY_CATEGORY,
+          ),
+        );
+      categorySelect?._selectInstance?.close();
+      categorySelect?.classList.remove("open");
+      trigger?.setAttribute("aria-expanded", "false");
+      this.renderFormulas(CUSTOM_SYMBOL_LIBRARY_CATEGORY);
+      return true;
+    }
     const category = this.library
       .getCategories()
       .find((candidate) => candidate.id === categoryId);
@@ -5235,8 +5510,7 @@ class UIController {
     const trigger = categorySelect?.querySelector(".custom-select-trigger");
     if (trigger) {
       trigger.dataset.value = category.id;
-      const label = trigger.querySelector("span");
-      if (label) label.textContent = category.name;
+      setCustomSelectTriggerLabel(trigger, category.name);
     }
     categorySelect
       ?.querySelectorAll(".custom-select-option")
@@ -5246,6 +5520,9 @@ class UIController {
           option.dataset.value === category.id,
         ),
       );
+    categorySelect?._selectInstance?.close();
+    categorySelect?.classList.remove("open");
+    trigger?.setAttribute("aria-expanded", "false");
     this.renderFormulas(category.id);
     return true;
   }

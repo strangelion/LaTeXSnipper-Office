@@ -592,6 +592,12 @@ pub(crate) fn install_native_office_stack() -> PlatformIntegrationResult {
             }
         }
         Err(e) => {
+            if !cfg!(debug_assertions) {
+                return PlatformIntegrationResult::fail(
+                    "office", "native-stack",
+                    format!("NATIVE_OFFICE_PACKAGE_MISSING: {e}. 请重新安装包含 NativeOffice MSI 的完整桌面安装包。"),
+                );
+            }
             // MSI not found — fall back to direct registration for dev environments
             log::warn!(
                 "[Office] MSI not found ({}), falling back to direct registration",

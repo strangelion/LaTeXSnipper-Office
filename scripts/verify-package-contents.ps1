@@ -114,12 +114,19 @@ if ($WindowsPackageRoots.Count -gt 0) {
 
     if ($isMsiOnly) {
         Write-Host "  Using MSI-only verification model" -ForegroundColor Green
+        & (Join-Path $PSScriptRoot "verify-native-office-msi.ps1") -Path $msiPath
+        $expectedMsiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash
 
         foreach ($rootValue in $WindowsPackageRoots) {
             $root = (Resolve-Path -LiteralPath $rootValue).Path
             $msiMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.msi")
             if ($msiMatches.Count -eq 0) {
                 throw "MSI package is missing from ${root}"
+            }
+            foreach ($match in $msiMatches) {
+                if ((Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash -ne $expectedMsiHash) {
+                    throw "Packaged NativeOffice MSI differs from the verified staging MSI: $($match.FullName)"
+                }
             }
             Write-Host "    MSI: found in ${root}" -ForegroundColor Green
         }

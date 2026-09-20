@@ -490,8 +490,14 @@ export function computeFittedViewBox(bounds, paddingRatio = 0.08) {
     height <= 0
   )
     return null;
-  const padding = Math.max(4, Math.max(width, height) * paddingRatio);
-  return [x - padding, y - padding, width + padding * 2, height + padding * 2]
+  const paddingX = Math.max(4, width * paddingRatio);
+  const paddingY = Math.max(4, height * paddingRatio);
+  return [
+    x - paddingX,
+    y - paddingY,
+    width + paddingX * 2,
+    height + paddingY * 2,
+  ]
     .map((value) => Math.round(value * 100) / 100)
     .join(" ");
 }
@@ -513,6 +519,16 @@ export function fitDrawingPreview(preview) {
   svg.removeAttribute("width");
   svg.removeAttribute("height");
   return true;
+}
+
+export function fitAndSerializeDrawingPreview(preview, fallbackSvg = "") {
+  const fitted = fitDrawingPreview(preview);
+  if (!fitted) return fallbackSvg;
+  const svg =
+    preview?.querySelector?.(":scope > svg") || preview?.querySelector?.("svg");
+  return typeof svg?.outerHTML === "string" && svg.outerHTML
+    ? svg.outerHTML
+    : fallbackSvg;
 }
 
 export function resolveDrawingAuthoringInput({
@@ -803,7 +819,7 @@ export function createDrawingWorkspaceController({
       });
       const originalSource = authored.source;
       const authoredLanguage = authored.language;
-      const renderedSvg = renderLocal
+      let renderedSvg = renderLocal
         ? await renderLocal({
             language: authoredLanguage,
             source: originalSource,
@@ -816,7 +832,10 @@ export function createDrawingWorkspaceController({
       if (!isCurrent()) return null;
       if (renderedSvg && elements.preview) {
         elements.preview.innerHTML = renderedSvg;
-        fitDrawingPreview(elements.preview);
+        renderedSvg = fitAndSerializeDrawingPreview(
+          elements.preview,
+          renderedSvg,
+        );
         markPreviewReady(false);
         status("本地预览已生成，正在由 Core 执行安全校验…");
       }

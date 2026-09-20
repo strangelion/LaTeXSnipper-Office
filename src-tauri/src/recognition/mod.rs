@@ -8,6 +8,8 @@
 //! - Old jobs keep using their Arc<Service>, new jobs use the latest service.
 
 pub mod dto;
+#[cfg(feature = "recognition")]
+pub mod execution;
 pub mod jobs;
 pub mod paths;
 pub mod provider_smoke;

@@ -45,7 +45,19 @@ export async function renderGraphviz(source, engine = "dot") {
   const text = assertSafeSource(source);
   graphvizPromise ||= import("@viz-js/viz").then(({ instance }) => instance());
   const viz = await graphvizPromise;
-  return withTimeout(viz.renderString(text, { engine, format: "svg" }), 15_000);
+  const svg = await withTimeout(
+    viz.renderString(text, { engine, format: "svg" }),
+    15_000,
+  );
+  // Strip only Graphviz's fixed SVG 1.1 prolog before Core validation.
+  const inlineSvg = svg
+    .replace(/^\s*<\?xml\s[^?]*\?>\s*/i, "")
+    .replace(
+      /^<!DOCTYPE svg PUBLIC\s+"-\/\/W3C\/\/DTD SVG 1\.1\/\/EN"\s+"http:\/\/www\.w3\.org\/Graphics\/SVG\/1\.1\/DTD\/svg11\.dtd">\s*/i,
+      "",
+    )
+    .replace(/^(?:\s*<!--[\s\S]*?-->\s*)+/, "");
+  return normalizeBundledSvg(inlineSvg, "Graphviz");
 }
 
 export async function renderMermaid(source, id = `mermaid-${Date.now()}`) {

@@ -218,7 +218,83 @@ const insertHidden = await page.evaluate(() => {
 });
 check("office-insert hidden without Office", insertHidden);
 
-// 10. No console errors from our modules (ignore Tauri API missing)
+// 10. The final liquid-glass cascade must keep Office actions readable. Force
+// the normally host-gated buttons into view and test both enabled and disabled
+// states in light and dark modes.
+const officeContrast = await page.evaluate(() => {
+  const parse = (value) => {
+    const parts =
+      String(value)
+        .match(/[\d.]+/g)
+        ?.map(Number) || [];
+    return {
+      r: parts[0] || 0,
+      g: parts[1] || 0,
+      b: parts[2] || 0,
+      a: parts.length > 3 ? parts[3] : 1,
+    };
+  };
+  const composite = (front, back) => ({
+    r: front.r * front.a + back.r * (1 - front.a),
+    g: front.g * front.a + back.g * (1 - front.a),
+    b: front.b * front.a + back.b * (1 - front.a),
+    a: 1,
+  });
+  const luminance = ({ r, g, b }) => {
+    const channel = (value) => {
+      const normalized = value / 255;
+      return normalized <= 0.03928
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+    return channel(r) * 0.2126 + channel(g) * 0.7152 + channel(b) * 0.0722;
+  };
+  const ratio = (first, second) => {
+    const a = luminance(first);
+    const b = luminance(second);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  const root = document.documentElement;
+  const button = document.getElementById("insertToWord");
+  button.style.display = "inline-flex";
+  const samples = [];
+  for (const theme of ["light", "dark"]) {
+    root.dataset.theme = theme;
+    for (const disabled of [false, true]) {
+      button.disabled = disabled;
+      const style = getComputedStyle(button);
+      const rootBackground = parse(
+        getComputedStyle(document.body).backgroundColor,
+      );
+      const background = composite(
+        parse(style.backgroundColor),
+        rootBackground,
+      );
+      const drawnColor = style.webkitTextFillColor || style.color;
+      samples.push({
+        theme,
+        disabled,
+        color: style.color,
+        drawnColor,
+        background: style.backgroundColor,
+        ratio: ratio(parse(drawnColor), background),
+      });
+    }
+  }
+  button.style.display = "none";
+  button.disabled = false;
+  root.dataset.theme = "light";
+  return samples;
+});
+check(
+  "Office action contrast survives light/dark liquid cascade",
+  officeContrast.every(({ disabled, ratio }) =>
+    disabled ? ratio >= 3 : ratio >= 4.5,
+  ),
+  JSON.stringify(officeContrast),
+);
+
+// 11. No console errors from our modules (ignore Tauri API missing)
 const relevantErrors = consoleErrors.filter(
   (e) => !e.includes("__TAURI_INTERNALS__") && !e.includes("tauri"),
 );

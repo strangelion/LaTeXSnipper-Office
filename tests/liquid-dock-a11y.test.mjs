@@ -198,3 +198,23 @@ describe("Reduced motion contract", () => {
     assert.match(css, /display: none/);
   });
 });
+
+describe("Office action contrast", () => {
+  it("survives the final liquid-glass cascade", () => {
+    assert.match(
+      css,
+      /\.office-action-dock\.liquid-dock \.btn\.office-insert-btn:not\(:disabled\)/,
+      "enabled Office actions keep an opaque high-contrast surface",
+    );
+    assert.match(
+      css,
+      /\.office-action-dock\.liquid-dock \.btn\.office-insert-btn:disabled/,
+      "disabled Office actions use theme-aware foreground and glass surface",
+    );
+    assert.match(
+      css,
+      /\.office-action-dock\.liquid-dock \.btn\.office-insert-btn:disabled\s*\{[^}]*opacity:\s*1/,
+      "disabled Office actions do not inherit the washed-out generic opacity",
+    );
+  });
+});

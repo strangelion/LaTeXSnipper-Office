@@ -537,6 +537,28 @@ html[data-liquid-glass="off"] {
   box-shadow: none;
 }
 
+/* Office actions need an opaque final-layer surface. main.css is loaded
+   before this file, so the generic liquid rule must not turn their white
+   label into white-on-glass in light or custom themes. */
+.office-action-dock.liquid-dock .btn.office-insert-btn:not(:disabled) {
+  background: #d83b01;
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  box-shadow: 0 5px 16px rgba(216, 59, 1, 0.2);
+}
+
+.office-action-dock.liquid-dock .btn.office-insert-btn:hover:not(:disabled) {
+  background: #b83200;
+}
+
+.office-action-dock.liquid-dock .btn.office-insert-btn:disabled {
+  background: rgba(var(--glass-rgb), 0.46);
+  color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
+  opacity: 1;
+  box-shadow: none;
+}
+
 .liquid-dock .custom-select,
 .liquid-dock .custom-select-trigger,
 .office-action-dock.liquid-dock .custom-select,

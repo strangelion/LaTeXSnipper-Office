@@ -79,33 +79,53 @@ export function setReadiness(value) {
 }
 
 export function upsertJobSnapshot(snapshot) {
-  jobs.set(snapshot.id, { ...snapshot });
+  const normalized = normalizeJobSnapshot(snapshot);
+  const previous = jobs.get(normalized.id);
+  // A delayed queued/running event must not resurrect a finished job.
+  if (isTerminalJob(previous?.status) && !isTerminalJob(normalized.status)) {
+    return previous;
+  }
+  jobs.set(normalized.id, normalized);
 
   // Remove from pending when terminal
-  if (["Completed", "Failed", "Cancelled"].includes(snapshot.status)) {
-    pendingJobIds.delete(snapshot.id);
+  if (isTerminalJob(normalized.status)) {
+    pendingJobIds.delete(normalized.id);
   }
 
   notify();
+  return normalized;
+}
+
+export function normalizeJobSnapshot(snapshot) {
+  // Rust uses camelCase; tolerate PascalCase from older desktop builds.
+  const status = String(snapshot.status || "unknown");
+  return { ...snapshot, status: status[0].toLowerCase() + status.slice(1) };
+}
+
+export function isTerminalJob(status) {
+  return ["completed", "failed", "cancelled"].includes(status);
 }
 
 export function setJobList(snapshots) {
   jobs.clear();
   for (const snap of snapshots) {
-    jobs.set(snap.id, { ...snap });
+    const normalized = normalizeJobSnapshot(snap);
+    jobs.set(normalized.id, normalized);
+    if (isTerminalJob(normalized.status)) pendingJobIds.delete(normalized.id);
   }
   notify();
 }
 
 export function addPendingJob(jobId) {
+  if (isTerminalJob(jobs.get(jobId)?.status)) return;
   pendingJobIds.add(jobId);
   notify();
 }
 
 export function markJobCancelRequested(jobId) {
   const job = jobs.get(jobId);
-  if (job) {
-    job.status = "CancelRequested";
+  if (job && !isTerminalJob(job.status)) {
+    job.status = "cancelRequested";
     job.message = "Cancelling...";
     notify();
   }

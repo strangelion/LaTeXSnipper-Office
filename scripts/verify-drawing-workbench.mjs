@@ -169,6 +169,41 @@ try {
     );
   await page.locator("#drawingCompileBtn").click();
   await page.locator("#drawingPreview svg").waitFor({ timeout: 20_000 });
+  const fittedPreview = await page.evaluate(() => {
+    const svg = document.querySelector("#drawingPreview > svg");
+    if (!svg) return null;
+    const box = svg.getBBox();
+    const viewBox = (svg.getAttribute("viewBox") || "")
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
+    return {
+      box: { x: box.x, y: box.y, width: box.width, height: box.height },
+      viewBox,
+      width: svg.getAttribute("width"),
+      height: svg.getAttribute("height"),
+    };
+  });
+  assert.ok(fittedPreview, "compiled preview must expose a root SVG");
+  assert.equal(fittedPreview.viewBox.length, 4);
+  assert.equal(
+    fittedPreview.viewBox.every(Number.isFinite),
+    true,
+    "compiled preview must expose a numeric fitted viewBox",
+  );
+  assert.equal(fittedPreview.width, null);
+  assert.equal(fittedPreview.height, null);
+  const [viewX, viewY, viewWidth, viewHeight] = fittedPreview.viewBox;
+  const contentRight = fittedPreview.box.x + fittedPreview.box.width;
+  const contentBottom = fittedPreview.box.y + fittedPreview.box.height;
+  assert.ok(viewX <= fittedPreview.box.x && viewY <= fittedPreview.box.y);
+  assert.ok(viewX + viewWidth >= contentRight);
+  assert.ok(viewY + viewHeight >= contentBottom);
+  assert.ok(
+    viewWidth < fittedPreview.box.width * 1.35 &&
+      viewHeight < fittedPreview.box.height * 1.35,
+    `compiled preview must not retain the authoring canvas as Office image whitespace: ${JSON.stringify(fittedPreview)}`,
+  );
   const mermaidSvg = await page.locator("#drawingPreview").innerHTML();
   assert.doesNotMatch(mermaidSvg, /foreignObject|1999\/xhtml/i);
   assert.match(
@@ -387,7 +422,7 @@ try {
   assert.deepEqual(relevantErrors, []);
   assert.deepEqual(failedFontRequests, []);
   console.log(
-    "Drawing workbench real-browser smoke OK: professional SVG freehand/history/layers, Mermaid navigation/inline edit, safety, PNG raster, Excel-to-PGF entry, every PGF preset, fitting, fonts, stale-preview reset, TikZ CJK, LaTeX object, dark theme contrast",
+    "Drawing workbench real-browser smoke OK: professional SVG freehand/history/layers, Mermaid navigation/inline edit, fitted Office bounds, safety, PNG raster, Excel-to-PGF entry, every PGF preset, fitting, fonts, stale-preview reset, TikZ CJK, LaTeX object, dark theme contrast",
   );
 } finally {
   await browser.close();

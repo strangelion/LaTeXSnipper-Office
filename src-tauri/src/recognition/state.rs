@@ -30,6 +30,10 @@ pub struct RecognitionState {
     /// Job manager (always available).
     pub jobs: Arc<RecognitionJobManager>,
 
+    /// A timed-out native worker keeps its permit until it actually exits.
+    #[cfg(feature = "recognition")]
+    pub workers: Arc<tokio::sync::Semaphore>,
+
     /// Ensures service initialization happens only once at a time.
     init_lock: Mutex<()>,
 
@@ -60,6 +64,8 @@ impl RecognitionService {
         &self,
         path: &Path,
         request: &RecognitionStartRequest,
+        cancellation: latexsnipper_pipeline::PipelineCancellationToken,
+        timeout: std::time::Duration,
     ) -> Result<latexsnipper_ast::Document, String> {
         let mode = map_request_to_core_mode(request)?;
 
@@ -73,9 +79,9 @@ impl RecognitionService {
 
         if needs_custom {
             let temp_engine = self.build_engine_for_request(request)?;
-            run_recognition(&temp_engine, path, mode, is_pdf).await
+            run_recognition(&temp_engine, path, mode, is_pdf, cancellation, timeout).await
         } else {
-            run_recognition(&self.engine, path, mode, is_pdf).await
+            run_recognition(&self.engine, path, mode, is_pdf, cancellation, timeout).await
         }
     }
 
@@ -130,6 +136,8 @@ async fn run_recognition(
     path: &Path,
     mode: latexsnipper_engine::RecognizeMode,
     is_pdf: bool,
+    cancellation: latexsnipper_pipeline::PipelineCancellationToken,
+    timeout: std::time::Duration,
 ) -> Result<latexsnipper_ast::Document, String> {
     if is_pdf {
         engine
@@ -142,7 +150,14 @@ async fn run_recognition(
             decode(ImageSource::File(path)).map_err(|e| format!("Image decode failed: {e}"))?;
 
         engine
-            .recognize(img, mode)
+            .recognize_controlled(
+                img,
+                mode,
+                engine.config().parse_mode,
+                Some(cancellation),
+                Some(timeout),
+                None,
+            )
             .await
             .map_err(|e| format!("Recognition failed: {e}"))
     }
@@ -153,6 +168,8 @@ impl RecognitionState {
         Self {
             paths,
             jobs: Arc::new(RecognitionJobManager::new()),
+            #[cfg(feature = "recognition")]
+            workers: Arc::new(tokio::sync::Semaphore::new(2)),
             init_lock: Mutex::new(()),
             #[cfg(feature = "recognition")]
             service: RwLock::new(None),
@@ -166,7 +183,9 @@ impl RecognitionState {
     /// resolves manifests and providers but does not warm up a model session.
     pub async fn core_readiness(&self) -> Result<latexsnipper_api_types::EngineReadiness, String> {
         let service = self.service().await?;
-        Ok(service.engine.readiness())
+        tokio::task::spawn_blocking(move || service.engine.readiness())
+            .await
+            .map_err(|error| format!("RECOGNITION_READINESS_FAILED: {error}"))
     }
 
     pub async fn validate_provider(
@@ -195,7 +214,7 @@ impl RecognitionState {
                 return Ok(service.clone());
             }
         }
-        let service = Arc::new(self.create_service()?);
+        let service = Arc::new(self.create_service().await?);
         *self.service.write().await = Some(service.clone());
         Ok(service)
     }
@@ -203,17 +222,24 @@ impl RecognitionState {
     /// Rebuild after model/runtime changes.
     pub async fn rebuild_service(&self) -> Result<(), String> {
         let _guard = self.init_lock.lock().await;
-        let new_service = Arc::new(self.create_service()?);
+        let new_service = Arc::new(self.create_service().await?);
         *self.service.write().await = Some(new_service);
         Ok(())
     }
 
-    fn create_service(&self) -> Result<RecognitionService, String> {
+    async fn create_service(&self) -> Result<RecognitionService, String> {
+        let paths = self.paths.clone();
+        tokio::task::spawn_blocking(move || Self::create_service_sync(&paths))
+            .await
+            .map_err(|error| format!("RECOGNITION_INIT_FAILED: {error}"))?
+    }
+
+    fn create_service_sync(paths: &RecognitionPaths) -> Result<RecognitionService, String> {
         use latexsnipper_engine::{default_runtime_registry, EngineConfig};
 
-        let models_dir = self.paths.models.clone();
-        let quality_baselines_dir = self.paths.quality_baselines.clone();
-        let provider_smoke_fixture = self.paths.provider_smoke_fixture.clone();
+        let models_dir = paths.models.clone();
+        let quality_baselines_dir = paths.quality_baselines.clone();
+        let provider_smoke_fixture = paths.provider_smoke_fixture.clone();
         let config = EngineConfig::with_models_dir(models_dir.clone())
             .with_quality_baselines_dir(quality_baselines_dir.clone())
             .with_provider_smoke_fixture(provider_smoke_fixture.clone());
@@ -283,5 +309,81 @@ fn parse_document_mode(s: &str) -> Result<latexsnipper_pipeline::DocumentParseMo
         other => Err(format!(
             "Unknown parse mode '{other}'. Valid: specialized, openocr, opendoc"
         )),
+    }
+}
+
+#[cfg(all(test, feature = "recognition"))]
+mod real_model_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires explicit local model and image fixtures"]
+    async fn real_formula_model_smoke() {
+        let models = PathBuf::from(
+            std::env::var_os("LATEXSNIPPER_TEST_MODELS").expect("set LATEXSNIPPER_TEST_MODELS"),
+        );
+        let image = PathBuf::from(
+            std::env::var_os("LATEXSNIPPER_TEST_IMAGE").expect("set LATEXSNIPPER_TEST_IMAGE"),
+        );
+        let root = std::env::temp_dir().join(format!(
+            "latexsnipper-recognition-smoke-{}",
+            rand::random::<u64>()
+        ));
+        let state = RecognitionState::new(RecognitionPaths {
+            models,
+            runtimes: root.join("runtimes"),
+            quality_baselines: PathBuf::from("latexsnipper-core/quality/baselines"),
+            provider_smoke_fixture: PathBuf::from(
+                "latexsnipper-core/contracts/fixtures/provider-smoke-v1.json",
+            ),
+            cache: root.join("cache"),
+            jobs: root.join("jobs"),
+            logs: root.join("logs"),
+            settings: root.join("settings.json"),
+            root,
+        });
+        let service = state.service().await.unwrap();
+        let readiness = state.core_readiness().await.unwrap();
+        for model in &readiness.models {
+            eprintln!(
+                "Model {}: artifacts={} runtime={} code={:?} message={:?}",
+                model.id, model.artifacts_valid, model.runtime_resolved, model.code, model.message
+            );
+        }
+        let request = RecognitionStartRequest {
+            path: image.to_string_lossy().into_owned(),
+            mode: "cropped-formula".into(),
+            input_kind: Some("cropped-formula".into()),
+            parse_mode: None,
+            execution_policy: None,
+            model_overrides: None,
+        };
+        let timeout = std::time::Duration::from_secs(120);
+        let runtime = tokio::runtime::Handle::current();
+        let start = std::time::Instant::now();
+        let document = crate::recognition::execution::supervise(
+            tokio_util::sync::CancellationToken::new(),
+            timeout,
+            move || {
+                runtime.block_on(service.recognize(
+                    &image,
+                    &request,
+                    latexsnipper_pipeline::PipelineCancellationToken::new(),
+                    timeout,
+                ))
+            },
+        )
+        .await
+        .expect("real model must return a document, not a timeout or missing-model error");
+        let latex = latexsnipper_conversion::DocumentConverter::new(
+            latexsnipper_conversion::OutputFormat::Latex,
+        )
+        .convert(&document)
+        .unwrap();
+        assert!(
+            !latex.trim().is_empty(),
+            "real inference returned no formula"
+        );
+        eprintln!("Real model completed in {:?}: {}", start.elapsed(), latex);
     }
 }

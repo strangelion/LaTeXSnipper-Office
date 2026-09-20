@@ -4,6 +4,7 @@ import {
   normalizeHexColor,
   spectrumPointInside,
 } from "./color-picker.js";
+import { isValidCustomSymbolCommand } from "./library-preview.js";
 
 const SYMBOL_GROUPS = Object.freeze([
   [
@@ -1466,14 +1467,29 @@ export function initCustomSymbolComposer({
 
   const buildRequest = () => {
     if (!state.layers.length) throw new Error("请至少添加一个符号或图元");
+    const latexCommand = String(el.latex.value || "").trim();
+    if (!isValidCustomSymbolCommand(latexCommand)) {
+      throw new Error(
+        "LaTeX 命令必须以 \\ 开头，且后面只包含英文字母或 @。例如请把 \\mysymbol2 改为 \\mysymbolTwo；数字会被 TeX 当作普通字符。",
+      );
+    }
     return buildCustomSymbolRequest({
       name: el.name.value,
-      latexCommand: el.latex.value,
+      latexCommand,
       mathClass: el.mathClass.value,
       layers: state.layers,
       snapToGrid: el.snap.checked,
     });
   };
+  const refreshLatexCommandValidity = () => {
+    const valid = isValidCustomSymbolCommand(el.latex.value);
+    el.latex.setAttribute("aria-invalid", String(!valid));
+    el.latex.setCustomValidity(
+      valid ? "" : "命令必须形如 \\mysymbolTwo，不能包含数字、空格或标点。",
+    );
+  };
+  el.latex.addEventListener("input", refreshLatexCommandValidity);
+  refreshLatexCommandValidity();
   const validate = async () =>
     invoke("build_custom_symbol_bundle", { request: buildRequest() });
   const bundleWithPng = async (result) => {
@@ -1554,6 +1570,11 @@ export function initCustomSymbolComposer({
       localStorage.setItem(
         "latexsnipper.custom-symbols.v1",
         JSON.stringify(next),
+      );
+      window.dispatchEvent(
+        new CustomEvent("latexsnipper:custom-symbol-library-changed", {
+          detail: { command: result.bundle.symbol.latexCommand },
+        }),
       );
       message(`已保存“${result.bundle.symbol.name}”到本地符号库`);
       notify("已保存到自定义符号库");

@@ -771,15 +771,23 @@ pub async fn native_office_uninstall() -> Result<NativeOfficeOperationStarted, S
     }
 }
 
-/// Install OLE COM component (x86/x64 dual registry view).
+/// Install the MSI-owned Native Office stack, including both OLE architectures.
 #[tauri::command]
 pub async fn native_office_install_ole(
 ) -> Result<crate::platforms::integrations::OleComponentResult, String> {
     #[cfg(target_os = "windows")]
     {
-        let result = crate::platforms::integrations::install_ole_component();
+        let result = tauri::async_runtime::spawn_blocking(
+            crate::platforms::integrations::install_native_office_stack,
+        )
+        .await
+        .map_err(|error| format!("OLE_INSTALL_TASK_FAILED: {error}"))?;
         if result.success {
-            Ok(result)
+            Ok(crate::platforms::integrations::OleComponentResult {
+                success: true,
+                message: result.message,
+                entries_modified: Vec::new(),
+            })
         } else {
             Err(result.message)
         }
