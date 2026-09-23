@@ -71,6 +71,7 @@ test("custom symbol render support registers MathLive and Temml macros", () => {
   assert.equal(support.mathLiveMacros.mysymbol.expand, false);
   assert.match(support.temmlMacros["\\mysymbol"], /\\rule\{/);
   assert.match(support.cssText, /data:image\/svg\+xml;base64,/);
+  assert.match(support.cssText, /background-color:transparent!important/);
   assert.doesNotMatch(support.cssText, /javascript:|https?:/i);
 });
 

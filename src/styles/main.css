@@ -546,8 +546,8 @@ a:hover {
   right: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 20px;
-  height: 48px;
+  width: 32px;
+  height: 52px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-right: none;
@@ -556,10 +556,11 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 40;
+  z-index: 70;
   transition:
     background 0.2s,
-    width 0.2s;
+    color 0.2s,
+    box-shadow 0.2s;
   color: var(--muted);
   box-shadow: -2px 0 4px rgba(0, 0, 0, 0.08);
   user-select: none;
@@ -567,7 +568,7 @@ a:hover {
 .sidebar-trigger:hover {
   background: var(--accent);
   color: #fff;
-  width: 24px;
+  box-shadow: -8px 0 22px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 .sidebar-trigger[data-locked="true"] {
   cursor: default;

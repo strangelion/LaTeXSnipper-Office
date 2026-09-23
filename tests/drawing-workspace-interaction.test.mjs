@@ -939,6 +939,46 @@ test("stale drawing work cannot overwrite a newer language generation", async ()
   assert.equal(elements.insertButton.disabled, false);
 });
 
+test("manual compile is queued behind stale work when live preview is off", async () => {
+  const elements = fixture();
+  const firstRender = deferred();
+  const renderedLanguages = [];
+  const controller = createDrawingWorkspaceController({
+    elements,
+    renderLocal: async ({ language }) => {
+      renderedLanguages.push(language);
+      if (language === "tikz") return firstRender.promise;
+      return '<svg data-generation="graphviz-manual" viewBox="0 0 20 10"/>';
+    },
+    compileDrawing: async (request) => ({
+      success: true,
+      svg: request.source,
+      payload: {
+        drawingId: request.drawingId,
+        widthPoints: 20,
+        heightPoints: 10,
+      },
+    }),
+    insertDrawing: async () => null,
+    loadReadiness: async () => ({ adapters: [] }),
+  });
+
+  controller.state.autoPreview = false;
+  controller.chooseLanguage(elements.languageButtons[1]);
+  const oldCompile = controller.compile();
+  await settle();
+  controller.chooseLanguage(elements.languageButtons[2]);
+  assert.equal(await controller.compile(), null);
+  assert.match(elements.status.textContent, /已排队生成最新绘图/);
+  firstRender.resolve('<svg data-generation="tikz-old" viewBox="0 0 10 10"/>');
+  assert.equal(await oldCompile, null);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(renderedLanguages, ["tikz", "graphviz_dot"]);
+  assert.match(elements.preview.innerHTML, /data-generation="graphviz-manual"/);
+  assert.doesNotMatch(elements.preview.innerHTML, /tikz-old/);
+});
+
 test("switching drawing language immediately invalidates stale preview evidence", () => {
   const elements = fixture();
   elements.preview.innerHTML = '<svg data-generation="old"/>';

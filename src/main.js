@@ -2857,7 +2857,6 @@ class UIController {
       }
     });
 
-    let openTimeout = null;
     let closeTimeout = null;
 
     document.addEventListener("mousemove", (e) => {
@@ -2867,10 +2866,6 @@ class UIController {
       const isInsideSidebar = sidebarPanel?.contains(e.target);
       const isOnTrigger = sidebarTrigger?.contains(e.target);
 
-      if (openTimeout) {
-        clearTimeout(openTimeout);
-        openTimeout = null;
-      }
       if (closeTimeout) {
         clearTimeout(closeTimeout);
         closeTimeout = null;
@@ -2880,10 +2875,6 @@ class UIController {
         if (!isInsideSidebar && !isOnTrigger && !isNearRightEdge) {
           closeTimeout = setTimeout(closeSidebar, 500);
         }
-      } else {
-        if (isNearRightEdge && sidebarTrigger?.style.display !== "none") {
-          openTimeout = setTimeout(openSidebar, 300);
-        }
       }
     });
 
@@ -2891,13 +2882,6 @@ class UIController {
       if (closeTimeout) {
         clearTimeout(closeTimeout);
         closeTimeout = null;
-      }
-    });
-
-    sidebarTrigger?.addEventListener("mouseleave", () => {
-      if (openTimeout) {
-        clearTimeout(openTimeout);
-        openTimeout = null;
       }
     });
 

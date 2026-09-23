@@ -650,6 +650,7 @@ export function createDrawingWorkspaceController({
     revision: 0,
     previewTimer: null,
     pendingPreview: false,
+    pendingManualCompile: false,
     compileSequence: 0,
     activeCompileId: null,
     editorMode: "visual",
@@ -794,7 +795,12 @@ export function createDrawingWorkspaceController({
 
   const compile = async ({ automatic = false } = {}) => {
     if (state.compiling) {
-      if (state.autoPreview) state.pendingPreview = true;
+      if (automatic) {
+        if (state.autoPreview) state.pendingPreview = true;
+      } else {
+        state.pendingManualCompile = true;
+        status("当前预览即将结束，已排队生成最新绘图…");
+      }
       return null;
     }
     const revision = state.revision;
@@ -904,7 +910,13 @@ export function createDrawingWorkspaceController({
         state.activeCompileId = null;
         state.compiling = false;
         if (elements.compileButton) elements.compileButton.disabled = false;
-        if (state.pendingPreview && state.autoPreview) schedulePreview(0);
+        if (state.pendingManualCompile) {
+          state.pendingManualCompile = false;
+          state.pendingPreview = false;
+          queueMicrotask(() => void compile({ automatic: false }));
+        } else if (state.pendingPreview && state.autoPreview) {
+          schedulePreview(0);
+        }
       }
     }
   };
@@ -916,10 +928,10 @@ export function createDrawingWorkspaceController({
       return;
     }
     clearTimeout(state.previewTimer);
-    state.previewTimer = setTimeout(
-      () => void compile({ automatic: true }),
-      delay,
-    );
+    state.previewTimer = setTimeout(() => {
+      state.previewTimer = null;
+      if (state.autoPreview) void compile({ automatic: true });
+    }, delay);
   }
 
   let visualEditor = null;
@@ -1725,7 +1737,13 @@ export function createDrawingWorkspaceController({
   });
   elements.autoPreview?.addEventListener("change", () => {
     state.autoPreview = elements.autoPreview.checked;
-    if (state.autoPreview) schedulePreview();
+    if (state.autoPreview) {
+      schedulePreview();
+    } else {
+      clearTimeout(state.previewTimer);
+      state.previewTimer = null;
+      state.pendingPreview = false;
+    }
   });
   elements.graphvizEngine?.addEventListener("change", () => {
     invalidateCompilation();

@@ -209,7 +209,7 @@ export function customSymbolRenderSupport(storage = globalThis.localStorage) {
     };
     temmlMacros[preview.command] = definition;
     styleRules.push(
-      `.${preview.className}{display:inline-block;background-image:url("${preview.dataUrl}");background-position:center;background-repeat:no-repeat;background-size:contain;color:transparent;vertical-align:-0.12em}`,
+      `.${preview.className}{display:inline-block;background-color:transparent!important;background-image:url("${preview.dataUrl}");background-position:center;background-repeat:no-repeat;background-size:contain;color:transparent;vertical-align:-0.12em}`,
       `.${preview.className}>*{opacity:0}`,
     );
   }
