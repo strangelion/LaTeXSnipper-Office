@@ -9,9 +9,9 @@ const ALLOWED_BACKGROUND_TYPES = new Set([
 
 const LIGHT_DEFAULTS = Object.freeze({
   accent: "#2563eb",
-  background: "#f8fafc",
+  background: "#eef6ff",
   surface: "#ffffff",
-  foreground: "#0f172a",
+  foreground: "#10213a",
 });
 
 const DARK_DEFAULTS = Object.freeze({

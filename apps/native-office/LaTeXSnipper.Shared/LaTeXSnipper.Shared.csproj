@@ -68,6 +68,7 @@
     <Compile Include="OfficeStaDispatcher.cs" />
     <Compile Include="StrictBase64.cs" />
     <Compile Include="FormulaImagePayload.cs" />
+    <Compile Include="FormulaPresentationStyle.cs" />
     <Compile Include="FormulaObjectLocator.cs" />
     <Compile Include="Metadata\ManifestDiagnostics.cs" />
     <Compile Include="RibbonLocalizer.cs" />

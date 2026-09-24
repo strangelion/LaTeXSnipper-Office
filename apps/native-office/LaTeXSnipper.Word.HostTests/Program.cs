@@ -85,14 +85,16 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--editable-image", StringComparison.OrdinalIgnoreCase);
             bool caseMode = args.Length == 4 &&
                 string.Equals(args[2], "--case", StringComparison.OrdinalIgnoreCase);
+            bool styleMode = args.Length == 3 &&
+                string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
-                (args.Length > 2 && !oleMode && !imageMode && !caseMode) ||
+                (args.Length > 2 && !oleMode && !imageMode && !caseMode && !styleMode) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name>]");
+                    "--case <fixture-name> | --style]");
                 return 2;
             }
 
@@ -148,6 +150,43 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (styleMode)
+                {
+                    ValidateNativePresentationStyle(
+                        document,
+                        adapter,
+                        activeCases.First());
+                    string styleDocumentPath = Path.Combine(
+                        evidenceDirectory,
+                        "word-style-acceptance.docx");
+                    document.SaveAs2(
+                        styleDocumentPath,
+                        InteropWord.WdSaveFormat.wdFormatXMLDocument);
+                    File.WriteAllText(
+                        Path.Combine(evidenceDirectory, "word-style-evidence.json"),
+                        JsonSerializer.Serialize(
+                            new
+                            {
+                                status = "passed",
+                                host = "word",
+                                storageMode = "native-omml",
+                                editable = true,
+                                verified = new[]
+                                {
+                                    "font-size",
+                                    "font-weight",
+                                    "math-variant",
+                                    "color",
+                                    "math-font",
+                                    "baseline-shift",
+                                    "paragraph-alignment",
+                                    "paragraph-spacing"
+                                }
+                            },
+                            JsonOptions));
+                    Console.WriteLine($"passed native-formula-style evidence={styleDocumentPath}");
+                    return 0;
+                }
                 if (!oleMode && !imageMode && !caseMode)
                 {
                     ValidateNativeInlineRoundTrip(
@@ -155,6 +194,10 @@ namespace LaTeXSnipper.Word.HostTests
                         adapter,
                         activeCases.First());
                     ValidateInlineScratchLifecycle(
+                        document,
+                        adapter,
+                        activeCases.First());
+                    ValidateNativePresentationStyle(
                         document,
                         adapter,
                         activeCases.First());
@@ -420,6 +463,109 @@ namespace LaTeXSnipper.Word.HostTests
             if (!string.Equals(afterDelete, left + right, StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"inline deletion did not preserve one paragraph of adjacent text: '{afterDelete}'");
+        }
+
+        private static void ValidateNativePresentationStyle(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            InteropWord.Range anchor = document.Range(
+                document.Content.End - 1,
+                document.Content.End - 1);
+            anchor.InsertParagraphAfter();
+            anchor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            anchor.Select();
+
+            using JsonDocument styleDocument = JsonDocument.Parse(
+                "{\"schemaVersion\":1," +
+                "\"math\":{\"officeFont\":\"Cambria Math\",\"textFont\":\"Aptos\"," +
+                "\"fontSizePt\":18,\"fontWeight\":\"bold\",\"mathVariant\":\"roman\"," +
+                "\"color\":\"#2563EB\"}," +
+                "\"layout\":{\"displayMode\":\"display\",\"alignment\":\"right\"," +
+                "\"paragraphBeforePt\":7,\"paragraphAfterPt\":9,\"baselineShiftPt\":3," +
+                "\"maxWidthPt\":300},\"output\":{\"strategy\":\"editable\"}}");
+            string formulaId = FormulaIdHelper.NewId();
+            InsertResult inserted = adapter.InsertFormula(
+                new FormulaPayload
+                {
+                    FormulaId = formulaId,
+                    Latex = fixture.Latex,
+                    Omml = fixture.Omml,
+                    Display = "block",
+                    StorageMode = "native-omml",
+                    Presentation = new PresentationData
+                    {
+                        Alignment = "left",
+                        Color = "#000000",
+                        StyleProfile = styleDocument.RootElement.Clone()
+                    }
+                },
+                InsertMode.Display);
+            if (!inserted.Success)
+                throw new InvalidOperationException(
+                    $"native style insert failed: {inserted.ErrorCode} {inserted.Error}");
+
+            InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+            if (candidate == null)
+                throw new InvalidOperationException(
+                    "native style content control is missing.");
+            if (candidate.Range.OMaths.Count < 1)
+                throw new InvalidOperationException(
+                    "native style content control has no editable OMath.");
+
+            InteropWord.Range mathRange = candidate.Range.OMaths[1].Range;
+            InteropWord.Font font = mathRange.Font;
+            InteropWord.ParagraphFormat paragraph = mathRange.ParagraphFormat;
+            string styledWordOpenXml = candidate.Range.WordOpenXML;
+            try
+            {
+                ExpectNear(font.Size, 18.0f, 0.25f, "font size");
+                if (font.Bold != -1)
+                    throw new InvalidOperationException(
+                        $"native formula bold mapping failed: observed {font.Bold}.");
+                bool hasExplicitRomanRun = System.Text.RegularExpressions.Regex.IsMatch(
+                    styledWordOpenXml,
+                    "<w:i(?:\\s[^>]*)?w:val=\"(?:0|false|off)\"");
+                bool hasRomanMathStyle = System.Text.RegularExpressions.Regex.IsMatch(
+                    styledWordOpenXml,
+                    "<m:sty(?:\\s[^>]*)?m:val=\"(?:p|b)\"");
+                if (font.Italic != 0 && !hasExplicitRomanRun && !hasRomanMathStyle)
+                    throw new InvalidOperationException(
+                        $"native formula roman mapping failed: observed {font.Italic}.");
+                if ((int)font.Color != 0xEB6325)
+                    throw new InvalidOperationException(
+                        $"native formula colour mapping failed: observed 0x{((int)font.Color):X6}.");
+                if (!string.Equals(font.NameAscii, "Cambria Math", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(font.Name, "Cambria Math", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        $"native formula font mapping failed: observed '{font.NameAscii}'/'{font.Name}'.");
+                if (font.Position != 3)
+                    throw new InvalidOperationException(
+                        $"native formula baseline mapping failed: observed {font.Position}.");
+                if (paragraph.Alignment != InteropWord.WdParagraphAlignment.wdAlignParagraphRight)
+                    throw new InvalidOperationException(
+                        $"native formula alignment mapping failed: observed {paragraph.Alignment}.");
+                ExpectNear(paragraph.SpaceBefore, 7.0f, 0.25f, "paragraph before");
+                ExpectNear(paragraph.SpaceAfter, 9.0f, 0.25f, "paragraph after");
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(paragraph);
+                Marshal.FinalReleaseComObject(font);
+                Marshal.FinalReleaseComObject(mathRange);
+            }
+        }
+
+        private static void ExpectNear(
+            float actual,
+            float expected,
+            float tolerance,
+            string label)
+        {
+            if (Math.Abs(actual - expected) > tolerance)
+                throw new InvalidOperationException(
+                    $"native formula {label} mapping failed: expected {expected}, observed {actual}.");
         }
 
         private static void ValidateInlineScratchLifecycle(

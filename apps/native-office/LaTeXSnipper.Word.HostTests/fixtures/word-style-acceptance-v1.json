@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "modes": ["display"],
+  "cases": [
+    {
+      "name": "styled-integral",
+      "latex": "\\int_{0}^{1} x\\,dx",
+      "operator": "∫",
+      "operandProbe": "x",
+      "omml": "<m:oMathPara xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\"><m:oMath><m:nary><m:naryPr><m:chr m:val=\"∫\"/><m:limLoc m:val=\"undOvr\"/></m:naryPr><m:sub><m:r><m:t>0</m:t></m:r></m:sub><m:sup><m:r><m:t>1</m:t></m:r></m:sup><m:e><m:r><m:t>x dx</m:t></m:r></m:e></m:nary></m:oMath></m:oMathPara>"
+    }
+  ]
+}

@@ -1027,6 +1027,12 @@ namespace LaTeXSnipper.Word.Host
                         payload.FormulaId,
                         readBackResult);
 
+                var styleFailure = ApplyNativeFormulaPresentationOrRollback(
+                    candidate,
+                    payload,
+                    mode);
+                if (styleFailure != null) return styleFailure;
+
                 FormulaDocumentManifest.Write(doc, payload);
                 var committedRange = candidate.Range.Duplicate;
 
@@ -1100,6 +1106,12 @@ namespace LaTeXSnipper.Word.Host
                             candidate,
                             payload.FormulaId,
                             readBackResult);
+
+                    var styleFailure = ApplyNativeFormulaPresentationOrRollback(
+                        candidate,
+                        payload,
+                        InsertMode.Inline);
+                    if (styleFailure != null) return styleFailure;
 
                     FormulaDocumentManifest.Write(doc, payload);
                     var committedRange = candidate.Range.Duplicate;
@@ -1317,6 +1329,207 @@ namespace LaTeXSnipper.Word.Host
                     OfficeOperationLog.Failure("hide-existing-formula-control", "word", null, ex);
                 }
             }
+        }
+
+        private static InsertResult? ApplyNativeFormulaPresentationOrRollback(
+            Microsoft.Office.Interop.Word.ContentControl candidate,
+            FormulaPayload payload,
+            InsertMode mode)
+        {
+            if (payload.Presentation == null) return null;
+            try
+            {
+                var style = FormulaPresentationStyle.From(payload.Presentation);
+                var candidateRange = candidate.Range.Duplicate;
+                try
+                {
+                    int mathCount = candidateRange.OMaths.Count;
+                    if (mathCount == 0)
+                    {
+                        ApplyWordFontPresentation(candidateRange, style);
+                        ApplyWordParagraphPresentation(candidateRange, style, mode);
+                    }
+                    else
+                    {
+                        for (int index = 1; index <= mathCount; index++)
+                        {
+                            var mathRange = candidateRange.OMaths[index].Range.Duplicate;
+                            try
+                            {
+                                ApplyWordFontPresentation(mathRange, style);
+                                if (index == 1)
+                                    ApplyWordParagraphPresentation(mathRange, style, mode);
+                            }
+                            finally
+                            {
+                                ReleaseLocalComObject(mathRange);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    ReleaseLocalComObject(candidateRange);
+                }
+                return null;
+            }
+            catch (Exception styleError)
+            {
+                OfficeOperationLog.Failure(
+                    "apply-native-formula-style",
+                    "word",
+                    payload.FormulaId,
+                    styleError);
+                try
+                {
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+                catch (Exception rollbackError)
+                {
+                    OfficeOperationLog.Failure(
+                        "rollback-native-formula-style",
+                        "word",
+                        payload.FormulaId,
+                        rollbackError);
+                }
+                return new InsertResult
+                {
+                    Success = false,
+                    ErrorCode = "WORD_STYLE_APPLY_FAILED",
+                    Error = $"Word could not apply the requested formula style: {styleError.Message}"
+                };
+            }
+        }
+
+        private static void ApplyWordFontPresentation(
+            Microsoft.Office.Interop.Word.Range range,
+            FormulaPresentationStyle style)
+        {
+            var font = range.Font;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(style.OfficeFont))
+                {
+                    ApplyWordStyleValue("font.name", () => font.Name = style.OfficeFont);
+                    ApplyWordStyleValue("font.nameAscii", () => font.NameAscii = style.OfficeFont);
+                    ApplyWordStyleValue("font.nameOther", () => font.NameOther = style.OfficeFont);
+                }
+                if (!string.IsNullOrWhiteSpace(style.TextFont))
+                    TryApplyOptionalWordStyleValue(
+                        "font.nameFarEast",
+                        () => font.NameFarEast = style.TextFont);
+                if (style.FontSizePt.HasValue)
+                    ApplyWordStyleValue("font.size", () => font.Size = style.FontSizePt.Value);
+                if (style.Bold.HasValue)
+                    ApplyWordStyleValue("font.bold", () => font.Bold = style.Bold.Value ? -1 : 0);
+                if (style.MathVariant == "roman")
+                    ApplyWordStyleValue("font.italic", () => font.Italic = 0);
+                else if (style.MathVariant == "italic")
+                    ApplyWordStyleValue("font.italic", () => font.Italic = -1);
+                if (style.TryGetOfficeColor(out int color))
+                    ApplyWordStyleValue(
+                        "font.color",
+                        () => font.Color = (Microsoft.Office.Interop.Word.WdColor)color);
+                if (style.BaselineShiftPt.HasValue)
+                    ApplyWordStyleValue(
+                        "font.position",
+                        () => font.Position = (int)Math.Round(style.BaselineShiftPt.Value));
+            }
+            finally
+            {
+                ReleaseLocalComObject(font);
+            }
+        }
+
+        private static void ApplyWordParagraphPresentation(
+            Microsoft.Office.Interop.Word.Range range,
+            FormulaPresentationStyle style,
+            InsertMode mode)
+        {
+            if (mode == InsertMode.Inline) return;
+            var paragraph = range.ParagraphFormat;
+            try
+            {
+                if (style.ParagraphBeforePt.HasValue)
+                    ApplyWordStyleValue(
+                        "paragraph.spaceBefore",
+                        () => paragraph.SpaceBefore = style.ParagraphBeforePt.Value);
+                if (style.ParagraphAfterPt.HasValue)
+                    ApplyWordStyleValue(
+                        "paragraph.spaceAfter",
+                        () => paragraph.SpaceAfter = style.ParagraphAfterPt.Value);
+                ApplyWordStyleValue(
+                    "paragraph.alignment",
+                    () => paragraph.Alignment = ResolveWordParagraphAlignment(style.Alignment));
+            }
+            finally
+            {
+                ReleaseLocalComObject(paragraph);
+            }
+        }
+
+        private static void ApplyWordStyleValue(string property, Action apply)
+        {
+            try
+            {
+                apply();
+            }
+            catch (Exception error)
+            {
+                throw new InvalidOperationException(
+                    $"Word rejected formula style property '{property}': {error.Message}",
+                    error);
+            }
+        }
+
+        private static void TryApplyOptionalWordStyleValue(string property, Action apply)
+        {
+            try
+            {
+                apply();
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.TraceWarning(
+                    $"Word ignored optional formula style property '{property}': {error.Message}");
+            }
+        }
+
+        private static Microsoft.Office.Interop.Word.WdParagraphAlignment ResolveWordParagraphAlignment(
+            string alignment)
+        {
+            if (alignment == "left")
+                return Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphLeft;
+            if (alignment == "right")
+                return Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphRight;
+            return Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+        }
+
+        private static void ApplyWordMediaPresentation(
+            Microsoft.Office.Interop.Word.InlineShape shape,
+            FormulaPayload payload,
+            InsertMode mode,
+            bool allowResize)
+        {
+            if (payload.Presentation == null) return;
+            var style = FormulaPresentationStyle.From(payload.Presentation);
+            if (allowResize && style.MaxWidthPt.HasValue && shape.Width > style.MaxWidthPt.Value)
+                shape.Width = style.MaxWidthPt.Value;
+            if (mode == InsertMode.Inline)
+            {
+                if (style.BaselineShiftPt.HasValue)
+                    shape.Range.Font.Position = (int)Math.Round(style.BaselineShiftPt.Value);
+                return;
+            }
+            var paragraph = shape.Range.ParagraphFormat;
+            if (style.ParagraphBeforePt.HasValue)
+                paragraph.SpaceBefore = style.ParagraphBeforePt.Value;
+            if (style.ParagraphAfterPt.HasValue)
+                paragraph.SpaceAfter = style.ParagraphAfterPt.Value;
+            if (mode != InsertMode.DisplayNumbered)
+                paragraph.Alignment = ResolveWordParagraphAlignment(style.Alignment);
         }
 
         /// <summary>
@@ -1743,10 +1956,36 @@ namespace LaTeXSnipper.Word.Host
                 // MUST be after final dimensions are set so requiredHeight reflects the enlarged object.
                 FixWordParagraphForOle(oleShape);
 
-                if (mode == InsertMode.Display)
+                try
                 {
-                    oleShape.Range.Paragraphs[1].Alignment =
-                        Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+                    ApplyWordMediaPresentation(oleShape, payload, mode, false);
+                }
+                catch (Exception styleError)
+                {
+                    OfficeOperationLog.Failure(
+                        "apply-ole-formula-style",
+                        "word",
+                        payload.FormulaId,
+                        styleError);
+                    try
+                    {
+                        if (cc != null) cc.Delete(true);
+                        else oleShape.Delete();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "rollback-ole-formula-style",
+                            "word",
+                            payload.FormulaId,
+                            rollbackError);
+                    }
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "WORD_STYLE_APPLY_FAILED",
+                        Error = $"Word could not apply the requested OLE formula style: {styleError.Message}"
+                    };
                 }
 
                 // Add auto-numbering for DisplayNumbered mode
@@ -1979,6 +2218,11 @@ namespace LaTeXSnipper.Word.Host
                         (availableWidth - wordContainerHorizontalGutterPt) /
                             wordOleInsertionScale -
                             nativeMaximumHorizontalPaddingPt);
+                var style = FormulaPresentationStyle.From(payload.Presentation);
+                if (style.MaxWidthPt.HasValue)
+                    maximumRenderWidth = Math.Min(
+                        maximumRenderWidth,
+                        style.MaxWidthPt.Value);
                 float maximumRenderHeight =
                     Math.Max(
                         72.0f,
@@ -2049,6 +2293,9 @@ namespace LaTeXSnipper.Word.Host
                 if (payload.Render!.WidthPt > 0)
                 {
                     float targetWidth = payload.Render.WidthPt;
+                    var style = FormulaPresentationStyle.From(payload.Presentation);
+                    if (style.MaxWidthPt.HasValue)
+                        targetWidth = Math.Min(targetWidth, style.MaxWidthPt.Value);
                     try
                     {
                         var paragraphFormat = image.Range.ParagraphFormat;
@@ -2118,10 +2365,36 @@ namespace LaTeXSnipper.Word.Host
                     System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap image with ContentControl");
                 }
 
-                if (mode == InsertMode.Display)
+                try
                 {
-                    image.Range.Paragraphs[1].Alignment =
-                        Microsoft.Office.Interop.Word.WdParagraphAlignment.wdAlignParagraphCenter;
+                    ApplyWordMediaPresentation(image, payload, mode, true);
+                }
+                catch (Exception styleError)
+                {
+                    OfficeOperationLog.Failure(
+                        "apply-image-formula-style",
+                        "word",
+                        payload.FormulaId,
+                        styleError);
+                    try
+                    {
+                        if (cc != null) cc.Delete(true);
+                        else image.Delete();
+                    }
+                    catch (Exception rollbackError)
+                    {
+                        OfficeOperationLog.Failure(
+                            "rollback-image-formula-style",
+                            "word",
+                            payload.FormulaId,
+                            rollbackError);
+                    }
+                    return new InsertResult
+                    {
+                        Success = false,
+                        ErrorCode = "WORD_STYLE_APPLY_FAILED",
+                        Error = $"Word could not apply the requested image formula style: {styleError.Message}"
+                    };
                 }
 
                 if (mode == InsertMode.DisplayNumbered)

@@ -320,6 +320,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += ProtocolV4Tests.Run();
             Console.WriteLine("RUN SpreadsheetTablePayloadTests");
             failures += SpreadsheetTablePayloadTests.Run();
+            Console.WriteLine("RUN FormulaPresentationStyleTests");
+            failures += FormulaPresentationStyleTests.Run();
             Console.WriteLine("RUN FormulaIdTests");
             string formulaId = FormulaIdHelper.NewId();
             Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");

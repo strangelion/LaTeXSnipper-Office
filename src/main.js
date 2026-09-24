@@ -60,6 +60,7 @@ import {
 import { LiquidDockController } from "./features/appearance/liquid-dock.js";
 import { createLiquidPreviewNode } from "./features/appearance/liquid-preview.js";
 import { createPlatformContext } from "./platform/platform-context.js";
+import { initNativeControlSkins } from "./features/controls/native-control-skin.js";
 import {
   migrateLegacySetting,
   resolveScopedSetting,
@@ -467,6 +468,7 @@ class FormulaEditor {
     this.previewRevision = 0;
     this.mathfieldBaseMacros = null;
     this.customSymbolSupport = customSymbolRenderSupport();
+    this.sourceEditor = null;
     this.init();
   }
 
@@ -514,6 +516,8 @@ class FormulaEditor {
         Logger.info("MathLive editor initialized");
       }
 
+      await this.initSourceEditor();
+
       window.addEventListener(
         "latexsnipper:custom-symbol-library-changed",
         () => {
@@ -527,6 +531,25 @@ class FormulaEditor {
       });
     } catch (e) {
       Logger.error("Failed to initialize FormulaEditor:", e);
+    }
+  }
+
+  async initSourceEditor() {
+    const textarea = document.getElementById("latexSource");
+    const host = document.getElementById("formulaSourceEditor");
+    if (!textarea || !host || this.sourceEditor) return;
+    try {
+      const { createFormulaSourceEditor } =
+        await import("./features/formula-source/editor.js");
+      this.sourceEditor = createFormulaSourceEditor({ textarea, host });
+      Logger.info("LaTeX source highlighting initialized");
+    } catch (error) {
+      Logger.warn(
+        "LaTeX source highlighting unavailable; using textarea",
+        error,
+      );
+      textarea.hidden = false;
+      host.hidden = true;
     }
   }
 
@@ -3029,7 +3052,11 @@ class UIController {
     });
 
     document.getElementById("colorPreview")?.addEventListener("click", () => {
-      document.getElementById("fontColor")?.click();
+      const customTrigger = document.querySelector(
+        '.color-control-shell[data-control-for="fontColor"] .color-control-trigger',
+      );
+      if (customTrigger) customTrigger.click();
+      else document.getElementById("fontColor")?.click();
     });
 
     document
@@ -10151,6 +10178,7 @@ function createOfficeDockPreviewProvider(app) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   Logger.info("DOM loaded");
+  initNativeControlSkins();
   const controller = new UIController();
   if (hasDesktopRuntime()) {
     initRecognitionSettings({

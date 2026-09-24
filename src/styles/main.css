@@ -1,13 +1,13 @@
 /* LaTeXSnipper Office - Material 3 Style */
 
 :root {
-  --bg: #f8fafc;
-  --fg: #0f172a;
+  --bg: #eef6ff;
+  --fg: #10213a;
   --text: var(--fg);
   --muted: #64748b;
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
-  --border-color: #e2e8f0;
+  --border-color: #d6e4f5;
   --border: var(--border-color);
   --card-bg: #ffffff;
   --surface-2: var(--card-bg);
@@ -323,6 +323,397 @@ a:hover {
   width: 0;
   height: 0;
   pointer-events: none;
+}
+
+.custom-color-picker:has(.color-control-shell) > .color-preview {
+  display: none;
+}
+
+/* Application-owned replacements for native select and colour popovers. */
+.native-control-shell,
+.color-control-shell {
+  position: relative;
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.native-control-shell.open,
+.color-control-shell.open {
+  z-index: 4200;
+}
+
+.formula-style-center:has(.native-control-shell.open),
+.formula-style-center:has(.color-control-shell.open) {
+  position: relative;
+  z-index: 4100;
+}
+
+.native-control-input,
+.color-control-input {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.native-control-trigger,
+.color-control-trigger {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 38px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--accent) 2%);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.native-control-trigger:hover,
+.color-control-trigger:hover,
+.native-control-shell.open .native-control-trigger,
+.color-control-shell.open .color-control-trigger {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--card-bg) 89%, var(--accent) 7%);
+}
+
+.native-control-trigger:focus-visible,
+.color-control-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 17%, transparent);
+}
+
+.native-control-shell.is-disabled,
+.color-control-shell.is-disabled {
+  opacity: 0.55;
+}
+
+.native-control-chevron {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  color: var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 150ms ease;
+}
+
+.native-control-shell.open .native-control-chevron,
+.color-control-shell.open .native-control-chevron {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.native-control-menu,
+.color-control-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1600;
+  display: none;
+  min-width: 100%;
+  max-height: min(320px, var(--control-popover-space, 45vh));
+  padding: 0.35rem;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-color));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--card-bg) 96%, var(--accent) 2%);
+  box-shadow:
+    0 18px 44px rgba(15, 35, 65, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px) saturate(145%);
+}
+
+.native-control-shell.open-up .native-control-menu,
+.color-control-shell.open-up .color-control-panel {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.native-control-shell.open .native-control-menu,
+.color-control-shell.open .color-control-panel {
+  display: block;
+  animation: dropdownIn 150ms ease;
+}
+
+.native-control-option {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  padding: 0.5rem 0.65rem 0.5rem 2rem;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.native-control-option:hover,
+.native-control-option:focus-visible {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.native-control-option.selected {
+  position: relative;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  font-weight: 650;
+}
+
+.native-control-option.selected::before {
+  content: "✓";
+  position: absolute;
+  left: 0.7rem;
+}
+
+.color-control-trigger {
+  min-width: 134px;
+  justify-content: flex-start;
+}
+
+.color-control-trigger .native-control-chevron {
+  margin-left: auto;
+}
+
+.color-control-swatch {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 2px solid var(--card-bg);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.color-control-value {
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+.color-control-panel {
+  width: min(340px, 88vw);
+  max-height: min(560px, var(--control-popover-space, 70vh));
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.color-control-palette {
+  display: grid;
+  grid-template-columns: repeat(6, 28px);
+  gap: 0.55rem;
+  margin-bottom: 0.75rem;
+}
+
+.color-control-preset {
+  appearance: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid var(--card-bg);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-color);
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.color-control-preset:hover,
+.color-control-preset:focus-visible {
+  outline: none;
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.color-control-preset.selected {
+  box-shadow:
+    0 0 0 2px var(--card-bg),
+    0 0 0 4px var(--accent);
+}
+
+.color-control-visual {
+  display: grid;
+  grid-template-columns: 124px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.85rem;
+  margin: 0.15rem 0 0.8rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border-color));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg) 74%, var(--card-bg));
+}
+
+.color-control-wheel {
+  position: relative;
+  width: 124px;
+  height: 124px;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid var(--card-bg);
+  border-radius: 50%;
+  background: transparent !important;
+  box-shadow:
+    0 0 0 1px var(--border-color),
+    inset 0 0 18px rgba(15, 23, 42, 0.1);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-control-wheel::before,
+.color-control-wheel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.color-control-wheel::before {
+  background: conic-gradient(
+    from -90deg,
+    #ef4444,
+    #f59e0b,
+    #eab308,
+    #22c55e,
+    #06b6d4,
+    #2563eb,
+    #8b5cf6,
+    #ec4899,
+    #ef4444
+  );
+}
+
+.color-control-wheel::after {
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(255, 255, 255, 0.78) 28%,
+    rgba(255, 255, 255, 0) 76%
+  );
+}
+
+.color-control-wheel:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  outline-offset: 3px;
+}
+
+.color-control-wheel-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.72);
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.color-control-wheel-copy {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 0.25rem 0.55rem;
+  min-width: 0;
+}
+
+.color-control-wheel-copy strong,
+.color-control-wheel-copy span:not(.color-control-wheel-current) {
+  grid-column: 1 / -1;
+}
+
+.color-control-wheel-copy strong {
+  color: var(--fg);
+  font-size: 0.82rem;
+}
+
+.color-control-wheel-copy span:not(.color-control-wheel-current) {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.color-control-wheel-current {
+  grid-column: 1;
+  width: 28px;
+  height: 28px;
+  margin-top: 0.35rem;
+  border: 2px solid var(--card-bg);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-color);
+}
+
+.color-control-fields {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(3, 0.8fr);
+  gap: 0.45rem;
+}
+
+@media (max-width: 520px) {
+  .color-control-visual {
+    grid-template-columns: 104px minmax(0, 1fr);
+  }
+
+  .color-control-wheel {
+    width: 104px;
+    height: 104px;
+  }
+}
+
+.color-control-fields label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.color-control-fields input {
+  min-width: 0;
+  width: 100%;
+  height: 34px;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.color-control-fields input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+[data-theme="dark"] .native-control-menu,
+[data-theme="dark"] .color-control-panel {
+  background: color-mix(in srgb, var(--card-bg) 94%, #020617 6%);
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.42);
 }
 
 /* ═══════════════════════════════════════════
@@ -1159,6 +1550,158 @@ a:hover {
 .latex-source:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.formula-source-code-editor {
+  width: 100%;
+  min-height: 116px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  background: var(--bg);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.formula-source-code-editor[hidden] {
+  display: none;
+}
+
+.formula-source-code-editor:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.formula-source-code-editor .cm-editor {
+  min-height: 116px;
+  color: var(--fg);
+  background: transparent;
+  font-family:
+    "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+.formula-source-code-editor .cm-scroller {
+  min-height: 116px;
+  max-height: 260px;
+  overflow: auto;
+  font-family: inherit;
+}
+
+.formula-source-code-editor .cm-content {
+  min-height: 116px;
+  padding: 0.85rem 1rem;
+  caret-color: var(--accent);
+}
+
+.formula-source-code-editor .cm-line {
+  padding: 0;
+}
+
+.formula-source-code-editor .cm-activeLine {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.formula-source-code-editor .cm-selectionBackground,
+.formula-source-code-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent) !important;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-0 {
+  color: #2563eb !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-1 {
+  color: #7c3aed !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-2 {
+  color: #db2777 !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-3 {
+  color: #c2410c !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-4 {
+  color: #0f766e !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-brace-depth-5 {
+  color: #4d7c0f !important;
+  font-weight: 750;
+}
+
+.formula-source-code-editor .formula-source-superscript-operator,
+.formula-source-code-editor .formula-source-superscript {
+  color: #c026d3 !important;
+}
+
+.formula-source-code-editor .formula-source-superscript-operator {
+  font-weight: 800;
+  text-decoration: overline;
+  text-decoration-thickness: 1px;
+}
+
+.formula-source-code-editor .formula-source-subscript-operator,
+.formula-source-code-editor .formula-source-subscript {
+  color: #0284c7 !important;
+}
+
+.formula-source-code-editor .formula-source-subscript-operator {
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-0 {
+  color: #60a5fa !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-1 {
+  color: #c4b5fd !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-2 {
+  color: #f9a8d4 !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-3 {
+  color: #fdba74 !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-4 {
+  color: #5eead4 !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-brace-depth-5 {
+  color: #bef264 !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-superscript,
+[data-theme="dark"]
+  .formula-source-code-editor
+  .formula-source-superscript-operator {
+  color: #f0abfc !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor .formula-source-subscript,
+[data-theme="dark"]
+  .formula-source-code-editor
+  .formula-source-subscript-operator {
+  color: #7dd3fc !important;
+}
+
+[data-theme="dark"] .formula-source-code-editor {
+  background: var(--card-bg);
+  border-color: var(--border-color);
 }
 
 .ai-generate-row {
@@ -2669,7 +3212,7 @@ body {
     ),
     radial-gradient(
       circle at 88% 22%,
-      rgba(139, 92, 246, 0.055),
+      rgba(14, 165, 233, 0.065),
       transparent 30%
     ),
     radial-gradient(
@@ -2688,7 +3231,7 @@ body {
     ),
     radial-gradient(
       circle at 85% 18%,
-      rgba(124, 58, 237, 0.08),
+      rgba(14, 165, 233, 0.07),
       transparent 32%
     ),
     var(--bg);
@@ -6130,11 +6673,10 @@ input[type="file"]::file-selector-button {
 /* Visual custom-symbol composer */
 .symbol-composer-workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  height: calc(100vh - 240px);
-  min-height: 480px;
+  grid-template-columns: minmax(340px, 390px) minmax(0, 1fr);
+  min-height: calc(100vh - 220px);
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border-color);
   border-radius: 14px;
   background: var(--card-bg);
@@ -6151,10 +6693,10 @@ input[type="file"]::file-selector-button {
 .symbol-palette-panel {
   display: grid;
   align-content: start;
-  height: 100%;
+  height: auto;
   gap: 0.85rem;
   padding: 1rem;
-  overflow-y: auto;
+  overflow: visible;
   border-right: 1px solid var(--border-color);
   background: color-mix(in srgb, var(--card-bg) 96%, var(--accent));
 }
@@ -6164,7 +6706,22 @@ input[type="file"]::file-selector-button {
   align-content: start;
   gap: 0.65rem;
   padding: 0.85rem;
-  overflow-y: auto;
+  overflow: visible;
+}
+
+.symbol-palette-panel,
+.symbol-workbench,
+.symbol-canvas-toolbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.symbol-palette-panel::-webkit-scrollbar,
+.symbol-workbench::-webkit-scrollbar,
+.symbol-canvas-toolbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .panel-heading strong {
   display: block;
@@ -6372,9 +6929,10 @@ input[type="file"]::file-selector-button {
 
 .symbol-canvas-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0.75rem;
-  overflow-x: auto;
+  overflow: visible;
 }
 .symbol-canvas-toolbar > * {
   flex: 0 0 auto;
