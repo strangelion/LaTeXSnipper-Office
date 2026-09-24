@@ -3,10 +3,13 @@ import { serializeVisualDrawing } from "./visual-editor.js";
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const RENDER_TIMEOUT_MS = 35_000;
+const TIKZ_COLD_RENDER_TIMEOUT_MS = 75_000;
+const TIKZ_WARM_RENDER_TIMEOUT_MS = 45_000;
 
 let graphvizPromise;
 let mermaidPromise;
 let tikzPromise;
+let tikzRuntimeWarm = false;
 
 export const MERMAID_RENDER_OPTIONS = Object.freeze({
   startOnLoad: false,
@@ -31,12 +34,16 @@ function assertSafeSource(source) {
   return text;
 }
 
-function withTimeout(promise, timeout = RENDER_TIMEOUT_MS) {
+function withTimeout(
+  promise,
+  timeout = RENDER_TIMEOUT_MS,
+  message = "本地渲染超时",
+) {
   let timer;
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("本地渲染超时")), timeout);
+      timer = setTimeout(() => reject(new Error(message)), timeout);
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -133,7 +140,7 @@ async function loadTikzRuntime() {
       assetBaseUrl,
       workerUrl: `${assetBaseUrl}run-tex.js`,
       workerMode: "direct",
-      renderTimeout: 30_000,
+      renderTimeout: 60_000,
       maxRetries: 1,
       restartWorkerOnFail: true,
       workerPool: {
@@ -174,7 +181,16 @@ async function loadTikzRuntime() {
   await tikzPromise;
 }
 
-export async function renderTikz(source, { packageProfiles = [], host } = {}) {
+export function tikzRenderBudget(runtimeWarm = tikzRuntimeWarm) {
+  return runtimeWarm
+    ? TIKZ_WARM_RENDER_TIMEOUT_MS
+    : TIKZ_COLD_RENDER_TIMEOUT_MS;
+}
+
+export async function renderTikz(
+  source,
+  { packageProfiles = [], host, onProgress } = {},
+) {
   if (!host) throw new Error("TikZ 预览容器不可用");
   const normalized = normalizeTikzSource(source, packageProfiles);
   if (normalized.visualSvg) return normalized.visualSvg;
@@ -193,13 +209,27 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
   }
   script.textContent = normalized.source;
 
+  const coldStart = !tikzRuntimeWarm;
+  onProgress?.(
+    coldStart
+      ? "正在初始化离线 TeX/WASM 并生成预览；首次启动可能需要约一分钟…"
+      : "正在使用已就绪的离线 TeX/WASM 生成预览…",
+  );
+  let observer;
+  let finishHandler;
+  const cleanup = () => {
+    observer?.disconnect();
+    if (finishHandler) {
+      host.removeEventListener("tikzjax-load-finished", finishHandler);
+    }
+  };
   const rendered = new Promise((resolve, reject) => {
-    const observer = new MutationObserver(() => {
+    observer = new MutationObserver(() => {
       const errorNode = host.querySelector(
         ".tikzjax-error,.tikzjax-broken-wrapper",
       );
       if (errorNode) {
-        observer.disconnect();
+        cleanup();
         const detail = String(errorNode.textContent || "")
           .replace(/\s+/g, " ")
           .trim()
@@ -214,25 +244,45 @@ export async function renderTikz(source, { packageProfiles = [], host } = {}) {
       }
     });
     observer.observe(host, { childList: true, subtree: true });
-    host.addEventListener(
-      "tikzjax-load-finished",
-      (event) => {
-        observer.disconnect();
-        const svg = event.target?.closest?.("svg") || host.querySelector("svg");
-        if (!svg) reject(new Error("TikZ 渲染未生成 SVG"));
-        else resolve(normalizeBundledSvg(svg.outerHTML, "TikZ"));
-      },
-      { once: true },
-    );
+    finishHandler = (event) => {
+      cleanup();
+      const svg = event.target?.closest?.("svg") || host.querySelector("svg");
+      if (!svg) reject(new Error("TikZ 渲染未生成 SVG"));
+      else resolve(normalizeBundledSvg(svg.outerHTML, "TikZ"));
+    };
+    host.addEventListener("tikzjax-load-finished", finishHandler, {
+      once: true,
+    });
     host.replaceChildren(script);
   });
-  return withTimeout(rendered);
+  try {
+    const result = await withTimeout(
+      rendered,
+      tikzRenderBudget(coldStart ? false : true),
+      coldStart
+        ? "离线 TeX/WASM 首次初始化超时；已取消本次预览，可重试且不会覆盖其他语言"
+        : "TikZ/PGFPlots 本地渲染超时；已取消本次预览",
+    );
+    tikzRuntimeWarm = true;
+    return result;
+  } finally {
+    cleanup();
+  }
 }
 
-async function renderTikzIsolated(source, packageProfiles, previewHost) {
+async function renderTikzIsolated(
+  source,
+  packageProfiles,
+  previewHost,
+  onProgress,
+) {
   const documentRef = previewHost?.ownerDocument || globalThis.document;
   if (!documentRef?.body?.appendChild) {
-    return renderTikz(source, { packageProfiles, host: previewHost });
+    return renderTikz(source, {
+      packageProfiles,
+      host: previewHost,
+      onProgress,
+    });
   }
   const stagingHost = documentRef.createElement("div");
   stagingHost.setAttribute("aria-hidden", "true");
@@ -250,6 +300,7 @@ async function renderTikzIsolated(source, packageProfiles, previewHost) {
     return await renderTikz(source, {
       packageProfiles,
       host: stagingHost,
+      onProgress,
     });
   } finally {
     stagingHost.remove();
@@ -263,6 +314,7 @@ export async function renderDrawingLocally({
   graphvizEngine = "dot",
   previewHost,
   renderId,
+  onProgress,
 }) {
   switch (language) {
     case "graphviz_dot":
@@ -270,7 +322,12 @@ export async function renderDrawingLocally({
     case "mermaid":
       return renderMermaid(source, renderId);
     case "tikz":
-      return renderTikzIsolated(source, packageProfiles, previewHost);
+      return renderTikzIsolated(
+        source,
+        packageProfiles,
+        previewHost,
+        onProgress,
+      );
     case "svg_source":
       return assertSafeSource(source);
     default:

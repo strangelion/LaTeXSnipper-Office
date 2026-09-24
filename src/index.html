@@ -2079,9 +2079,37 @@ x,y
                 hidden
               >
                 <label for="drawingSource">绘图源码</label>
+                <div
+                  class="drawing-source-toolbar"
+                  role="toolbar"
+                  aria-label="源码编辑工具"
+                >
+                  <span
+                    id="drawingSourceLanguage"
+                    class="drawing-source-language"
+                    >SVG / XML</span
+                  >
+                  <button
+                    id="drawingSourceDiffToggle"
+                    type="button"
+                    aria-pressed="true"
+                  >
+                    隐藏差异
+                  </button>
+                  <button id="drawingSourceSnapshot" type="button">
+                    设为比较基线
+                  </button>
+                  <output id="drawingSourceDiffStatus" aria-live="polite"
+                    >与基线一致</output
+                  >
+                </div>
                 <textarea id="drawingSource" spellcheck="false">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect x="12" y="12" width="296" height="156" rx="18" fill="#eef2ff" stroke="#4f46e5" stroke-width="4"/><path d="M72 112 L140 52 L248 126" fill="none" stroke="#0f172a" stroke-width="6"/><circle cx="140" cy="52" r="9" fill="#4f46e5"/></svg></textarea
                 >
+                <div
+                  id="drawingSourceCodeEditor"
+                  class="drawing-source-code-editor"
+                ></div>
               </div>
               <div class="drawing-actions">
                 <button

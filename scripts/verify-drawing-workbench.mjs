@@ -47,6 +47,20 @@ try {
     waitUntil: "networkidle",
   });
 
+  const drawingSource = page.locator("#drawingSource");
+  const drawingSourceEditor = page.locator(
+    "#drawingSourceCodeEditor .cm-content",
+  );
+  const fillDrawingSource = async (source) => {
+    await drawingSourceEditor.waitFor({ state: "visible" });
+    await drawingSourceEditor.fill(source);
+    await page.waitForFunction(
+      (expected) =>
+        document.querySelector("#drawingSource")?.value === expected,
+      source,
+    );
+  };
+
   await page.locator("#drawingModeTab").click();
   await page.locator('[data-drawing-language="svg_source"]').first().click();
   await page.locator("#drawingVisualModeBtn").click();
@@ -162,11 +176,23 @@ try {
   assert.notEqual(viewBoxAfter, viewBoxBeforePan);
   await page.locator("#drawingCanvasFit").click();
   await page.locator("#drawingSourceModeBtn").click();
-  await page
-    .locator("#drawingSource")
-    .fill(
-      "flowchart LR\n  A[输入] --> B{验证}\n  B -->|通过| C[Office]\n  B -->|失败| D[诊断]",
-    );
+  assert.equal(
+    await page.locator("#drawingSourceLanguage").textContent(),
+    "Mermaid",
+  );
+  assert.equal(await page.locator(".cm-lineNumbers").count(), 1);
+  await fillDrawingSource(
+    "flowchart LR\n  A[输入] --> B{验证}\n  B -->|通过| C[Office]\n  B -->|失败| D[诊断]",
+  );
+  assert.match(
+    await page.locator("#drawingSourceDiffStatus").textContent(),
+    /修改/,
+  );
+  await page.locator("#drawingSourceSnapshot").click();
+  assert.equal(
+    await page.locator("#drawingSourceDiffStatus").textContent(),
+    "与基线一致",
+  );
   await page.locator("#drawingCompileBtn").click();
   await page.locator("#drawingPreview svg").waitFor({ timeout: 20_000 });
   const fittedPreview = await page.evaluate(() => {
@@ -313,7 +339,7 @@ try {
     .click();
   assert.equal(await page.locator("#drawingPreview svg").count(), 0);
   await page.locator("#drawingSourceModeBtn").click();
-  await page.locator("#drawingSource").fill(
+  await fillDrawingSource(
     String.raw`\draw[->, thick] (0,0) -- (3,0) node[right] {$x$};
 \draw[->, thick] (0,0) -- (0,2) node[above] {$y$};`,
   );

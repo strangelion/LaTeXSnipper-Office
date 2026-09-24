@@ -17,6 +17,7 @@ import {
   serializeVisualDocument,
   visualProfileKey,
 } from "./source-adapters.js";
+import { createDrawingSourceEditor } from "./source-editor.js";
 
 const DEFAULT_SOURCES = Object.freeze({
   svg_source:
@@ -263,6 +264,26 @@ const nicePlotStep = (value) => {
     normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return factor * exponent;
 };
+
+const MAX_PLOT_TICK_INTERVALS = 64;
+
+export function resolvePlotYTick(yMin, yMax, requestedTick = 0.5) {
+  const min = Number(yMin);
+  const max = Number(yMax);
+  const requested = Number(requestedTick);
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min >= max) {
+    return Number.isFinite(requested) && requested > 0 ? requested : 0.5;
+  }
+  const span = max - min;
+  if (
+    Number.isFinite(requested) &&
+    requested > 0 &&
+    span / requested <= MAX_PLOT_TICK_INTERVALS
+  ) {
+    return requested;
+  }
+  return Number(nicePlotStep(span / 8).toPrecision(8));
+}
 
 export function computePlotYRange(objects, sampleCount = 161) {
   const plots = (objects || []).filter(
@@ -658,6 +679,34 @@ export function createDrawingWorkspaceController({
     sourceByProfile: new Map(),
   };
 
+  let sourceCodeEditor = null;
+  try {
+    sourceCodeEditor = createDrawingSourceEditor({
+      textarea: elements.source,
+      host: elements.sourceCodeEditor,
+      languageLabel: elements.sourceLanguage,
+      diffToggle: elements.sourceDiffToggle,
+      snapshotButton: elements.sourceSnapshot,
+      diffStatus: elements.sourceDiffStatus,
+      initialProfile: "svg_source",
+    });
+  } catch (error) {
+    console.warn(
+      "[DrawingWorkspace] Enhanced source editor unavailable",
+      error,
+    );
+  }
+  const sourceValue = () =>
+    sourceCodeEditor?.getValue() ?? String(elements.source?.value || "");
+  const setSourceValue = (value, options = {}) => {
+    const text = String(value ?? "");
+    if (sourceCodeEditor) {
+      sourceCodeEditor.setValue(text, options);
+    } else if (elements.source) {
+      elements.source.value = text;
+    }
+  };
+
   const status = (message) => {
     if (elements.status) elements.status.textContent = message;
   };
@@ -719,7 +768,7 @@ export function createDrawingWorkspaceController({
       state.packageProfiles,
     );
     if (elements.source)
-      state.sourceByProfile.set(previousProfile, elements.source.value);
+      state.sourceByProfile.set(previousProfile, sourceValue());
     state.language = language;
     state.packageProfiles = button.dataset.drawingProfile
       ? [button.dataset.drawingProfile]
@@ -738,7 +787,7 @@ export function createDrawingWorkspaceController({
     if (visualEditor) {
       visualEditor.setProfile(profile, { commit: !storedSource });
       if (storedSource && elements.source) {
-        elements.source.value = storedSource;
+        setSourceValue(storedSource, { nextProfile: profile });
         const parsed = parseVisualDocument(profile, storedSource);
         state.visualLocked = !parsed.lossless;
         if (parsed.lossless)
@@ -748,12 +797,14 @@ export function createDrawingWorkspaceController({
       }
     } else if (elements.source) {
       const preset = button.dataset.drawingProfile || language;
-      elements.source.value =
+      setSourceValue(
         storedSource ||
-        DEFAULT_SOURCES[preset] ||
-        DEFAULT_SOURCES[language] ||
-        "";
-      state.visualLocked = !parseVisualDocument(profile, elements.source.value)
+          DEFAULT_SOURCES[preset] ||
+          DEFAULT_SOURCES[language] ||
+          "",
+        { nextProfile: profile },
+      );
+      state.visualLocked = !parseVisualDocument(profile, sourceValue())
         .lossless;
     }
     const canvasTools = visualCanvasToolsForLanguage(
@@ -820,7 +871,7 @@ export function createDrawingWorkspaceController({
       const authored = resolveDrawingAuthoringInput({
         editorMode: state.editorMode,
         language: state.language,
-        nativeSource: elements.source?.value || "",
+        nativeSource: sourceValue(),
         packageProfiles: state.packageProfiles,
       });
       const originalSource = authored.source;
@@ -833,6 +884,9 @@ export function createDrawingWorkspaceController({
             graphvizEngine: controlValue(elements.graphvizEngine, "dot"),
             previewHost: elements.preview,
             renderId: drawingId,
+            onProgress: (message) => {
+              if (isCurrent()) status(message);
+            },
           })
         : null;
       if (!isCurrent()) return null;
@@ -1407,7 +1461,7 @@ export function createDrawingWorkspaceController({
     const profile = resolveVisualProfile(state.language, state.packageProfiles);
     let parsed = null;
     if (requestedVisual && elements.source) {
-      parsed = parseVisualDocument(profile, elements.source.value);
+      parsed = parseVisualDocument(profile, sourceValue());
       state.visualLocked = !parsed.lossless;
       if (parsed.lossless && visualEditor) {
         const parsedObjects =
@@ -1469,7 +1523,13 @@ export function createDrawingWorkspaceController({
           document.profile,
           document.objects,
         );
-        if (elements.source) elements.source.value = serialized.source;
+        const isInitialProfileSource = !state.sourceByProfile.has(
+          document.profile,
+        );
+        setSourceValue(serialized.source, {
+          nextProfile: document.profile,
+          resetBaseline: isInitialProfileSource,
+        });
         state.sourceByProfile.set(document.profile, serialized.source);
         state.visualLocked = false;
         if (
@@ -1590,7 +1650,7 @@ export function createDrawingWorkspaceController({
         console.warn("[Drawing] PNG clipboard rendering unavailable", error);
       }
       const report = await copyDrawing({
-        source: state.lastResult.originalSource || elements.source?.value || "",
+        source: state.lastResult.originalSource || sourceValue(),
         svg: state.lastResult.svg,
         pngBase64,
         protocolJson: JSON.stringify(state.lastResult.payload),
@@ -1622,7 +1682,7 @@ export function createDrawingWorkspaceController({
       const result = await sendDrawingToPlatform({
         pngBase64,
         svg: state.lastResult.svg,
-        source: state.lastResult.originalSource || elements.source?.value || "",
+        source: state.lastResult.originalSource || sourceValue(),
       });
       status("图片已由目标平台保存并插入");
       return result;
@@ -1709,8 +1769,8 @@ export function createDrawingWorkspaceController({
   elements.sendPlatformButton?.addEventListener("click", sendPlatform);
   elements.source?.addEventListener("input", () => {
     const profile = resolveVisualProfile(state.language, state.packageProfiles);
-    const parsed = parseVisualDocument(profile, elements.source.value);
-    state.sourceByProfile.set(profile, elements.source.value);
+    const parsed = parseVisualDocument(profile, sourceValue());
+    state.sourceByProfile.set(profile, sourceValue());
     state.visualLocked = !parsed.lossless;
     if (parsed.lossless && visualEditor) {
       visualEditor.replaceDocument(profile, parsed.objects, { commit: false });
@@ -1872,6 +1932,9 @@ export function createDrawingWorkspaceController({
   const applyPlotBuilder = ({ create = false } = {}) => {
     try {
       const patch = plotPatch();
+      const requestedYTick = Number(elements.plotYTick?.value || 0.5);
+      const yTick = resolvePlotYTick(patch.yMin, patch.yMax, requestedYTick);
+      if (elements.plotYTick) elements.plotYTick.value = String(yTick);
       setEditorMode("visual");
       if (state.editorMode !== "visual") return;
       if (create) {
@@ -1901,6 +1964,7 @@ export function createDrawingWorkspaceController({
         {
           yMin: patch.yMin,
           yMax: patch.yMax,
+          yTick,
           legendPosition,
         },
         { createIfMissing: true },
@@ -1919,7 +1983,7 @@ export function createDrawingWorkspaceController({
   const applyAxesBuilder = () => {
     const yMin = Number(elements.plotYMin?.value || -1.5);
     const yMax = Number(elements.plotYMax?.value || 1.5);
-    const yTick = Number(elements.plotYTick?.value || 0.5);
+    const requestedYTick = Number(elements.plotYTick?.value || 0.5);
     const legendColumns = Number(elements.plotLegendColumns?.value || 1);
     const legendFontSize = Number(elements.plotLegendFontSize?.value || 9);
     const legendOpacity = Number(elements.plotLegendOpacity?.value ?? 92) / 100;
@@ -1927,10 +1991,12 @@ export function createDrawingWorkspaceController({
       status("坐标设置未写入：最小 y 必须小于最大 y");
       return;
     }
-    if (!Number.isFinite(yTick) || yTick <= 0) {
+    if (!Number.isFinite(requestedYTick) || requestedYTick <= 0) {
       status("坐标设置未写入：Y 轴主刻度必须大于 0");
       return;
     }
+    const yTick = resolvePlotYTick(yMin, yMax, requestedYTick);
+    if (elements.plotYTick) elements.plotYTick.value = String(yTick);
     if (
       !Number.isInteger(legendColumns) ||
       legendColumns < 1 ||
@@ -1967,7 +2033,11 @@ export function createDrawingWorkspaceController({
       },
       { createIfMissing: true },
     );
-    status("Y 轴范围、主刻度、网格与图例位置已写入 PGFPlots 源码");
+    status(
+      yTick === requestedYTick
+        ? "Y 轴范围、主刻度、网格与图例位置已写入 PGFPlots 源码"
+        : `Y 轴范围跨度较大，主刻度已从 ${requestedYTick} 自动调整为 ${yTick}，避免预览生成过慢`,
+    );
   };
   elements.plotAxesApply?.addEventListener("click", applyAxesBuilder);
   elements.plotAutoY?.addEventListener("click", () => {
@@ -1999,6 +2069,19 @@ export function createDrawingWorkspaceController({
         elements.plotYMin.value = preset.dataset.plotYMin;
       if (elements.plotYMax && preset.dataset.plotYMax)
         elements.plotYMax.value = preset.dataset.plotYMax;
+      if (
+        elements.plotYTick &&
+        preset.dataset.plotYMin &&
+        preset.dataset.plotYMax
+      ) {
+        elements.plotYTick.value = String(
+          resolvePlotYTick(
+            preset.dataset.plotYMin,
+            preset.dataset.plotYMax,
+            elements.plotYTick.value,
+          ),
+        );
+      }
       setControlValue(elements.plotCurve, "custom");
       status(
         "函数及适配坐标范围已填入；点击“更新当前曲线”后写入原生 PGFPlots 源码",
@@ -2371,6 +2454,10 @@ export function createDrawingWorkspaceController({
         status("当前绘图语言暂不提供该工具的源码片段");
         return;
       }
+      if (sourceCodeEditor) {
+        sourceCodeEditor.replaceSelection(`\n${snippet}\n`);
+        return;
+      }
       const start =
         elements.source.selectionStart ?? elements.source.value.length;
       const end = elements.source.selectionEnd ?? start;
@@ -2397,7 +2484,7 @@ export function createDrawingWorkspaceController({
     kind: "drawing",
     language: state.language,
     packageProfiles: [...state.packageProfiles],
-    source: String(elements.source?.value || ""),
+    source: sourceValue(),
   });
 
   const loadEditableState = (editorState) => {
@@ -2424,7 +2511,10 @@ export function createDrawingWorkspaceController({
     state.language = editorState.language;
     state.packageProfiles = profiles;
     state.sourceByProfile.set(profile, editorState.source);
-    if (elements.source) elements.source.value = editorState.source;
+    setSourceValue(editorState.source, {
+      nextProfile: profile,
+      resetBaseline: true,
+    });
     const parsed = parseVisualDocument(profile, editorState.source);
     state.visualLocked = !parsed.lossless;
     if (visualEditor) {
@@ -2490,6 +2580,11 @@ export function drawingWorkspaceElements(root = document) {
     symbolComposerWorkspace: root.getElementById("symbolComposerWorkspace"),
     languageButtons: [...root.querySelectorAll("[data-drawing-language]")],
     source: root.getElementById("drawingSource"),
+    sourceCodeEditor: root.getElementById("drawingSourceCodeEditor"),
+    sourceLanguage: root.getElementById("drawingSourceLanguage"),
+    sourceDiffToggle: root.getElementById("drawingSourceDiffToggle"),
+    sourceSnapshot: root.getElementById("drawingSourceSnapshot"),
+    sourceDiffStatus: root.getElementById("drawingSourceDiffStatus"),
     visualModeButton: root.getElementById("drawingVisualModeBtn"),
     sourceModeButton: root.getElementById("drawingSourceModeBtn"),
     visualEditor: root.getElementById("drawingVisualEditor"),

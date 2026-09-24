@@ -8,6 +8,7 @@ import {
   fitPlotData,
   migrateLegacyPlotLegend,
   parsePlotDataTable,
+  resolvePlotYTick,
   resolveDrawingAuthoringInput,
   resolveVisualProfile,
   tablePayloadToPlotData,
@@ -20,6 +21,7 @@ import {
   normalizeBundledSvg,
   normalizeMermaidRenderId,
   renderTikz,
+  tikzRenderBudget,
 } from "../src/features/drawing/local-renderers.js";
 import {
   createProfileDocument,
@@ -287,6 +289,13 @@ test("PGFPlots auto Y range follows every visible curve and ignores hidden curve
   assert.ok(range.tick > 0);
 });
 
+test("PGFPlots caps excessive Y tick density before native compilation", () => {
+  assert.equal(resolvePlotYTick(-1.5, 1.5, 0.5), 0.5);
+  assert.equal(resolvePlotYTick(-1, 60, 0.5), 10);
+  assert.equal(resolvePlotYTick(-30, 30, 1), 1);
+  assert.equal(resolvePlotYTick(2, 2, 0.25), 0.25);
+});
+
 test("PGFPlots curve visibility and legend layout serialize to native source", () => {
   const objects = createProfileDocument("pgf_plots", "plot", {
     expression: "sin(x)",
@@ -362,6 +371,12 @@ test("TikZ visual contracts render CJK offline while raw CJK fails clearly", asy
     renderTikz(String.raw`\\node {中文};`, { host: {} }),
     /不能直接编译未结构化的 CJK 源码/,
   );
+});
+
+test("TikZ cold start has a bounded larger budget than warm rendering", () => {
+  assert.equal(tikzRenderBudget(false), 75_000);
+  assert.equal(tikzRenderBudget(true), 45_000);
+  assert.ok(tikzRenderBudget(false) > tikzRenderBudget(true));
 });
 
 test("language-specific documents expose different editing models", () => {

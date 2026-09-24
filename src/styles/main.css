@@ -24,6 +24,15 @@
     "Roboto", "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
   --nav-height: 56px;
   --footer-height: 44px;
+  --code-keyword: #7c3aed;
+  --code-name: #0f6f8f;
+  --code-type: #b45309;
+  --code-property: #2563eb;
+  --code-string: #15803d;
+  --code-number: #c2410c;
+  --code-comment: #64748b;
+  --code-operator: #475569;
+  --code-error: #dc2626;
 }
 
 [data-theme="dark"] {
@@ -37,6 +46,15 @@
   --hdr-bg: rgba(15, 17, 26, 0.85);
   --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   --btn-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --code-keyword: #c4b5fd;
+  --code-name: #67e8f9;
+  --code-type: #fbbf24;
+  --code-property: #93c5fd;
+  --code-string: #86efac;
+  --code-number: #fdba74;
+  --code-comment: #94a3b8;
+  --code-operator: #cbd5e1;
+  --code-error: #fca5a5;
 }
 
 /* 暗色模式 - MathLive 覆盖 */
@@ -4272,6 +4290,111 @@ html[data-theme="dark"][data-appearance-palette]:not(
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+.drawing-source-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--card-bg) 94%, var(--accent));
+}
+
+.drawing-source-toolbar button {
+  min-height: 30px;
+  padding: 0 0.65rem;
+  border: 1px solid var(--border-color);
+  border-radius: 7px;
+  background: var(--card-bg);
+  color: var(--text);
+  cursor: pointer;
+  font: 700 0.64rem/1 var(--font-sans);
+}
+
+.drawing-source-toolbar button:hover,
+.drawing-source-toolbar button:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.drawing-source-language {
+  color: var(--accent);
+  font: 800 0.64rem/1 var(--font-sans);
+}
+
+#drawingSourceDiffStatus {
+  margin-left: auto;
+  color: var(--muted);
+  font: 650 0.62rem/1.2 var(--font-sans);
+}
+
+#drawingSourceDiffStatus[data-state="changed"] {
+  color: var(--code-number);
+}
+
+.drawing-source-code-editor {
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--input-bg, var(--card-bg));
+}
+
+.drawing-source-code-editor .cm-editor {
+  min-height: 300px;
+  color: var(--text);
+  background: transparent;
+  font:
+    0.76rem/1.55 "Cascadia Code",
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+
+.drawing-source-code-editor .cm-scroller {
+  min-height: 300px;
+  max-height: min(58vh, 680px);
+  overflow: auto;
+  font-family: inherit;
+}
+
+.drawing-source-code-editor .cm-gutters {
+  border-right: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--card-bg) 96%, var(--accent));
+  color: var(--muted);
+}
+
+.drawing-source-code-editor .cm-activeLine,
+.drawing-source-code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.drawing-source-code-editor .cm-selectionBackground,
+.drawing-source-code-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 26%, transparent) !important;
+}
+
+.drawing-source-code-editor .cm-cursor {
+  border-left-color: var(--text);
+}
+
+.drawing-source-code-editor .cm-changedLine {
+  background: color-mix(in srgb, var(--code-number) 10%, transparent);
+}
+
+.drawing-source-code-editor .cm-insertedLine {
+  background: color-mix(in srgb, var(--code-string) 10%, transparent);
+}
+
+.drawing-source-code-editor .cm-deletedChunk {
+  background: color-mix(in srgb, var(--code-error) 9%, transparent);
+}
+
+.drawing-source-code-editor .cm-changeGutter .cm-gutterElement {
+  color: var(--code-number);
 }
 
 #drawingSource {
