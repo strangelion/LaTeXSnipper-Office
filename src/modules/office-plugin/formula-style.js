@@ -5,8 +5,9 @@
  */
 
 export class FormulaStyleModule {
-  constructor() {
+  constructor(formatter = null) {
     this.isInitialized = false;
+    this.formatter = formatter;
     this.defaultStyle = {
       fontSize: 12,
       fontFamily: "Cambria Math",
@@ -30,8 +31,10 @@ export class FormulaStyleModule {
    */
   async formatSelection() {
     console.log("[FormulaStyleModule] Formatting selection...");
-    // 实际实现会将默认样式应用到选中的公式
-    return { success: true, message: "所选公式已格式化" };
+    return this.runFormatter(
+      "formatSelection",
+      "当前 Office 主机尚未提供所选公式格式化能力",
+    );
   }
 
   /**
@@ -40,8 +43,42 @@ export class FormulaStyleModule {
    */
   async formatAll() {
     console.log("[FormulaStyleModule] Formatting all formulas...");
-    // 实际实现会将默认样式应用到文档中的所有公式
-    return { success: true, message: "所有公式已格式化" };
+    return this.runFormatter(
+      "formatAll",
+      "当前 Office 主机尚未提供全文公式格式化能力",
+    );
+  }
+
+  async runFormatter(method, unsupportedMessage) {
+    const operation = this.formatter?.[method];
+    if (typeof operation !== "function") {
+      return {
+        success: false,
+        code: "FORMAT_UNSUPPORTED",
+        message: unsupportedMessage,
+      };
+    }
+
+    try {
+      const result = await operation.call(
+        this.formatter,
+        this.getDefaultStyle(),
+      );
+      if (!result || result.success !== true) {
+        return {
+          success: false,
+          code: result?.code || "FORMAT_FAILED",
+          message: result?.message || "公式格式化失败",
+        };
+      }
+      return result;
+    } catch (error) {
+      return {
+        success: false,
+        code: "FORMAT_FAILED",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
