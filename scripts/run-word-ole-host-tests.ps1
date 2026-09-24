@@ -176,7 +176,10 @@ try {
     Remove-Registration
     Register-TestHandler
     $previousNativeOleLog = $env:LATEXSNIPPER_OLE_LOG
+    $previousExpectedHandlerHash = $env:LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256
     $env:LATEXSNIPPER_OLE_LOG = "1"
+    $env:LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256 = `
+        (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash
     if (-not $SkipWordHost) {
         & $HostTestExecutable $FixtureContract $EvidenceDirectory --ole $SvgDirectory
         if ($LASTEXITCODE -ne 0) {
@@ -201,6 +204,13 @@ finally {
     }
     else {
         $env:LATEXSNIPPER_OLE_LOG = $previousNativeOleLog
+    }
+    if ($null -eq $previousExpectedHandlerHash) {
+        Remove-Item Env:\LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256 `
+            -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256 = $previousExpectedHandlerHash
     }
     Restore-Registration
 }

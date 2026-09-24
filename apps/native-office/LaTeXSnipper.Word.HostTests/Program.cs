@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -140,6 +141,12 @@ namespace LaTeXSnipper.Word.HostTests
                 int? oleServerProcessId = oleMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
+                if (oleServerProcessId.HasValue)
+                {
+                    Console.WriteLine(
+                        $"Word OLE payload target: pid={oleServerProcessId.Value}, " +
+                        $"hwnd={application.ActiveWindow.Hwnd}");
+                }
                 var adapter = new WordAdapter(application, oleServerProcessId);
                 if (!oleMode && !imageMode && !caseMode)
                 {
@@ -977,6 +984,7 @@ namespace LaTeXSnipper.Word.HostTests
                     : null;
                 if (string.IsNullOrWhiteSpace(diagnostics))
                     throw new InvalidOperationException("OLE object returned no diagnostics JSON.");
+                ValidateLoadedHandlerArtifact(diagnostics);
             }
             finally
             {
@@ -1027,6 +1035,38 @@ namespace LaTeXSnipper.Word.HostTests
                 }
             }
             ReleaseComObject(shape);
+        }
+
+        private static void ValidateLoadedHandlerArtifact(string diagnostics)
+        {
+            string expectedHash = Environment.GetEnvironmentVariable(
+                "LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256");
+            if (string.IsNullOrWhiteSpace(expectedHash)) return;
+
+            using JsonDocument document = JsonDocument.Parse(diagnostics);
+            if (!document.RootElement.TryGetProperty("handlerPath", out JsonElement pathElement) ||
+                pathElement.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(pathElement.GetString()))
+            {
+                throw new InvalidOperationException(
+                    "OLE diagnostics did not identify the loaded handler artifact.");
+            }
+
+            string handlerPath = Path.GetFullPath(pathElement.GetString());
+            if (!File.Exists(handlerPath))
+                throw new InvalidOperationException(
+                    $"Loaded OLE handler does not exist: {handlerPath}");
+
+            string actualHash;
+            using (SHA256 sha256 = SHA256.Create())
+            using (FileStream stream = File.OpenRead(handlerPath))
+                actualHash = BitConverter.ToString(sha256.ComputeHash(stream)).Replace("-", "");
+            if (!string.Equals(actualHash, expectedHash.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Loaded OLE handler does not match the staged acceptance artifact: " +
+                    $"path={handlerPath}, expectedSha256={expectedHash}, actualSha256={actualHash}.");
+            }
         }
 
         private static bool EditorStateMatches(FormulaPayload expected, FormulaPayload actual)

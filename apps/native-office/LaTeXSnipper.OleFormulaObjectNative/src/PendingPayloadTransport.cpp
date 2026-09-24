@@ -73,13 +73,70 @@ std::wstring GetPayloadPath(const std::string& token)
     return path;
 }
 
+std::wstring GetReferencePath(DWORD pid)
+{
+    PWSTR localAppData = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData)) || localAppData == nullptr)
+        return {};
+    std::wstring path(localAppData);
+    CoTaskMemFree(localAppData);
+    wchar_t fileName[64]{};
+    swprintf_s(fileName, L"reference-%lu.json", pid);
+    path += L"\\";
+    path += kPayloadSubdirectory;
+    path += L"\\";
+    path += fileName;
+    return path;
+}
+
+std::wstring ReadReferenceFile(DWORD pid)
+{
+    const std::wstring path = GetReferencePath(pid);
+    if (path.empty()) return {};
+    UniqueHandle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr,
+                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    if (!file.IsValid()) return {};
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(file.Get(), &size) || size.QuadPart <= 0 ||
+        size.QuadPart > static_cast<LONGLONG>(kMaximumReferenceCharacters * 4))
+        return {};
+    std::vector<char> bytes(static_cast<size_t>(size.QuadPart));
+    size_t offset = 0;
+    while (offset < bytes.size())
+    {
+        DWORD transferred = 0;
+        const DWORD chunk = static_cast<DWORD>((std::min)(bytes.size() - offset, static_cast<size_t>(4096)));
+        if (!ReadFile(file.Get(), bytes.data() + offset, chunk, &transferred, nullptr) || transferred == 0)
+            return {};
+        offset += transferred;
+    }
+    const int characters = MultiByteToWideChar(
+        CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+    if (characters <= 0 || characters > static_cast<int>(kMaximumReferenceCharacters)) return {};
+    std::wstring reference(static_cast<size_t>(characters), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(), static_cast<int>(bytes.size()),
+                            reference.data(), characters) != characters)
+        return {};
+    return reference;
+}
+
 std::wstring ReadReference()
 {
+    const DWORD pid = GetCurrentProcessId();
+    std::wstring fileReference = ReadReferenceFile(pid);
+    if (!fileReference.empty())
+    {
+        WriteNativeOleLog(L"PendingPayload: protected reference file selected.");
+        return fileReference;
+    }
     wchar_t valueName[64]{};
-    swprintf_s(valueName, L"%s%lu", kValuePrefix, GetCurrentProcessId());
+    swprintf_s(valueName, L"%s%lu", kValuePrefix, pid);
     UniqueRegistryKey key;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_QUERY_VALUE, key.Put()) != ERROR_SUCCESS)
+    const LSTATUS openStatus = RegOpenKeyExW(HKEY_CURRENT_USER, kPayloadKey, 0, KEY_QUERY_VALUE, key.Put());
+    if (openStatus != ERROR_SUCCESS)
+    {
         return {};
+    }
     DWORD type = 0;
     DWORD bytes = 0;
     LSTATUS status = RegQueryValueExW(key.Get(), valueName, nullptr, &type, nullptr, &bytes);
@@ -98,6 +155,8 @@ std::wstring ReadReference()
 
 void DeleteCurrentProcessReference()
 {
+    const std::wstring referencePath = GetReferencePath(GetCurrentProcessId());
+    if (!referencePath.empty()) DeleteFileW(referencePath.c_str());
     wchar_t valueName[64]{};
     swprintf_s(valueName, L"%s%lu", kValuePrefix, GetCurrentProcessId());
     UniqueRegistryKey key;

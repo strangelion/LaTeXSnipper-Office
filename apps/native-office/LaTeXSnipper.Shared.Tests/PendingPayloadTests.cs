@@ -52,6 +52,12 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 "LaTeXSnipper", "OfficePlugin", "PendingPayloads", token + ".json");
         }
 
+        private static string ReferencePath(int pid)
+        {
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LaTeXSnipper", "OfficePlugin", "PendingPayloads", $"reference-{pid}.json");
+        }
+
         private static void ExpectCurrentUserOnlyAcl(string path)
         {
             FileSecurity security = File.GetAccessControl(path);
@@ -81,6 +87,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                     "registry reference contains formula payload data");
                 Expect(token != null && File.Exists(PayloadPath(token)), "token payload file is missing");
                 if (token != null && File.Exists(PayloadPath(token))) ExpectCurrentUserOnlyAcl(PayloadPath(token));
+                Expect(File.Exists(ReferencePath(Process.GetCurrentProcess().Id)),
+                    "protected reference file is missing");
+                if (File.Exists(ReferencePath(Process.GetCurrentProcess().Id)))
+                    ExpectCurrentUserOnlyAcl(ReferencePath(Process.GetCurrentProcess().Id));
                 var thread = new Thread(() => json = OleFormulaPendingPayloadStore.Consume());
                 thread.Start();
                 Expect(thread.Join(TimeSpan.FromSeconds(5)), "cross-thread consume timed out");
@@ -88,6 +98,25 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             }
             Expect(json != null && json.Contains("cross-thread"), "same-PID different thread could not read the payload");
             Expect(ReadReference(Process.GetCurrentProcess().Id) == null, "cross-thread consume did not remove the reference");
+            Expect(!File.Exists(ReferencePath(Process.GetCurrentProcess().Id)),
+                "cross-thread consume did not remove the reference file");
+        }
+
+        private static void TestReferenceFileSurvivesRegistryInterference()
+        {
+            int pid = Process.GetCurrentProcess().Id;
+            string json;
+            using (OleFormulaPendingPayloadStore.Save(Payload("registry-interference")))
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true))
+                    key?.DeleteValue("PendingPayload." + pid, throwOnMissingValue: false);
+                Expect(ReadReference(pid) == null, "registry interference fixture was not removed");
+                Expect(File.Exists(ReferencePath(pid)), "protected reference file was unexpectedly removed");
+                json = OleFormulaPendingPayloadStore.Consume();
+            }
+            Expect(json != null && json.Contains("registry-interference"),
+                "protected reference file did not survive registry interference");
+            Expect(!File.Exists(ReferencePath(pid)), "reference file remained after fallback consume");
         }
 
         private static void TestMutexSerialization()
@@ -259,6 +288,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             TestCrossThreadRead();
             Console.WriteLine("RUN TestMutexSerialization");
             TestMutexSerialization();
+            Console.WriteLine("RUN TestReferenceFileSurvivesRegistryInterference");
+            TestReferenceFileSurvivesRegistryInterference();
             Console.WriteLine("RUN TestExceptionCleanup");
             TestExceptionCleanup();
             Console.WriteLine("RUN TestDifferentPidIsolation");

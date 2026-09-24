@@ -78,7 +78,7 @@ void WriteNativeOleLog(const wchar_t* message)
     if (SUCCEEDED(StringCchPrintfW(
             line,
             1024,
-            L"%04u-%02u-%02uT%02u:%02u:%02u.%03u %s\r\n",
+            L"%04u-%02u-%02uT%02u:%02u:%02u.%03u pid=%lu tid=%lu %s\r\n",
             now.wYear,
             now.wMonth,
             now.wDay,
@@ -86,6 +86,8 @@ void WriteNativeOleLog(const wchar_t* message)
             now.wMinute,
             now.wSecond,
             now.wMilliseconds,
+            GetCurrentProcessId(),
+            GetCurrentThreadId(),
             message)))
     {
         DWORD bytesWritten = 0;

@@ -18,6 +18,7 @@ public static class OleFormulaPendingPayloadStore
 {
     private const string KeyPath = @"Software\LaTeXSnipper\OfficePlugin\OleFormulaObject";
     private const string PendingPayloadPrefix = "PendingPayload.";
+    private const string PendingReferenceFilePrefix = "reference-";
     private const int ReferenceSchemaVersion = 1;
     private const int MaximumPayloadBytes = 64 * 1024 * 1024;
     private const int MaximumReferenceCharacters = 2048;
@@ -38,6 +39,9 @@ public static class OleFormulaPendingPayloadStore
         "LaTeXSnipper", "OfficePlugin", "PendingPayloads");
 
     private static string GetPayloadPath(string token) => Path.Combine(PayloadDirectory, token + ".json");
+    private static string GetReferencePath(int pid) => Path.Combine(
+        PayloadDirectory,
+        $"{PendingReferenceFilePrefix}{pid}.json");
 
     public static PendingPayloadLease Save(FormulaPayload payload)
     {
@@ -57,9 +61,11 @@ public static class OleFormulaPendingPayloadStore
         if (payload == null) throw new ArgumentNullException(nameof(payload));
         if (targetProcessId <= 0)
             throw new ArgumentOutOfRangeException(nameof(targetProcessId));
+        int callerProcessId;
         using (Process target = Process.GetProcessById(targetProcessId))
         using (Process current = Process.GetCurrentProcess())
         {
+            callerProcessId = current.Id;
             if (target.HasExited || target.SessionId != current.SessionId)
                 throw new InvalidOperationException(
                     "OLE payload target must be alive in the current logon session.");
@@ -70,6 +76,7 @@ public static class OleFormulaPendingPayloadStore
         bool ownsMutex = false;
         string? token = null;
         string? payloadPath = null;
+        string referencePath = GetReferencePath(pid);
         try
         {
             try
@@ -105,16 +112,20 @@ public static class OleFormulaPendingPayloadStore
             if (referenceJson.Length > MaximumReferenceCharacters)
                 throw new InvalidOperationException("OLE payload reference exceeds the registry size limit.");
 
+            DeleteFile(referencePath);
+            WritePayloadAtomically(referencePath, Encoding.UTF8.GetBytes(referenceJson));
             string valueName = GetValueName(pid);
             using RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath)
                 ?? throw new InvalidOperationException("Cannot open OLE formula payload registry key.");
             key.SetValue(valueName, referenceJson, RegistryValueKind.String);
+            WriteDiagnostic($"saved callerPid={callerProcessId} targetPid={pid} tid={tid} value={valueName} formulaId={payload.FormulaId} bytes={payloadBytes.Length}");
             Debug.WriteLine($"[OlePayloadStore] Saved token reference pid={pid} tid={tid} formulaId={payload.FormulaId} bytes={payloadBytes.Length}");
             return new PendingPayloadLease(mutex, valueName, token, pid, tid, payload.FormulaId);
         }
         catch
         {
             if (payloadPath != null) DeleteFile(payloadPath);
+            DeleteFile(referencePath);
             if (ownsMutex) mutex.ReleaseMutex();
             mutex.Dispose();
             throw;
@@ -125,13 +136,24 @@ public static class OleFormulaPendingPayloadStore
     {
         int pid = Process.GetCurrentProcess().Id;
         string valueName = GetValueName(pid);
-        string? referenceJson;
+        string? referenceJson = null;
+        string referencePath = GetReferencePath(pid);
+        try
+        {
+            if (File.Exists(referencePath))
+                referenceJson = File.ReadAllText(referencePath, new UTF8Encoding(false, true));
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is DecoderFallbackException)
+        {
+            Debug.WriteLine($"[OlePayloadStore] Consume failed operation=read-reference-file pid={pid} error={ex.GetType().Name}");
+        }
         using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true))
         {
-            if (key == null) return null;
-            referenceJson = key.GetValue(valueName) as string;
-            key.DeleteValue(valueName, throwOnMissingValue: false);
+            if (referenceJson == null)
+                referenceJson = key?.GetValue(valueName) as string;
+            key?.DeleteValue(valueName, throwOnMissingValue: false);
         }
+        DeleteFile(referencePath);
         if (referenceJson == null || string.IsNullOrWhiteSpace(referenceJson) ||
             referenceJson.Length > MaximumReferenceCharacters) return null;
 
@@ -160,11 +182,33 @@ public static class OleFormulaPendingPayloadStore
         }
     }
 
-    internal static void DeleteValueAndFile(string valueName, string token)
+    internal static void DeleteValueAndFile(string valueName, string token, int pid)
     {
+        WriteDiagnostic($"releasing callerPid={Process.GetCurrentProcess().Id} targetPid={pid} value={valueName}");
         using RegistryKey? key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true);
         key?.DeleteValue(valueName, throwOnMissingValue: false);
+        DeleteFile(GetReferencePath(pid));
         if (IsToken(token)) DeleteFile(GetPayloadPath(token));
+    }
+
+    internal static void WriteDiagnostic(string message)
+    {
+        if (Environment.GetEnvironmentVariable("LATEXSNIPPER_OLE_LOG") == null) return;
+        try
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LaTeXSnipper", "OfficePlugin", "OleFormulaObjectNative");
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(
+                Path.Combine(directory, "ole-managed.log"),
+                $"{DateTime.Now:yyyy-MM-ddTHH:mm:ss.fff} {message}{Environment.NewLine}",
+                Encoding.UTF8);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"[OlePayloadStore] Diagnostic log failed: {ex.GetType().Name}");
+        }
     }
 
     private static bool IsValidReference(PendingPayloadReference? reference)
@@ -230,7 +274,7 @@ public static class OleFormulaPendingPayloadStore
 
     private static void WritePayloadAtomically(string finalPath, byte[] bytes)
     {
-        string temporaryPath = finalPath + ".tmp";
+        string temporaryPath = $"{finalPath}.{Guid.NewGuid():N}.tmp";
         SecurityIdentifier currentUser = WindowsIdentity.GetCurrent().User
             ?? throw new InvalidOperationException("Cannot resolve the current Windows user SID.");
         var security = new FileSecurity();
@@ -305,7 +349,7 @@ public sealed class PendingPayloadLease : IDisposable
         if (owned == null) return;
         try
         {
-            OleFormulaPendingPayloadStore.DeleteValueAndFile(valueName, token);
+            OleFormulaPendingPayloadStore.DeleteValueAndFile(valueName, token, pid);
             Debug.WriteLine($"[OlePayloadStore] Released pid={pid} tid={tid} formulaId={formulaId}");
         }
         finally
