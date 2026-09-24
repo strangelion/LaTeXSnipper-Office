@@ -17,7 +17,6 @@ import {
   serializeVisualDocument,
   visualProfileKey,
 } from "./source-adapters.js";
-import { createDrawingSourceEditor } from "./source-editor.js";
 
 const DEFAULT_SOURCES = Object.freeze({
   svg_source:
@@ -680,21 +679,28 @@ export function createDrawingWorkspaceController({
   };
 
   let sourceCodeEditor = null;
-  try {
-    sourceCodeEditor = createDrawingSourceEditor({
-      textarea: elements.source,
-      host: elements.sourceCodeEditor,
-      languageLabel: elements.sourceLanguage,
-      diffToggle: elements.sourceDiffToggle,
-      snapshotButton: elements.sourceSnapshot,
-      diffStatus: elements.sourceDiffStatus,
-      initialProfile: "svg_source",
-    });
-  } catch (error) {
-    console.warn(
-      "[DrawingWorkspace] Enhanced source editor unavailable",
-      error,
-    );
+  if (elements.source && elements.sourceCodeEditor) {
+    import("./source-editor.js")
+      .then(({ createDrawingSourceEditor }) => {
+        sourceCodeEditor = createDrawingSourceEditor({
+          textarea: elements.source,
+          host: elements.sourceCodeEditor,
+          languageLabel: elements.sourceLanguage,
+          diffToggle: elements.sourceDiffToggle,
+          snapshotButton: elements.sourceSnapshot,
+          diffStatus: elements.sourceDiffStatus,
+          initialProfile: resolveVisualProfile(
+            state.language,
+            state.packageProfiles,
+          ),
+        });
+      })
+      .catch((error) => {
+        console.warn(
+          "[DrawingWorkspace] Enhanced source editor unavailable",
+          error,
+        );
+      });
   }
   const sourceValue = () =>
     sourceCodeEditor?.getValue() ?? String(elements.source?.value || "");

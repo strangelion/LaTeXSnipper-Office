@@ -66,6 +66,15 @@ for (const control of [
   "refreshDiagnosticsBtn",
   "diagnosticsOverallState",
   "openOfficeWorkspaceBtn",
+  "formulaStylePreset",
+  "formulaStyleFontSize",
+  "formulaStyleMathVariant",
+  "formulaStyleColor",
+  "formulaStyleDisplayMode",
+  "formulaStyleBaselineShift",
+  "formulaStyleStrategy",
+  "formulaStyleExport",
+  "formulaStyleImport",
 ]) {
   assert.match(html, new RegExp(`id="${control}"`));
 }

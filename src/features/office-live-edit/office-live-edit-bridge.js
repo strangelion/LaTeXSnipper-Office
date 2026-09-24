@@ -70,6 +70,10 @@ export class OfficeLiveEditBridge {
       invokeTauri: this.invoke,
       listenTauri: this.listen,
       svgRenderer: this.svgRenderer,
+      getFormulaStyleProfile: () =>
+        this.app?.formulaStyleCenter?.getCurrent?.() ||
+        this.app?.currentFormulaStyle ||
+        null,
       debounceMs: 150,
       onPreviewUpdate: (result) => {
         if (this.preview && result?.omml) {
@@ -169,7 +173,7 @@ export class OfficeLiveEditBridge {
    * @param {object} [renderData] - Optional pre-rendered asset
    * @returns {Promise<{success: boolean, error?: string}>}
    */
-  async onCommit(renderData) {
+  async onCommit(renderData, presentation = null) {
     if (!this._active || !this.controller) {
       return { success: false, error: "No active session" };
     }
@@ -178,7 +182,7 @@ export class OfficeLiveEditBridge {
 
     try {
       // controller.commit() returns { success, formulaId?, revision?, error?, conflict? }
-      const result = await this.controller.commit(renderData);
+      const result = await this.controller.commit(renderData, presentation);
       if (result.success) {
         this._showCommitStatus("committed");
         return { success: true };

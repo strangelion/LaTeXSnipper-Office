@@ -563,6 +563,10 @@ pub struct Presentation {
     #[serde(rename = "fontScale")]
     pub font_scale: f32,
     pub color: String,
+    /// Versioned LaTeXSnipper formula style snapshot. Hosts may ignore fields
+    /// they cannot express, but must retain it for editable round trips.
+    #[serde(rename = "styleProfile", skip_serializing_if = "Option::is_none")]
+    pub style_profile: Option<serde_json::Value>,
     #[serde(rename = "emfBase64", skip_serializing_if = "Option::is_none")]
     pub emf_base64: Option<String>,
     #[serde(rename = "emfKind", skip_serializing_if = "Option::is_none")]

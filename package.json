@@ -9,6 +9,7 @@
     "check:drawing-runtime": "node scripts/check-drawing-runtime.mjs",
     "verify:drawing-browser": "node scripts/verify-drawing-workbench.mjs",
     "verify:custom-symbol-browser": "node scripts/verify-custom-symbol-library.mjs",
+    "verify:formula-style-browser": "node scripts/verify-formula-style.mjs",
     "build:office-addin": "npm --prefix apps/office-addin run build && node scripts/stage-office-addin.mjs",
     "build:wps": "node scripts/build-wps.js",
     "build:native-office": "node scripts/build-native-office.js",

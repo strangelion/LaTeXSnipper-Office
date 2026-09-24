@@ -2,6 +2,7 @@
 
 import { t } from "./i18n.js";
 import { FormulaSvgRenderer } from "./services/formula-svg-renderer.js";
+import { initFormulaStyleCenter } from "./features/formula-style/controller.js";
 import { initLiquidGlass } from "./features/appearance/liquid-glass.js";
 import { initAppearanceSettings } from "./features/appearance/custom-theme.js";
 import { initRecognitionWorkspace } from "./features/recognition/index.js";
@@ -2097,6 +2098,14 @@ class UIController {
     this.themeManager = new ThemeManager();
     this.settingsManager = new SettingsManager();
     this.formulaSvgRenderer = new FormulaSvgRenderer();
+    this.currentFormulaStyle = null;
+    this.formulaStyleCenter = initFormulaStyleCenter({
+      onChange: (profile) => {
+        this.currentFormulaStyle = profile;
+        this.applyFormulaStylePreview(profile);
+        this.setFormulaInsertMode(profile.layout.displayMode);
+      },
+    });
     this.platformRuntimeState = {};
     this.platformContext = createPlatformContext({
       host: "desktop",
@@ -3029,6 +3038,9 @@ class UIController {
         input.addEventListener("change", async (event) => {
           if (!event.target.checked) return;
           const mode = normalizeOfficeInsertMode(event.target.value);
+          this.formulaStyleCenter?.patch({
+            layout: { displayMode: mode },
+          });
           if (this._pendingOfficeEditorRequest) {
             this._pendingOfficeEditorRequest.requestedMode = mode;
             if (this._pendingOfficeEditorRequest.transactionId) {
@@ -3739,6 +3751,13 @@ class UIController {
         const isWord = session.host_type === "word";
         let integrationMode =
           this.settingsManager.get("officeIntegrationMode") || "auto";
+        if (
+          integrationMode === "auto" &&
+          this.currentFormulaStyle?.output?.strategy === "fixed"
+        ) {
+          integrationMode = "image";
+          Logger.info("[Insert] fixed formula style: auto → image");
+        }
         // For Excel/PPT auto mode: if OLE is not available, skip OLE and use image directly.
         if (!isWord && integrationMode === "auto") {
           if (this._oleStatus?.available !== true) {
@@ -3845,6 +3864,7 @@ class UIController {
               this.officeNumberingOptions(mode)?.chapterLevel ?? null,
             numberingSeparator:
               this.officeNumberingOptions(mode)?.separator ?? null,
+            presentation: this.currentFormulaPresentation(),
           });
           this._pendingOfficeEditorRequest.commitRequestId = requestId;
         } else {
@@ -3869,6 +3889,7 @@ class UIController {
             numberingSeparator:
               this.officeNumberingOptions(mode)?.separator ?? null,
             integrationMode: integrationMode,
+            presentation: this.currentFormulaPresentation(),
           });
           // Track numbered inserts so cross-references can point at them.
           this._trackNumberedFormula(formulaId, latex, mode);
@@ -3974,6 +3995,11 @@ class UIController {
         if (latex) {
           this.switchSection("editor");
           this.editor.setLatex(latex);
+          if (formula?.presentation?.styleProfile) {
+            this.formulaStyleCenter?.loadSnapshot(
+              formula.presentation.styleProfile,
+            );
+          }
           this.showToast("已加载选中的公式");
         }
         this._lastNativeOfficeFormula = {
@@ -7191,8 +7217,15 @@ class UIController {
       console.log("[Insert] OMML length:", omml?.length || 0);
 
       const isWord = session.host_type === "word";
-      const integrationMode =
+      let integrationMode =
         this.settingsManager.get("officeIntegrationMode") || "auto";
+      if (
+        integrationMode === "auto" &&
+        this.currentFormulaStyle?.output?.strategy === "fixed"
+      ) {
+        integrationMode = "image";
+        Logger.info("[Insert] fixed formula style: auto → image");
+      }
       const shouldRenderPreview =
         !isWord || integrationMode === "ole" || integrationMode === "image";
 
@@ -7249,12 +7282,15 @@ class UIController {
         // When live edit bridge is active, delegate commit to it
         // (handles flushAndWait, CommitCoordinator registration, result callbacks)
         if (this._liveEditBridge?.isActive) {
-          const commitResult = await this._liveEditBridge.onCommit({
-            svg: finalSvg,
-            png: pngBase64,
-            widthPt: finalWidth,
-            heightPt: finalHeight,
-          });
+          const commitResult = await this._liveEditBridge.onCommit(
+            {
+              svg: finalSvg,
+              png: pngBase64,
+              widthPt: finalWidth,
+              heightPt: finalHeight,
+            },
+            this.currentFormulaPresentation(),
+          );
           if (!commitResult.success) {
             this.showToast(
               `保存失败: ${commitResult.error || "unknown error"}`,
@@ -7285,6 +7321,7 @@ class UIController {
               this.officeNumberingOptions(mode)?.chapterLevel ?? null,
             numberingSeparator:
               this.officeNumberingOptions(mode)?.separator ?? null,
+            presentation: this.currentFormulaPresentation(),
           });
 
           if (!replaceResult.success) {
@@ -7316,6 +7353,7 @@ class UIController {
           numberingSeparator:
             this.officeNumberingOptions(mode)?.separator ?? null,
           integrationMode: integrationMode,
+          presentation: this.currentFormulaPresentation(),
         });
       }
       console.log("[Insert] Success");
@@ -7437,6 +7475,7 @@ class UIController {
         display: isDisplay ? "block" : "inline",
         revision: (sessionData?.revision ?? oldPayloadJson?.revision ?? 0) + 1,
         storageMode: "ole",
+        presentation: this.currentFormulaPresentation(),
         render: {
           svg: renderedSvg,
           png: pngBase64Ole,
@@ -7697,11 +7736,13 @@ class UIController {
   async _renderLatexSvg(latex, display) {
     const result = await this.formulaSvgRenderer.renderFormulaSvg(latex, {
       display,
+      styleProfile: this.currentFormulaStyle,
     });
     return {
       svg: result.svg,
       widthPt: result.widthPt,
       heightPt: result.heightPt,
+      styleProfile: result.styleProfile,
     };
   }
 
@@ -8326,6 +8367,12 @@ class UIController {
       previewHost.style.fontWeight = style === "bold" ? "bold" : "normal";
       previewHost.style.fontFamily = style === "roman" ? "serif" : "";
     }
+    this.formulaStyleCenter?.patch({
+      math: {
+        fontWeight: style === "bold" ? "bold" : "normal",
+        mathVariant: style === "roman" || style === "italic" ? style : "tex",
+      },
+    });
 
     const styleLabels = {
       roman: "正体",
@@ -8342,8 +8389,36 @@ class UIController {
     if (previewHost) {
       previewHost.style.color = color;
     }
+    this.formulaStyleCenter?.patch({ math: { color } });
 
     this.showStatus(`颜色已更新`);
+  }
+
+  applyFormulaStylePreview(profile) {
+    const previewHost = document.getElementById("previewHost");
+    if (previewHost && profile) {
+      previewHost.dataset.formulaStyleProfile = profile.id;
+      previewHost.style.color = profile.math.color;
+      previewHost.style.fontSize = `${profile.math.fontSizePt}pt`;
+      previewHost.style.maxWidth = `${profile.layout.maxWidthPt}pt`;
+    }
+    const color = profile?.math?.color;
+    const input = document.getElementById("fontColor");
+    const swatch = document.getElementById("colorPreview");
+    if (color && input) input.value = color;
+    if (color && swatch) swatch.style.background = color;
+  }
+
+  currentFormulaPresentation() {
+    const styleProfile =
+      this.formulaStyleCenter?.getCurrent?.() || this.currentFormulaStyle;
+    if (!styleProfile) return null;
+    return {
+      alignment: styleProfile.layout.alignment,
+      fontScale: styleProfile.math.fontSizePt / 10,
+      color: styleProfile.math.color,
+      styleProfile,
+    };
   }
 
   showStatus(message) {
@@ -9478,6 +9553,7 @@ class UIController {
 
     const svgResult = await this.formulaSvgRenderer.renderFormulaSvg(latex, {
       display,
+      styleProfile: this.currentFormulaStyle,
     });
 
     let png = null;

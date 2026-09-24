@@ -98,3 +98,20 @@ test("uniformly raises formulas below the minimum size", () => {
     "minimum-size scaling must preserve the aspect ratio",
   );
 });
+
+test("formula style font size scales SVG output before uniform constraints", () => {
+  const renderer = new FormulaSvgRenderer();
+  const base = renderer._computeSvgSize(
+    svg({ width: "100pt", height: "25pt" }),
+    { fontSizePt: 10 },
+  );
+  const large = renderer._computeSvgSize(
+    svg({ width: "100pt", height: "25pt" }),
+    { fontSizePt: 20 },
+  );
+
+  assert.equal(base.widthPt, 100);
+  assert.equal(base.heightPt, 25);
+  assert.equal(large.widthPt, 200);
+  assert.equal(large.heightPt, 50);
+});

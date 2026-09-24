@@ -144,6 +144,7 @@ pub async fn native_office_insert_formula(
     numbering_scheme: Option<String>,
     numbering_chapter_level: Option<u8>,
     numbering_separator: Option<String>,
+    presentation: Option<Presentation>,
 ) -> Result<String, String> {
     validate_numbering_format(
         numbering_template.as_deref(),
@@ -187,7 +188,7 @@ pub async fn native_office_insert_formula(
         numbering_scheme,
         numbering_chapter_level,
         numbering_separator,
-        presentation: None,
+        presentation,
         render: svg
             .map(|s| RenderData {
                 svg: Some(s),
@@ -280,6 +281,7 @@ pub async fn native_office_replace_formula(
     numbering_scheme: Option<String>,
     numbering_chapter_level: Option<u8>,
     numbering_separator: Option<String>,
+    presentation: Option<Presentation>,
 ) -> Result<ReplaceResult, String> {
     validate_numbering_format(
         numbering_template.as_deref(),
@@ -304,7 +306,7 @@ pub async fn native_office_replace_formula(
         numbering_scheme,
         numbering_chapter_level,
         numbering_separator,
-        presentation: None,
+        presentation,
         render: svg
             .map(|s| RenderData {
                 svg: Some(s),

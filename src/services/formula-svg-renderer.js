@@ -6,7 +6,29 @@
  * DO NOT use Temml or core SvgGenerator for SVG output.
  */
 
+import { normalizeFormulaStyleProfile } from "../features/formula-style/profile.js";
+
 const MATHJAX_SCRIPT_SRC = "./mathjax/tex-svg.js";
+
+function applyFormulaVariant(latex, styleProfile) {
+  // Wrapping a complete environment (aligned, cases, matrix, ...) changes TeX
+  // grouping semantics and can invalidate tags. Keep those sources intact.
+  if (/\\begin\s*\{/.test(latex)) return latex;
+
+  let styled = latex;
+  if (styleProfile.math.mathVariant === "roman") {
+    styled = `\\mathrm{${styled}}`;
+  } else if (styleProfile.math.mathVariant === "italic") {
+    styled = `\\mathit{${styled}}`;
+  }
+  if (styleProfile.math.fontWeight === "bold") {
+    // \boldsymbol lives in a dynamically loaded MathJax extension that is not
+    // part of the offline TeX bundle. \mathbf is in the base package and keeps
+    // Tauri/WebView rendering deterministic under the release CSP.
+    styled = `\\mathbf{${styled}}`;
+  }
+  return styled;
+}
 
 export class FormulaSvgRenderer {
   constructor() {
@@ -75,6 +97,7 @@ export class FormulaSvgRenderer {
    */
   async renderFormulaSvg(latex, options = {}) {
     const display = options.display ?? true;
+    const styleProfile = normalizeFormulaStyleProfile(options.styleProfile);
 
     if (!latex || !latex.trim()) {
       throw new Error("Empty LaTeX input");
@@ -82,7 +105,8 @@ export class FormulaSvgRenderer {
 
     await this.ensureReady();
 
-    const node = await window.MathJax.tex2svgPromise(latex, { display });
+    const styledLatex = applyFormulaVariant(latex, styleProfile);
+    const node = await window.MathJax.tex2svgPromise(styledLatex, { display });
     const svg = node.querySelector("svg");
 
     if (!svg) {
@@ -90,8 +114,21 @@ export class FormulaSvgRenderer {
     }
 
     svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    svg.setAttribute("color", styleProfile.math.color);
+    svg.setAttribute("data-latexsnipper-style-profile", styleProfile.id);
+    svg.style.color = styleProfile.math.color;
+    if (styleProfile.output.background !== "transparent") {
+      svg.style.backgroundColor = styleProfile.output.background;
+    }
 
-    const size = this._computeSvgSize(svg, options);
+    const size = this._computeSvgSize(svg, {
+      ...options,
+      fontSizePt: styleProfile.math.fontSizePt,
+      maxWidthPt: Math.min(
+        options.maxWidthPt ?? Number.POSITIVE_INFINITY,
+        styleProfile.layout.maxWidthPt,
+      ),
+    });
 
     svg.setAttribute("width", `${size.widthPt}pt`);
     svg.setAttribute("height", `${size.heightPt}pt`);
@@ -101,6 +138,7 @@ export class FormulaSvgRenderer {
       widthPt: size.widthPt,
       heightPt: size.heightPt,
       viewBox: svg.getAttribute("viewBox") || "",
+      styleProfile,
     };
   }
 
@@ -175,6 +213,13 @@ export class FormulaSvgRenderer {
       heightPt = validViewBox
         ? (widthPt * viewBoxValues[3]) / viewBoxValues[2]
         : 36;
+
+    const fontSizePt = Number(options.fontSizePt);
+    if (Number.isFinite(fontSizePt) && fontSizePt > 0) {
+      const fontScale = Math.min(7.2, Math.max(0.6, fontSizePt / 10));
+      widthPt *= fontScale;
+      heightPt *= fontScale;
+    }
 
     const minimumScale = Math.max(minWidthPt / widthPt, minHeightPt / heightPt);
     const maximumScale = Math.min(maxWidthPt / widthPt, maxHeightPt / heightPt);

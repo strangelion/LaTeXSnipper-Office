@@ -68,6 +68,7 @@ export class OfficeCommitController {
     renderData,
     storageMode,
     expectedRevision,
+    presentation,
   ) {
     this._committing = true;
 
@@ -91,6 +92,7 @@ export class OfficeCommitController {
         storageMode: storageMode || null,
         expectedRevision: expectedRevision ?? null,
         expectedDocumentId: expectedDocumentId || null,
+        presentation: presentation || null,
       });
 
       // Complete the transaction

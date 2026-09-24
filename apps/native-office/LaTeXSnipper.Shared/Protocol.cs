@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace LaTeXSnipper.NativeOffice.Shared;
@@ -584,6 +585,9 @@ public class PresentationData
     [JsonPropertyName("alignment")] public string Alignment { get; set; } = "center";
     [JsonPropertyName("fontScale")] public float FontScale { get; set; } = 1.0f;
     [JsonPropertyName("color")] public string Color { get; set; } = "#000000";
+    [JsonPropertyName("styleProfile")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? StyleProfile { get; set; }
     [JsonPropertyName("emfBase64")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? EmfBase64 { get; set; }

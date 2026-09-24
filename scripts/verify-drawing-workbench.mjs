@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 
@@ -14,7 +14,28 @@ const evidencePath = (environmentName, filename) =>
 const require = createRequire(import.meta.url);
 const playwrightRoot = process.env.PW_CORE || "playwright-core";
 const { chromium } = require(playwrightRoot);
-const chromiumPath = process.env.PW_CHROMIUM || chromium.executablePath();
+const chromiumCandidates = [
+  process.env.PW_CHROMIUM,
+  chromium.executablePath(),
+  process.env.PROGRAMFILES &&
+    join(
+      process.env.PROGRAMFILES,
+      "Google",
+      "Chrome",
+      "Application",
+      "chrome.exe",
+    ),
+  process.env.PROGRAMFILES &&
+    join(
+      process.env.PROGRAMFILES,
+      "Microsoft",
+      "Edge",
+      "Application",
+      "msedge.exe",
+    ),
+].filter(Boolean);
+const chromiumPath = chromiumCandidates.find(existsSync);
+if (!chromiumPath) throw new Error("No Chromium browser is available");
 
 const browser = await chromium.launch({
   executablePath: chromiumPath,
@@ -46,6 +67,7 @@ try {
   await page.goto(process.env.APP_URL || "http://127.0.0.1:2100/", {
     waitUntil: "networkidle",
   });
+  await page.waitForFunction(() => Boolean(window.__app?.drawingWorkspace));
 
   const drawingSource = page.locator("#drawingSource");
   const drawingSourceEditor = page.locator(

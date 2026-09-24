@@ -69,6 +69,7 @@ export class OfficeEditController {
           this._svgRenderer
             .renderFormulaSvg(result.latex, {
               display: result.displayMode !== "inline",
+              styleProfile: this._getFormulaStyleProfile?.() || null,
             })
             .then((svgResult) => {
               result.svg = svgResult.svg;
@@ -129,6 +130,7 @@ export class OfficeEditController {
 
     // SVG renderer for preview (optional, FormulaSvgRenderer instance)
     this._svgRenderer = options.svgRenderer || null;
+    this._getFormulaStyleProfile = options.getFormulaStyleProfile || null;
 
     // Latest preview data (OMML + SVG) for commit
     this._lastPreview = null;
@@ -229,7 +231,7 @@ export class OfficeEditController {
    * @param {object} renderData - Final rendered asset { svg, png, widthPt, heightPt }
    * @returns {Promise<boolean>} true if commit succeeded
    */
-  async commit(renderData = null) {
+  async commit(renderData = null, presentation = null) {
     if (this._disposed || !this._transactionId) {
       return {
         success: false,
@@ -316,6 +318,7 @@ export class OfficeEditController {
         finalRenderData,
         this._storageMode,
         this._revision,
+        presentation,
       );
 
       if (result.success) {
