@@ -28,28 +28,28 @@
 
 ## 技术栈
 
-| 层级 | 技术 | 说明 |
-|------|------|------|
-| 核心逻辑 | Rust | 高性能、内存安全 |
-| 桌面容器 | Tauri 2.0 | 跨平台桌面应用 |
-| 前端 UI | HTML/CSS/JavaScript | Vite 构建 |
-| 公式编辑 | MathLive | WYSIWYG 编辑器 |
-| 公式渲染 | MathJax | LaTeX 转 SVG/MathML |
-| Office 集成 | OLE + VSTO | Word/Excel/PowerPoint 原生公式对象；Visio 矢量 shape（Beta） |
-| Office 集成 | Web Add-in | Office.js 加载项 |
+| 层级        | 技术                | 说明                                                         |
+| ----------- | ------------------- | ------------------------------------------------------------ |
+| 核心逻辑    | Rust                | 高性能、内存安全                                             |
+| 桌面容器    | Tauri 2.0           | 跨平台桌面应用                                               |
+| 前端 UI     | HTML/CSS/JavaScript | Vite 构建                                                    |
+| 公式编辑    | MathLive            | WYSIWYG 编辑器                                               |
+| 公式渲染    | MathJax             | LaTeX 转 SVG/MathML                                          |
+| Office 集成 | OLE + VSTO          | Word/Excel/PowerPoint 原生公式对象；Visio 矢量 shape（Beta） |
+| Office 集成 | Web Add-in          | Office.js 加载项                                             |
 
 ## 平台支持
 
-| 平台 | 桌面版 | 插件 |
-|------|--------|------|
-| Windows | ✅ MSI/EXE | OLE 公式对象 + VSTO |
-| macOS | ✅ DMG | — |
-| Linux | ✅ DEB/RPM | — |
-| Obsidian | — | ✅ 社区插件 |
-| WPS | — | ✅ 加载项 |
-| VS Code | — | ✅ 扩展 (.vsix) |
-| Chrome/Edge | — | ✅ 浏览器扩展 |
-| Firefox | — | ✅ 浏览器扩展 |
+| 平台        | 桌面版     | 插件                |
+| ----------- | ---------- | ------------------- |
+| Windows     | ✅ MSI/EXE | OLE 公式对象 + VSTO |
+| macOS       | ✅ DMG     | —                   |
+| Linux       | ✅ DEB/RPM | —                   |
+| Obsidian    | —          | ✅ 社区插件         |
+| WPS         | —          | ✅ 加载项           |
+| VS Code     | —          | ✅ 扩展 (.vsix)     |
+| Chrome/Edge | —          | ✅ 浏览器扩展       |
+| Firefox     | —          | ✅ 浏览器扩展       |
 
 ## 功能特性
 
@@ -169,6 +169,8 @@ git push origin v1.2.2
 
 构建产物自动上传到 GitHub Release。
 
+完整发版流程（版本提升脚本、tag 指向规则、校验点与常见失败原因）见 [发版流程](docs/releasing.md)。
+
 ## Office 集成
 
 ### OLE 公式对象
@@ -189,11 +191,11 @@ git push origin v1.2.2
 
 `VSTO` 是 Windows Office 的宿主集成路径，不是文档中的第四种对象格式。
 
-| 宿主 | 原生 OMML | 图片（SVG/PNG） | 可编辑 OLE | VSTO 宿主路径 |
-|------|-----------|-----------------|------------|---------------|
-| Word | ✅ | ✅ | ✅ | ✅ |
-| PowerPoint | 不适用 | ✅ | ✅ | ✅ |
-| Excel | 不适用 | ✅ | ✅ | ✅ |
+| 宿主       | 原生 OMML | 图片（SVG/PNG） | 可编辑 OLE | VSTO 宿主路径 |
+| ---------- | --------- | --------------- | ---------- | ------------- |
+| Word       | ✅        | ✅              | ✅         | ✅            |
+| PowerPoint | 不适用    | ✅              | ✅         | ✅            |
+| Excel      | 不适用    | ✅              | ✅         | ✅            |
 
 PowerPoint 和 Excel 不提供 Word 原生 OMML 对象模型，因此使用图片或嵌入式 OLE；三种宿主都经过项目自身适配器的真实插入和重新读取验证。可直接下载并人工检查的 Word、PowerPoint、Excel 样例、预览截图与高风险公式清单见 [Office 人工验收样例](docs/manual-acceptance-samples/README.md)。其中包含箭头、极限、分段函数、积分/求和上下限、编号右括号、极长/极高公式，以及最高 32 层嵌套积分。
 
@@ -201,19 +203,19 @@ PowerPoint 和 Excel 不提供 Word 原生 OMML 对象模型，因此使用图�
 
 Release 页面包含：
 
-| 文件 | 说明 |
-|------|------|
-| `LaTeXSnipper-Desktop-Windows-x64.msi` | Windows 桌面安装包 |
+| 文件                                         | 说明                    |
+| -------------------------------------------- | ----------------------- |
+| `LaTeXSnipper-Desktop-Windows-x64.msi`       | Windows 桌面安装包      |
 | `LaTeXSnipper-Desktop-Windows-x64-Setup.exe` | Windows NSIS 备用安装包 |
-| `LaTeXSnipper-Office-VSTO_*.zip` | VSTO 手动部署包 |
-| `LaTeXSnipper-Obsidian_*.zip` | Obsidian 插件 |
-| `LaTeXSnipper-WPS_*.zip` | WPS 加载项 |
-| `LaTeXSnipper-VSCode_*.vsix` | VS Code 扩展 |
-| `LaTeXSnipper-Browser-Chrome_*.zip` | Chrome 扩展 |
-| `LaTeXSnipper-Browser-Firefox_*.zip` | Firefox 扩展 |
-| `*.dmg` | macOS 安装包 |
-| `*.deb` / `*.rpm` | Linux 安装包 |
-| `SHA256SUMS.txt` | 校验文件 |
+| `LaTeXSnipper-Office-VSTO_*.zip`             | VSTO 手动部署包         |
+| `LaTeXSnipper-Obsidian_*.zip`                | Obsidian 插件           |
+| `LaTeXSnipper-WPS_*.zip`                     | WPS 加载项              |
+| `LaTeXSnipper-VSCode_*.vsix`                 | VS Code 扩展            |
+| `LaTeXSnipper-Browser-Chrome_*.zip`          | Chrome 扩展             |
+| `LaTeXSnipper-Browser-Firefox_*.zip`         | Firefox 扩展            |
+| `*.dmg`                                      | macOS 安装包            |
+| `*.deb` / `*.rpm`                            | Linux 安装包            |
+| `SHA256SUMS.txt`                             | 校验文件                |
 
 ## 许可证
 
