@@ -68,3 +68,16 @@ Word：
 校验器会让真实 PowerPoint 和 Excel 分别打开样例，确认每个文件包含 4 个
 `msoPicture` 图片对象和 4 个 `msoEmbeddedOLEObject` 可编辑 OLE 对象，并输出 JSON 证据。
 它验证的是安装后的 Office COM 对象模型，而不是只解析压缩包内的 XML。
+
+若要同时新建绘图/自定义符号的 OLE 与图片对象，并验证保存、关闭、重开后
+仍能恢复源状态，应从仓库根目录运行统一验收脚本：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\run-word-ole-host-tests.ps1 `
+  -StagingRoot apps\native-office\Installer\output\staging `
+  -SkipWordHost -RunEditableMediaHosts
+```
+
+该路径额外核对重开后的公式 ID、存储方式、`contentKind`、`editorState`、对象
+类型和 OLE 自动化载荷；图片对象使用不含二进制渲染数据的紧凑元数据。
