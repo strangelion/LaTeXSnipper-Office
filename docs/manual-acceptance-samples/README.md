@@ -56,6 +56,23 @@ Word：
 
 ## 自动化真实宿主复核
 
+原生 Word OMML 样例必须由当前固定 Core 生成，不能手写 XML 代替。构建
+`LaTeXSnipper.Word.HostTests` 后可运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\prepare-word-native-host-fixture.ps1
+
+& 'apps\native-office\LaTeXSnipper.Word.HostTests\bin\x64\Release\LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri\target\word-native-host-fixture\word-nary-acceptance.generated.json' `
+  'src-tauri\target\word-native-host-evidence' `
+  --skip-preflight
+```
+
+该路径会插入 26 组 × 3 种版式，保存、关闭、只读重开后逐项回读，并专项
+验证普通 `SEQ`、章节 `STYLEREF + SEQ \\s 1`、`REF` 与 `PAGEREF`。
+不带 `--skip-preflight` 时还会执行行内边界、100 次 scratch 生命周期和公式样式压力项。
+
 在安装 64 位 Microsoft Office 的 Windows 机器上，可以先构建
 `apps/native-office/LaTeXSnipper.Office.SampleHostTests`，再运行：
 

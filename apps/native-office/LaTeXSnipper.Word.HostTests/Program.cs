@@ -62,6 +62,17 @@ namespace LaTeXSnipper.Word.HostTests
         public string Status { get; set; }
     }
 
+    internal sealed class ReferenceEvidence
+    {
+        public string FormulaId { get; set; }
+        public string BookmarkName { get; set; }
+        public string ExpectedNumber { get; set; }
+        public string ReferenceText { get; set; }
+        public string PageReferenceText { get; set; }
+        public bool SaveReopenVerified { get; set; }
+        public string Status { get; set; }
+    }
+
     internal static class Program
     {
         private const int MaximumBlankGapPixels = 1000;
@@ -89,14 +100,20 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--case", StringComparison.OrdinalIgnoreCase);
             bool styleMode = args.Length == 3 &&
                 string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
+            bool skipPreflight = args.Length == 3 &&
+                string.Equals(
+                    args[2],
+                    "--skip-preflight",
+                    StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
-                (args.Length > 2 && !oleMode && !imageMode && !caseMode && !styleMode) ||
+                (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
+                    !styleMode && !skipPreflight) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --style]");
+                    "--case <fixture-name> | --style | --skip-preflight]");
                 return 2;
             }
 
@@ -189,7 +206,7 @@ namespace LaTeXSnipper.Word.HostTests
                     Console.WriteLine($"passed native-formula-style evidence={styleDocumentPath}");
                     return 0;
                 }
-                if (!oleMode && !imageMode && !caseMode)
+                if (!oleMode && !imageMode && !caseMode && !skipPreflight)
                 {
                     ValidateNativeInlineRoundTrip(
                         document,
@@ -230,11 +247,19 @@ namespace LaTeXSnipper.Word.HostTests
 
                 document.Fields.Update();
                 ValidateAutomaticNumberSequence(document, evidence);
+                string chapterFormulaId = null;
+                ReferenceEvidence referenceEvidence = null;
                 if (!oleMode && !imageMode)
-                    ValidateChapterNumbering(
+                {
+                    chapterFormulaId = ValidateChapterNumbering(
                         document,
                         adapter,
                         activeCases.First());
+                    referenceEvidence = ValidateCrossReferences(
+                        document,
+                        adapter,
+                        evidence);
+                }
                 string documentPath = Path.Combine(
                     evidenceDirectory,
                     oleMode ? "word-ole-acceptance.docx" :
@@ -257,10 +282,18 @@ namespace LaTeXSnipper.Word.HostTests
                     activeCases,
                     evidence,
                     oleMode,
-                    imageMode);
+                    imageMode,
+                    chapterFormulaId,
+                    referenceEvidence);
                 File.WriteAllText(
                     Path.Combine(evidenceDirectory, "evidence.json"),
                     JsonSerializer.Serialize(evidence, JsonOptions));
+                if (referenceEvidence != null)
+                {
+                    File.WriteAllText(
+                        Path.Combine(evidenceDirectory, "reference-evidence.json"),
+                        JsonSerializer.Serialize(referenceEvidence, JsonOptions));
+                }
                 return evidence.All(item => item.Status == "passed") ? 0 : 1;
             }
             catch (Exception error)
@@ -292,7 +325,11 @@ namespace LaTeXSnipper.Word.HostTests
                 string code = field.Code?.Text ?? string.Empty;
                 if (code.IndexOf(
                         "SEQ LaTeXSnipperEquation",
-                        StringComparison.OrdinalIgnoreCase) >= 0)
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    !Regex.IsMatch(
+                        code,
+                        @"\\s\s+\d+",
+                        RegexOptions.IgnoreCase))
                 {
                     sequenceFields.Add(field);
                 }
@@ -325,10 +362,16 @@ namespace LaTeXSnipper.Word.HostTests
             IReadOnlyList<AcceptanceCase> fixtures,
             IReadOnlyList<EvidenceRecord> evidence,
             bool oleMode,
-            bool imageMode)
+            bool imageMode,
+            string chapterFormulaId,
+            ReferenceEvidence referenceEvidence)
         {
             document.Fields.Update();
             ValidateAutomaticNumberSequence(document, evidence);
+            if (!string.IsNullOrWhiteSpace(chapterFormulaId))
+                ValidateReopenedChapterNumbering(document, chapterFormulaId);
+            if (referenceEvidence != null)
+                ValidateReferenceFields(document, referenceEvidence, true);
 
             foreach (EvidenceRecord record in evidence)
             {
@@ -371,30 +414,50 @@ namespace LaTeXSnipper.Word.HostTests
                 object automation = null;
                 try
                 {
-                    if (candidate.Range.InlineShapes.Count != 1)
-                        throw new InvalidOperationException(
-                            $"Saved Word object count is invalid for {record.Name}/{record.Mode}: " +
-                            candidate.Range.InlineShapes.Count);
-                    shape = candidate.Range.InlineShapes[1];
-                    if (oleMode)
+                    if (!oleMode && !imageMode)
                     {
-                        if (shape.Type != InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        if (candidate.Range.OMaths.Count != 1)
                             throw new InvalidOperationException(
-                                $"Saved Word object is not OLE for {record.Name}/{record.Mode}.");
-                        automation = shape.OLEFormat?.Object;
-                        if (automation == null || !OleFormulaInterop.IsInitialized(automation) ||
-                            !OleFormulaInterop.VerifyRoundTrip(automation, readBack))
+                                $"Saved native OMath count is invalid for {record.Name}/{record.Mode}: " +
+                                candidate.Range.OMaths.Count);
+                        OmmlValidationResult validation =
+                            OmmlValidator.ValidateHostReadBack(
+                                fixture.Omml,
+                                candidate.Range.WordOpenXML);
+                        if (!validation.IsValid)
                         {
                             throw new InvalidOperationException(
-                                $"Saved Word OLE payload did not reactivate for {record.Name}/{record.Mode}.");
+                                $"Saved native OMML structure changed for {record.Name}/{record.Mode}: " +
+                                validation.Issues[0].Code);
                         }
-                        record.OleInitializedAfterReopen = true;
                     }
-                    else if (imageMode &&
-                        shape.Type == InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                    else
                     {
-                        throw new InvalidOperationException(
-                            $"Saved editable-image object changed to OLE for {record.Name}/{record.Mode}.");
+                        if (candidate.Range.InlineShapes.Count != 1)
+                            throw new InvalidOperationException(
+                                $"Saved Word media count is invalid for {record.Name}/{record.Mode}: " +
+                                candidate.Range.InlineShapes.Count);
+                        shape = candidate.Range.InlineShapes[1];
+                        if (oleMode)
+                        {
+                            if (shape.Type != InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                                throw new InvalidOperationException(
+                                    $"Saved Word object is not OLE for {record.Name}/{record.Mode}.");
+                            automation = shape.OLEFormat?.Object;
+                            if (automation == null || !OleFormulaInterop.IsInitialized(automation) ||
+                                !OleFormulaInterop.VerifyRoundTrip(automation, readBack))
+                            {
+                                throw new InvalidOperationException(
+                                    $"Saved Word OLE payload did not reactivate for {record.Name}/{record.Mode}.");
+                            }
+                            record.OleInitializedAfterReopen = true;
+                        }
+                        else if (shape.Type ==
+                            InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                        {
+                            throw new InvalidOperationException(
+                                $"Saved editable-image object changed to OLE for {record.Name}/{record.Mode}.");
+                        }
                     }
                 }
                 finally
@@ -408,7 +471,7 @@ namespace LaTeXSnipper.Word.HostTests
             }
         }
 
-        private static void ValidateChapterNumbering(
+        private static string ValidateChapterNumbering(
             InteropWord.Document document,
             WordAdapter adapter,
             AcceptanceCase fixture)
@@ -497,6 +560,176 @@ namespace LaTeXSnipper.Word.HostTests
             if (rendered.IndexOf("1.1", StringComparison.Ordinal) < 0)
                 throw new InvalidOperationException(
                     $"chapter numbering rendered value is not 1.1: '{rendered}'");
+            return formulaId;
+        }
+
+        private static void ValidateReopenedChapterNumbering(
+            InteropWord.Document document,
+            string formulaId)
+        {
+            InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+            if (candidate == null)
+                throw new InvalidOperationException(
+                    "Saved chapter-numbered content control is missing.");
+
+            InteropWord.Field chapterField = null;
+            InteropWord.Field sequenceField = null;
+            foreach (InteropWord.Field field in candidate.Range.Fields)
+            {
+                string code = field.Code?.Text ?? string.Empty;
+                if (code.IndexOf("STYLEREF", StringComparison.OrdinalIgnoreCase) >= 0)
+                    chapterField = field;
+                if (code.IndexOf(
+                        "SEQ LaTeXSnipperEquation",
+                        StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    Regex.IsMatch(code, @"\\s\s+1", RegexOptions.IgnoreCase))
+                {
+                    sequenceField = field;
+                }
+            }
+            if (chapterField == null || sequenceField == null)
+                throw new InvalidOperationException(
+                    "Saved chapter-numbering fields did not survive reopen.");
+
+            chapterField.Update();
+            sequenceField.Update();
+            string rendered = candidate.Range.Text.Trim('\r', '\a', ' ', '\t');
+            if (rendered.IndexOf("1.1", StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException(
+                    $"Saved chapter numbering rendered value is not 1.1: '{rendered}'");
+        }
+
+        private static ReferenceEvidence ValidateCrossReferences(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            IReadOnlyList<EvidenceRecord> evidence)
+        {
+            EvidenceRecord target = evidence.FirstOrDefault(item =>
+                string.Equals(
+                    item.Mode,
+                    "displayNumbered",
+                    StringComparison.OrdinalIgnoreCase));
+            if (target == null)
+                throw new InvalidOperationException(
+                    "Cross-reference acceptance requires a numbered formula.");
+
+            string bookmarkName = BuildEquationBookmarkName(target.FormulaId);
+            if (!document.Bookmarks.Exists(bookmarkName))
+                throw new InvalidOperationException(
+                    $"Numbered formula bookmark is missing: {bookmarkName}");
+            int sequenceIndex = evidence
+                .Where(item => string.Equals(
+                    item.Mode,
+                    "displayNumbered",
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList()
+                .FindIndex(item => string.Equals(
+                    item.FormulaId,
+                    target.FormulaId,
+                    StringComparison.Ordinal));
+            var referenceEvidence = new ReferenceEvidence
+            {
+                FormulaId = target.FormulaId,
+                BookmarkName = bookmarkName,
+                ExpectedNumber = (sequenceIndex + 1).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture),
+                Status = "pending"
+            };
+
+            InsertCrossReferenceAtDocumentEnd(document, adapter, target.FormulaId, "ref");
+            InsertCrossReferenceAtDocumentEnd(document, adapter, target.FormulaId, "pageref");
+            document.Fields.Update();
+            ValidateReferenceFields(document, referenceEvidence, false);
+            return referenceEvidence;
+        }
+
+        private static void InsertCrossReferenceAtDocumentEnd(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            string formulaId,
+            string referenceType)
+        {
+            InteropWord.Range anchor = document.Range(
+                document.Content.End - 1,
+                document.Content.End - 1);
+            anchor.InsertParagraphAfter();
+            anchor.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            anchor.Select();
+            InsertResult result = adapter.InsertCrossReference(formulaId, referenceType);
+            if (!result.Success)
+                throw new InvalidOperationException(
+                    $"{referenceType} insertion failed: {result.ErrorCode} {result.Error}");
+        }
+
+        private static void ValidateReferenceFields(
+            InteropWord.Document document,
+            ReferenceEvidence evidence,
+            bool afterReopen)
+        {
+            InteropWord.Field referenceField = null;
+            InteropWord.Field pageReferenceField = null;
+            foreach (InteropWord.Field field in document.Fields)
+            {
+                string code = (field.Code?.Text ?? string.Empty).Trim();
+                if (code.StartsWith(
+                        "PAGEREF " + evidence.BookmarkName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    pageReferenceField = field;
+                }
+                else if (code.StartsWith(
+                        "REF " + evidence.BookmarkName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    referenceField = field;
+                }
+            }
+            if (referenceField == null || pageReferenceField == null)
+                throw new InvalidOperationException(
+                    "Formula REF/PAGEREF fields are missing.");
+
+            referenceField.Update();
+            pageReferenceField.Update();
+            string referenceText = NormalizeFieldResult(referenceField);
+            string pageReferenceText = NormalizeFieldResult(pageReferenceField);
+            string normalizedReference = referenceText.Trim('(', ')', ' ', '\t');
+            if (!string.Equals(
+                    normalizedReference,
+                    evidence.ExpectedNumber,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Formula REF did not resolve to equation {evidence.ExpectedNumber}: " +
+                    $"'{referenceText}'.");
+            }
+            if (!int.TryParse(
+                    pageReferenceText,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int pageNumber) || pageNumber < 1)
+                throw new InvalidOperationException(
+                    $"Formula PAGEREF did not resolve to a page number: '{pageReferenceText}'.");
+
+            evidence.ReferenceText = referenceText;
+            evidence.PageReferenceText = pageReferenceText;
+            evidence.SaveReopenVerified = afterReopen;
+            evidence.Status = "passed";
+        }
+
+        private static string NormalizeFieldResult(InteropWord.Field field)
+        {
+            return (field.Result?.Text ?? string.Empty).Trim('\r', '\a', ' ', '\t');
+        }
+
+        private static string BuildEquationBookmarkName(string formulaId)
+        {
+            string bookmarkName = "LSNEq_" + Regex.Replace(
+                formulaId,
+                "[^A-Za-z0-9_]",
+                "_");
+            return bookmarkName.Length > 40
+                ? bookmarkName.Substring(0, 40)
+                : bookmarkName;
         }
 
         private static int GetOfficeProcessId(InteropWord.Application application)

@@ -33,6 +33,7 @@ WPS：分别打开 Writer、Spreadsheets、Presentation，验证 Ribbon、task p
 
 | 宿主 | 场景 | 数量 | 保存/关闭/重开 | 编辑载荷回读 | 结果 |
 | --- | --- | ---: | --- | --- | --- |
+| Word | 26 个 Core OMML 样例 × 行内/独立行/编号独立行 | 78 | 是 | 78/78 OMML 结构、公式 ID 和 LaTeX 一致；最深 32 层积分 | 通过 |
 | Word | 8 个公式样例 × 行内/独立行/编号独立行 OLE | 24 | 是 | 24/24 OLE 重新激活，完整载荷一致 | 通过 |
 | Word | 绘图、自定义符号 × 3 种版式图片 | 6 | 是 | 6/6 `contentKind`、`editorState` 与 SVG 回读一致 | 通过 |
 | PowerPoint | 固定人工样例中的图片/OLE 对象类型和名称 | 4 + 4 | 打开既有文件 | 对象枚举和类型 | 通过 |
@@ -44,11 +45,25 @@ WPS：分别打开 Writer、Spreadsheets、Presentation，验证 Ribbon、task p
 本轮将 PowerPoint/Excel 图片替代文本改为紧凑宿主元数据，保留
 `contentKind` 和 `editorState`，但排除 PNG、SVG、EMF 等大二进制字段；真实重开测试已覆盖该修复。
 
+原生 OMML fixture 不再接受手写占位 XML。`prepare-word-native-host-fixture`
+先由固定 Core 提交 `57c4b967848fe80a5ad6792285f5af237fec0dba`（转换实现为
+`c4dbc2297aa148a20b15bbee598e79e1226af00e`）的
+`snipper render --to omml` 生成 26 条临时输入，再交给真实 Word。专项测试还验证：
+
+- 普通 `SEQ LaTeXSnipperEquation` 在 26 个编号公式中按 1～26 连续递增；
+- `STYLEREF` + `SEQ ... \\s 1` 章节编号在保存重开后仍显示 `1.1`，且不会被普通连续编号计数器误判；
+- 指向编号公式稳定书签的 `REF ... \\h` 在重开后显示 `(1)`，`PAGEREF ... \\h` 显示 `1`；
+- 原生公式按 `OMath` 验证，图片/OLE 按 `InlineShape` 验证，避免把三种 Word 对象模型混为一谈。
+
 本机生成的三份 JSON 证据摘要如下。它们位于忽略的 `src-tauri/target`
 目录，发布验收可以复现后重新生成，不把带绝对路径的临时文件提交仓库。
 
 | 证据 | 记录数 | SHA-256 |
 | --- | ---: | --- |
+| `word-native-host-fixture/word-nary-acceptance.generated.json` | 26 | `CC854A39EA9CD4CABC6BF8025466EC07CB82D99AD077A3483DC949B1473B1AF5` |
+| `word-native-host-evidence/evidence.json` | 78 | `5E2CDB29769EFC6B07919BA33AB263B9DDAE4DCDD4220F5F2FFDE0AFCF60147B` |
+| `word-native-host-evidence/reference-evidence.json` | 1 组 `REF`/`PAGEREF` | `68E81CFC29B645437E67EF71655E38199C323B68C1D5D4AB8812718680DC6D21` |
+| `word-native-host-evidence/word-nary-acceptance.docx` | 78 个公式及字段专项 | `AA35F8835127F14B6517CB80E409373A37980BBC3DD1C4A948F32FC9B8C1637A` |
 | `word-ole-host-evidence/evidence.json` | 24 | `439136AAEE05987F0F12893D9495F3704731CA173F29E3B4D8E176593C39E5CE` |
 | `word-editable-image-host-evidence/evidence.json` | 6 | `CEC956BEB6CD2FD9AACCDBAD2A8E77D17ABE1561EF701BB5027F7A2036A7224B` |
 | `office-editable-media-host-evidence/evidence.json` | 4 个宿主组，其中 2 个为新建重开矩阵 | `0AF6DC2AB3DE018F2451590A8D1CAEAFD7FB123F7D260F1724640DC6BF3FAFDB` |
@@ -64,6 +79,14 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File scripts\run-word-ole-host-tests.ps1 `
   -StagingRoot apps\native-office\Installer\output\staging `
   -RunEditableMediaHosts
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\prepare-word-native-host-fixture.ps1
+
+& 'apps\native-office\LaTeXSnipper.Word.HostTests\bin\x64\Release\LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri\target\word-native-host-fixture\word-nary-acceptance.generated.json' `
+  'src-tauri\target\word-native-host-evidence' `
+  --skip-preflight
 ```
 
 测试脚本会在启动宿主前核对已注册 DLL 与 staging DLL 的 SHA-256，防止
@@ -72,7 +95,6 @@ Windows Installer 自修复把旧 OLE 服务器重新注册后产生误判；结
 ### 尚未关闭的真实宿主项
 
 - 仍需为本轮 DOCX/XLSX/PPTX 输出生成并签入结构化 OOXML 差异摘要；
-- Word `SEQ`/`REF` dirty 域在重开后的实际显示值与交叉引用仍需专项验收；
 - 批量插入、剪贴板所有权、update/delete、Excel 行列缩放锚定、PowerPoint
   分组/旋转/缩放尚未形成完整真机矩阵；
 - x86 Office、不同 DPI/双屏/RDP、macOS/Web 和 WPS 不由本次结果覆盖。
