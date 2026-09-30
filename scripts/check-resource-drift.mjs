@@ -323,7 +323,9 @@ function checkNativeOffice() {
     installerMetadata.sourceCommitSha !== provenance.sourceCommitSha ||
     installerMetadata.coreCommitSha !== provenance.coreCommitSha
   ) {
-    fail("NativeOffice: installer.json does not match the verified MSI provenance");
+    fail(
+      "NativeOffice: installer.json does not match the verified MSI provenance",
+    );
     return;
   }
 
