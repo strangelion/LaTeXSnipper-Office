@@ -27,6 +27,8 @@ namespace LaTeXSnipper.Office.SampleHostTests
         public List<string> ImageNames { get; set; } = new List<string>();
         public List<string> OleNames { get; set; } = new List<string>();
         public List<string> EditableKinds { get; set; } = new List<string>();
+        public List<string> ReopenedFormulaIds { get; set; } = new List<string>();
+        public bool SaveReopenReadBackVerified { get; set; }
         public string Screenshot { get; set; }
         public string Status { get; set; }
     }
@@ -139,11 +141,13 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 var imageNames = new List<string>();
                 var oleNames = new List<string>();
                 var kinds = new List<string>();
+                var expectedPayloads = new List<FormulaPayload>();
                 var specifications = EditableMediaSpecifications();
                 for (int index = 0; index < specifications.Count; index++)
                 {
                     EditableMediaSpecification specification = specifications[index];
                     FormulaPayload payload = CreateEditablePayload(specification, index);
+                    expectedPayloads.Add(payload);
                     LaTeXSnipper.PowerPoint.Host.InsertResult inserted =
                         adapter.InsertFormula(payload, InsertMode.Inline);
                     if (!inserted.Success)
@@ -155,20 +159,25 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     {
                         shape.Left = index % 2 == 0 ? 34f : 372f;
                         shape.Top = index < 2 ? 70f : 255f;
+                        application.ActiveWindow.Activate();
+                        shape.Select(OfficeCore.MsoTriState.msoTrue);
+                        PumpOfficeMessages(100);
+                        FormulaPayload readBack = adapter.ReadSelection();
+                        VerifyEditableReadBack(
+                            "PowerPoint",
+                            payload,
+                            readBack,
+                            specification.StorageMode);
                         if (specification.StorageMode == "ole")
                         {
-                            application.ActiveWindow.Activate();
-                            shape.Select(OfficeCore.MsoTriState.msoTrue);
-                            PumpOfficeMessages(100);
-                            FormulaPayload readBack = adapter.ReadSelection();
-                            VerifyEditableReadBack("PowerPoint", payload, readBack);
                             oleNames.Add(shape.Name);
-                            kinds.Add(payload.ContentKind);
                         }
                         else
                         {
                             imageNames.Add(shape.Name);
                         }
+                        if (!kinds.Contains(payload.ContentKind))
+                            kinds.Add(payload.ContentKind);
                     }
                     finally
                     {
@@ -176,6 +185,30 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     }
                 }
                 presentation.SaveAs(output, InteropPowerPoint.PpSaveAsFileType.ppSaveAsOpenXMLPresentation);
+                Release(slide);
+                slide = null;
+                Release(slides);
+                slides = null;
+                presentation.Close();
+                Release(presentation);
+                presentation = null;
+                DrainReleasedComObjects();
+
+                presentation = presentations.Open(
+                    output,
+                    OfficeCore.MsoTriState.msoTrue,
+                    OfficeCore.MsoTriState.msoFalse,
+                    OfficeCore.MsoTriState.msoTrue);
+                slides = presentation.Slides;
+                slide = slides[1];
+                adapter = new PowerPointAdapter(
+                    application,
+                    GetOfficeProcessId(new IntPtr(application.HWND), "PowerPoint"));
+                List<string> reopenedFormulaIds = ValidateReopenedPowerPoint(
+                    application,
+                    slide,
+                    adapter,
+                    expectedPayloads);
                 slide.Export(screenshot, "PNG", 1600, 900);
                 return new HostEvidence
                 {
@@ -186,6 +219,8 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     ImageNames = imageNames,
                     OleNames = oleNames,
                     EditableKinds = kinds,
+                    ReopenedFormulaIds = reopenedFormulaIds,
+                    SaveReopenReadBackVerified = true,
                     Screenshot = screenshot,
                     Status = "passed"
                 };
@@ -224,6 +259,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 var imageNames = new List<string>();
                 var oleNames = new List<string>();
                 var kinds = new List<string>();
+                var expectedPayloads = new List<FormulaPayload>();
                 var specifications = EditableMediaSpecifications();
                 string[] anchors = { "A1", "G1", "A13", "G13" };
                 for (int index = 0; index < specifications.Count; index++)
@@ -233,6 +269,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     finally { Release(cell); }
                     EditableMediaSpecification specification = specifications[index];
                     FormulaPayload payload = CreateEditablePayload(specification, index);
+                    expectedPayloads.Add(payload);
                     LaTeXSnipper.Excel.Host.InsertResult inserted =
                         adapter.InsertFormula(payload, InsertMode.Inline);
                     if (!inserted.Success)
@@ -242,18 +279,23 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     InteropExcel.Shape shape = FindExcelShape(sheet, payload.FormulaId);
                     try
                     {
+                        shape.Select(OfficeCore.MsoTriState.msoTrue);
+                        FormulaPayload readBack = adapter.ReadSelection();
+                        VerifyEditableReadBack(
+                            "Excel",
+                            payload,
+                            readBack,
+                            specification.StorageMode);
                         if (specification.StorageMode == "ole")
                         {
-                            shape.Select(OfficeCore.MsoTriState.msoTrue);
-                            FormulaPayload readBack = adapter.ReadSelection();
-                            VerifyEditableReadBack("Excel", payload, readBack);
                             oleNames.Add(shape.Name);
-                            kinds.Add(payload.ContentKind);
                         }
                         else
                         {
                             imageNames.Add(shape.Name);
                         }
+                        if (!kinds.Contains(payload.ContentKind))
+                            kinds.Add(payload.ContentKind);
                     }
                     finally
                     {
@@ -261,6 +303,24 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     }
                 }
                 workbook.SaveAs(output, InteropExcel.XlFileFormat.xlOpenXMLWorkbook);
+                Release(sheet);
+                sheet = null;
+                workbook.Close(true);
+                Release(workbook);
+                workbook = null;
+                DrainReleasedComObjects();
+
+                workbook = workbooks.Open(output, ReadOnly: true);
+                sheet = workbook.ActiveSheet as InteropExcel.Worksheet;
+                if (sheet == null)
+                    throw new InvalidOperationException("Excel reopened no active sheet.");
+                adapter = new ExcelAdapter(
+                    application,
+                    GetOfficeProcessId(new IntPtr(application.Hwnd), "Excel"));
+                List<string> reopenedFormulaIds = ValidateReopenedExcel(
+                    sheet,
+                    adapter,
+                    expectedPayloads);
                 SaveExcelScreenshot(application, sheet, screenshot);
                 return new HostEvidence
                 {
@@ -271,6 +331,8 @@ namespace LaTeXSnipper.Office.SampleHostTests
                     ImageNames = imageNames,
                     OleNames = oleNames,
                     EditableKinds = kinds,
+                    ReopenedFormulaIds = reopenedFormulaIds,
+                    SaveReopenReadBackVerified = true,
                     Screenshot = screenshot,
                     Status = "passed"
                 };
@@ -372,21 +434,192 @@ namespace LaTeXSnipper.Office.SampleHostTests
         private static void VerifyEditableReadBack(
             string host,
             FormulaPayload expected,
-            FormulaPayload actual)
+            FormulaPayload actual,
+            string expectedStorageMode)
         {
             if (actual == null ||
                 !string.Equals(actual.FormulaId, expected.FormulaId, StringComparison.Ordinal) ||
-                !string.Equals(actual.StorageMode, "ole", StringComparison.Ordinal) ||
+                !string.Equals(actual.StorageMode, expectedStorageMode, StringComparison.Ordinal) ||
+                !string.Equals(actual.Latex, expected.Latex, StringComparison.Ordinal) ||
                 !string.Equals(actual.ContentKind, expected.ContentKind, StringComparison.Ordinal) ||
                 !actual.EditorState.HasValue ||
                 !expected.EditorState.HasValue ||
                 !JsonStateEquals(actual.EditorState.Value, expected.EditorState.Value))
             {
                 throw new InvalidOperationException(
-                    $"{host} did not preserve editable {expected.ContentKind} OLE state. " +
+                    $"{host} did not preserve editable {expected.ContentKind} state. " +
                     $"expectedId={expected.FormulaId} actualId={actual?.FormulaId ?? "<null>"}; " +
                     $"expectedKind={expected.ContentKind} actualKind={actual?.ContentKind ?? "<null>"}; " +
-                    $"storage={actual?.StorageMode ?? "<null>"}; editorState={actual?.EditorState.HasValue == true}");
+                    $"storage={actual?.StorageMode ?? "<null>"}/{expectedStorageMode}; " +
+                    $"latexMatch={string.Equals(actual?.Latex, expected.Latex, StringComparison.Ordinal)}; " +
+                    $"editorState={actual?.EditorState.HasValue == true}");
+            }
+        }
+
+        private static List<string> ValidateReopenedPowerPoint(
+            InteropPowerPoint.Application application,
+            InteropPowerPoint.Slide slide,
+            PowerPointAdapter adapter,
+            IReadOnlyList<FormulaPayload> expectedPayloads)
+        {
+            var reopenedFormulaIds = new List<string>();
+            foreach (FormulaPayload expected in expectedPayloads)
+            {
+                InteropPowerPoint.Shape shape = null;
+                object automation = null;
+                try
+                {
+                    shape = slide.Shapes[$"LSNO_{expected.FormulaId}"];
+                    bool expectsOle = string.Equals(expected.StorageMode, "ole", StringComparison.Ordinal);
+                    OfficeCore.MsoShapeType expectedType = expectsOle
+                        ? OfficeCore.MsoShapeType.msoEmbeddedOLEObject
+                        : OfficeCore.MsoShapeType.msoPicture;
+                    if (shape.Type != expectedType)
+                        throw new InvalidOperationException(
+                            $"PowerPoint reopened {expected.ContentKind}/{expected.StorageMode} as " +
+                            $"shape type {shape.Type}, expected {expectedType}.");
+
+                    application.ActiveWindow.Activate();
+                    shape.Select(OfficeCore.MsoTriState.msoTrue);
+                    PumpOfficeMessages(100);
+                    FormulaPayload readBack = adapter.ReadSelection();
+                    VerifyEditableReadBack(
+                        "PowerPoint reopen",
+                        expected,
+                        readBack,
+                        expected.StorageMode);
+                    if (expectsOle)
+                    {
+                        automation = shape.OLEFormat?.Object;
+                        if (automation == null ||
+                            !OleFormulaInterop.IsInitialized(automation) ||
+                            !OleFormulaInterop.VerifyRoundTrip(automation, readBack))
+                        {
+                            throw new InvalidOperationException(
+                                $"PowerPoint reopened OLE payload did not reactivate for " +
+                                $"{expected.ContentKind}/{expected.FormulaId}.");
+                        }
+                    }
+                    reopenedFormulaIds.Add(expected.FormulaId);
+                }
+                finally
+                {
+                    Release(automation);
+                    Release(shape);
+                }
+            }
+            return reopenedFormulaIds;
+        }
+
+        private static List<string> ValidateReopenedExcel(
+            InteropExcel.Worksheet sheet,
+            ExcelAdapter adapter,
+            IReadOnlyList<FormulaPayload> expectedPayloads)
+        {
+            var reopenedFormulaIds = new List<string>();
+            foreach (FormulaPayload expected in expectedPayloads)
+            {
+                InteropExcel.Shape shape = null;
+                object automation = null;
+                try
+                {
+                    shape = FindExcelShape(sheet, expected.FormulaId);
+                    bool expectsOle = string.Equals(expected.StorageMode, "ole", StringComparison.Ordinal);
+                    OfficeCore.MsoShapeType expectedType = expectsOle
+                        ? OfficeCore.MsoShapeType.msoEmbeddedOLEObject
+                        : OfficeCore.MsoShapeType.msoPicture;
+                    if (shape.Type != expectedType)
+                        throw new InvalidOperationException(
+                            $"Excel reopened {expected.ContentKind}/{expected.StorageMode} as " +
+                            $"shape type {shape.Type}, expected {expectedType}.");
+
+                    shape.Select(OfficeCore.MsoTriState.msoTrue);
+                    FormulaPayload readBack = adapter.ReadSelection();
+                    VerifyEditableReadBack(
+                        "Excel reopen",
+                        expected,
+                        readBack,
+                        expected.StorageMode);
+                    if (expectsOle)
+                    {
+                        automation = FindExcelOleAutomation(sheet, expected.FormulaId);
+                        bool initialized = automation != null &&
+                            OleFormulaInterop.IsInitialized(automation);
+                        bool roundTrip = initialized &&
+                            OleFormulaInterop.VerifyRoundTrip(automation, readBack);
+                        if (!initialized || !roundTrip)
+                        {
+                            throw new InvalidOperationException(
+                                $"Excel reopened OLE payload did not reactivate for " +
+                                $"{expected.ContentKind}/{expected.FormulaId}: " +
+                                $"automation={automation != null}, initialized={initialized}, " +
+                                $"roundTrip={roundTrip}.");
+                        }
+                    }
+                    reopenedFormulaIds.Add(expected.FormulaId);
+                }
+                finally
+                {
+                    Release(automation);
+                    Release(shape);
+                }
+            }
+            return reopenedFormulaIds;
+        }
+
+        private static object FindExcelOleAutomation(
+            InteropExcel.Worksheet sheet,
+            string formulaId)
+        {
+            InteropExcel.OLEObjects oleObjects = null;
+            try
+            {
+                oleObjects = sheet.OLEObjects() as InteropExcel.OLEObjects;
+                if (oleObjects == null) return null;
+                string expectedName = $"LSNO_{formulaId}";
+                for (int index = 1; index <= oleObjects.Count; index++)
+                {
+                    InteropExcel.OLEObject candidate = null;
+                    InteropExcel.Shape hostShape = null;
+                    try
+                    {
+                        candidate = (InteropExcel.OLEObject)oleObjects.Item(index);
+                        hostShape = candidate.ShapeRange.Item(1);
+                        bool matches = string.Equals(
+                            hostShape.Name,
+                            expectedName,
+                            StringComparison.Ordinal);
+                        if (!matches)
+                        {
+                            try
+                            {
+                                FormulaPayload metadata = JsonSerializer.Deserialize<FormulaPayload>(
+                                    hostShape.AlternativeText ?? string.Empty,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                matches = metadata != null && string.Equals(
+                                    metadata.FormulaId,
+                                    formulaId,
+                                    StringComparison.Ordinal);
+                            }
+                            catch (JsonException)
+                            {
+                                matches = false;
+                            }
+                        }
+                        if (matches)
+                            return candidate.Object;
+                    }
+                    finally
+                    {
+                        Release(hostShape);
+                        Release(candidate);
+                    }
+                }
+                return null;
+            }
+            finally
+            {
+                Release(oleObjects);
             }
         }
 
@@ -754,6 +987,14 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 long remaining = duration - stopwatch.ElapsedMilliseconds;
                 OfficeUiDelay.Wait((int)Math.Min(remaining, 15));
             }
+        }
+
+        private static void DrainReleasedComObjects()
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
         }
 
         private static void Release(object value)

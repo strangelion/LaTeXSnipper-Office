@@ -114,9 +114,8 @@ namespace LaTeXSnipper.PowerPoint.Host
                     }
                     shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                     shape.Name = $"LSNO_{payload.FormulaId}";
-                    var meta = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+                    var meta = OleFormulaInterop.CreateHostMetadataJson(payload, "image");
                     shape.AlternativeText = meta;
-                    shape.Name = $"LSNO_{payload.FormulaId}";
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] {imageData} shape added: name={shape.Name}, left={left}, top={top}, w={width}, h={height}");
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] AlternativeText: {meta}");
 

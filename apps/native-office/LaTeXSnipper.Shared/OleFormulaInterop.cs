@@ -16,10 +16,12 @@ public static class OleFormulaInterop
     /// <summary>
     /// Create compact host-shape metadata for selection readback when a host
     /// cannot expose the native OLE automation object through its interop API.
-    /// Binary render and EMF fields remain in embedded OLE storage; editable
-    /// source state remains available to reopen the desktop editor.
+    /// Binary render and EMF fields remain in the embedded object or picture;
+    /// editable source state remains available to reopen the desktop editor.
     /// </summary>
-    public static string CreateHostMetadataJson(FormulaPayload payload)
+    public static string CreateHostMetadataJson(
+        FormulaPayload payload,
+        string? actualStorageMode = null)
     {
         if (payload == null) throw new ArgumentNullException(nameof(payload));
         var metadata = new FormulaPayload
@@ -35,7 +37,7 @@ public static class OleFormulaInterop
             NumberingChapterLevel = payload.NumberingChapterLevel,
             NumberingSeparator = payload.NumberingSeparator,
             Source = payload.Source,
-            StorageMode = payload.StorageMode,
+            StorageMode = actualStorageMode ?? payload.StorageMode,
             ContentKind = payload.ContentKind,
             EditorState = payload.EditorState,
             Revision = payload.Revision,

@@ -253,6 +253,14 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 "host metadata lost editable source state");
             Expect(roundTrip != null && roundTrip.Render == null && roundTrip.Presentation == null,
                 "host metadata copied binary render fields into shape alternative text");
+
+            string imageJson = OleFormulaInterop.CreateHostMetadataJson(payload, "image");
+            FormulaPayload imageRoundTrip = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(imageJson);
+            Expect(imageRoundTrip != null && imageRoundTrip.StorageMode == "image",
+                "host metadata did not preserve the actual image storage mode");
+            Expect(imageRoundTrip != null && imageRoundTrip.ContentKind == "customSymbol" &&
+                imageRoundTrip.EditorState.HasValue,
+                "image host metadata lost editable source state");
         }
 
         private static int ChildMain()

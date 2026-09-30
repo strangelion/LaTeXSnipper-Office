@@ -127,7 +127,7 @@ namespace LaTeXSnipper.Excel.Host
                 shape.Name = $"LSNO_{payload.FormulaId}";
                 shape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
                 shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
-                shape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{payload.FormulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
+                shape.AlternativeText = OleFormulaInterop.CreateHostMetadataJson(payload, "image");
 
                 return new InsertResult { Success = true, FormulaId = payload.FormulaId };
             }
