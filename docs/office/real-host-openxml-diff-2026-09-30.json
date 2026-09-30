@@ -1,0 +1,1696 @@
+{
+    "schemaVersion":  1,
+    "generator":  "scripts/summarize-office-openxml.ps1",
+    "manifest":  "docs/office/real-host-openxml-manifest.json",
+    "comparisons":  [
+                        {
+                            "id":  "word-native-omml",
+                            "evidenceDate":  "2026-09-30",
+                            "comparisonKind":  "tracked-sample-to-real-host-evidence",
+                            "note":  "Both packages cover the 26 by 3 native formula matrix; volatile Word ids may change part hashes.",
+                            "baseline":  {
+                                             "path":  "docs/manual-acceptance-samples/LaTeXSnipper-Word-Native-OMML.docx",
+                                             "extension":  ".docx",
+                                             "packageBytes":  61617,
+                                             "packageSha256":  "49DE150CE971957344ABEC29A2E872073176E7EEE1611CC60BBB1113E1A94399",
+                                             "entryCount":  20,
+                                             "xmlPartCount":  20,
+                                             "mediaPartCount":  0,
+                                             "embeddingPartCount":  0,
+                                             "semanticCounts":  {
+                                                                    "mathObjects":  78,
+                                                                    "contentControls":  78,
+                                                                    "bookmarks":  26,
+                                                                    "fieldInstructions":  26,
+                                                                    "sequenceFields":  26,
+                                                                    "referenceFields":  0,
+                                                                    "pageReferenceFields":  0,
+                                                                    "styleReferenceFields":  0,
+                                                                    "pictures":  0,
+                                                                    "relationshipElements":  15,
+                                                                    "externalRelationships":  0,
+                                                                    "formulaMetadataMarkers":  184
+                                                                }
+                                         },
+                            "candidate":  {
+                                              "path":  "src-tauri/target/word-native-host-evidence/word-nary-acceptance.docx",
+                                              "extension":  ".docx",
+                                              "packageBytes":  54224,
+                                              "packageSha256":  "AA35F8835127F14B6517CB80E409373A37980BBC3DD1C4A948F32FC9B8C1637A",
+                                              "entryCount":  21,
+                                              "xmlPartCount":  21,
+                                              "mediaPartCount":  0,
+                                              "embeddingPartCount":  0,
+                                              "semanticCounts":  {
+                                                                     "mathObjects":  79,
+                                                                     "contentControls":  79,
+                                                                     "bookmarks":  27,
+                                                                     "fieldInstructions":  34,
+                                                                     "sequenceFields":  27,
+                                                                     "referenceFields":  1,
+                                                                     "pageReferenceFields":  1,
+                                                                     "styleReferenceFields":  1,
+                                                                     "pictures":  0,
+                                                                     "relationshipElements":  16,
+                                                                     "externalRelationships":  0,
+                                                                     "formulaMetadataMarkers":  187
+                                                                 }
+                                          },
+                            "difference":  {
+                                               "addedParts":  [
+                                                                  {
+                                                                      "name":  "word/numbering.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  4556,
+                                                                      "compressedBytes":  942,
+                                                                      "sha256":  "10642939FE0BC36B18529E1E6E847EABE4B4325D31D4ED73602890BD984D6592"
+                                                                  }
+                                                              ],
+                                               "removedParts":  [
+
+                                                                ],
+                                               "changedParts":  [
+                                                                    {
+                                                                        "name":  "[Content_Types].xml",
+                                                                        "baselineBytes":  2157,
+                                                                        "candidateBytes":  2290,
+                                                                        "baselineSha256":  "BC5DF9952210B26E729E40E5E6558DBC67CBBF5167812F023473E51DFAD936D0",
+                                                                        "candidateSha256":  "97C56BF241B8C23B816AAF6636144907AB9330FE2BC3E2E8D53E67ACBE3DD257"
+                                                                    },
+                                                                    {
+                                                                        "name":  "customXml/item1.xml",
+                                                                        "baselineBytes":  651773,
+                                                                        "candidateBytes":  392290,
+                                                                        "baselineSha256":  "86D06181DAF506385D8E8455816380CE21CAA65ABE288F6EB88CA127CE5E2F4A",
+                                                                        "candidateSha256":  "238BDF93AB482FA08107FA15BCAC8BD0F6EDC5158A19494B6F7936A8BB9433E8"
+                                                                    },
+                                                                    {
+                                                                        "name":  "customXml/itemProps1.xml",
+                                                                        "baselineBytes":  309,
+                                                                        "candidateBytes":  309,
+                                                                        "baselineSha256":  "315D0D58584E4A5CA938E4877B151DA12405B941F65CC8A039FB9DC259F89FBA",
+                                                                        "candidateSha256":  "A520997131265733E3A3A14A7F23D13FDCB239B995DD4609F1D94DCF76A167A1"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/app.xml",
+                                                                        "baselineBytes":  719,
+                                                                        "candidateBytes":  719,
+                                                                        "baselineSha256":  "C8E3B449B65DEE5D6C162168CE3CAE8D9A74E4BB27455D7880C10AB793857803",
+                                                                        "candidateSha256":  "90C53C1A57F5B943C92E451A977A5CFBD6195359EC44488244B049876D546A7B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/core.xml",
+                                                                        "baselineBytes":  751,
+                                                                        "candidateBytes":  751,
+                                                                        "baselineSha256":  "7FAD46EDC97B9E6CE8447DB284D7B7D6952A020D9F57CD397E69D77C598F3636",
+                                                                        "candidateSha256":  "8DB9BE5F5AEEAEFFE9DCCFD4B956F7334BA04FDCD0F9CB667230B7239A5BBAA0"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/_rels/document.xml.rels",
+                                                                        "baselineBytes":  1107,
+                                                                        "candidateBytes":  1240,
+                                                                        "baselineSha256":  "91ED4AE2C22A34842BC5D713727CD66C04DF8F995C5C882ADCCA3C81190861E0",
+                                                                        "candidateSha256":  "CEB91A1B5C723EDBF6B5CADB38122E5F16B89C3E41FB18EAECF35410973BBF52"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/document.xml",
+                                                                        "baselineBytes":  223973,
+                                                                        "candidateBytes":  228263,
+                                                                        "baselineSha256":  "A671AA3C60BD414CA7A36FF2DF5E4B34155A09667898501EE1B6C6CC3B050E40",
+                                                                        "candidateSha256":  "40913B51EB39C1F5B51FF0D9465A06E5671B6365A1C42AB2BC11112A248DD627"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/fontTable.xml",
+                                                                        "baselineBytes":  2129,
+                                                                        "candidateBytes":  2129,
+                                                                        "baselineSha256":  "44C95BF2FBC8B71B775C6A4573E895507498819F983E60DA303CCBC4B8C2E535",
+                                                                        "candidateSha256":  "2345354E4D4F439DA8B088884EA2783B0B3D1DDE324ADD193462E13AF61279DF"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/document.xml",
+                                                                        "baselineBytes":  3244,
+                                                                        "candidateBytes":  3244,
+                                                                        "baselineSha256":  "8340802B720B605B28FE82BDE1582DB867A92C74961080717C99D1333CB0011F",
+                                                                        "candidateSha256":  "1261EB59078A865E1DBD8ED3396F718521AEA97C2D46E59FDC40F8FB8DB7EFA4"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/fontTable.xml",
+                                                                        "baselineBytes":  2129,
+                                                                        "candidateBytes":  2129,
+                                                                        "baselineSha256":  "44C95BF2FBC8B71B775C6A4573E895507498819F983E60DA303CCBC4B8C2E535",
+                                                                        "candidateSha256":  "2345354E4D4F439DA8B088884EA2783B0B3D1DDE324ADD193462E13AF61279DF"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/settings.xml",
+                                                                        "baselineBytes":  3291,
+                                                                        "candidateBytes":  3291,
+                                                                        "baselineSha256":  "CCF4696D1D7AFC7692CA5B4AE46403431CDCA43772574D9215C9CD31F2613589",
+                                                                        "candidateSha256":  "7D1D8EA8FFBFA07AD84732A6BF4D0F27F7C2E771CA47EA02C9740E9F84BC7506"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/styles.xml",
+                                                                        "baselineBytes":  29920,
+                                                                        "candidateBytes":  29920,
+                                                                        "baselineSha256":  "E87417AB45A0CC5023557B89346DBD2699B22DA771530E1B74C392A3CEAC8EC0",
+                                                                        "candidateSha256":  "06AA8B8B84371C046C02E8690C1FB2F85619F7857CD83A29D28303C205D11333"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/settings.xml",
+                                                                        "baselineBytes":  3593,
+                                                                        "candidateBytes":  3575,
+                                                                        "baselineSha256":  "4CA522D54C75F9855D738B38C8DB753542CB1C8A47B36AECC622E6665DDFCCD1",
+                                                                        "candidateSha256":  "AFFF0D1AF94FCDE8FC3AAF800436E3FD0E9844E109A71BDC3986C10E9861C31B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/styles.xml",
+                                                                        "baselineBytes":  42158,
+                                                                        "candidateBytes":  42158,
+                                                                        "baselineSha256":  "6C8B1D604D324DCBFE6AF4111FC14A9B965C468163D55DCD5D0743181AD63BCF",
+                                                                        "candidateSha256":  "498A695D20E6D747BD369F32115FB93F543DD001F0B95D1E3D0883479B18D781"
+                                                                    }
+                                                                ],
+                                               "unchangedPartCount":  6
+                                           }
+                        },
+                        {
+                            "id":  "word-editable-image",
+                            "evidenceDate":  "2026-09-30",
+                            "comparisonKind":  "tracked-sample-to-real-host-evidence",
+                            "note":  "The candidate is the focused drawing and custom-symbol save/reopen matrix, so object counts intentionally differ from the broader tracked sample.",
+                            "baseline":  {
+                                             "path":  "docs/manual-acceptance-samples/LaTeXSnipper-Word-VSTO-Image.docx",
+                                             "extension":  ".docx",
+                                             "packageBytes":  188436,
+                                             "packageSha256":  "72DBC2CB2772B708ABF16BD2626F0C85EF627E6342D270FB94DF24EA63A2E1FB",
+                                             "entryCount":  24,
+                                             "xmlPartCount":  20,
+                                             "mediaPartCount":  4,
+                                             "embeddingPartCount":  0,
+                                             "semanticCounts":  {
+                                                                    "mathObjects":  0,
+                                                                    "contentControls":  12,
+                                                                    "bookmarks":  4,
+                                                                    "fieldInstructions":  4,
+                                                                    "sequenceFields":  4,
+                                                                    "referenceFields":  0,
+                                                                    "pageReferenceFields":  0,
+                                                                    "styleReferenceFields":  0,
+                                                                    "pictures":  12,
+                                                                    "relationshipElements":  19,
+                                                                    "externalRelationships":  0,
+                                                                    "formulaMetadataMarkers":  23
+                                                                }
+                                         },
+                            "candidate":  {
+                                              "path":  "src-tauri/target/word-editable-image-host-evidence/word-editable-image-acceptance.docx",
+                                              "extension":  ".docx",
+                                              "packageBytes":  102208,
+                                              "packageSha256":  "378FACA50C31BF0B1F172FEC3D977019F372C82F75AC0E3B9727B05F18A378E3",
+                                              "entryCount":  24,
+                                              "xmlPartCount":  20,
+                                              "mediaPartCount":  4,
+                                              "embeddingPartCount":  0,
+                                              "semanticCounts":  {
+                                                                     "mathObjects":  0,
+                                                                     "contentControls":  6,
+                                                                     "bookmarks":  2,
+                                                                     "fieldInstructions":  0,
+                                                                     "sequenceFields":  2,
+                                                                     "referenceFields":  0,
+                                                                     "pageReferenceFields":  0,
+                                                                     "styleReferenceFields":  0,
+                                                                     "pictures":  6,
+                                                                     "relationshipElements":  19,
+                                                                     "externalRelationships":  0,
+                                                                     "formulaMetadataMarkers":  12
+                                                                 }
+                                          },
+                            "difference":  {
+                                               "addedParts":  [
+                                                                  {
+                                                                      "name":  "word/media/image2.svg",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  684,
+                                                                      "compressedBytes":  684,
+                                                                      "sha256":  "DAC6546AEC07E1AC8B856BB3F7825800C483F4F4EB98E39E75D7E3D9E1A7F324"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image4.svg",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  354,
+                                                                      "compressedBytes":  354,
+                                                                      "sha256":  "D98F25BB2288F84904DA5219BE4962CD47A7315E1DBBC6F20EB8B6AB3E5B7633"
+                                                                  }
+                                                              ],
+                                               "removedParts":  [
+                                                                    {
+                                                                        "name":  "word/media/image2.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  7215,
+                                                                        "compressedBytes":  7215,
+                                                                        "sha256":  "5C2A362ED314ACA22E068CB390D6BCCABE7A7EAA7A2533B08D1F881A4CE9DBA9"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image4.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  10262,
+                                                                        "compressedBytes":  10262,
+                                                                        "sha256":  "3280B5552AAFF603532E0EA737939872DA023BC5C0CEF59D674A08A4B278A155"
+                                                                    }
+                                                                ],
+                                               "changedParts":  [
+                                                                    {
+                                                                        "name":  "[Content_Types].xml",
+                                                                        "baselineBytes":  2207,
+                                                                        "candidateBytes":  2261,
+                                                                        "baselineSha256":  "D83195B924D8A1084BF5FD7397C37AE7DCC77A4FA615828EABC20A4FDA9126AE",
+                                                                        "candidateSha256":  "B3A33707DF87636B1E41DF532E79993EBBAA1EDE95640181130B76E0FC03965A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "customXml/item1.xml",
+                                                                        "baselineBytes":  343264,
+                                                                        "candidateBytes":  12253,
+                                                                        "baselineSha256":  "AE13ED065EBBA61E17A44875EFDA183440279C6C317ED5D1CE1724A7EBA8BDBE",
+                                                                        "candidateSha256":  "C0134ADF8C05A393F3B15CE6DABEB6B213D9A86096086714FCBAFCA848AC3B5D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "customXml/itemProps1.xml",
+                                                                        "baselineBytes":  309,
+                                                                        "candidateBytes":  309,
+                                                                        "baselineSha256":  "082BBAF683890A751F009A7291A006336F6080A33493A08683730D7C4BCC1552",
+                                                                        "candidateSha256":  "BE725531A2A5085926524064296087A3882BEF36A4051AF99CB6C2449B4365C1"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/app.xml",
+                                                                        "baselineBytes":  715,
+                                                                        "candidateBytes":  714,
+                                                                        "baselineSha256":  "29F950B54A633665F9EADE29F933A12C9925DC7F98EEC42D68788A5A319445C0",
+                                                                        "candidateSha256":  "44E8ACF1F92B48D494742A398D1453CD1A8AA277A30C3110BB3AB0A07B2D433E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/core.xml",
+                                                                        "baselineBytes":  751,
+                                                                        "candidateBytes":  751,
+                                                                        "baselineSha256":  "E3850B34A5E89080885B2FF8780F8D295A99A49088514D22B52A2907595EBDFB",
+                                                                        "candidateSha256":  "98870F2BF612371A7E7900D22BFA997BFCF07E759342E4B95D4F9332988913D3"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/_rels/document.xml.rels",
+                                                                        "baselineBytes":  1637,
+                                                                        "candidateBytes":  1637,
+                                                                        "baselineSha256":  "3E540853016B377762E27FF0D41B873C3E402F69F5ED1F1D8417006D8D74FAF5",
+                                                                        "candidateSha256":  "328D5FC7A7E836308306C531D2B3E9BDCC8308BB906B07C70D1261691A28B13D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/document.xml",
+                                                                        "baselineBytes":  36485,
+                                                                        "candidateBytes":  16856,
+                                                                        "baselineSha256":  "FB734A5620694CA79A9DE31577EA0968D022530AFD08E04F4B9C57208EB5C8CE",
+                                                                        "candidateSha256":  "1F6669DFC51A92E84AD19254FA7FDD0EFFAAD851E6B2D2A786AE4D176CE1CD9F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/document.xml",
+                                                                        "baselineBytes":  3244,
+                                                                        "candidateBytes":  3244,
+                                                                        "baselineSha256":  "3F9F61FDCC6A9119C9E71018FF53B6448E69727B755E0DD48AD150C4D2F27A3B",
+                                                                        "candidateSha256":  "B0B78846A512E3FE0141BC4573E75A2A7BB4C12C6E49646DA29EC7E721F40800"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/settings.xml",
+                                                                        "baselineBytes":  3291,
+                                                                        "candidateBytes":  3291,
+                                                                        "baselineSha256":  "EED02DAD210C889A7EDCBCA526CCA965087CEF1AB4B9E2CC9C0C37FC4684DA4A",
+                                                                        "candidateSha256":  "6F4A15DA238BFCB05029313D63C498FC325679DA424B3FBB23F4724D0019714D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/styles.xml",
+                                                                        "baselineBytes":  29920,
+                                                                        "candidateBytes":  29920,
+                                                                        "baselineSha256":  "DC4263A1327487E163C5EBFD8A21D15BF26AD89CE3A2A1480E87ABC1C6C98767",
+                                                                        "candidateSha256":  "6979FFDD5C0A10C89F80E71AE5826BDA873ED01122EE768F8F79CDDCA5AFF400"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image1.png",
+                                                                        "baselineBytes":  4326,
+                                                                        "candidateBytes":  50338,
+                                                                        "baselineSha256":  "DAA4B6CCA60DAC8EC9F3B324C2AA5795BED6D496A9984E0A55F7E77B629E19A1",
+                                                                        "candidateSha256":  "E25E1E7455E5358770AFF5E2D4E046F28E4A1131D036DE453E6054343D8A3BEB"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image3.png",
+                                                                        "baselineBytes":  8898,
+                                                                        "candidateBytes":  23431,
+                                                                        "baselineSha256":  "11DEFE4EFA6F828C8F8F4B71EFB3D3B63ECFC38DB90BC0D9ABC039312B7A7251",
+                                                                        "candidateSha256":  "AD23B85F4DDC1EE9C3D77258E7D6718995BD54165723BF62BC68454ECEB47544"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/settings.xml",
+                                                                        "baselineBytes":  3541,
+                                                                        "candidateBytes":  3593,
+                                                                        "baselineSha256":  "8109E64813901ADDAA69352D147F1C2CCE659D25B60256E2DAB93F1737A6609F",
+                                                                        "candidateSha256":  "879B308D7E16A069B6E313996CCDEDFA7854B8958D390A6D0CC7886A6CE697FB"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/styles.xml",
+                                                                        "baselineBytes":  42158,
+                                                                        "candidateBytes":  42158,
+                                                                        "baselineSha256":  "F1F90639595BFBC17229E95D92D89B64F0263CA6F6D0A9AAA6322272F45561C9",
+                                                                        "candidateSha256":  "30004937A6FD2E4872A2BBF2E5BF619B385DBAD8DC7C77857B27A06A83B6C50C"
+                                                                    }
+                                                                ],
+                                               "unchangedPartCount":  8
+                                           }
+                        },
+                        {
+                            "id":  "word-editable-ole",
+                            "evidenceDate":  "2026-09-30",
+                            "comparisonKind":  "tracked-sample-to-real-host-evidence",
+                            "note":  "The candidate records the real installed OLE server activation and save/reopen run.",
+                            "baseline":  {
+                                             "path":  "docs/manual-acceptance-samples/LaTeXSnipper-Word-Editable-OLE.docx",
+                                             "extension":  ".docx",
+                                             "packageBytes":  1090176,
+                                             "packageSha256":  "BCB4363C2F7511B789784D4B79746D5F13C2F6B6A06A73939B7285B581A88561",
+                                             "entryCount":  48,
+                                             "xmlPartCount":  20,
+                                             "mediaPartCount":  10,
+                                             "embeddingPartCount":  18,
+                                             "semanticCounts":  {
+                                                                    "mathObjects":  0,
+                                                                    "contentControls":  18,
+                                                                    "bookmarks":  6,
+                                                                    "fieldInstructions":  6,
+                                                                    "sequenceFields":  6,
+                                                                    "referenceFields":  0,
+                                                                    "pageReferenceFields":  0,
+                                                                    "styleReferenceFields":  0,
+                                                                    "pictures":  0,
+                                                                    "relationshipElements":  43,
+                                                                    "externalRelationships":  0,
+                                                                    "formulaMetadataMarkers":  44
+                                                                }
+                                         },
+                            "candidate":  {
+                                              "path":  "src-tauri/target/word-ole-host-evidence/word-ole-acceptance.docx",
+                                              "extension":  ".docx",
+                                              "packageBytes":  1191539,
+                                              "packageSha256":  "CF30B7CD0E9C00563A093043F7782C13F97039E78143F2F9C5A7BC7FC8AFE334",
+                                              "entryCount":  60,
+                                              "xmlPartCount":  20,
+                                              "mediaPartCount":  16,
+                                              "embeddingPartCount":  24,
+                                              "semanticCounts":  {
+                                                                     "mathObjects":  0,
+                                                                     "contentControls":  24,
+                                                                     "bookmarks":  8,
+                                                                     "fieldInstructions":  0,
+                                                                     "sequenceFields":  8,
+                                                                     "referenceFields":  0,
+                                                                     "pageReferenceFields":  0,
+                                                                     "styleReferenceFields":  0,
+                                                                     "pictures":  0,
+                                                                     "relationshipElements":  55,
+                                                                     "externalRelationships":  0,
+                                                                     "formulaMetadataMarkers":  58
+                                                                 }
+                                          },
+                            "difference":  {
+                                               "addedParts":  [
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject19.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  953344,
+                                                                      "compressedBytes":  165497,
+                                                                      "sha256":  "44C4C12E8F2DE76B01B4E3A88C5DACB309E2D5A8F1EB4BE8777ED2AEFD53B881"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject20.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  953344,
+                                                                      "compressedBytes":  165494,
+                                                                      "sha256":  "BC46E7DFEE66EDAF170F2A61E4F42C93D5AA8129326426E7509DE33A4E593F5F"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject21.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  939008,
+                                                                      "compressedBytes":  162574,
+                                                                      "sha256":  "95B684B1945CF6B748B0A3203DFB5A7AAEE7F5384210E5C7BCB04CC288FE211E"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject22.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  242176,
+                                                                      "compressedBytes":  42196,
+                                                                      "sha256":  "4F8CEE61DD992E244D890822C3C6708C9E5DE12509CF463F4D598C357C187344"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject23.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  242176,
+                                                                      "compressedBytes":  42204,
+                                                                      "sha256":  "7E313DAFF69B22D307F009D49D96D3ACCF8B01386DDA8237AA8695EF2239C1C3"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/embeddings/oleObject24.bin",
+                                                                      "category":  "embedding",
+                                                                      "uncompressedBytes":  240128,
+                                                                      "compressedBytes":  41861,
+                                                                      "sha256":  "5654AF551EE0CD754BD1B5836179FFB5BE59382AAE3C46EADC2988CC1D39F2B3"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image11.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  26380,
+                                                                      "compressedBytes":  7761,
+                                                                      "sha256":  "13B37A4B66A55ACB7DD4EBC2A992CC6F816758EC3DE9F88B81891EAAC4C407B3"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image12.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  26380,
+                                                                      "compressedBytes":  8109,
+                                                                      "sha256":  "8DE61EEF29E1148493500ECE7C7B761DFC34BE74145602834507C183EA4287C6"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image13.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  282016,
+                                                                      "compressedBytes":  68432,
+                                                                      "sha256":  "2675543ACA52844EABAC3071CAA8EF40325D0CE57AEEA7F88747D806ACFE25BA"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image14.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  274792,
+                                                                      "compressedBytes":  67137,
+                                                                      "sha256":  "79DE435B2EF493F1AF63AD2F237CC7F0D17AE708BB3525C2D65013AD4C9A8524"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image15.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  56796,
+                                                                      "compressedBytes":  14511,
+                                                                      "sha256":  "5AD2B772ECE2F736E8078620CD6C0ED037636C13F3C691FC074E4431875BFC7E"
+                                                                  },
+                                                                  {
+                                                                      "name":  "word/media/image16.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  55800,
+                                                                      "compressedBytes":  14349,
+                                                                      "sha256":  "B60535007F41A277A8333FDA77948D0E9B62B6EC351C7B0B43C31E219BBB30C3"
+                                                                  }
+                                                              ],
+                                               "removedParts":  [
+
+                                                                ],
+                                               "changedParts":  [
+                                                                    {
+                                                                        "name":  "customXml/item1.xml",
+                                                                        "baselineBytes":  646366,
+                                                                        "candidateBytes":  658720,
+                                                                        "baselineSha256":  "D8B6BDBB23A613FEB021839704EA816F2FC1F8A589A36C99C3294E9FA4FD8C70",
+                                                                        "candidateSha256":  "A536B20B2DF5D0FD4EA717342F0B613FE4A998116DF4228281E4B0F5C3B41E11"
+                                                                    },
+                                                                    {
+                                                                        "name":  "customXml/itemProps1.xml",
+                                                                        "baselineBytes":  309,
+                                                                        "candidateBytes":  309,
+                                                                        "baselineSha256":  "6B4240D5630C10C886C9B5C8CF552B6FB89EB4B8A0472548A49F445AB4F1275A",
+                                                                        "candidateSha256":  "B09E8FB3D25392723C9908D21481CF662BC2686A9A8C23E5714712B686A6621B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/app.xml",
+                                                                        "baselineBytes":  715,
+                                                                        "candidateBytes":  716,
+                                                                        "baselineSha256":  "172EAEE3620C51B460D1CA530E375CF40823CC0B13E07D5FF9AE8E22782FE985",
+                                                                        "candidateSha256":  "636A99294FBF352179B15F5431E63CA9A1B3EFCC2AB2470F8980FE4075EF0C01"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/core.xml",
+                                                                        "baselineBytes":  751,
+                                                                        "candidateBytes":  751,
+                                                                        "baselineSha256":  "EF4D921AF5C1FBF0EAF2A86D7A4CC97B4431B51B078AC05FB7D98B97B22B19C1",
+                                                                        "candidateSha256":  "F87AD318D919663C4ACA59670E2D25D2702A0F3247889A30F1D2E87877B13983"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/_rels/document.xml.rels",
+                                                                        "baselineBytes":  5073,
+                                                                        "candidateBytes":  6759,
+                                                                        "baselineSha256":  "3C0D0DDC9CD5E4DD8326A645321ADB632F60748747FA891281458A0AC234E35D",
+                                                                        "candidateSha256":  "4AB063D5254BAAFD9B8E0DA88AB254E9C7227575CA0CCF287635972EF99893CC"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/document.xml",
+                                                                        "baselineBytes":  27990,
+                                                                        "candidateBytes":  42843,
+                                                                        "baselineSha256":  "9E5B208E68D469AD56AF0C7C7B02FA84AB0CD598F1D2188A5FE1F57A58DC9474",
+                                                                        "candidateSha256":  "CCA83CC108D1AEB0E2523E2BD7A9BD91535A693296103E741043EE7F2BDD4D15"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject1.bin",
+                                                                        "baselineBytes":  26624,
+                                                                        "candidateBytes":  26624,
+                                                                        "baselineSha256":  "2AD8D5D47A0664062B2BB07D5CC0EDBC8DF30A0E4E66208586B5B305548C9D52",
+                                                                        "candidateSha256":  "CF7FF693E22BB06F2EB6297893C12A8C9A1C9E51FDB79C8A013750D6F4A041BD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject10.bin",
+                                                                        "baselineBytes":  104960,
+                                                                        "candidateBytes":  84480,
+                                                                        "baselineSha256":  "86B03793806DBB71968E818026E69C7384915B9949E4793A48E27F80D1452364",
+                                                                        "candidateSha256":  "56ADD24C3A299B2F0A3064CB79EEB9198C9A439C41A12854464AD0D42CCAF0DD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject11.bin",
+                                                                        "baselineBytes":  104960,
+                                                                        "candidateBytes":  84480,
+                                                                        "baselineSha256":  "FBB4B1FE03474D3037077F08B8AB205BA35872C328F95BD0C367C10FC21EA832",
+                                                                        "candidateSha256":  "5D40029253DF97BD0AD40046997BB2AD108E3D005EB606565BC3A5A15704D202"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject12.bin",
+                                                                        "baselineBytes":  104960,
+                                                                        "candidateBytes":  84480,
+                                                                        "baselineSha256":  "1944ED52E8BBB60BD2A1D01A775B919075ED013A107B45B32B263F539A5BB776",
+                                                                        "candidateSha256":  "5A9FF14032B684CF3D8AEA078DD7A906A1F969D3CB77259DAC65DBBEB7C5A472"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject13.bin",
+                                                                        "baselineBytes":  953344,
+                                                                        "candidateBytes":  99840,
+                                                                        "baselineSha256":  "C657E792FA65366449AE7A7CFAAB5E251A62CE550BCC748858C2550C68800A27",
+                                                                        "candidateSha256":  "2DE456EC1C7291DE15696F11A2C90C1BD6710B20ABCB202D006DEDD03CF497AD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject14.bin",
+                                                                        "baselineBytes":  953344,
+                                                                        "candidateBytes":  101888,
+                                                                        "baselineSha256":  "D70A19D264E800524F564E7AF78DB93A13220F3CD0CCA974AD07998602CCCDA0",
+                                                                        "candidateSha256":  "74495B4C598DEE828BACB38E6CF5843FC94A96D74DFE6010E98290C3B4203F18"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject15.bin",
+                                                                        "baselineBytes":  953344,
+                                                                        "candidateBytes":  101888,
+                                                                        "baselineSha256":  "14502805195B8433A6806CEFE84C8252EA9275E2D7DC2C73C52B6A4F96586A53",
+                                                                        "candidateSha256":  "155CB134EC9FA21C5D4808C6DB5AD65B5077C9C73E12559E198CE219A21E529A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject16.bin",
+                                                                        "baselineBytes":  242176,
+                                                                        "candidateBytes":  104960,
+                                                                        "baselineSha256":  "38678D85ACC4261343D0203163AEAA327402E9876539556BBBF1DA7A1F63B9CE",
+                                                                        "candidateSha256":  "FA74BEEA4A86881037FAFE0365A92D8B6BC03EAAD9D9B67403E66C079B35BA6D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject17.bin",
+                                                                        "baselineBytes":  242176,
+                                                                        "candidateBytes":  104960,
+                                                                        "baselineSha256":  "9C20691ECDD00E7EF7274CFA76FE5EC8610651C8FE2A09413477E38F9773B3F2",
+                                                                        "candidateSha256":  "2089153F8E8B8C7FD9D40D70606534E101B433ABB7358D3678DA8FD9BC3A6535"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject18.bin",
+                                                                        "baselineBytes":  242176,
+                                                                        "candidateBytes":  104960,
+                                                                        "baselineSha256":  "DD62D0B47EDBC53C1EDBB60C78C31A3A6613D1CBAC97E1CCB5AC545ED1836BCC",
+                                                                        "candidateSha256":  "0152FD380BF1FCA6ECC624D5A2D163205DBFE3CDE7D2A9BD2C1393CCEE78C288"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject2.bin",
+                                                                        "baselineBytes":  26624,
+                                                                        "candidateBytes":  26624,
+                                                                        "baselineSha256":  "F83978C10FABE9D739C84F2CFBC394E12F4C1E5DAB3652A694DDAA886AEB1932",
+                                                                        "candidateSha256":  "F1FB9E991271E462A44855300823DED8DF280AFD1E611A273B5272286F9A43DA"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject3.bin",
+                                                                        "baselineBytes":  26624,
+                                                                        "candidateBytes":  26624,
+                                                                        "baselineSha256":  "9A8A9FFBA37200C1BC7289AAB9E97EB617AC39F799829E41D1DDC18B09591F06",
+                                                                        "candidateSha256":  "02677287C4DC74C7A6D60B957D555F22A71A8A74176288C7F47E7DF526BE7FFD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject4.bin",
+                                                                        "baselineBytes":  84480,
+                                                                        "candidateBytes":  14848,
+                                                                        "baselineSha256":  "E32433F8879C8FDA9958B5004DFE5425EC326D90841FE8144D02D3A4A012BF28",
+                                                                        "candidateSha256":  "6F53D5197856344FA46C773A040D3AB824BAFCA127C0BDDC03996197560D8CBA"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject5.bin",
+                                                                        "baselineBytes":  84480,
+                                                                        "candidateBytes":  14848,
+                                                                        "baselineSha256":  "885A439462699335010F80E1E83AE6BA6A13ACD96491C57AB0165FB73A4B1923",
+                                                                        "candidateSha256":  "06925D282BDB025F321DBE86B84FBF174DED9ABED8322298DFB4D9C2268E0682"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject6.bin",
+                                                                        "baselineBytes":  84480,
+                                                                        "candidateBytes":  14848,
+                                                                        "baselineSha256":  "918ADD88E601756E055006320C9F532F1D4ED15B954CFE22C3406ADC9734968F",
+                                                                        "candidateSha256":  "33914503CF10BCC8CF19E0EF98844B6794F5496A8BEE517892AA873DD86BFFA0"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject7.bin",
+                                                                        "baselineBytes":  99840,
+                                                                        "candidateBytes":  9728,
+                                                                        "baselineSha256":  "FE44AF741D5DD8F02765FC14B9CE0FE5E06868C70907F7634211FDC87909873A",
+                                                                        "candidateSha256":  "0ECE4EA2C1781834B6EE71C787F6D6BAE092259D8B7EF35605EDB9F5EE40DB29"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject8.bin",
+                                                                        "baselineBytes":  101888,
+                                                                        "candidateBytes":  9728,
+                                                                        "baselineSha256":  "B16983A4087DF0A9A02A09D3AD9752789BC832693849CE778BE7FD996B9D8260",
+                                                                        "candidateSha256":  "8507E544355E2EBCD5FB0D2F223F6223706F675D2265F01FF03BAAB0C9CBA5F9"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/embeddings/oleObject9.bin",
+                                                                        "baselineBytes":  101888,
+                                                                        "candidateBytes":  9728,
+                                                                        "baselineSha256":  "08B8F3CB4FF144A1133985DBFA1A4F5E547304341D4224F5C0ADF14672C9DF2B",
+                                                                        "candidateSha256":  "FDCEC9366752CBA58BC4E2CECBF5E6D9C9DE415107B4C195871FE2CAF42A92E7"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/document.xml",
+                                                                        "baselineBytes":  3244,
+                                                                        "candidateBytes":  3244,
+                                                                        "baselineSha256":  "3527EC02ACAF4421F4277907837325E20581AF5A7E9630BBA80711727D4BCC4D",
+                                                                        "candidateSha256":  "35A4338055C1502520EF5960E80BCF477161223A470F9652035A4EF0ABF2E70F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/settings.xml",
+                                                                        "baselineBytes":  3291,
+                                                                        "candidateBytes":  3291,
+                                                                        "baselineSha256":  "834C8F00BDC88EFDD82C7975DE9728D36914619D28D9D6EF2A6A1B2957CD7C23",
+                                                                        "candidateSha256":  "F6EFF2ABF01F61AEE1D0C7F97710D3B249724EA08BB887B3D4178281A02C070B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/glossary/styles.xml",
+                                                                        "baselineBytes":  29920,
+                                                                        "candidateBytes":  29920,
+                                                                        "baselineSha256":  "4688F77E158B0E5C032F5908E368DE3F6010F8AAFEEDE93A61F6F88CF81E7D7D",
+                                                                        "candidateSha256":  "AC9EAA126CB2A5A21D33065594350AA6C38DD9F8CC1749291C79639C3984506D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image10.emf",
+                                                                        "baselineBytes":  56796,
+                                                                        "candidateBytes":  26376,
+                                                                        "baselineSha256":  "5AD2B772ECE2F736E8078620CD6C0ED037636C13F3C691FC074E4431875BFC7E",
+                                                                        "candidateSha256":  "DF258DC5DEF99F4E896F31B313916A99AD68D60309ED1519DA9556FBA17E2AFF"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image3.emf",
+                                                                        "baselineBytes":  22348,
+                                                                        "candidateBytes":  2384,
+                                                                        "baselineSha256":  "002031067B563BA1F043FA92D6057E56B122A729CE00BB0627AA6B2F296C52E3",
+                                                                        "candidateSha256":  "5F98ED44B0075DAD46D89BEAC254EDD50CC04210504F0E729EC8449EA1C03846"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image4.emf",
+                                                                        "baselineBytes":  22348,
+                                                                        "candidateBytes":  2384,
+                                                                        "baselineSha256":  "B497AE60075DE0E8044844343ECF3FD7274EE3BB9A4DED465F9665A6A7766EC0",
+                                                                        "candidateSha256":  "2706BC75C7071D963F767E461E99794ED4278F926BF56EE5F176C434CA0D4D1A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image5.emf",
+                                                                        "baselineBytes":  25572,
+                                                                        "candidateBytes":  1172,
+                                                                        "baselineSha256":  "C63D9BA3FDB3022DF8E123D7B40A0F7FE5826EFE16FB6E658B20BFE9CE00BF69",
+                                                                        "candidateSha256":  "05EDD76431D01EBD3F48539498198B1612A5C95C280DB1266A09CEE8B27AE428"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image6.emf",
+                                                                        "baselineBytes":  26376,
+                                                                        "candidateBytes":  1148,
+                                                                        "baselineSha256":  "DF258DC5DEF99F4E896F31B313916A99AD68D60309ED1519DA9556FBA17E2AFF",
+                                                                        "candidateSha256":  "2159C44C825E89F810A8801D2C9FE3F51BC4DCC1247189033A96496069997637"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image7.emf",
+                                                                        "baselineBytes":  26380,
+                                                                        "candidateBytes":  22348,
+                                                                        "baselineSha256":  "13B37A4B66A55ACB7DD4EBC2A992CC6F816758EC3DE9F88B81891EAAC4C407B3",
+                                                                        "candidateSha256":  "002031067B563BA1F043FA92D6057E56B122A729CE00BB0627AA6B2F296C52E3"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image8.emf",
+                                                                        "baselineBytes":  26380,
+                                                                        "candidateBytes":  22348,
+                                                                        "baselineSha256":  "8DE61EEF29E1148493500ECE7C7B761DFC34BE74145602834507C183EA4287C6",
+                                                                        "candidateSha256":  "B497AE60075DE0E8044844343ECF3FD7274EE3BB9A4DED465F9665A6A7766EC0"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/media/image9.emf",
+                                                                        "baselineBytes":  282016,
+                                                                        "candidateBytes":  25572,
+                                                                        "baselineSha256":  "2675543ACA52844EABAC3071CAA8EF40325D0CE57AEEA7F88747D806ACFE25BA",
+                                                                        "candidateSha256":  "C63D9BA3FDB3022DF8E123D7B40A0F7FE5826EFE16FB6E658B20BFE9CE00BF69"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/settings.xml",
+                                                                        "baselineBytes":  3593,
+                                                                        "candidateBytes":  3593,
+                                                                        "baselineSha256":  "CB131385BAA36DA4CB6206693961E408FBD34AE3E1A4852E1BC30586398F9F2F",
+                                                                        "candidateSha256":  "335FF0B0EC2B428FB972878618BCBEF752E9B2AF6B9DDFB1FBB3C161F5B1A2A9"
+                                                                    },
+                                                                    {
+                                                                        "name":  "word/styles.xml",
+                                                                        "baselineBytes":  42158,
+                                                                        "candidateBytes":  42158,
+                                                                        "baselineSha256":  "81880C58E7ADC5D2D355CB1CC653ECB1930132454694ABB21C17DD7321102B51",
+                                                                        "candidateSha256":  "334950EEBBE4454255C71D7745B4A4B8B21350845EEA6CF096023B75B8D525D6"
+                                                                    }
+                                                                ],
+                                               "unchangedPartCount":  11
+                                           }
+                        },
+                        {
+                            "id":  "excel-editable-media",
+                            "evidenceDate":  "2026-09-30",
+                            "comparisonKind":  "tracked-sample-to-real-host-evidence",
+                            "note":  "The candidate is the focused drawing and custom-symbol image/OLE save/reopen matrix.",
+                            "baseline":  {
+                                             "path":  "docs/manual-acceptance-samples/LaTeXSnipper-Excel-VSTO-Image-OLE.xlsx",
+                                             "extension":  ".xlsx",
+                                             "packageBytes":  242575,
+                                             "packageSha256":  "0D4E0B87E496D3538599318403ACB09EED364EE83EC4043EFF3F3F775E820574",
+                                             "entryCount":  42,
+                                             "xmlPartCount":  21,
+                                             "mediaPartCount":  14,
+                                             "embeddingPartCount":  4,
+                                             "semanticCounts":  {
+                                                                    "mathObjects":  0,
+                                                                    "contentControls":  0,
+                                                                    "bookmarks":  0,
+                                                                    "fieldInstructions":  0,
+                                                                    "sequenceFields":  0,
+                                                                    "referenceFields":  0,
+                                                                    "pageReferenceFields":  0,
+                                                                    "styleReferenceFields":  0,
+                                                                    "pictures":  10,
+                                                                    "relationshipElements":  37,
+                                                                    "externalRelationships":  0,
+                                                                    "formulaMetadataMarkers":  7
+                                                                }
+                                         },
+                            "candidate":  {
+                                              "path":  "src-tauri/target/office-editable-media-host-evidence/editable-media-excel.xlsx",
+                                              "extension":  ".xlsx",
+                                              "packageBytes":  74414,
+                                              "packageSha256":  "F27C849EC7003B6886167F3FCD47A48FAB890F41960E6E0099F48A6514131DB3",
+                                              "entryCount":  21,
+                                              "xmlPartCount":  13,
+                                              "mediaPartCount":  4,
+                                              "embeddingPartCount":  2,
+                                              "semanticCounts":  {
+                                                                     "mathObjects":  0,
+                                                                     "contentControls":  0,
+                                                                     "bookmarks":  0,
+                                                                     "fieldInstructions":  0,
+                                                                     "sequenceFields":  0,
+                                                                     "referenceFields":  0,
+                                                                     "pageReferenceFields":  0,
+                                                                     "styleReferenceFields":  0,
+                                                                     "pictures":  2,
+                                                                     "relationshipElements":  17,
+                                                                     "externalRelationships":  0,
+                                                                     "formulaMetadataMarkers":  5
+                                                                 }
+                                          },
+                            "difference":  {
+                                               "addedParts":  [
+                                                                  {
+                                                                      "name":  "xl/media/image1.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  223196,
+                                                                      "compressedBytes":  6242,
+                                                                      "sha256":  "A5D521D6FC21736B5720E082875810955A52B4A980EB312227F2BFA6C119FFE0"
+                                                                  },
+                                                                  {
+                                                                      "name":  "xl/media/image2.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  828,
+                                                                      "compressedBytes":  376,
+                                                                      "sha256":  "4496C6A7BFFE2866E658FFB62715F9FE9315530D8D4DD4C2C0478A6EA28D9AFA"
+                                                                  }
+                                                              ],
+                                               "removedParts":  [
+                                                                    {
+                                                                        "name":  "xl/drawings/_rels/drawing2.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  698,
+                                                                        "compressedBytes":  215,
+                                                                        "sha256":  "E154D3F289E3EB56A7909BE3D9473CE15650A5F40884E26DF4202A67888CFB09"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/drawing2.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  6129,
+                                                                        "compressedBytes":  1276,
+                                                                        "sha256":  "3551D24829C6EEC6A5AA93D5FBAC55D624677522096AC040AD7D3732E18C8DEB"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/drawing3.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  7162,
+                                                                        "compressedBytes":  1189,
+                                                                        "sha256":  "F4ED2E23E8C5796F894F508F6D9B0B0F066C9F2ABD325E3640A52274C31050EC"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/embeddings/oleObject3.bin",
+                                                                        "category":  "embedding",
+                                                                        "uncompressedBytes":  99840,
+                                                                        "compressedBytes":  24781,
+                                                                        "sha256":  "CFDEFF858CA058B487395287FBB4CE6A25C6D78598FF27D09BAB08AC94AA812E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/embeddings/oleObject4.bin",
+                                                                        "category":  "embedding",
+                                                                        "uncompressedBytes":  104960,
+                                                                        "compressedBytes":  27167,
+                                                                        "sha256":  "49F78E7592EA85DA101B14DBBF5207F92C7DD38FB1A2F5C2FE4BEE5F9539657B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image1.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  4326,
+                                                                        "compressedBytes":  4326,
+                                                                        "sha256":  "DAA4B6CCA60DAC8EC9F3B324C2AA5795BED6D496A9984E0A55F7E77B629E19A1"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image10.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  8615,
+                                                                        "compressedBytes":  8615,
+                                                                        "sha256":  "75A5BF8BA9CB7894E36573C79516879E5ED196889920EFDD24105AE134690985"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image11.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  5436,
+                                                                        "compressedBytes":  1775,
+                                                                        "sha256":  "7DA60FAA25593626051D1D705ECD8A38B07D52FECF11ED62E0D42978F828000A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image12.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  22348,
+                                                                        "compressedBytes":  6674,
+                                                                        "sha256":  "002031067B563BA1F043FA92D6057E56B122A729CE00BB0627AA6B2F296C52E3"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image13.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  25572,
+                                                                        "compressedBytes":  7589,
+                                                                        "sha256":  "C63D9BA3FDB3022DF8E123D7B40A0F7FE5826EFE16FB6E658B20BFE9CE00BF69"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image14.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  26380,
+                                                                        "compressedBytes":  7886,
+                                                                        "sha256":  "13B37A4B66A55ACB7DD4EBC2A992CC6F816758EC3DE9F88B81891EAAC4C407B3"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image2.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  7794,
+                                                                        "compressedBytes":  7794,
+                                                                        "sha256":  "DABE65606762DFAEF8A02BB615787B71CB9EE250CA157CA78BEC90DA13790A2F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image5.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  15160,
+                                                                        "compressedBytes":  15160,
+                                                                        "sha256":  "8E63ED34147FE1AA129D46651D31633C5050FF3E7B534255DB382CFC344502AE"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image6.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  42524,
+                                                                        "compressedBytes":  42524,
+                                                                        "sha256":  "30142EBE93B74B9103326ED43315D291C44A274609DD2B070A70EF571C9CF9FB"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image7.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  2805,
+                                                                        "compressedBytes":  2805,
+                                                                        "sha256":  "C1A47761C81DA2278D7F44F64A02CA0861D71260304283B49B1D1ABDAF14DE4B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image8.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  4903,
+                                                                        "compressedBytes":  4903,
+                                                                        "sha256":  "DFABCDFD1A6FF7045669CBF0EE1559832AEC11D9CF9420387BF5CB233537FE0A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image9.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  8756,
+                                                                        "compressedBytes":  8756,
+                                                                        "sha256":  "D27315EF7E918012873E4494FD565A8A0D18A5BD394933E297585E3FC39FAF41"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/printerSettings/printerSettings2.bin",
+                                                                        "category":  "binary",
+                                                                        "uncompressedBytes":  1824,
+                                                                        "compressedBytes":  194,
+                                                                        "sha256":  "BD33361A5A961EC0984569457C1449089543B073CD3E1682FEEEA865DCA5E2FD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/sharedStrings.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  2015,
+                                                                        "compressedBytes":  1064,
+                                                                        "sha256":  "F1462300F7EC002A3A502F4885E1E6A1110FD46BD0040DE7E13F95A54F2DCE5F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/_rels/sheet2.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  464,
+                                                                        "compressedBytes":  219,
+                                                                        "sha256":  "141A0C5390EBF3F44D2BAC45EAAD9FB54A6912433DFB5AC7E76D4F0666AB2FEF"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/_rels/sheet3.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  1750,
+                                                                        "compressedBytes":  334,
+                                                                        "sha256":  "36501ED837BE56E5CE1327D0290513602AF14BF4B41E503249F66542699724EA"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/sheet2.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  4853,
+                                                                        "compressedBytes":  1224,
+                                                                        "sha256":  "04D38261951175124ADAB5DEE95F7222FB04F47404B199E5F3BD635B8CF3C964"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/sheet3.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  7351,
+                                                                        "compressedBytes":  1631,
+                                                                        "sha256":  "51DDDC78CC38C7D535E9576B9A5ABD5B6110D6D76F84C1CE6D922642EEE6A511"
+                                                                    }
+                                                                ],
+                                               "changedParts":  [
+                                                                    {
+                                                                        "name":  "[Content_Types].xml",
+                                                                        "baselineBytes":  2603,
+                                                                        "candidateBytes":  1711,
+                                                                        "baselineSha256":  "49041FAAFEEFD1D56B934255CECE3830D39953CD6B5E2460986B53D77A7E306E",
+                                                                        "candidateSha256":  "51C90EC3772CD2358BB35F95B34FABEA63D552C0496A5005B9E855021BF50580"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/app.xml",
+                                                                        "baselineBytes":  1022,
+                                                                        "candidateBytes":  792,
+                                                                        "baselineSha256":  "DBEF114949CD2A4BE25FA071E1215E0FD2F36578CB3D03F232633561DC04D270",
+                                                                        "candidateSha256":  "0E0CD2CF5BAA8B96392F24A0B56F2325A5AEA6E012C85A51AAEA0A6661368F00"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/core.xml",
+                                                                        "baselineBytes":  552,
+                                                                        "candidateBytes":  617,
+                                                                        "baselineSha256":  "DC2F10AA822833AF5BA2482DB5F9015B39AFC9742F3E5F9573602A5D9C1888F0",
+                                                                        "candidateSha256":  "D98DC5BD2CD17C2D58F1B5C707D1A807E66846DD7811EA3176E05D5B8644A6F7"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/_rels/workbook.xml.rels",
+                                                                        "baselineBytes":  980,
+                                                                        "candidateBytes":  557,
+                                                                        "baselineSha256":  "24612FB23445B0B316A33B6BFC513E887916020D875F6B64B7A48F56A21E5FB2",
+                                                                        "candidateSha256":  "E52E2E8BCE0CFF8ED2D2E80A3D272A53E6F03F6A57B45F93369D323021E25805"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/_rels/drawing1.xml.rels",
+                                                                        "baselineBytes":  967,
+                                                                        "candidateBytes":  427,
+                                                                        "baselineSha256":  "19C2C582849084AD5872C147F493B6CE9E40A01394B2C3570EBE04C4A715A3F2",
+                                                                        "candidateSha256":  "CE41F1811BC292819A3A50B8FA7FDA2E17B93F5717F292D195C45719A2926DEF"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/_rels/vmlDrawing1.vml.rels",
+                                                                        "baselineBytes":  701,
+                                                                        "candidateBytes":  427,
+                                                                        "baselineSha256":  "D6EE4D476A0D67EE12C7FE5C07B3360D6579BF272494E33B07C4F943D961010E",
+                                                                        "candidateSha256":  "0F367FABD244A7863E3E7D3E23E42980FB04B6C7F0A82356A8C7B015BB76F8D3"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/drawing1.xml",
+                                                                        "baselineBytes":  5238,
+                                                                        "candidateBytes":  7753,
+                                                                        "baselineSha256":  "7B802545C1995ECA67CEF3E1D32A11E8FBE51083E73216D624C47D82078514F5",
+                                                                        "candidateSha256":  "47BF1DD6CB76BB3DF5F7B538D74E56EAA533760BF535CD61322236F9B8700516"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/drawings/vmlDrawing1.vml",
+                                                                        "baselineBytes":  3164,
+                                                                        "candidateBytes":  3706,
+                                                                        "baselineSha256":  "186E8359CEC93DE9928FD49221D5C7B50DB7251274DE3C2BFACEAE3835A5D13D",
+                                                                        "candidateSha256":  "36C4573AA3370D811A3E1D7FE7C942E8586F0884A43C567FC96FD80D8AE38FA0"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/embeddings/oleObject1.bin",
+                                                                        "baselineBytes":  26624,
+                                                                        "candidateBytes":  286720,
+                                                                        "baselineSha256":  "B30690872681E5593C6B5D161A41EF17CFFE8167A1B01A6F59487214CED48D74",
+                                                                        "candidateSha256":  "5A0CF2AC6D7389EA8C4AD315C8BB9C0D83A75567C8FF7CDE63BA26A6AA33E0D0"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/embeddings/oleObject2.bin",
+                                                                        "baselineBytes":  84480,
+                                                                        "candidateBytes":  35328,
+                                                                        "baselineSha256":  "4A5D6034ECF14538FDF5D7ABC045504C9EE7144C6103A2689056DE774008D982",
+                                                                        "candidateSha256":  "E84FBE521534DCAB2BE36CFA0C6D1B08A47F2FB620B975CF48CC3D75F9967707"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image3.png",
+                                                                        "baselineBytes":  12076,
+                                                                        "candidateBytes":  8667,
+                                                                        "baselineSha256":  "D8A555F5F5F35156EF57C75106D96554AB1B92F42D06CC80390D7CD4CCB5533E",
+                                                                        "candidateSha256":  "F695384724B3063CE2E06D4C80E48C7BFE44CB18AECF2759864E56578A79B261"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/media/image4.png",
+                                                                        "baselineBytes":  10262,
+                                                                        "candidateBytes":  4770,
+                                                                        "baselineSha256":  "3280B5552AAFF603532E0EA737939872DA023BC5C0CEF59D674A08A4B278A155",
+                                                                        "candidateSha256":  "FB3A984F202523D1CE634E2412598EC04F374F5D967155DD3FA4C3A8E65A3C43"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/printerSettings/printerSettings1.bin",
+                                                                        "baselineBytes":  1824,
+                                                                        "candidateBytes":  1148,
+                                                                        "baselineSha256":  "BD33361A5A961EC0984569457C1449089543B073CD3E1682FEEEA865DCA5E2FD",
+                                                                        "candidateSha256":  "22A4F1B37AFFAA6BDE86C5D68DFCAC14C372A07B8544D92D69284E7ABC846273"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/styles.xml",
+                                                                        "baselineBytes":  5529,
+                                                                        "candidateBytes":  1809,
+                                                                        "baselineSha256":  "709EDABA524A3412A6F9AC2E73C4EB984104DD16FED83FF3A9F0EAFB2F43BAE6",
+                                                                        "candidateSha256":  "18A6FF20A36D62003A56D0A8FBA3BA116D623FAEFE20ABE63A2AD9778C4E4E59"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/theme/theme1.xml",
+                                                                        "baselineBytes":  3544,
+                                                                        "candidateBytes":  8728,
+                                                                        "baselineSha256":  "6467CD8ADF5C5CDB4F1ED32E23259C168EA23E45B75E2E0F57635B80952D664C",
+                                                                        "candidateSha256":  "B2C33542ECB66FC0FD5A9E66DE01642D1214C5B16BAD2B6A026D6EBCBDA6B5CC"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/workbook.xml",
+                                                                        "baselineBytes":  1965,
+                                                                        "candidateBytes":  2331,
+                                                                        "baselineSha256":  "300D54E18BA2F0B66DBC07E751893C0D4CDEDED92853B0C38FA7B0AE3C2FCA23",
+                                                                        "candidateSha256":  "875D81175EFACF380E06212907BFCF0863897F52F8822414F0FD8BEB85ED3380"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/_rels/sheet1.xml.rels",
+                                                                        "baselineBytes":  299,
+                                                                        "candidateBytes":  1178,
+                                                                        "baselineSha256":  "EE9FA12D10C5EE0AE23C711AAD3BE36F1D99D87934A588AAC4ECAF1028BDEF16",
+                                                                        "candidateSha256":  "782BD5EA7292C5485772ED28A92C6B70EEFC40B4E5506C890D07EBAB97976FC6"
+                                                                    },
+                                                                    {
+                                                                        "name":  "xl/worksheets/sheet1.xml",
+                                                                        "baselineBytes":  4416,
+                                                                        "candidateBytes":  4341,
+                                                                        "baselineSha256":  "7E48785BE14B9E86EAC6F530C5362CAC4CE492A2F4BA521B7D0CC6D20C435A7D",
+                                                                        "candidateSha256":  "B6061C198DE1F0BAF425E8BB6557264160122F5B5D7E76CD232FFB7877A4378E"
+                                                                    }
+                                                                ],
+                                               "unchangedPartCount":  1
+                                           }
+                        },
+                        {
+                            "id":  "powerpoint-editable-media",
+                            "evidenceDate":  "2026-09-30",
+                            "comparisonKind":  "tracked-sample-to-real-host-evidence",
+                            "note":  "The candidate is the focused drawing and custom-symbol image/OLE save/reopen matrix.",
+                            "baseline":  {
+                                             "path":  "docs/manual-acceptance-samples/LaTeXSnipper-PowerPoint-VSTO-Image-OLE.pptx",
+                                             "extension":  ".pptx",
+                                             "packageBytes":  224785,
+                                             "packageSha256":  "DB4FEE46090E01D437E3A3160A3F1B534A65C2A567B7610EF6A1F76554BF7A02",
+                                             "entryCount":  51,
+                                             "xmlPartCount":  37,
+                                             "mediaPartCount":  10,
+                                             "embeddingPartCount":  4,
+                                             "semanticCounts":  {
+                                                                    "mathObjects":  0,
+                                                                    "contentControls":  0,
+                                                                    "bookmarks":  0,
+                                                                    "fieldInstructions":  0,
+                                                                    "sequenceFields":  0,
+                                                                    "referenceFields":  0,
+                                                                    "pageReferenceFields":  0,
+                                                                    "styleReferenceFields":  0,
+                                                                    "pictures":  14,
+                                                                    "relationshipElements":  56,
+                                                                    "externalRelationships":  0,
+                                                                    "formulaMetadataMarkers":  7
+                                                                }
+                                         },
+                            "candidate":  {
+                                              "path":  "src-tauri/target/office-editable-media-host-evidence/editable-media-powerpoint.pptx",
+                                              "extension":  ".pptx",
+                                              "packageBytes":  112293,
+                                              "packageSha256":  "B0262CFBAD7F94FE574CAD0204BDCEBB6499DC386BE183275257A689E79C8121",
+                                              "entryCount":  43,
+                                              "xmlPartCount":  36,
+                                              "mediaPartCount":  4,
+                                              "embeddingPartCount":  2,
+                                              "semanticCounts":  {
+                                                                     "mathObjects":  0,
+                                                                     "contentControls":  0,
+                                                                     "bookmarks":  0,
+                                                                     "fieldInstructions":  0,
+                                                                     "sequenceFields":  0,
+                                                                     "referenceFields":  0,
+                                                                     "pageReferenceFields":  0,
+                                                                     "styleReferenceFields":  0,
+                                                                     "pictures":  4,
+                                                                     "relationshipElements":  40,
+                                                                     "externalRelationships":  0,
+                                                                     "formulaMetadataMarkers":  5
+                                                                 }
+                                          },
+                            "difference":  {
+                                               "addedParts":  [
+                                                                  {
+                                                                      "name":  "docProps/thumbnail.jpeg",
+                                                                      "category":  "binary",
+                                                                      "uncompressedBytes":  3888,
+                                                                      "compressedBytes":  3888,
+                                                                      "sha256":  "9A1CA7B802083BBDBBE2C332034E710462A59780219015FFA2BC8050732EE7A8"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/media/image1.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  223196,
+                                                                      "compressedBytes":  4858,
+                                                                      "sha256":  "A5D521D6FC21736B5720E082875810955A52B4A980EB312227F2BFA6C119FFE0"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/media/image2.emf",
+                                                                      "category":  "media",
+                                                                      "uncompressedBytes":  828,
+                                                                      "compressedBytes":  364,
+                                                                      "sha256":  "4496C6A7BFFE2866E658FFB62715F9FE9315530D8D4DD4C2C0478A6EA28D9AFA"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout10.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout11.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout2.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout3.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout4.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout5.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout6.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout7.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout8.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/_rels/slideLayout9.xml.rels",
+                                                                      "category":  "relationships",
+                                                                      "uncompressedBytes":  311,
+                                                                      "compressedBytes":  188,
+                                                                      "sha256":  "8246D333BF3764CD35563E3DF1828C26BBC28890815A2987CAF3E592791BA60D"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout10.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  4125,
+                                                                      "compressedBytes":  1208,
+                                                                      "sha256":  "6FB6352BF56BAFBE5C2527AF9E6071770834CEC79147644FCB3EF17E73FDCBF1"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout11.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  4345,
+                                                                      "compressedBytes":  1265,
+                                                                      "sha256":  "77A495929F007285DC9E6E39B1E85CB3C571023AD47ADA89A4570B58B333CAE6"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout2.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  4070,
+                                                                      "compressedBytes":  1180,
+                                                                      "sha256":  "2E945087A76FC004531326B4D088FEBA34681871D8CC2F92322E4A5599B6C6B6"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout3.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  5549,
+                                                                      "compressedBytes":  1407,
+                                                                      "sha256":  "D3DB36407B5CCF84D725B24E7C44D3B1D732BC33D713B3CDC5BA5C0ABDB585EE"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout4.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  5185,
+                                                                      "compressedBytes":  1276,
+                                                                      "sha256":  "D12A30A441A3BC3DC73C7FFB82B87FED9B4DED61AD7093737ABC2B7EE6195EB3"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout5.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  8180,
+                                                                      "compressedBytes":  1627,
+                                                                      "sha256":  "AC570D8ECC79CD748D2115551B6651119ABB3A0565A4D0BE574C02BDF1AC5355"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout6.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  3156,
+                                                                      "compressedBytes":  1060,
+                                                                      "sha256":  "A34D91148B7534E7E706857DE955E0D1FA781001EF0AD6ED8E9F59D28AC8B269"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout7.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  2623,
+                                                                      "compressedBytes":  958,
+                                                                      "sha256":  "9E2455B44C169E88E697B553669198406DBAFB92851D21C048695DE45550D006"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout8.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  6117,
+                                                                      "compressedBytes":  1531,
+                                                                      "sha256":  "87C47751C3F6798FE24AB16014F560BAC19A884885378FECFE23D14E72946665"
+                                                                  },
+                                                                  {
+                                                                      "name":  "ppt/slideLayouts/slideLayout9.xml",
+                                                                      "category":  "xml",
+                                                                      "uncompressedBytes":  6018,
+                                                                      "compressedBytes":  1481,
+                                                                      "sha256":  "FA831EE76F8DED72167F44AAD40761E7DE1B09EB23069D19223D6053DD326CAD"
+                                                                  }
+                                                              ],
+                                               "removedParts":  [
+                                                                    {
+                                                                        "name":  "ppt/embeddings/oleObject3.bin",
+                                                                        "category":  "embedding",
+                                                                        "uncompressedBytes":  100864,
+                                                                        "compressedBytes":  23846,
+                                                                        "sha256":  "4FA83DA35D726CBEE2BF80B05DEC4DA515582F39B7980ED948D8B7FBD07611F6"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/embeddings/oleObject4.bin",
+                                                                        "category":  "embedding",
+                                                                        "uncompressedBytes":  105984,
+                                                                        "compressedBytes":  25994,
+                                                                        "sha256":  "2C6F00C51F1EF9A64AE632F26B3433926056794C9AE2D5CB3E99C1835CEF44C6"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image1.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  4326,
+                                                                        "compressedBytes":  4326,
+                                                                        "sha256":  "DAA4B6CCA60DAC8EC9F3B324C2AA5795BED6D496A9984E0A55F7E77B629E19A1"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image10.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  56736,
+                                                                        "compressedBytes":  9329,
+                                                                        "sha256":  "6FD2DB92DD0D4D561A818FB86C1DF8EAF3F3CE3E2772B008BA1C5E440EF537AA"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image2.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  7794,
+                                                                        "compressedBytes":  7794,
+                                                                        "sha256":  "DABE65606762DFAEF8A02BB615787B71CB9EE250CA157CA78BEC90DA13790A2F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image5.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  15160,
+                                                                        "compressedBytes":  15160,
+                                                                        "sha256":  "8E63ED34147FE1AA129D46651D31633C5050FF3E7B534255DB382CFC344502AE"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image6.png",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  42524,
+                                                                        "compressedBytes":  42524,
+                                                                        "sha256":  "30142EBE93B74B9103326ED43315D291C44A274609DD2B070A70EF571C9CF9FB"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image7.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  14848,
+                                                                        "compressedBytes":  2620,
+                                                                        "sha256":  "ED88018B2C917FA510E6E5B5EE2B15DECC706E0A283BA43FC98B2AEFB7C3A22C"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image8.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  48672,
+                                                                        "compressedBytes":  7933,
+                                                                        "sha256":  "954CD7252C4B91DBA4BE4BB23F5C7E7250704AD9E0C724DDE89C5088970996A4"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image9.emf",
+                                                                        "category":  "media",
+                                                                        "uncompressedBytes":  55120,
+                                                                        "compressedBytes":  8979,
+                                                                        "sha256":  "E94B1BD1150F3208541F0FA0FFF7570053FD49AE615F746D5B33083C57B26B65"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesMasters/_rels/notesMaster1.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  292,
+                                                                        "compressedBytes":  185,
+                                                                        "sha256":  "C900DA93A4DE8BAD9A582295B1DBCB892E6CFEC52985354DA973EBB3FAB497C1"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesMasters/notesMaster1.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  2874,
+                                                                        "compressedBytes":  738,
+                                                                        "sha256":  "4ECB963BF6EB7184080CDDCCA3F6E4869C01E7C6DF7B1C97EF74E9CB9E23FDA5"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/_rels/notesSlide1.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  447,
+                                                                        "compressedBytes":  210,
+                                                                        "sha256":  "7CA2B5677964986C27C97E83FAE1D8B42F4B9F34E7C14584F0877F4C208D15F5"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/_rels/notesSlide2.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  447,
+                                                                        "compressedBytes":  211,
+                                                                        "sha256":  "B0BE6840D8C55422CAC8A6049CC6D9862920C93F0F2BB4B3A19F06FDCAFCBA4B"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/_rels/notesSlide3.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  447,
+                                                                        "compressedBytes":  211,
+                                                                        "sha256":  "4F830A0AF9B54F2B7B79C6FB0F88D45640D8F61F222315E7DC4AEB42B9941E81"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/_rels/notesSlide4.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  447,
+                                                                        "compressedBytes":  211,
+                                                                        "sha256":  "A74815A6780BD644A2D5CFCAB065CF194A7DA36E87E85512D133C8753C2FC9A2"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/_rels/notesSlide5.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  447,
+                                                                        "compressedBytes":  211,
+                                                                        "sha256":  "E7E43C60ACA4F3341A89D0D110AE971CE2C8A7475ECBBA549AC347375C3CDB81"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/notesSlide1.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  1285,
+                                                                        "compressedBytes":  474,
+                                                                        "sha256":  "5DEBC90FE7E77CE688C84806BE55AE7713E8BD2BD07DA0E76ED2FD0A26CE489F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/notesSlide2.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  1285,
+                                                                        "compressedBytes":  474,
+                                                                        "sha256":  "5DEBC90FE7E77CE688C84806BE55AE7713E8BD2BD07DA0E76ED2FD0A26CE489F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/notesSlide3.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  1285,
+                                                                        "compressedBytes":  474,
+                                                                        "sha256":  "5DEBC90FE7E77CE688C84806BE55AE7713E8BD2BD07DA0E76ED2FD0A26CE489F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/notesSlide4.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  1285,
+                                                                        "compressedBytes":  474,
+                                                                        "sha256":  "5DEBC90FE7E77CE688C84806BE55AE7713E8BD2BD07DA0E76ED2FD0A26CE489F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/notesSlides/notesSlide5.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  1285,
+                                                                        "compressedBytes":  474,
+                                                                        "sha256":  "5DEBC90FE7E77CE688C84806BE55AE7713E8BD2BD07DA0E76ED2FD0A26CE489F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/_rels/slide2.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  1002,
+                                                                        "compressedBytes":  256,
+                                                                        "sha256":  "8545C0B26C57F1C8BDC74BA9BCC3BE4204662CB0B9BC5378EC9B3D6A97D02522"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/_rels/slide3.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  732,
+                                                                        "compressedBytes":  243,
+                                                                        "sha256":  "3B2756F9FA1583306FEB89BFA98D5F88D2D57694AAE5B21C21F0F4211690D29F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/_rels/slide4.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  1002,
+                                                                        "compressedBytes":  256,
+                                                                        "sha256":  "73193B6FEF078D001035D809A067A9637F2CA485E6191BF6253F95C20B86698D"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/_rels/slide5.xml.rels",
+                                                                        "category":  "relationships",
+                                                                        "uncompressedBytes":  1596,
+                                                                        "compressedBytes":  306,
+                                                                        "sha256":  "FABDD8881E58080F99781F8B6AEF3F62D88F9ED1E4ED7BB2F42C78CC7BDDE20E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/slide2.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  12422,
+                                                                        "compressedBytes":  1952,
+                                                                        "sha256":  "F412951AA187CA330CAB32CDE59825BE16A2941BFC41BD4447238AA2FC50E115"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/slide3.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  7035,
+                                                                        "compressedBytes":  1447,
+                                                                        "sha256":  "7D0FD2318E3AE119196C36B44B3AC53F0F3B3E7A38081752B04DF39D3267E031"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/slide4.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  8440,
+                                                                        "compressedBytes":  1967,
+                                                                        "sha256":  "516EFD65EFEEA3F9930188B07FF68F60F696BBDA875FDB181F2A5CD59E2CD651"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/slide5.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  10349,
+                                                                        "compressedBytes":  1986,
+                                                                        "sha256":  "3A244E7DAC2EF59FF202CB228502F8523B9039F090223C0294180AF373B18B5C"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/theme/theme2.xml",
+                                                                        "category":  "xml",
+                                                                        "uncompressedBytes":  4623,
+                                                                        "compressedBytes":  892,
+                                                                        "sha256":  "36A422E97D0B69321B18ED1809E1D31DECC32D3BDA7408BFA086C188B1D01E74"
+                                                                    }
+                                                                ],
+                                               "changedParts":  [
+                                                                    {
+                                                                        "name":  "[Content_Types].xml",
+                                                                        "baselineBytes":  3313,
+                                                                        "candidateBytes":  3340,
+                                                                        "baselineSha256":  "D28A1E23F4198C57F8C32ECFBDEBE0409F1BE786E51C6E573A0BF1F249354D83",
+                                                                        "candidateSha256":  "A81D82B42561A69A98E20207E3C2EB44B0D188C986B1CBF4EC1DB4053010EF77"
+                                                                    },
+                                                                    {
+                                                                        "name":  "_rels/.rels",
+                                                                        "baselineBytes":  593,
+                                                                        "candidateBytes":  738,
+                                                                        "baselineSha256":  "7A2791BDDE5168719F999042CDA0CB861AF9BB50D5294577C4BAD0520204B700",
+                                                                        "candidateSha256":  "DE11AF9D3B354316B50C10CEFF7203F24686FE9CBD4202A5E4655398A4C5004F"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/app.xml",
+                                                                        "baselineBytes":  1578,
+                                                                        "candidateBytes":  1464,
+                                                                        "baselineSha256":  "7141935943096A503347EFC9C6067283B37AB71BB4B3AD489EBEC6636F96DF05",
+                                                                        "candidateSha256":  "F167AA7693CA1061AB5D763F5E0014F3F6BD092967AFBF8401D80D68DA37E1CA"
+                                                                    },
+                                                                    {
+                                                                        "name":  "docProps/core.xml",
+                                                                        "baselineBytes":  681,
+                                                                        "candidateBytes":  666,
+                                                                        "baselineSha256":  "F1D87021AA5AD1846DA032FE1A494E9B2DA7DD289788C5ED5EC2466479D0D398",
+                                                                        "candidateSha256":  "30F5959D7EFF245D9D9704A5ED35A70A117BF90EAE389C09B6CE866E943BE57E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/_rels/presentation.xml.rels",
+                                                                        "baselineBytes":  1661,
+                                                                        "candidateBytes":  976,
+                                                                        "baselineSha256":  "A719E569B9247894EE2166FF160DEE1763794C760773BC2A466CC3F7CBCF9D85",
+                                                                        "candidateSha256":  "6C38EB3088DA6EC9EE6F33F157E329C366FA21EA95FCB45BDE372A249590822E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/embeddings/oleObject1.bin",
+                                                                        "baselineBytes":  27648,
+                                                                        "candidateBytes":  576000,
+                                                                        "baselineSha256":  "9E390984C5B45B7BA7464A17A39225AF79AD985DC4AE430CFA3AA72E4B3D9CFF",
+                                                                        "candidateSha256":  "ED5CABF63B92E490E566C523F8FDEDE9984567393635A87E86CE08565A160B15"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/embeddings/oleObject2.bin",
+                                                                        "baselineBytes":  85504,
+                                                                        "candidateBytes":  71168,
+                                                                        "baselineSha256":  "05BD899787F8E98788C85B61C369630430ABB5E12348FC494CFEC8B1E8DBE1C4",
+                                                                        "candidateSha256":  "0819F8D432035696F63C555B8ECAE90D46B218FB5B991644384EA346EEEA5206"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image3.png",
+                                                                        "baselineBytes":  12076,
+                                                                        "candidateBytes":  8667,
+                                                                        "baselineSha256":  "D8A555F5F5F35156EF57C75106D96554AB1B92F42D06CC80390D7CD4CCB5533E",
+                                                                        "candidateSha256":  "F695384724B3063CE2E06D4C80E48C7BFE44CB18AECF2759864E56578A79B261"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/media/image4.png",
+                                                                        "baselineBytes":  10262,
+                                                                        "candidateBytes":  4770,
+                                                                        "baselineSha256":  "3280B5552AAFF603532E0EA737939872DA023BC5C0CEF59D674A08A4B278A155",
+                                                                        "candidateSha256":  "FB3A984F202523D1CE634E2412598EC04F374F5D967155DD3FA4C3A8E65A3C43"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/presentation.xml",
+                                                                        "baselineBytes":  3387,
+                                                                        "candidateBytes":  3212,
+                                                                        "baselineSha256":  "D31C19DA480776042E44347172F62557F9CF6B758704F74FB450B87D5640C0E1",
+                                                                        "candidateSha256":  "2DB04BA509848B6FDA63CA1212881E6F67E3C50A293139E5A0DF303224C3BE86"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slideLayouts/slideLayout1.xml",
+                                                                        "baselineBytes":  617,
+                                                                        "candidateBytes":  4796,
+                                                                        "baselineSha256":  "B3285765FE11621372872494E081B8B5479797AD5F10D9D76FE75E9D565893F4",
+                                                                        "candidateSha256":  "62B56525E625B426A332EAF9A7D7E8CB331FA7CB2BAE64E2C44DC22847EED52E"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+                                                                        "baselineBytes":  446,
+                                                                        "candidateBytes":  1991,
+                                                                        "baselineSha256":  "1238567C50D7D91F3D301B91E1D26E8B718AC8C8B0B3667D186800D89301B807",
+                                                                        "candidateSha256":  "E9E503158DDAFF4D9AFA825A3D1048FFA1C1275291D9AB818812FF8E061EA8FD"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slideMasters/slideMaster1.xml",
+                                                                        "baselineBytes":  6210,
+                                                                        "candidateBytes":  14027,
+                                                                        "baselineSha256":  "C11384D251CFC97878CB413335A28A4EEECDE2943AE0C9163F3AF0340107534A",
+                                                                        "candidateSha256":  "8CB4A66F1FC49822686949BEAC9C6B8E206A7A9E8E9737E72ADCCC9FBBAED230"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/_rels/slide1.xml.rels",
+                                                                        "baselineBytes":  462,
+                                                                        "candidateBytes":  1147,
+                                                                        "baselineSha256":  "D5C315D805A83B264896C6CE91C3206EC3D32D2C21634A8994E2C86F0B973DFD",
+                                                                        "candidateSha256":  "96C96F5F12850463BAF2DFE417B0DF2BB95CB84CE20FC7FDC6343738DC9E3E1A"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/slides/slide1.xml",
+                                                                        "baselineBytes":  4399,
+                                                                        "candidateBytes":  8925,
+                                                                        "baselineSha256":  "FCF25ACBD100A315D547EE134822C80D46410BEC999C708B69F6F256DBB63713",
+                                                                        "candidateSha256":  "DEBE1798519FE03A2719C72D9FE4F2A3911BDAA675EFACC9E1EE64A6440C3E30"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/theme/theme1.xml",
+                                                                        "baselineBytes":  4623,
+                                                                        "candidateBytes":  8730,
+                                                                        "baselineSha256":  "36A422E97D0B69321B18ED1809E1D31DECC32D3BDA7408BFA086C188B1D01E74",
+                                                                        "candidateSha256":  "48D0C29FAF975504BA8637CEC9F69BAC756DE8BF33015549640C9429DE4CFCE2"
+                                                                    },
+                                                                    {
+                                                                        "name":  "ppt/viewProps.xml",
+                                                                        "baselineBytes":  770,
+                                                                        "candidateBytes":  770,
+                                                                        "baselineSha256":  "47BF6A4EC3CE0710DBE0F5B479514DE9779233C2BA35468EC0C570F38A4C68EE",
+                                                                        "candidateSha256":  "B55187844BD7433F5798C3FD4F328431B2D43BD368C4F9DD72BCB05704882D3E"
+                                                                    }
+                                                                ],
+                                               "unchangedPartCount":  3
+                                           }
+                        }
+                    ]
+}

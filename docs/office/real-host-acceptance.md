@@ -67,6 +67,14 @@ WPS：分别打开 Writer、Spreadsheets、Presentation，验证 Ribbon、task p
 | `word-ole-host-evidence/evidence.json` | 24 | `439136AAEE05987F0F12893D9495F3704731CA173F29E3B4D8E176593C39E5CE` |
 | `word-editable-image-host-evidence/evidence.json` | 6 | `CEC956BEB6CD2FD9AACCDBAD2A8E77D17ABE1561EF701BB5027F7A2036A7224B` |
 | `office-editable-media-host-evidence/evidence.json` | 4 个宿主组，其中 2 个为新建重开矩阵 | `0AF6DC2AB3DE018F2451590A8D1CAEAFD7FB123F7D260F1724640DC6BF3FAFDB` |
+| `docs/office/real-host-openxml-diff-2026-09-30.json` | 5 组 DOCX/XLSX/PPTX 结构化 package 对比 | `B32520B724FE60D5206E1E236F11DC7163E34C8BCF34AD61BB62C4602AE5FAB6` |
+
+结构化 OOXML 报告由 `scripts/summarize-office-openxml.ps1` 直接读取 ZIP
+package，不把内容解压到磁盘。报告包含 package 与 changed part 的 SHA-256、
+新增/删除/未变化 part、媒体和嵌入对象数量，以及 OMML、`SEQ`、`REF`、
+`PAGEREF`、关系和 LaTeXSnipper 元数据标记计数。固定 manifest 明确区分
+“仓库验收样例”与“本轮真实宿主证据”，对象数量不同的专项样例不会被误判为
+无损同包回转。
 
 复现命令：
 
@@ -87,6 +95,11 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   'src-tauri\target\word-native-host-fixture\word-nary-acceptance.generated.json' `
   'src-tauri\target\word-native-host-evidence' `
   --skip-preflight
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\summarize-office-openxml.ps1 `
+  -ManifestPath docs\office\real-host-openxml-manifest.json `
+  -OutputPath docs\office\real-host-openxml-diff-2026-09-30.json
 ```
 
 测试脚本会在启动宿主前核对已注册 DLL 与 staging DLL 的 SHA-256，防止
@@ -94,7 +107,6 @@ Windows Installer 自修复把旧 OLE 服务器重新注册后产生误判；结
 
 ### 尚未关闭的真实宿主项
 
-- 仍需为本轮 DOCX/XLSX/PPTX 输出生成并签入结构化 OOXML 差异摘要；
 - 批量插入、剪贴板所有权、update/delete、Excel 行列缩放锚定、PowerPoint
   分组/旋转/缩放尚未形成完整真机矩阵；
 - x86 Office、不同 DPI/双屏/RDP、macOS/Web 和 WPS 不由本次结果覆盖。

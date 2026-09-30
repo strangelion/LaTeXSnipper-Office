@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "comparisons": [
+    {
+      "id": "word-native-omml",
+      "evidenceDate": "2026-09-30",
+      "comparisonKind": "tracked-sample-to-real-host-evidence",
+      "baseline": "docs/manual-acceptance-samples/LaTeXSnipper-Word-Native-OMML.docx",
+      "candidate": "src-tauri/target/word-native-host-evidence/word-nary-acceptance.docx",
+      "note": "Both packages cover the 26 by 3 native formula matrix; volatile Word ids may change part hashes."
+    },
+    {
+      "id": "word-editable-image",
+      "evidenceDate": "2026-09-30",
+      "comparisonKind": "tracked-sample-to-real-host-evidence",
+      "baseline": "docs/manual-acceptance-samples/LaTeXSnipper-Word-VSTO-Image.docx",
+      "candidate": "src-tauri/target/word-editable-image-host-evidence/word-editable-image-acceptance.docx",
+      "note": "The candidate is the focused drawing and custom-symbol save/reopen matrix, so object counts intentionally differ from the broader tracked sample."
+    },
+    {
+      "id": "word-editable-ole",
+      "evidenceDate": "2026-09-30",
+      "comparisonKind": "tracked-sample-to-real-host-evidence",
+      "baseline": "docs/manual-acceptance-samples/LaTeXSnipper-Word-Editable-OLE.docx",
+      "candidate": "src-tauri/target/word-ole-host-evidence/word-ole-acceptance.docx",
+      "note": "The candidate records the real installed OLE server activation and save/reopen run."
+    },
+    {
+      "id": "excel-editable-media",
+      "evidenceDate": "2026-09-30",
+      "comparisonKind": "tracked-sample-to-real-host-evidence",
+      "baseline": "docs/manual-acceptance-samples/LaTeXSnipper-Excel-VSTO-Image-OLE.xlsx",
+      "candidate": "src-tauri/target/office-editable-media-host-evidence/editable-media-excel.xlsx",
+      "note": "The candidate is the focused drawing and custom-symbol image/OLE save/reopen matrix."
+    },
+    {
+      "id": "powerpoint-editable-media",
+      "evidenceDate": "2026-09-30",
+      "comparisonKind": "tracked-sample-to-real-host-evidence",
+      "baseline": "docs/manual-acceptance-samples/LaTeXSnipper-PowerPoint-VSTO-Image-OLE.pptx",
+      "candidate": "src-tauri/target/office-editable-media-host-evidence/editable-media-powerpoint.pptx",
+      "note": "The candidate is the focused drawing and custom-symbol image/OLE save/reopen matrix."
+    }
+  ]
+}
