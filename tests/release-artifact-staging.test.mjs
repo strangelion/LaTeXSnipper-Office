@@ -70,3 +70,17 @@ test("WPS staging requires the complete package root", () => {
 
   assert.match(resourceStaging, /WPS payload/);
 });
+
+test("NativeOffice staging replaces legacy payloads with the MSI-only contract", () => {
+  assert.match(
+    resourceStaging,
+    /Remove-Item\s+-LiteralPath\s+\$vstoDest\s+-Recurse\s+-Force/,
+  );
+  assert.match(resourceStaging, /LaTeXSnipper\.NativeOffice\.msi/);
+  assert.match(resourceStaging, /LaTeXSnipper\.NativeOffice\.provenance\.json/);
+  assert.doesNotMatch(
+    resourceStaging,
+    /Copy-Item[^\r\n]+OleFormulaObject/,
+    "OLE DLLs belong inside the verified NativeOffice MSI, not beside it",
+  );
+});

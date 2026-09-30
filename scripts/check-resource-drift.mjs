@@ -44,6 +44,10 @@ function binaryHash(filePath) {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function readJson(filePath) {
+  return JSON.parse(readFileSync(filePath, "utf8").replace(/^\uFEFF/, ""));
+}
+
 function walkDir(dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -243,6 +247,7 @@ function checkNativeOffice() {
 
   const msiName = "LaTeXSnipper.NativeOffice.msi";
   const provenanceName = "LaTeXSnipper.NativeOffice.provenance.json";
+  const allowedFiles = new Set([msiName, provenanceName, "installer.json"]);
   const buildMsi = join(buildDir, msiName);
   const stagedMsi = join(stagedDir, msiName);
   const buildProvenance = join(buildDir, provenanceName);
@@ -267,6 +272,29 @@ function checkNativeOffice() {
     return;
   }
 
+  const unexpectedFiles = walkDir(stagedDir)
+    .map((filePath) => relative(stagedDir, filePath).replace(/\\/g, "/"))
+    .filter((relativePath) => !allowedFiles.has(relativePath));
+  if (unexpectedFiles.length > 0) {
+    fail(
+      `NativeOffice: MSI-only staging contains legacy or unexpected files — ${unexpectedFiles.join(
+        ", ",
+      )}`,
+    );
+    return;
+  }
+  const missingFiles = [...allowedFiles].filter(
+    (relativePath) => !existsSync(join(stagedDir, relativePath)),
+  );
+  if (missingFiles.length > 0) {
+    fail(
+      `NativeOffice: MSI-only staging is incomplete — missing ${missingFiles.join(
+        ", ",
+      )}`,
+    );
+    return;
+  }
+
   const buildHash = binaryHash(buildMsi);
   const stagedHash = binaryHash(stagedMsi);
   if (buildHash !== stagedHash) {
@@ -279,11 +307,23 @@ function checkNativeOffice() {
     fail("NativeOffice: staged provenance differs from build output");
     return;
   }
-  const provenance = JSON.parse(readFileSync(buildProvenance, "utf8"));
+  const provenance = readJson(buildProvenance);
   if (provenance.msiSha256 !== buildHash) {
     fail(
       `NativeOffice: provenance MSI hash mismatch — expected=${provenance.msiSha256} actual=${buildHash}`,
     );
+    return;
+  }
+  const installerMetadata = readJson(join(stagedDir, "installer.json"));
+  if (
+    installerMetadata.installerType !== "msi" ||
+    installerMetadata.msiFile !== msiName ||
+    installerMetadata.provenanceFile !== provenanceName ||
+    installerMetadata.msiSha256 !== buildHash ||
+    installerMetadata.sourceCommitSha !== provenance.sourceCommitSha ||
+    installerMetadata.coreCommitSha !== provenance.coreCommitSha
+  ) {
+    fail("NativeOffice: installer.json does not match the verified MSI provenance");
     return;
   }
 

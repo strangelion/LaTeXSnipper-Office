@@ -114,18 +114,57 @@ if ($WindowsPackageRoots.Count -gt 0) {
 
     if ($isMsiOnly) {
         Write-Host "  Using MSI-only verification model" -ForegroundColor Green
+        $allowedNativeOfficeFiles = @(
+            "LaTeXSnipper.NativeOffice.msi",
+            "LaTeXSnipper.NativeOffice.provenance.json",
+            "installer.json"
+        )
+        $unexpectedStagingFiles = @(
+            Get-ChildItem -LiteralPath $staging -Recurse -File |
+                Where-Object {
+                    $relative = $_.FullName.Substring($staging.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                    $relative -notin $allowedNativeOfficeFiles
+                }
+        )
+        if ($unexpectedStagingFiles.Count -gt 0) {
+            throw "MSI-only NativeOffice staging contains legacy or unexpected files: $($unexpectedStagingFiles.FullName -join ', ')"
+        }
+        $missingStagingFiles = @(
+            $allowedNativeOfficeFiles |
+                Where-Object { -not (Test-Path -LiteralPath (Join-Path $staging $_) -PathType Leaf) }
+        )
+        if ($missingStagingFiles.Count -gt 0) {
+            throw "MSI-only NativeOffice staging is incomplete: $($missingStagingFiles -join ', ')"
+        }
         & (Join-Path $PSScriptRoot "verify-native-office-msi.ps1") -Path $msiPath
-        $expectedMsiHash = (Get-FileHash -LiteralPath $msiPath -Algorithm SHA256).Hash
+        $expectedNativeOfficeHashes = @{}
+        foreach ($name in $allowedNativeOfficeFiles) {
+            $expectedNativeOfficeHashes[$name] = (Get-FileHash -LiteralPath (Join-Path $staging $name) -Algorithm SHA256).Hash
+        }
 
         foreach ($rootValue in $WindowsPackageRoots) {
             $root = (Resolve-Path -LiteralPath $rootValue).Path
-            $msiMatches = @(Get-ChildItem -LiteralPath $root -Recurse -File -Filter "LaTeXSnipper.NativeOffice.msi")
-            if ($msiMatches.Count -eq 0) {
-                throw "MSI package is missing from ${root}"
+            $nativeOfficeDirectories = @(Get-PackagedResourceDirectories $root "NativeOffice")
+            if ($nativeOfficeDirectories.Count -ne 1) {
+                throw "Expected exactly one resources/NativeOffice directory in ${root}; found=$($nativeOfficeDirectories.Count)"
             }
-            foreach ($match in $msiMatches) {
-                if ((Get-FileHash -LiteralPath $match.FullName -Algorithm SHA256).Hash -ne $expectedMsiHash) {
-                    throw "Packaged NativeOffice MSI differs from the verified staging MSI: $($match.FullName)"
+            $unexpectedPackageFiles = @(
+                Get-ChildItem -LiteralPath $nativeOfficeDirectories[0].FullName -Recurse -File |
+                    Where-Object {
+                        $relative = $_.FullName.Substring($nativeOfficeDirectories[0].FullName.Length).TrimStart([char[]]@('\', '/')).Replace('\', '/')
+                        $relative -notin $allowedNativeOfficeFiles
+                    }
+            )
+            if ($unexpectedPackageFiles.Count -gt 0) {
+                throw "Packaged NativeOffice directory contains legacy or unexpected files in ${root}: $($unexpectedPackageFiles.FullName -join ', ')"
+            }
+            foreach ($name in $allowedNativeOfficeFiles) {
+                $packageFile = Join-Path $nativeOfficeDirectories[0].FullName $name
+                if (-not (Test-Path -LiteralPath $packageFile -PathType Leaf)) {
+                    throw "Packaged NativeOffice directory is missing $name in ${root}"
+                }
+                if ((Get-FileHash -LiteralPath $packageFile -Algorithm SHA256).Hash -ne $expectedNativeOfficeHashes[$name]) {
+                    throw "Packaged NativeOffice file differs from verified staging: file=$name path=$packageFile"
                 }
             }
             Write-Host "    MSI: found in ${root}" -ForegroundColor Green

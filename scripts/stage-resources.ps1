@@ -241,7 +241,11 @@ Write-Host "  WPS: $wpsCount files staged from $wpsSource" -ForegroundColor Gree
 # Only the MSI and bootstrapper are bundled — NOT individual VSTO DLLs.
 $vstoDest = Join-Path $resourcesDir "NativeOffice"
 if ($runningOnWindows) {
-    $installerDir = Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output")
+    $installerDir = if (-not [string]::IsNullOrWhiteSpace($NativeOfficeStaging)) {
+        (Resolve-Path -LiteralPath $NativeOfficeStaging -ErrorAction Stop).Path
+    } else {
+        Join-PathParts @($ProjectRoot, "apps", "native-office", "Installer", "output")
+    }
 
     # MSI package — the authoritative installer (settings page runs this directly)
     $msiPath = Join-Path $installerDir "LaTeXSnipper.NativeOffice.msi"
@@ -273,6 +277,12 @@ if ($runningOnWindows) {
 
     # Copy only the MSI — bootstrappers (OfflineSetup/WebSetup) are separate
     # GitHub Release artifacts, not embedded in the main Tauri installer.
+    # The current bundle contract is MSI-only. Always replace the destination
+    # completely at directory granularity so legacy VSTO/OLE files from an older
+    # checkout cannot leak into the Tauri MSI/NSIS alongside the verified MSI.
+    if (Test-Path -LiteralPath $vstoDest) {
+        Remove-Item -LiteralPath $vstoDest -Recurse -Force
+    }
     New-Item -ItemType Directory -Path $vstoDest -Force | Out-Null
     Copy-Item -LiteralPath $msiPath -Destination $vstoDest -Force
     Copy-Item -LiteralPath $nativeProvenancePath -Destination $vstoDest -Force
@@ -373,7 +383,7 @@ $provenance = [ordered]@{
             path = $wpsSource
         }
         nativeOffice = [ordered]@{
-            name = if (-not $runningOnWindows) { "excluded" } else { "msi-installer" }
+            name = if (-not $runningOnWindows) { "excluded" } elseif ($NativeOfficeSourceName) { $NativeOfficeSourceName } else { "msi-installer" }
             path = if (-not $runningOnWindows) { "" } else { $vstoDest }
             sourceCommitSha = if (-not $runningOnWindows) { $null } else { $nativeProvenance.sourceCommitSha }
             coreCommitSha = if (-not $runningOnWindows) { $null } else { $nativeProvenance.coreCommitSha }
