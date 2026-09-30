@@ -57,6 +57,8 @@ namespace LaTeXSnipper.Word.HostTests
         public string OleDiagnostics { get; set; }
         public string ContentKind { get; set; }
         public bool EditorStateRoundTripVerified { get; set; }
+        public bool OleInitializedAfterReopen { get; set; }
+        public bool SaveReopenReadBackVerified { get; set; }
         public string Status { get; set; }
     }
 
@@ -239,6 +241,23 @@ namespace LaTeXSnipper.Word.HostTests
                     imageMode ? "word-editable-image-acceptance.docx" :
                     "word-nary-acceptance.docx");
                 document.SaveAs2(documentPath, InteropWord.WdSaveFormat.wdFormatXMLDocument);
+                document.Close(InteropWord.WdSaveOptions.wdSaveChanges);
+                ReleaseComObject(document);
+                document = null;
+                DrainReleasedComObjects();
+
+                document = application.Documents.Open(
+                    FileName: documentPath,
+                    ReadOnly: true,
+                    AddToRecentFiles: false,
+                    Visible: true);
+                ValidateSavedDocumentReadBack(
+                    document,
+                    adapter,
+                    activeCases,
+                    evidence,
+                    oleMode,
+                    imageMode);
                 File.WriteAllText(
                     Path.Combine(evidenceDirectory, "evidence.json"),
                     JsonSerializer.Serialize(evidence, JsonOptions));
@@ -297,6 +316,95 @@ namespace LaTeXSnipper.Word.HostTests
                         $"Numbered formula sequence did not advance at index {index}: " +
                         $"expected {expected}, observed '{observed}'.");
                 }
+            }
+        }
+
+        private static void ValidateSavedDocumentReadBack(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            IReadOnlyList<AcceptanceCase> fixtures,
+            IReadOnlyList<EvidenceRecord> evidence,
+            bool oleMode,
+            bool imageMode)
+        {
+            document.Fields.Update();
+            ValidateAutomaticNumberSequence(document, evidence);
+
+            foreach (EvidenceRecord record in evidence)
+            {
+                AcceptanceCase fixture = fixtures.FirstOrDefault(item =>
+                    string.Equals(item.Name, record.Name, StringComparison.Ordinal));
+                if (fixture == null)
+                    throw new InvalidOperationException(
+                        $"Saved-document fixture is missing for {record.Name}/{record.Mode}.");
+
+                FormulaPayload readBack = adapter.ReadFormulaById(record.FormulaId);
+                string expectedStorage = oleMode ? "ole" : imageMode ? "image" : "native-omml";
+                var expectedPayload = new FormulaPayload
+                {
+                    FormulaId = record.FormulaId,
+                    Latex = fixture.Latex,
+                    ContentKind = fixture.ContentKind,
+                    EditorState = fixture.EditorState
+                };
+                if (readBack == null ||
+                    !string.Equals(readBack.FormulaId, record.FormulaId, StringComparison.Ordinal) ||
+                    !string.Equals(readBack.StorageMode, expectedStorage, StringComparison.Ordinal) ||
+                    !string.Equals(readBack.Latex, fixture.Latex, StringComparison.Ordinal) ||
+                    !string.Equals(readBack.ContentKind, fixture.ContentKind, StringComparison.Ordinal) ||
+                    !EditorStateMatches(expectedPayload, readBack) ||
+                    ((oleMode || imageMode) && string.IsNullOrWhiteSpace(readBack.Render?.Svg)))
+                {
+                    throw new InvalidOperationException(
+                        $"Saved Word document read-back failed for {record.Name}/{record.Mode}: " +
+                        $"storage={readBack?.StorageMode ?? "null"}/{expectedStorage}, " +
+                        $"latexMatch={string.Equals(readBack?.Latex, fixture.Latex, StringComparison.Ordinal)}, " +
+                        $"contentKind={readBack?.ContentKind ?? "null"}/{fixture.ContentKind ?? "null"}, " +
+                        $"editorStateMatch={EditorStateMatches(expectedPayload, readBack)}.");
+                }
+
+                InteropWord.ContentControl candidate = FindCandidate(document, record.FormulaId);
+                if (candidate == null)
+                    throw new InvalidOperationException(
+                        $"Saved Word content control is missing for {record.Name}/{record.Mode}.");
+                InteropWord.InlineShape shape = null;
+                object automation = null;
+                try
+                {
+                    if (candidate.Range.InlineShapes.Count != 1)
+                        throw new InvalidOperationException(
+                            $"Saved Word object count is invalid for {record.Name}/{record.Mode}: " +
+                            candidate.Range.InlineShapes.Count);
+                    shape = candidate.Range.InlineShapes[1];
+                    if (oleMode)
+                    {
+                        if (shape.Type != InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                            throw new InvalidOperationException(
+                                $"Saved Word object is not OLE for {record.Name}/{record.Mode}.");
+                        automation = shape.OLEFormat?.Object;
+                        if (automation == null || !OleFormulaInterop.IsInitialized(automation) ||
+                            !OleFormulaInterop.VerifyRoundTrip(automation, readBack))
+                        {
+                            throw new InvalidOperationException(
+                                $"Saved Word OLE payload did not reactivate for {record.Name}/{record.Mode}.");
+                        }
+                        record.OleInitializedAfterReopen = true;
+                    }
+                    else if (imageMode &&
+                        shape.Type == InteropWord.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                    {
+                        throw new InvalidOperationException(
+                            $"Saved editable-image object changed to OLE for {record.Name}/{record.Mode}.");
+                    }
+                }
+                finally
+                {
+                    ReleaseComObject(automation);
+                    ReleaseComObject(shape);
+                    ReleaseComObject(candidate);
+                }
+
+                record.SaveReopenReadBackVerified = true;
             }
         }
 
