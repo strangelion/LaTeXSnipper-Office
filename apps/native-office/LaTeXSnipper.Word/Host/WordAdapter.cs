@@ -1513,7 +1513,6 @@ namespace LaTeXSnipper.Word.Host
             InsertMode mode,
             bool allowResize)
         {
-            if (payload.Presentation == null) return;
             var style = FormulaPresentationStyle.From(payload.Presentation);
             if (allowResize && style.MaxWidthPt.HasValue && shape.Width > style.MaxWidthPt.Value)
                 shape.Width = style.MaxWidthPt.Value;

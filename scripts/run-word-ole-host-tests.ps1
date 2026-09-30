@@ -61,6 +61,51 @@ foreach ($requiredFile in $requiredFiles) {
         throw "Required Word OLE host-test file is missing: $requiredFile"
     }
 }
+
+# The installed VSTO package is an MSI component. Starting Word can repair its
+# COM registration before AddOLEObject runs, which makes Word load the installed
+# handler even though this script temporarily registered the staging path. Fail
+# before opening Word when that installed handler is stale; otherwise the host
+# failure looks like a pending-payload or OLE implementation regression.
+$registeredHandlerPath = $null
+$registeredHandlerRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::CurrentUser,
+    [Microsoft.Win32.RegistryView]::Registry64
+)
+try {
+    $registeredHandlerKey = $registeredHandlerRoot.OpenSubKey(
+        "Software\Classes\CLSID\$clsid\InprocServer32",
+        $false
+    )
+    try {
+        if ($null -ne $registeredHandlerKey) {
+            $registeredHandlerPath = [string]$registeredHandlerKey.GetValue($null)
+        }
+    }
+    finally {
+        if ($null -ne $registeredHandlerKey) {
+            $registeredHandlerKey.Dispose()
+        }
+    }
+}
+finally {
+    $registeredHandlerRoot.Dispose()
+}
+if (-not [string]::IsNullOrWhiteSpace($registeredHandlerPath) -and
+    (Test-Path -LiteralPath $registeredHandlerPath -PathType Leaf)) {
+    $stagedHandlerHash = (Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash
+    $registeredHandlerHash = (
+        Get-FileHash -LiteralPath $registeredHandlerPath -Algorithm SHA256
+    ).Hash
+    if ($registeredHandlerHash -ne $stagedHandlerHash) {
+        throw (
+            "Installed Word OLE handler differs from the staged acceptance artifact. " +
+            "Install the matching NativeOffice MSI before running the real-host test. " +
+            "installed=$registeredHandlerPath, installedSha256=$registeredHandlerHash, " +
+            "staged=$dll, stagedSha256=$stagedHandlerHash"
+        )
+    }
+}
 if ($RunEditableMediaHosts) {
     if (-not (Test-Path -LiteralPath $SampleHostExecutable -PathType Leaf)) {
         throw "Required Office editable-media host-test executable is missing: $SampleHostExecutable"
