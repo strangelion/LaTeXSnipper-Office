@@ -89,6 +89,16 @@
           StoreLocation="currentUser"
           StoreName="trustedPublisher"
           Vital="yes" />
+        <?if $(var.TrustSigningCertificateAsRoot) = "true" ?>
+        <iis:Certificate
+          Id="VstoSelfSignedRoot"
+          Name="LaTeXSnipper Office VSTO Self-Signed Root"
+          BinaryRef="VstoSigningCertificate"
+          Request="no"
+          StoreLocation="currentUser"
+          StoreName="root"
+          Vital="yes" />
+        <?endif ?>
       </Component>
 
       <!-- OLE runtime state -->
