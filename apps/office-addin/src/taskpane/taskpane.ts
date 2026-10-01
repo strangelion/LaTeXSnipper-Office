@@ -97,6 +97,13 @@ Office.onReady((info) => {
   document
     .getElementById("layoutProfile")
     ?.addEventListener("change", updateNumberingPreview);
+  document.getElementById("editor")?.addEventListener("keydown", (event) => {
+    if (!(event instanceof KeyboardEvent)) return;
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+      event.preventDefault();
+      void (selectedFormulaId ? handleUpdate() : handleInsert());
+    }
+  });
   void initializeHost(hostName);
 });
 
@@ -132,6 +139,7 @@ async function updateBridgeState(host: string): Promise<void> {
     connected = false;
   }
   setText("bridgeStatus", `桥接服务：${connected ? "已连接" : "离线"}`);
+  setConnectionState("bridgeChip", connected ? "ready" : "offline");
 }
 
 function applyCapabilities(): void {
@@ -155,6 +163,11 @@ function applyCapabilities(): void {
     "capabilityStatus",
     capabilities ? `宿主：${capabilities.host}` : "宿主：不支持",
   );
+  setConnectionState("capabilityChip", capabilities ? "ready" : "offline");
+  setText(
+    "selectionStatus",
+    selectedFormulaId ? "已加载可编辑公式" : "尚未加载公式",
+  );
   updateNumberingControls();
 }
 
@@ -170,6 +183,8 @@ function updateNumberingControls(): void {
     modeSelect.value = "display";
   const enabled =
     modeSelect?.value === "numbered" && Boolean(capabilities?.numberedFormula);
+  const options = document.getElementById("numberingOptions");
+  if (options) options.hidden = !enabled;
   for (const id of ["layoutProfile", "equationLabel"]) {
     const control = document.getElementById(id) as
       | HTMLInputElement
@@ -411,6 +426,7 @@ async function executeBridgeAction(action: any): Promise<BridgeActionResult> {
 
 function setBusy(value: boolean): void {
   busy = value;
+  document.getElementById("app")?.setAttribute("aria-busy", String(value));
   applyCapabilities();
 }
 
@@ -424,6 +440,13 @@ function setStatus(message: string, type: StatusType = "info"): void {
 function setText(id: string, value: string): void {
   const element = document.getElementById(id);
   if (element) element.textContent = value;
+}
+
+function setConnectionState(
+  id: string,
+  state: "checking" | "ready" | "offline",
+): void {
+  document.getElementById(id)?.setAttribute("data-state", state);
 }
 
 function getEditorContent(): string {
