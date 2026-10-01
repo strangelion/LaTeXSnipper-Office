@@ -73,6 +73,40 @@ namespace LaTeXSnipper.Word.HostTests
         public string Status { get; set; }
     }
 
+    internal sealed class FieldRefreshEvidence
+    {
+        public int SchemaVersion { get; set; } = 1;
+        public string Host { get; set; } = "word";
+        public string FixtureName { get; set; }
+        public string TargetFormulaId { get; set; }
+        public string PrecedingFormulaId { get; set; }
+        public string BookmarkName { get; set; }
+        public string InitialPrecedingNumber { get; set; }
+        public string InitialTargetNumber { get; set; }
+        public string InitialReferenceText { get; set; }
+        public bool PrecedingFormulaRemoved { get; set; }
+        public string TargetNumberBeforeRefresh { get; set; }
+        public string ReferenceTextBeforeRefresh { get; set; }
+        public int TrackedFieldCount { get; set; }
+        public int FieldUpdateResult { get; set; }
+        public bool StaleValuesObservedBeforeRefresh { get; set; }
+        public bool FieldsUpdatedAfterPrecedingChange { get; set; }
+        public string TargetNumberAfterRefresh { get; set; }
+        public string ReferenceTextAfterRefresh { get; set; }
+        public string PageReferenceTextAfterRefresh { get; set; }
+        public string TargetNumberAfterReopen { get; set; }
+        public string ReferenceTextAfterReopen { get; set; }
+        public string PageReferenceTextAfterReopen { get; set; }
+        public bool SaveReopenVerified { get; set; }
+        public string Status { get; set; }
+    }
+
+    internal sealed class ReferenceSnapshot
+    {
+        public string ReferenceText { get; set; }
+        public string PageReferenceText { get; set; }
+    }
+
     internal static class Program
     {
         private const int MaximumBlankGapPixels = 1000;
@@ -100,6 +134,8 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--case", StringComparison.OrdinalIgnoreCase);
             bool styleMode = args.Length == 3 &&
                 string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
+            bool fieldRefreshMode = args.Length == 3 &&
+                string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
             bool skipPreflight = args.Length == 3 &&
                 string.Equals(
                     args[2],
@@ -107,13 +143,13 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !skipPreflight) ||
+                    !styleMode && !fieldRefreshMode && !skipPreflight) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --style | --skip-preflight]");
+                    "--case <fixture-name> | --style | --field-refresh | --skip-preflight]");
                 return 2;
             }
 
@@ -169,6 +205,39 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (fieldRefreshMode)
+                {
+                    FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(
+                        document,
+                        adapter,
+                        activeCases.First());
+                    string fieldRefreshDocumentPath = Path.Combine(
+                        evidenceDirectory,
+                        "word-field-refresh-acceptance.docx");
+                    document.SaveAs2(
+                        fieldRefreshDocumentPath,
+                        InteropWord.WdSaveFormat.wdFormatXMLDocument);
+                    document.Close(InteropWord.WdSaveOptions.wdSaveChanges);
+                    ReleaseComObject(document);
+                    document = null;
+                    DrainReleasedComObjects();
+
+                    document = application.Documents.Open(
+                        FileName: fieldRefreshDocumentPath,
+                        ReadOnly: true,
+                        AddToRecentFiles: false,
+                        Visible: true);
+                    ValidateDirtyFieldRefreshAfterReopen(document, fieldRefreshEvidence);
+                    string fieldRefreshEvidencePath = Path.Combine(
+                        evidenceDirectory,
+                        "field-refresh-evidence.json");
+                    File.WriteAllText(
+                        fieldRefreshEvidencePath,
+                        JsonSerializer.Serialize(fieldRefreshEvidence, JsonOptions));
+                    Console.WriteLine(
+                        $"passed dirty-field-refresh evidence={fieldRefreshEvidencePath}");
+                    return 0;
+                }
                 if (styleMode)
                 {
                     ValidateNativePresentationStyle(
@@ -641,6 +710,291 @@ namespace LaTeXSnipper.Word.HostTests
             document.Fields.Update();
             ValidateReferenceFields(document, referenceEvidence, false);
             return referenceEvidence;
+        }
+
+        private static FieldRefreshEvidence ValidateDirtyFieldRefresh(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            string precedingFormulaId = InsertNumberedFormulaAt(
+                document,
+                adapter,
+                fixture,
+                document.Content.Start);
+            string targetFormulaId = InsertNumberedFormulaAtDocumentEnd(
+                document,
+                adapter,
+                fixture);
+            string bookmarkName = BuildEquationBookmarkName(targetFormulaId);
+            if (!document.Bookmarks.Exists(bookmarkName))
+                throw new InvalidOperationException(
+                    $"Dirty-field target bookmark is missing: {bookmarkName}");
+
+            InsertCrossReferenceAtDocumentEnd(document, adapter, targetFormulaId, "ref");
+            InsertCrossReferenceAtDocumentEnd(document, adapter, targetFormulaId, "pageref");
+            int initialUpdateResult = document.Fields.Update();
+            if (initialUpdateResult != 0)
+                throw new InvalidOperationException(
+                    $"Initial field update failed at field index {initialUpdateResult}.");
+
+            ReferenceSnapshot initialReference = ReadReferenceSnapshot(
+                document,
+                bookmarkName);
+            string initialTargetNumber = ReadFormulaSequenceNumber(
+                document,
+                targetFormulaId);
+            string initialPrecedingNumber = ReadFormulaSequenceNumber(
+                document,
+                precedingFormulaId);
+            AssertEquationNumber(initialPrecedingNumber, "1", "initial preceding formula");
+            AssertEquationNumber(initialTargetNumber, "2", "initial target");
+            AssertEquationNumber(initialReference.ReferenceText, "2", "initial REF");
+
+            InsertResult deletion = adapter.DeleteFormula(precedingFormulaId);
+            if (!deletion.Success)
+                throw new InvalidOperationException(
+                    $"Preceding formula deletion failed: {deletion.ErrorCode} {deletion.Error}");
+            var result = new FieldRefreshEvidence
+            {
+                FixtureName = fixture.Name,
+                TargetFormulaId = targetFormulaId,
+                PrecedingFormulaId = precedingFormulaId,
+                BookmarkName = bookmarkName,
+                InitialPrecedingNumber = initialPrecedingNumber,
+                InitialTargetNumber = initialTargetNumber,
+                InitialReferenceText = initialReference.ReferenceText,
+                PrecedingFormulaRemoved = true,
+                TargetNumberBeforeRefresh = ReadFormulaSequenceNumber(
+                    document,
+                    targetFormulaId),
+                ReferenceTextBeforeRefresh = ReadReferenceSnapshot(
+                    document,
+                    bookmarkName).ReferenceText,
+                Status = "pending"
+            };
+
+            result.TrackedFieldCount = CountNumberingAndReferenceFields(document);
+            if (result.TrackedFieldCount < 3)
+                throw new InvalidOperationException(
+                    $"Field-refresh acceptance expected at least 3 tracked fields, " +
+                    $"observed {result.TrackedFieldCount}.");
+            result.StaleValuesObservedBeforeRefresh =
+                EquationNumberMatches(result.TargetNumberBeforeRefresh, "2") &&
+                EquationNumberMatches(result.ReferenceTextBeforeRefresh, "2");
+            if (!result.StaleValuesObservedBeforeRefresh)
+                throw new InvalidOperationException(
+                    "The target SEQ/REF values were not stale before the F9-equivalent update.");
+
+            result.FieldUpdateResult = document.Fields.Update();
+            if (result.FieldUpdateResult != 0)
+                throw new InvalidOperationException(
+                    $"F9-equivalent document field update failed at field index " +
+                    $"{result.FieldUpdateResult}.");
+            result.TargetNumberAfterRefresh = ReadFormulaSequenceNumber(
+                document,
+                targetFormulaId);
+            ReferenceSnapshot refreshedReference = ReadReferenceSnapshot(
+                document,
+                bookmarkName);
+            result.ReferenceTextAfterRefresh = refreshedReference.ReferenceText;
+            result.PageReferenceTextAfterRefresh = refreshedReference.PageReferenceText;
+            AssertEquationNumber(
+                result.TargetNumberAfterRefresh,
+                "1",
+                "target formula after refresh");
+            AssertEquationNumber(
+                result.ReferenceTextAfterRefresh,
+                "1",
+                "REF after refresh");
+            AssertPageReference(result.PageReferenceTextAfterRefresh, "PAGEREF after refresh");
+            result.FieldsUpdatedAfterPrecedingChange = true;
+            return result;
+        }
+
+        private static void ValidateDirtyFieldRefreshAfterReopen(
+            InteropWord.Document document,
+            FieldRefreshEvidence evidence)
+        {
+            int updateResult = document.Fields.Update();
+            if (updateResult != 0)
+                throw new InvalidOperationException(
+                    $"Reopened document field update failed at field index {updateResult}.");
+
+            evidence.TargetNumberAfterReopen = ReadFormulaSequenceNumber(
+                document,
+                evidence.TargetFormulaId);
+            ReferenceSnapshot reopenedReference = ReadReferenceSnapshot(
+                document,
+                evidence.BookmarkName);
+            evidence.ReferenceTextAfterReopen = reopenedReference.ReferenceText;
+            evidence.PageReferenceTextAfterReopen = reopenedReference.PageReferenceText;
+            AssertEquationNumber(
+                evidence.TargetNumberAfterReopen,
+                "1",
+                "target formula after reopen");
+            AssertEquationNumber(
+                evidence.ReferenceTextAfterReopen,
+                "1",
+                "REF after reopen");
+            AssertPageReference(
+                evidence.PageReferenceTextAfterReopen,
+                "PAGEREF after reopen");
+            evidence.SaveReopenVerified = true;
+            evidence.Status = "passed";
+        }
+
+        private static string InsertNumberedFormulaAt(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture,
+            int position)
+        {
+            string formulaId = FormulaIdHelper.NewId();
+            InteropWord.Range insertionPoint = document.Range(position, position);
+            insertionPoint.Select();
+            InsertResult inserted = adapter.InsertFormula(
+                new FormulaPayload
+                {
+                    FormulaId = formulaId,
+                    Latex = fixture.Latex,
+                    Omml = fixture.Omml,
+                    Display = "numbered",
+                    StorageMode = "native-omml"
+                },
+                InsertMode.DisplayNumbered);
+            ReleaseComObject(insertionPoint);
+            if (!inserted.Success)
+                throw new InvalidOperationException(
+                    $"Dirty-field numbered insertion failed: " +
+                    $"{inserted.ErrorCode} {inserted.Error}");
+            return formulaId;
+        }
+
+        private static string InsertNumberedFormulaAtDocumentEnd(
+            InteropWord.Document document,
+            WordAdapter adapter,
+            AcceptanceCase fixture)
+        {
+            InteropWord.Range insertionPoint = document.Range(
+                document.Content.End - 1,
+                document.Content.End - 1);
+            insertionPoint.InsertParagraphAfter();
+            insertionPoint.Collapse(InteropWord.WdCollapseDirection.wdCollapseEnd);
+            int position = insertionPoint.Start;
+            ReleaseComObject(insertionPoint);
+            return InsertNumberedFormulaAt(document, adapter, fixture, position);
+        }
+
+        private static string ReadFormulaSequenceNumber(
+            InteropWord.Document document,
+            string formulaId)
+        {
+            InteropWord.ContentControl candidate = FindCandidate(document, formulaId);
+            if (candidate == null)
+                throw new InvalidOperationException(
+                    $"Numbered formula content control is missing: {formulaId}");
+            try
+            {
+                foreach (InteropWord.Field field in candidate.Range.Fields)
+                {
+                    string code = (field.Code?.Text ?? string.Empty).Trim();
+                    if (code.IndexOf(
+                            "SEQ LaTeXSnipperEquation",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return NormalizeFieldResult(field);
+                    }
+                }
+            }
+            finally
+            {
+                ReleaseComObject(candidate);
+            }
+            throw new InvalidOperationException(
+                $"Numbered formula sequence field is missing: {formulaId}");
+        }
+
+        private static ReferenceSnapshot ReadReferenceSnapshot(
+            InteropWord.Document document,
+            string bookmarkName)
+        {
+            InteropWord.Field referenceField = null;
+            InteropWord.Field pageReferenceField = null;
+            foreach (InteropWord.Field field in document.Fields)
+            {
+                string code = (field.Code?.Text ?? string.Empty).Trim();
+                if (code.StartsWith(
+                        "PAGEREF " + bookmarkName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    pageReferenceField = field;
+                }
+                else if (code.StartsWith(
+                        "REF " + bookmarkName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    referenceField = field;
+                }
+            }
+            if (referenceField == null || pageReferenceField == null)
+                throw new InvalidOperationException(
+                    $"REF/PAGEREF fields are missing for bookmark {bookmarkName}.");
+            return new ReferenceSnapshot
+            {
+                ReferenceText = NormalizeFieldResult(referenceField),
+                PageReferenceText = NormalizeFieldResult(pageReferenceField)
+            };
+        }
+
+        private static int CountNumberingAndReferenceFields(
+            InteropWord.Document document)
+        {
+            int fieldCount = 0;
+            foreach (InteropWord.Field field in document.Fields)
+            {
+                if (!IsNumberingOrReferenceField(field))
+                    continue;
+                fieldCount++;
+            }
+            return fieldCount;
+        }
+
+        private static bool IsNumberingOrReferenceField(InteropWord.Field field)
+        {
+            string code = (field.Code?.Text ?? string.Empty).Trim();
+            return code.IndexOf(
+                       "SEQ LaTeXSnipperEquation",
+                       StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   code.StartsWith("REF ", StringComparison.OrdinalIgnoreCase) ||
+                   code.StartsWith("PAGEREF ", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AssertEquationNumber(
+            string observed,
+            string expected,
+            string label)
+        {
+            if (!EquationNumberMatches(observed, expected))
+                throw new InvalidOperationException(
+                    $"{label} expected equation {expected}, observed '{observed}'.");
+        }
+
+        private static bool EquationNumberMatches(string observed, string expected)
+        {
+            string normalized = (observed ?? string.Empty).Trim('(', ')', ' ', '\t');
+            return string.Equals(normalized, expected, StringComparison.Ordinal);
+        }
+
+        private static void AssertPageReference(string observed, string label)
+        {
+            if (!int.TryParse(
+                    observed,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int pageNumber) || pageNumber < 1)
+                throw new InvalidOperationException(
+                    $"{label} did not resolve to a page number: '{observed}'.");
         }
 
         private static void InsertCrossReferenceAtDocumentEnd(
