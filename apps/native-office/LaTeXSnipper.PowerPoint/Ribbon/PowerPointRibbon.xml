@@ -4,17 +4,19 @@
     <tabs>
       <tab id="LaTeXSnipperPPTTab" getLabel="GetLabel" keytip="LS">
         <group id="FormulaGroup" getLabel="GetLabel">
-          <button id="btnInsertFormula" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="EquationProfessional" onAction="OnButtonClick" tag="insertFormula" getEnabled="GetDesktopCommandEnabled"/>
-          <button id="btnOcrSelector" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="ScreenshotInsertGallery" onAction="OnButtonClick" tag="ocr" getEnabled="GetDesktopCommandEnabled"/>
+          <button id="btnInsertFormula" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="I" size="large" imageMso="EquationProfessional" onAction="OnButtonClick" tag="insertFormula" getEnabled="GetDesktopCommandEnabled"/>
+          <button id="btnOcrSelector" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="O" imageMso="ScreenshotInsertGallery" onAction="OnButtonClick" tag="ocr" getEnabled="GetDesktopCommandEnabled"/>
         </group>
         <group id="EditGroup" getLabel="GetLabel">
-          <button id="btnLoadSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="ReviewDisplayForReview" onAction="OnButtonClick" tag="readSelection"/>
-          <button id="btnDeleteSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="Delete" onAction="OnButtonClick" tag="delete"/>
+          <button id="btnLoadSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="E" size="large" imageMso="ReviewDisplayForReview" onAction="OnButtonClick" tag="readSelection"/>
+          <button id="btnDeleteSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="X" imageMso="Delete" onAction="OnButtonClick" tag="delete"/>
         </group>
         <group id="ToolsGroup" getLabel="GetLabel">
-          <button id="btnShowTaskPane" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="ReviewingPane" onAction="OnButtonClick" tag="showPane" getEnabled="GetDesktopCommandEnabled"/>
-          <button id="btnSettings" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="AdvancedFileProperties" onAction="OnButtonClick" tag="settings" getEnabled="GetDesktopCommandEnabled"/>
-          <button id="btnHelp" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" size="large" imageMso="Help" onAction="OnButtonClick" tag="help"/>
+          <button id="btnShowTaskPane" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="P" size="large" imageMso="ReviewingPane" onAction="OnButtonClick" tag="showPane" getEnabled="GetDesktopCommandEnabled"/>
+          <box id="WorkspaceActionsBox" boxStyle="vertical">
+            <button id="btnSettings" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="S" imageMso="AdvancedFileProperties" onAction="OnButtonClick" tag="settings" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnHelp" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="H" imageMso="Help" onAction="OnButtonClick" tag="help"/>
+          </box>
         </group>
       </tab>
     </tabs>

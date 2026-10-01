@@ -62,7 +62,8 @@ namespace LaTeXSnipper.Excel
                         RequestId = rid,
                         SessionId = sid,
                         Action = "insert",
-                        Display = "display"
+                        Display = "display",
+                        SourceHost = "excel"
                     });
                     break;
 
@@ -70,8 +71,19 @@ namespace LaTeXSnipper.Excel
                     try
                     {
                         var f = addIn.Adapter.ReadSelection();
-                        if (f != null && !string.IsNullOrEmpty(f.Latex))
-                            MessageBox.Show(RibbonLocalizer.GetString("ReadFormulaPrefix") + f.Latex, RibbonLocalizer.GetString("ErrorTitle"));
+                        if (f != null &&
+                            (!string.IsNullOrEmpty(f.Latex) || !string.IsNullOrEmpty(f.Omml)))
+                            addIn.Send(new VstoOpenEditor
+                            {
+                                RequestId = rid,
+                                SessionId = sid,
+                                Action = "edit",
+                                Omml = f.Omml,
+                                Latex = f.Latex,
+                                FormulaId = f.FormulaId,
+                                Revision = f.Revision,
+                                SourceHost = "excel"
+                            });
                         else
                             MessageBox.Show(RibbonLocalizer.GetString("NoFormulaSelected"), RibbonLocalizer.GetString("ErrorTitle"));
                     }
