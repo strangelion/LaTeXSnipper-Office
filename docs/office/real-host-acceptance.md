@@ -112,3 +112,41 @@ Windows Installer 自修复把旧 OLE 服务器重新注册后产生误判；结
 - x86 Office、不同 DPI/双屏/RDP、macOS/Web 和 WPS 不由本次结果覆盖。
 
 因此本记录证明上述已列场景，不把尚未执行的矩阵推断为“全部稳定支持”。
+
+## 2026-10-01 Word dirty `SEQ`/`REF` 重算专项
+
+- Office 源码提交：`4cf6d74d45396fbd5b7fc096294b138d7502b516`；
+- Windows 11 专业版 `10.0.26200`，64 位；
+- Word `16.0.18526.20672`，64 位；
+- fixture：Core 生成的 `inline-integral` 原生 OMML；
+- 结果：通过。
+
+专项宿主先插入编号公式 1 和目标公式 2，并为目标插入 `REF`/`PAGEREF`。
+删除前置公式后，目标 `SEQ` 和 `REF` 在刷新前仍显示陈旧值 `2`；调用与 Word
+F9 对应的 `Document.Fields.Update()` 后，两者同步为 `1`，返回值为 `0`。
+保存 DOCX、关闭并只读重开后，目标仍为 `1`、`REF` 为 `(1)`、`PAGEREF`
+为 `1`。这项证据关闭“仅静态检查字段代码、未证明 Word 实际重算”的缺口。
+
+| 证据 | SHA-256 |
+| --- | --- |
+| `word-field-refresh-evidence/field-refresh-evidence.json` | `2A1084295E42ED6BE564C817BEA9CE5C33DD5A6251A2890DDF4EF541608185ED` |
+| `word-field-refresh-evidence/word-field-refresh-acceptance.docx` | `53A41C9F0E1179F53463E24439BC4062CDBDE16D1FD33445C1627711E27040C6` |
+
+证据保留在忽略的 `src-tauri/target` 目录，可用下列命令重建：
+
+```powershell
+& 'C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe' `
+  'apps\native-office\LaTeXSnipper.Word.HostTests\LaTeXSnipper.Word.HostTests.csproj' `
+  /t:Build /p:Configuration=Release /p:Platform=AnyCPU /m /v:minimal
+
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File scripts\prepare-word-native-host-fixture.ps1
+
+& 'apps\native-office\LaTeXSnipper.Word.HostTests\bin\x64\Release\LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri\target\word-native-host-fixture\word-nary-acceptance.generated.json' `
+  'src-tauri\target\word-field-refresh-evidence' `
+  --field-refresh
+```
+
+本专项只关闭 dirty `SEQ`/`REF` 的 Word x64 重算与重开证据；Ctrl+点击跳转、
+公式目录和 x86/多版本 Office 仍按验收清单单独跟踪。
