@@ -29,12 +29,25 @@
         --success: #027a48;
         --shadow: 0 1px 2px rgba(23, 40, 58, 0.06);
       }
-      * { box-sizing: border-box; }
-      [hidden] { display: none !important; }
-      html, body { min-width: 220px; min-height: 100%; }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html,
+      body {
+        min-width: 220px;
+        min-height: 100%;
+      }
       body {
         margin: 0;
-        font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+        font-family:
+          "Segoe UI",
+          -apple-system,
+          BlinkMacSystemFont,
+          Roboto,
+          sans-serif;
         background: var(--canvas);
         color: var(--text);
         font-size: 14px;
@@ -53,9 +66,19 @@
         gap: 10px;
         padding: 2px 2px 0;
       }
-      .brand { min-width: 0; }
-      .title { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
-      .subtitle { margin-top: 2px; color: var(--muted); font-size: 11px; }
+      .brand {
+        min-width: 0;
+      }
+      .title {
+        font-size: 16px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .subtitle {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
       #hostLabel {
         max-width: 45%;
         padding: 4px 8px;
@@ -94,16 +117,28 @@
         background: #8798a8;
         content: "";
       }
-      .connection-chip[data-state="ready"]::before { background: #12a150; }
-      .connection-chip[data-state="offline"]::before { background: #d92d20; }
-      .connection-chip span { min-width: 0; overflow-wrap: anywhere; }
+      .connection-chip[data-state="ready"]::before {
+        background: #12a150;
+      }
+      .connection-chip[data-state="offline"]::before {
+        background: #d92d20;
+      }
+      .connection-chip span {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
       .card {
         border: 1px solid var(--border);
         border-radius: 8px;
         background: var(--surface);
         box-shadow: var(--shadow);
       }
-      .selection-card { padding: 10px; }
+      .selection-card {
+        padding: 10px;
+      }
+      .launcher-card {
+        padding: 10px;
+      }
       .section-heading {
         display: flex;
         align-items: center;
@@ -111,19 +146,62 @@
         gap: 8px;
         margin-bottom: 8px;
       }
-      .section-title { font-size: 12px; font-weight: 700; }
-      .selection-state { color: var(--muted); font-size: 11px; }
+      .section-title {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .selection-state {
+        color: var(--muted);
+        font-size: 11px;
+      }
       .selection-actions {
         display: grid;
         grid-template-areas: "load update" "reference delete";
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px;
       }
-      #loadBtn { grid-area: load; }
-      #updateBtn { grid-area: update; }
-      #referenceBtn { grid-area: reference; }
-      #deleteBtn { grid-area: delete; }
-      button, select, input {
+      .workspace-launchers,
+      .conversion-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .workspace-launchers button {
+        display: grid;
+        min-height: 48px;
+        align-content: center;
+        gap: 2px;
+        text-align: left;
+      }
+      .workspace-launchers button span {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+      .conversion-panel {
+        padding: 0 10px 10px;
+      }
+      .conversion-label {
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+      #loadBtn {
+        grid-area: load;
+      }
+      #updateBtn {
+        grid-area: update;
+      }
+      #referenceBtn {
+        grid-area: reference;
+      }
+      #deleteBtn {
+        grid-area: delete;
+      }
+      button,
+      select,
+      input {
         min-width: 0;
         border: 1px solid var(--border-strong);
         border-radius: 6px;
@@ -132,7 +210,11 @@
         -webkit-text-fill-color: currentColor;
         font: inherit;
       }
-      button, select { min-height: 34px; padding: 6px 10px; }
+      button,
+      select {
+        min-height: 34px;
+        padding: 6px 10px;
+      }
       button {
         appearance: none;
         cursor: pointer;
@@ -141,12 +223,32 @@
         overflow-wrap: anywhere;
         white-space: normal;
       }
-      button:hover:not(:disabled) { border-color: #73a9d8; background: var(--accent-soft); }
-      button.danger { color: var(--danger); }
-      button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity: 0.54; }
-      button.primary { border-color: var(--accent); background: var(--accent); color: #ffffff; }
-      button.primary:hover:not(:disabled) { border-color: var(--accent-hover); background: var(--accent-hover); }
-      button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+      button:hover:not(:disabled) {
+        border-color: #73a9d8;
+        background: var(--accent-soft);
+      }
+      button.danger {
+        color: var(--danger);
+      }
+      button:disabled,
+      select:disabled,
+      input:disabled {
+        cursor: not-allowed;
+        opacity: 0.54;
+      }
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #ffffff;
+      }
+      button.primary:hover:not(:disabled) {
+        border-color: var(--accent-hover);
+        background: var(--accent-hover);
+      }
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
         outline: 2px solid var(--accent);
         outline-offset: 2px;
       }
@@ -165,16 +267,32 @@
         border-bottom: 1px solid var(--border);
         background: var(--surface-subtle);
       }
-      .field { display: grid; min-width: 0; gap: 4px; }
-      .field label, .editor-label { color: var(--muted); font-size: 11px; font-weight: 600; }
+      .field {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+      }
+      .field label,
+      .editor-label {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
       .numbering-options {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 8px;
         padding-top: 2px;
       }
-      input { min-height: 34px; padding: 6px 8px; }
-      .numbering-preview { min-height: 16px; color: var(--accent); font-size: 11px; }
+      input {
+        min-height: 34px;
+        padding: 6px 8px;
+      }
+      .numbering-preview {
+        min-height: 16px;
+        color: var(--accent);
+        font-size: 11px;
+      }
       .editor-heading {
         display: flex;
         align-items: baseline;
@@ -182,7 +300,11 @@
         gap: 8px;
         padding: 10px 10px 0;
       }
-      .shortcut { color: var(--muted); font-size: 10px; text-align: right; }
+      .shortcut {
+        color: var(--muted);
+        font-size: 10px;
+        text-align: right;
+      }
       textarea {
         width: calc(100% - 20px);
         min-height: 150px;
@@ -206,7 +328,9 @@
         border-top: 1px solid var(--border);
         background: var(--surface-subtle);
       }
-      #insertBtn { min-height: 38px; }
+      #insertBtn {
+        min-height: 38px;
+      }
       .status {
         min-height: 28px;
         padding: 6px 8px;
@@ -215,17 +339,40 @@
         font-size: 11px;
         line-height: 1.35;
       }
-      .status.error { background: #fef3f2; color: var(--danger); }
-      .status.success { background: #ecfdf3; color: var(--success); }
+      .status.error {
+        background: #fef3f2;
+        color: var(--danger);
+      }
+      .status.success {
+        background: #ecfdf3;
+        color: var(--success);
+      }
       @media (min-width: 380px) {
-        .editor-settings { grid-template-columns: minmax(130px, 0.8fr) minmax(0, 1.2fr); }
-        .numbering-options { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .numbering-preview { grid-column: 1 / -1; }
+        .editor-settings {
+          grid-template-columns: minmax(130px, 0.8fr) minmax(0, 1.2fr);
+        }
+        .numbering-options {
+          grid-column: 1 / -1;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .numbering-preview {
+          grid-column: 1 / -1;
+        }
+        .workspace-launchers {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
       }
       @media (max-width: 259px) {
-        #app { padding: 8px; }
-        .connection, .selection-actions { grid-template-columns: minmax(0, 1fr); }
-        .selection-actions { grid-template-areas: "load" "update" "reference" "delete"; }
+        #app {
+          padding: 8px;
+        }
+        .connection,
+        .selection-actions {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .selection-actions {
+          grid-template-areas: "load" "update" "reference" "delete";
+        }
       }
     </style>
   </head>
@@ -254,10 +401,55 @@
           <div id="selectionStatus" class="selection-state">尚未加载公式</div>
         </div>
         <div class="selection-actions">
-          <button id="loadBtn" title="读取文档中当前选中的公式">加载选中公式</button>
-          <button id="updateBtn" title="用编辑器内容原位替换选中的公式">原位更新</button>
-          <button id="referenceBtn" title="为最近加载的编号公式插入 Word 交叉引用">插入交叉引用</button>
-          <button id="deleteBtn" class="danger" title="删除文档中当前选中的公式对象">删除选中公式</button>
+          <button id="loadBtn" title="读取文档中当前选中的公式">
+            加载选中公式
+          </button>
+          <button id="updateBtn" title="用编辑器内容原位替换选中的公式">
+            原位更新
+          </button>
+          <button
+            id="referenceBtn"
+            title="为最近加载的编号公式插入 Word 交叉引用"
+          >
+            插入交叉引用
+          </button>
+          <button
+            id="deleteBtn"
+            class="danger"
+            title="删除文档中当前选中的公式对象"
+          >
+            删除选中公式
+          </button>
+        </div>
+      </section>
+
+      <section class="card launcher-card" aria-labelledby="workspaceHeading">
+        <div class="section-heading">
+          <div id="workspaceHeading" class="section-title">功能中心</div>
+          <div class="selection-state">在桌面端打开对应工作区</div>
+        </div>
+        <div class="workspace-launchers">
+          <button data-workspace="formula-library">
+            公式库<span>内置公式与自定义符号</span>
+          </button>
+          <button data-workspace="recognition">
+            识别中心<span>截图、图片与 PDF</span>
+          </button>
+          <button data-workspace="drawing">
+            绘图<span>TikZ、PGFPlots 与 SVG</span>
+          </button>
+          <button data-workspace="batch">
+            批量转换<span>扫描当前 Office 文档</span>
+          </button>
+          <button data-workspace="office">
+            Office 工具<span>插入路线与文档操作</span>
+          </button>
+          <button data-workspace="diagnostics">
+            诊断<span>Core、桥接与运行时状态</span>
+          </button>
+          <button data-workspace="settings">
+            设置<span>外观、模型与集成配置</span>
+          </button>
         </div>
       </section>
 
@@ -282,13 +474,19 @@
             </div>
             <div class="field" id="labelField">
               <label for="equationLabel">公式标签（可选）</label>
-              <input id="equationLabel" maxlength="80" placeholder="例如 energy_identity" />
+              <input
+                id="equationLabel"
+                maxlength="80"
+                placeholder="例如 energy_identity"
+              />
             </div>
             <div id="numberingPreview" class="numbering-preview"></div>
           </div>
         </div>
         <div class="editor-heading">
-          <label id="editorHeading" class="editor-label" for="editor">LaTeX 源码</label>
+          <label id="editorHeading" class="editor-label" for="editor"
+            >LaTeX 源码</label
+          >
           <span class="shortcut">Ctrl + Enter 插入或更新</span>
         </div>
         <textarea
@@ -296,9 +494,39 @@
           spellcheck="false"
           placeholder="输入 LaTeX，例如：\frac{a}{b} + \sum_{i=0}^{n} x_i"
         ></textarea>
+        <div class="conversion-panel" aria-labelledby="conversionHeading">
+          <div id="conversionHeading" class="conversion-label">
+            LaTeX 公式转换并复制
+          </div>
+          <div class="conversion-actions">
+            <button
+              data-convert-format="omml"
+              title="转换为 Office Math Markup Language"
+            >
+              复制 OMML
+            </button>
+            <button data-convert-format="mathml" title="转换为 MathML">
+              复制 MathML
+            </button>
+            <button data-convert-format="svg" title="转换为 SVG 矢量图">
+              复制 SVG
+            </button>
+            <button data-convert-format="png" title="转换为 PNG 数据">
+              复制 PNG
+            </button>
+          </div>
+        </div>
         <div class="action-dock">
-          <button id="insertBtn" class="primary" title="在当前选区插入一条新公式（Ctrl + Enter）">插入新公式</button>
-          <div id="status" class="status info" role="status" aria-live="polite">正在启动…</div>
+          <button
+            id="insertBtn"
+            class="primary"
+            title="在当前选区插入一条新公式（Ctrl + Enter）"
+          >
+            插入新公式
+          </button>
+          <div id="status" class="status info" role="status" aria-live="polite">
+            正在启动…
+          </div>
         </div>
       </section>
     </main>

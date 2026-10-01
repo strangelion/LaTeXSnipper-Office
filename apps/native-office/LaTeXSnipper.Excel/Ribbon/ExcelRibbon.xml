@@ -11,12 +11,23 @@
           <button id="btnLoadSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="E" size="large" imageMso="ReviewDisplayForReview" onAction="OnButtonClick" tag="readSelection"/>
           <button id="btnDeleteSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="X" imageMso="Delete" onAction="OnButtonClick" tag="delete"/>
         </group>
-        <group id="ToolsGroup" getLabel="GetLabel">
+        <group id="WorkspaceGroup" getLabel="GetLabel">
           <button id="btnShowTaskPane" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="P" size="large" imageMso="ReviewingPane" onAction="OnButtonClick" tag="showPane" getEnabled="GetDesktopCommandEnabled"/>
           <box id="WorkspaceActionsBox" boxStyle="vertical">
-            <button id="btnSettings" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="S" imageMso="AdvancedFileProperties" onAction="OnButtonClick" tag="settings" getEnabled="GetDesktopCommandEnabled"/>
-            <button id="btnHelp" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="H" imageMso="Help" onAction="OnButtonClick" tag="help"/>
+            <button id="btnFormulaLibrary" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="L" imageMso="BuildingBlocksOrganizer" onAction="OnButtonClick" tag="workspaceLibrary" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnDrawingWorkspace" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="G" imageMso="ShapesInsertGallery" onAction="OnButtonClick" tag="workspaceDrawing" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnRecognitionWorkspace" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="R" imageMso="PictureCorrectionsGallery" onAction="OnButtonClick" tag="workspaceRecognition" getEnabled="GetDesktopCommandEnabled"/>
           </box>
+        </group>
+        <group id="ToolsGroup" getLabel="GetLabel">
+          <button id="btnBatchConvert" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="B" size="large" imageMso="DataRefreshAll" onAction="OnButtonClick" tag="workspaceBatch" getEnabled="GetDesktopCommandEnabled"/>
+          <box id="DocumentActionsBox" boxStyle="vertical">
+            <button id="btnFormulaConvert" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="V" imageMso="FileSaveAs" onAction="OnButtonClick" tag="workspaceConversion" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnOfficeWorkspace" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="W" imageMso="FileProperties" onAction="OnButtonClick" tag="workspaceOffice" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnDiagnostics" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="C" imageMso="CompatibilityChecker" onAction="OnButtonClick" tag="workspaceDiagnostics" getEnabled="GetDesktopCommandEnabled"/>
+            <button id="btnSettings" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="S" imageMso="AdvancedFileProperties" onAction="OnButtonClick" tag="settings" getEnabled="GetDesktopCommandEnabled"/>
+          </box>
+          <button id="btnHelp" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="H" imageMso="Help" onAction="OnButtonClick" tag="help"/>
         </group>
       </tab>
     </tabs>

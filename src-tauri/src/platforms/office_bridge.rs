@@ -59,6 +59,12 @@ pub struct FormulaActionRequest {
     pub formula_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenWorkspaceRequest {
+    pub workspace: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ConvertResponse {
     pub success: bool,
@@ -483,6 +489,7 @@ pub async fn start_bridge_server(app_handle: tauri::AppHandle, state: Arc<Bridge
             post(handle_load_selection_omml),
         )
         .route("/api/office/show-app", post(handle_show_app))
+        .route("/api/office/open-workspace", post(handle_open_workspace))
         .route("/api/office/delete-formula", post(handle_delete_formula))
         .route("/api/office/auto-number", post(handle_auto_number))
         .route("/api/office/renumber", post(handle_renumber))
@@ -949,6 +956,20 @@ async fn handle_convert_v1(
             .flatten()
             .map(|value| (value, None, None))
         }
+        ("latex", "mathml") => {
+            let latex = req.content.clone();
+            tokio::task::spawn_blocking(move || {
+                latexsnipper_conversion::DocumentConverter::convert_latex_string(
+                    &latex,
+                    latexsnipper_conversion::OutputFormat::MathML,
+                )
+                .ok()
+            })
+            .await
+            .ok()
+            .flatten()
+            .map(|value| (value, None, None))
+        }
         ("latex", "svg") | ("latex", "png") => {
             render_office_asset(&state, &req.content, &req.display_mode, &req.target_format).await
         }
@@ -1121,11 +1142,59 @@ async fn handle_load_selection_omml(
 }
 
 async fn handle_show_app(State(state): State<Arc<BridgeRuntimeState>>) -> impl IntoResponse {
+    if let Some(window) = state.app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
     let _ = state.app_handle.emit("office-show-app", ());
     Json(OfficeResponse {
         success: true,
         message: "ok".into(),
     })
+}
+
+async fn handle_open_workspace(
+    State(state): State<Arc<BridgeRuntimeState>>,
+    Json(req): Json<OpenWorkspaceRequest>,
+) -> impl IntoResponse {
+    const ALLOWED: &[&str] = &[
+        "editor",
+        "formula-library",
+        "recognition",
+        "drawing",
+        "conversion",
+        "batch",
+        "office",
+        "diagnostics",
+        "settings",
+        "history",
+    ];
+    let workspace = req.workspace.trim().to_ascii_lowercase();
+    if !ALLOWED.contains(&workspace.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(OfficeResponse {
+                success: false,
+                message: format!("unsupported workspace: {workspace}"),
+            }),
+        );
+    }
+
+    if let Some(window) = state.app_handle.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    let _ = state.app_handle.emit(
+        "office-open-workspace",
+        serde_json::json!({ "workspace": workspace }),
+    );
+    (
+        StatusCode::OK,
+        Json(OfficeResponse {
+            success: true,
+            message: "ok".into(),
+        }),
+    )
 }
 
 async fn render_mathml(state: &BridgeRuntimeState, latex: &str) -> String {

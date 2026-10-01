@@ -19,6 +19,7 @@ let registered = false;
 let busy = false;
 let capabilities: CapabilityResult | null = null;
 let selectedFormulaId: string | undefined;
+let bridgeConnected = false;
 
 const CLIENT_ID_KEY = "latexsnipper-office-client-id";
 
@@ -91,6 +92,22 @@ Office.onReady((info) => {
   document
     .getElementById("referenceBtn")
     ?.addEventListener("click", () => void handleReference());
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-workspace]",
+  )) {
+    button.addEventListener(
+      "click",
+      () => void handleOpenWorkspace(button.dataset.workspace || "editor"),
+    );
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-convert-format]",
+  )) {
+    button.addEventListener(
+      "click",
+      () => void handleConvert(button.dataset.convertFormat || "omml"),
+    );
+  }
   document
     .getElementById("modeSelect")
     ?.addEventListener("change", updateNumberingControls);
@@ -140,6 +157,8 @@ async function updateBridgeState(host: string): Promise<void> {
   }
   setText("bridgeStatus", `桥接服务：${connected ? "已连接" : "离线"}`);
   setConnectionState("bridgeChip", connected ? "ready" : "offline");
+  bridgeConnected = connected;
+  applyBridgeCapabilities();
 }
 
 function applyCapabilities(): void {
@@ -169,6 +188,19 @@ function applyCapabilities(): void {
     selectedFormulaId ? "已加载可编辑公式" : "尚未加载公式",
   );
   updateNumberingControls();
+  applyBridgeCapabilities();
+}
+
+function applyBridgeCapabilities(): void {
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-workspace], [data-convert-format]",
+  )) {
+    button.dataset.connectedTitle ??= button.title;
+    button.disabled = busy || !bridgeConnected;
+    button.title = bridgeConnected
+      ? button.dataset.connectedTitle || ""
+      : "需要启动 LaTeXSnipper 桌面端并连接本地桥接服务";
+  }
 }
 
 function updateNumberingControls(): void {
@@ -323,6 +355,87 @@ async function handleReference(): Promise<void> {
   }
 }
 
+async function handleOpenWorkspace(workspace: string): Promise<void> {
+  if (!bridgeConnected || busy) {
+    setStatus("请先启动 LaTeXSnipper 桌面端", "error");
+    return;
+  }
+  setBusy(true);
+  setStatus("正在打开桌面工作区…");
+  try {
+    const response = await fetch(`${bridgeBase}/api/office/open-workspace`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace }),
+    });
+    const result = await response.json().catch(() => null);
+    setStatus(
+      response.ok && result?.success
+        ? "已在桌面端打开对应工作区"
+        : `打开失败：${result?.message || response.status}`,
+      response.ok && result?.success ? "success" : "error",
+    );
+  } catch (error) {
+    setStatus(`打开失败：${String(error)}`, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleConvert(targetFormat: string): Promise<void> {
+  const latex = getEditorContent();
+  if (!latex) {
+    setStatus("请先输入要转换的 LaTeX 公式", "error");
+    return;
+  }
+  if (!bridgeConnected || busy) {
+    setStatus("公式转换需要连接 LaTeXSnipper 桌面端", "error");
+    return;
+  }
+  setBusy(true);
+  setStatus(`正在转换为 ${targetFormat.toUpperCase()}…`);
+  try {
+    const response = await fetch(`${bridgeBase}/api/office/convert/v1`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceFormat: "latex",
+        targetFormat,
+        content: latex,
+        displayMode: getInsertMode(),
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result?.success || !result?.content) {
+      throw new Error(result?.diagnostic || `HTTP ${response.status}`);
+    }
+    await copyText(result.content);
+    setStatus(`${targetFormat.toUpperCase()} 已转换并复制到剪贴板`, "success");
+  } catch (error) {
+    setStatus(`转换失败：${String(error)}`, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function copyText(value: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = value;
+    fallback.setAttribute("readonly", "");
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    document.body.appendChild(fallback);
+    fallback.select();
+    const copied = document.execCommand("copy");
+    fallback.remove();
+    if (!copied) throw new Error("浏览器拒绝访问剪贴板");
+  }
+}
+
 function buildPayload(
   latex: string,
   preserveIdentity: boolean,
@@ -428,6 +541,7 @@ function setBusy(value: boolean): void {
   busy = value;
   document.getElementById("app")?.setAttribute("aria-busy", String(value));
   applyCapabilities();
+  applyBridgeCapabilities();
 }
 
 function setStatus(message: string, type: StatusType = "info"): void {

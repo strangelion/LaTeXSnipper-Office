@@ -4264,6 +4264,7 @@ class UIController {
         const {
           sessionId,
           action,
+          workspace,
           display,
           omml,
           latex: sourceLatex,
@@ -4296,12 +4297,15 @@ class UIController {
         if (sourceHost) this._selectedHostType = sourceHost;
         await this.updateOfficeHostSelector();
 
-        // Switch to editor section regardless of current page
-        this.switchSection("editor");
+        // Workspace launchers from COM add-ins route to the requested desktop
+        // surface instead of always dumping the user into the formula editor.
+        this.openDesktopWorkspace(workspace || "editor");
 
         // Show and focus the window
         await win.show();
         await win.setFocus();
+
+        if (action === "workspace" || action === "focus") return;
 
         // If action=edit and omml is provided, load formula into editor
         if (action === "edit" && (sourceLatex || omml)) {
@@ -4498,6 +4502,27 @@ class UIController {
       listen("native-office-focus-settings", async () => {
         Logger.info("Native Office: focus settings requested");
         this.switchSection("settings");
+      });
+
+      // Office.js task panes use the local bridge to open an exact desktop
+      // workspace. Keep the routing in one place so COM and Office.js expose
+      // the same feature map.
+      listen("office-open-workspace", async ({ payload }) => {
+        this.openDesktopWorkspace(payload?.workspace || "editor");
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        await win.show();
+        await win.setFocus();
+      });
+
+      listen("office-batch-progress", ({ payload }) => {
+        const processed = Number(payload?.processed || 0);
+        const total = Number(payload?.total || 0);
+        this.showStatus(
+          total > 0
+            ? `批量转换 ${processed}/${total}（第 ${payload?.chunk || 0}/${payload?.chunkCount || 0} 批）`
+            : "正在准备批量转换…",
+        );
       });
 
       // A live VSTO session is the strongest Office-detection evidence. Clear
@@ -6199,6 +6224,60 @@ class UIController {
     const d = document.createElement("div");
     d.textContent = text;
     return d.innerHTML;
+  }
+
+  openDesktopWorkspace(workspace = "editor") {
+    const route = String(workspace || "editor").toLowerCase();
+    switch (route) {
+      case "formula-library":
+      case "library":
+        this.openFormulaLibraryPanel();
+        break;
+      case "recognition":
+      case "ocr":
+        this.switchSection("ocr");
+        break;
+      case "drawing":
+        this.switchSection("editor");
+        this.drawingWorkspace?.activateMode("drawing");
+        break;
+      case "conversion":
+        this.switchSection("editor");
+        this.drawingWorkspace?.activateMode("formula");
+        requestAnimationFrame(() => {
+          document
+            .getElementById("officeActionDock")
+            ?.scrollIntoView({ block: "center", behavior: "smooth" });
+          this.showToast("输入公式后可复制 OMML、MathML、SVG 或导出图片");
+        });
+        break;
+      case "batch":
+      case "office":
+        this.switchSection("office");
+        if (route === "batch") {
+          requestAnimationFrame(() =>
+            document
+              .getElementById("officeWorkspaceBatch")
+              ?.scrollIntoView({ block: "center", behavior: "smooth" }),
+          );
+        }
+        break;
+      case "diagnostics":
+        this.switchSection("diagnostics");
+        break;
+      case "settings":
+        this.switchSection("settings");
+        break;
+      case "history":
+        this.switchSection("history");
+        break;
+      case "editor":
+      case "formula":
+      default:
+        this.switchSection("editor");
+        this.drawingWorkspace?.activateMode("formula");
+        break;
+    }
   }
 
   switchSection(section) {

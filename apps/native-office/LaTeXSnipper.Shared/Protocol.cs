@@ -136,6 +136,9 @@ public class VstoContextChanged : VstoMessage
 public class VstoOpenEditor : VstoMessage
 {
     [JsonPropertyName("action")] public string Action { get; set; } = "insert";
+    [JsonPropertyName("workspace")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Workspace { get; set; }
     [JsonPropertyName("display")] public string? Display { get; set; }
     [JsonPropertyName("omml")] public string? Omml { get; set; }
     [JsonPropertyName("latex")] public string? Latex { get; set; }

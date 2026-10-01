@@ -913,6 +913,7 @@ impl SessionManager {
                 requestId,
                 sessionId,
                 action,
+                workspace,
                 display,
                 omml,
                 latex,
@@ -1030,6 +1031,7 @@ impl SessionManager {
                     serde_json::json!({
                         "sessionId": sid,
                         "action": action,
+                        "workspace": workspace,
                         "display": display,
                         "omml": omml,
                         "latex": latex,

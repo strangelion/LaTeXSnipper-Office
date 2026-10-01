@@ -29,6 +29,13 @@ test("Native Office ribbons keep all commands visible in compact task groups", (
       "btnLoadSelected",
       "btnDeleteSelected",
       "btnShowTaskPane",
+      "btnFormulaLibrary",
+      "btnDrawingWorkspace",
+      "btnRecognitionWorkspace",
+      "btnFormulaConvert",
+      "btnBatchConvert",
+      "btnOfficeWorkspace",
+      "btnDiagnostics",
       "btnSettings",
       "btnHelp",
     ]) {
@@ -36,7 +43,9 @@ test("Native Office ribbons keep all commands visible in compact task groups", (
     }
     assert.match(xml, /id="btnLoadSelected"[^>]+size="large"/);
     assert.match(xml, /id="btnShowTaskPane"[^>]+size="large"/);
+    assert.match(xml, /id="btnBatchConvert"[^>]+size="large"/);
     assert.match(xml, /id="WorkspaceActionsBox" boxStyle="vertical"/);
+    assert.match(xml, /id="DocumentActionsBox" boxStyle="vertical"/);
     assert.match(xml, /id="btnSettings"[^>]+keytip="S"/);
     assert.match(xml, /id="btnHelp"[^>]+keytip="H"/);
   }
@@ -50,11 +59,7 @@ test("Native Office ribbons keep all commands visible in compact task groups", (
 
 test("Excel and PowerPoint selection commands open revision-aware edit transactions", () => {
   for (const [host, project, file] of [
-    [
-      "excel",
-      "LaTeXSnipper.Excel",
-      "ExcelRibbonExtensibility.cs",
-    ],
+    ["excel", "LaTeXSnipper.Excel", "ExcelRibbonExtensibility.cs"],
     [
       "powerpoint",
       "LaTeXSnipper.PowerPoint",
@@ -68,10 +73,12 @@ test("Excel and PowerPoint selection commands open revision-aware edit transacti
     assert.match(source, /FormulaId = f\.FormulaId/);
     assert.match(source, /Revision = f\.Revision/);
     assert.match(source, new RegExp(`SourceHost = "${host}"`));
-    assert.doesNotMatch(
-      source,
-      /ReadFormulaPrefix\) \+ f\.Latex/,
-    );
+    assert.doesNotMatch(source, /ReadFormulaPrefix\) \+ f\.Latex/);
+    assert.match(source, /case "workspaceLibrary"/);
+    assert.match(source, /case "workspaceConversion"/);
+    assert.match(source, /case "workspaceBatch"/);
+    assert.match(source, /Action = "workspace"/);
+    assert.match(source, /Workspace = WorkspaceFromTag/);
   }
 });
 
@@ -84,10 +91,16 @@ test("Ribbon labels describe creation, selection, and workspace workflows", () =
   for (const label of [
     '["FormulaGroup"] = "创建"',
     '["EditGroup"] = "选中公式"',
-    '["ToolsGroup"] = "工作区"',
+    '["WorkspaceGroup"] = "功能工作区"',
+    '["ToolsGroup"] = "转换与工具"',
     '["btnLoadSelected"] = "编辑选中公式"',
     '["btnShowTaskPane"] = "打开工作区"',
+    '["btnFormulaConvert"] = "公式转换"',
+    '["btnBatchConvert"] = "批量转换"',
   ]) {
-    assert.match(localizer, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      localizer,
+      new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
 });

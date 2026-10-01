@@ -11,7 +11,7 @@
 use std::{sync::Arc, time::Duration};
 
 #[cfg(target_os = "windows")]
-use tauri::State;
+use tauri::{Emitter, State};
 
 use crate::office_integration::batch_conversion;
 use crate::office_integration::dto::*;
@@ -144,63 +144,199 @@ pub async fn office_batch_convert_plan(
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub async fn office_batch_execute(
+    app: tauri::AppHandle,
     session_mgr: State<'_, Arc<SessionManager>>,
     waiter: State<'_, Arc<RequestWaiter>>,
-    plan: BatchConversionPlan,
+    mut plan: BatchConversionPlan,
 ) -> Result<BatchConversionResult, String> {
     let target = plan
         .target
-        .as_ref()
+        .clone()
         .ok_or("Plan has no target — was it built by office_batch_convert_plan?")?;
 
     let plan_id = plan.id.clone();
     let total = plan.items.len();
-    let request_id = format!("batch-{}", uuid_simple());
 
-    let msg = DesktopMessage::BatchConvert {
-        requestId: request_id.clone(),
-        sessionId: target.session_id.clone(),
-        expectedContextId: target.document_context.clone(),
-        planId: plan_id.clone(),
-        plan: serde_json::to_value(&plan).map_err(|e| format!("Serialization failed: {e}"))?,
+    // Office COM hosts run document mutations on their STA thread. Sending a
+    // 10k-item plan as one request makes the desktop waiter time out while the
+    // host is still mutating the document. Execute bounded chunks instead so
+    // completed chunks are durable and later failures are isolated.
+    const CHUNK_SIZE: usize = 100;
+    plan.items.sort_by(|left, right| {
+        let left_scope = locator_scope(left);
+        let right_scope = locator_scope(right);
+        left_scope
+            .cmp(&right_scope)
+            .then_with(|| locator_start(right).cmp(&locator_start(left)))
+    });
+
+    let mut aggregate = BatchConversionResult {
+        total,
+        converted: 0,
+        skipped: 0,
+        failed: 0,
+        failures: Vec::new(),
     };
+    let chunk_count = (total + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let _ = app.emit(
+        "office-batch-progress",
+        serde_json::json!({
+            "planId": plan_id.clone(),
+            "processed": 0,
+            "total": total,
+            "chunk": 0,
+            "chunkCount": chunk_count,
+        }),
+    );
 
-    // Use send_and_wait for proper cleanup on all paths
-    let result = send_and_wait(
-        &waiter,
-        &session_mgr,
-        request_id,
-        &target.session_id,
-        msg,
-        120,
-    )
-    .await?;
+    for (chunk_index, items) in plan.items.chunks(CHUNK_SIZE).enumerate() {
+        let request_id = format!("batch-{}", uuid_simple());
+        let chunk_id = format!("{}-part-{}", plan_id, chunk_index + 1);
+        let chunk_plan = BatchConversionPlan {
+            id: chunk_id.clone(),
+            target: Some(target.clone()),
+            items: items.to_vec(),
+        };
+        let msg = DesktopMessage::BatchConvert {
+            requestId: request_id.clone(),
+            sessionId: target.session_id.clone(),
+            expectedContextId: target.document_context.clone(),
+            planId: chunk_id,
+            plan: serde_json::to_value(&chunk_plan)
+                .map_err(|e| format!("Serialization failed: {e}"))?,
+        };
 
-    // Command-level failure (CONTEXT_CHANGED etc) vs item-level partial failure
-    if !result.success {
-        return Err(result
-            .error
-            .unwrap_or_else(|| "Batch command failed".to_string()));
+        let result = match send_and_wait(
+            &waiter,
+            &session_mgr,
+            request_id,
+            &target.session_id,
+            msg,
+            120,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let remaining = &plan.items[chunk_index * CHUNK_SIZE..];
+                aggregate.failed += remaining.len();
+                aggregate
+                    .failures
+                    .extend(remaining.iter().map(|item| BatchFailure {
+                        source_id: item.source_id.clone(),
+                        source_text: item.source_text.clone(),
+                        error: format!(
+                            "Batch stopped after {} completed item(s): {error}",
+                            aggregate.converted + aggregate.skipped
+                        ),
+                    }));
+                break;
+            }
+        };
+
+        if !result.success {
+            let error = result
+                .error
+                .unwrap_or_else(|| "Batch command failed".to_string());
+            let remaining = &plan.items[chunk_index * CHUNK_SIZE..];
+            aggregate.failed += remaining.len();
+            aggregate
+                .failures
+                .extend(remaining.iter().map(|item| BatchFailure {
+                    source_id: item.source_id.clone(),
+                    source_text: item.source_text.clone(),
+                    error: error.clone(),
+                }));
+            break;
+        }
+
+        let Some(value) = result.data else {
+            let remaining = &plan.items[chunk_index * CHUNK_SIZE..];
+            aggregate.failed += remaining.len();
+            aggregate
+                .failures
+                .extend(remaining.iter().map(|item| BatchFailure {
+                    source_id: item.source_id.clone(),
+                    source_text: item.source_text.clone(),
+                    error: "Office host returned no batch result data".to_string(),
+                }));
+            break;
+        };
+        aggregate.converted += value["converted"].as_u64().unwrap_or(0) as usize;
+        aggregate.skipped += value["skipped"].as_u64().unwrap_or(0) as usize;
+        aggregate.failed += value["failed"].as_u64().unwrap_or(0) as usize;
+        aggregate
+            .failures
+            .extend(
+                value["failures"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|failure| BatchFailure {
+                        source_id: failure["sourceId"].as_str().unwrap_or("").to_string(),
+                        source_text: failure["sourceText"].as_str().unwrap_or("").to_string(),
+                        error: failure["error"].as_str().unwrap_or("").to_string(),
+                    }),
+            );
+        let processed = ((chunk_index + 1) * CHUNK_SIZE).min(total);
+        let _ = app.emit(
+            "office-batch-progress",
+            serde_json::json!({
+                "planId": plan_id.clone(),
+                "processed": processed,
+                "total": total,
+                "converted": aggregate.converted,
+                "skipped": aggregate.skipped,
+                "failed": aggregate.failed,
+                "chunk": chunk_index + 1,
+                "chunkCount": chunk_count,
+            }),
+        );
     }
 
-    let batch_result: serde_json::Value = result.data.ok_or("Missing batch result data")?;
+    let processed = aggregate.converted + aggregate.skipped + aggregate.failed;
+    let _ = app.emit(
+        "office-batch-progress",
+        serde_json::json!({
+            "planId": plan_id,
+            "processed": processed.min(total),
+            "total": total,
+            "converted": aggregate.converted,
+            "skipped": aggregate.skipped,
+            "failed": aggregate.failed,
+            "chunk": if total == 0 { 0 } else { (processed + CHUNK_SIZE - 1) / CHUNK_SIZE },
+            "chunkCount": chunk_count,
+            "complete": true,
+        }),
+    );
 
-    Ok(BatchConversionResult {
-        total: batch_result["total"].as_u64().unwrap_or(total as u64) as usize,
-        converted: batch_result["converted"].as_u64().unwrap_or(0) as usize,
-        skipped: batch_result["skipped"].as_u64().unwrap_or(0) as usize,
-        failed: batch_result["failed"].as_u64().unwrap_or(0) as usize,
-        failures: batch_result["failures"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|f| BatchFailure {
-                        source_id: f["sourceId"].as_str().unwrap_or("").to_string(),
-                        source_text: f["sourceText"].as_str().unwrap_or("").to_string(),
-                        error: f["error"].as_str().unwrap_or("").to_string(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-    })
+    Ok(aggregate)
+}
+
+#[cfg(target_os = "windows")]
+fn locator_start(item: &BatchConversionItem) -> i64 {
+    item.locator
+        .as_ref()
+        .and_then(|locator| locator.get("start"))
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(i64::MIN)
+}
+
+#[cfg(target_os = "windows")]
+fn locator_scope(item: &BatchConversionItem) -> String {
+    let Some(locator) = item.locator.as_ref() else {
+        return String::new();
+    };
+    [
+        "storyType",
+        "sectionIndex",
+        "worksheet",
+        "address",
+        "slideId",
+        "shapeId",
+    ]
+    .iter()
+    .filter_map(|key| locator.get(*key).map(|value| value.to_string()))
+    .collect::<Vec<_>>()
+    .join(":")
 }

@@ -81,6 +81,8 @@ pub enum VstoMessage {
         #[serde(default)]
         action: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        workspace: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         display: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         omml: Option<String>,

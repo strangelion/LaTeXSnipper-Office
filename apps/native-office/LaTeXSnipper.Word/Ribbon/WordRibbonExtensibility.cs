@@ -130,6 +130,23 @@ namespace LaTeXSnipper.Word
                     });
                     break;
 
+                case "workspaceLibrary":
+                case "workspaceDrawing":
+                case "workspaceRecognition":
+                case "workspaceConversion":
+                case "workspaceBatch":
+                case "workspaceOffice":
+                case "workspaceDiagnostics":
+                    addIn.Send(new VstoOpenEditor
+                    {
+                        RequestId = rid,
+                        SessionId = sid,
+                        Action = "workspace",
+                        Workspace = WorkspaceFromTag(control.Tag as string),
+                        SourceHost = "word"
+                    });
+                    break;
+
                 case "ocr":
                     addIn.Send(new VstoFocusOcr
                     {
@@ -157,6 +174,21 @@ namespace LaTeXSnipper.Word
         public void NotifyConnectionChanged()
         {
             _ribbon?.Invalidate();
+        }
+
+        private static string WorkspaceFromTag(string tag)
+        {
+            return tag switch
+            {
+                "workspaceLibrary" => "formula-library",
+                "workspaceDrawing" => "drawing",
+                "workspaceRecognition" => "recognition",
+                "workspaceConversion" => "conversion",
+                "workspaceBatch" => "batch",
+                "workspaceOffice" => "office",
+                "workspaceDiagnostics" => "diagnostics",
+                _ => "editor"
+            };
         }
     }
 }
