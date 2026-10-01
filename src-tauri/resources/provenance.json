@@ -1,13 +1,13 @@
 ﻿{
     "schemaVersion":  1,
     "workflowRunId":  null,
-    "sourceCommitSha":  "99ecda8c6d66105ba58c532b9a5b51f1993cdeb3",
+    "sourceCommitSha":  "90569620b56c5058bbca77ef5be3c8c916fb8ac3",
     "packageVersion":  "1.7.2",
     "officeJsVersion":  "hosted/1",
     "officeJsSource":  "https://appsforoffice.microsoft.com/lib/1/hosted/office.js",
     "officeJsSha256":  null,
     "officeJsTypingsVersion":  "1.0.598",
-    "officeJsBundleSha256":  "91469A4B05B19E7A2B9B3C1A6AF8045C3EEBD3C6DAC4826F00455A654D202E66",
+    "officeJsBundleSha256":  "51396D09FE193AF114528B0E280EE075A980CBF4FA99CE98AFB3721284A1788C",
     "mathJaxVersion":  "3.2.2",
     "buildPlatform":  "Microsoft Windows 10.0.26200 ",
     "manifestVersion":  "1.7.2.0",
@@ -23,8 +23,8 @@
                     "nativeOffice":  {
                                          "name":  "msi-installer",
                                          "path":  "C:\\Users\\WangWenXuan\\Documents\\GitHub\\LaTeXSnipper-Office\\src-tauri\\resources\\NativeOffice",
-                                         "sourceCommitSha":  "99ecda8c6d66105ba58c532b9a5b51f1993cdeb3",
-                                         "coreCommitSha":  "4639c80237100b76b70c85159d4c86a2cac66845"
+                                         "sourceCommitSha":  "90569620b56c5058bbca77ef5be3c8c916fb8ac3",
+                                         "coreCommitSha":  "57c4b967848fe80a5ad6792285f5af237fec0dba"
                                      },
                     "obsidian":  {
                                      "name":  "local-build",
@@ -40,8 +40,8 @@
                                             "site/assets/icon-16.png":  "E09901BFEFBD4DDE91B0A937BCFC77AD986A4DD9A6B8660D0EBD8E46B54E202B",
                                             "site/assets/icon-32.png":  "947D0EAFFC435BBBE57EA9A67EDE44B3A4D560A6A1A32419B9384699F0F39AE7",
                                             "site/assets/icon-80.png":  "888CB1724E8ABDC9DB4C30F9CAFA9A2DA806E3E3743DF0FF73EB74278E7E0E3E",
-                                            "site/assets/taskpane-8D8QwSYy.js":  "91469A4B05B19E7A2B9B3C1A6AF8045C3EEBD3C6DAC4826F00455A654D202E66",
-                                            "site/taskpane.html":  "BEEF068032A5DD726A83523B3E3C0EB42FB824DC2E5348470E3C0B4227FEB3D1"
+                                            "site/assets/taskpane-DssclvuO.js":  "51396D09FE193AF114528B0E280EE075A980CBF4FA99CE98AFB3721284A1788C",
+                                            "site/taskpane.html":  "C0A17E956E1A3833DF8C050FB49BEC08E1D7DCF6443847C882AD3FE5DDE0AC92"
                                         },
                            "WPS":  {
                                        "images/auto_number.svg":  "3A47BCD18AE2C3D2241DD5F0E354C54C5FABB350DD00818B8F1EDE9D401FD011",
@@ -118,8 +118,8 @@
                       "js/command-layer.js":  "F0274C2F7C3E262C8C6290A3DAF85952054E08040FCEBB73E1CA283245E5E8E6"
                   },
     "nativeOfficeHashes":  {
-                               "LaTeXSnipper.NativeOffice.msi":  "FEF8514AD589FB8179C4C7E2DF9371EB5E8FFD423783ED587527018D03DD1EF2",
-                               "LaTeXSnipper.NativeOffice.provenance.json":  "D86B3135006F820063EFB67AD70BE2FF20EA7B89216F000F44E3F4A49F339EA6",
-                               "installer.json":  "C1607D7B15CB7E842EA124782D4FACCAE757B68D3856C650FB8DDF8E5C4CD485"
+                               "LaTeXSnipper.NativeOffice.msi":  "E47ED6CA3DA26F2E49D86DFB62CFCB8B40239450543866EA244BA4E2E0298362",
+                               "LaTeXSnipper.NativeOffice.provenance.json":  "62ED4F751C6885161075400E3D6412A18F7C497CC6E3337714D0DFAD0ADFFBDB",
+                               "installer.json":  "E0ECA4EC4580A938BFBE2C73EDFAEE0BD27CC87532F1414C73CB7D11C2AB928A"
                            }
 }
