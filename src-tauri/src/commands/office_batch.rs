@@ -66,6 +66,55 @@ async fn send_and_wait(
     }
 }
 
+/// Batch mutations may finish just after the ordinary request deadline. Keep
+/// the same waiter alive for one bounded reconciliation window so a late host
+/// result is still correlated instead of being discarded while Word continues
+/// mutating the document.
+#[cfg(target_os = "windows")]
+async fn send_batch_and_wait(
+    app: &tauri::AppHandle,
+    waiter: &RequestWaiter,
+    session_mgr: &SessionManager,
+    request_id: String,
+    session_id: &str,
+    msg: DesktopMessage,
+    progress: serde_json::Value,
+) -> Result<(crate::platforms::office_commit::HostResult, bool), String> {
+    const PRIMARY_TIMEOUT_SECS: u64 = 120;
+    const RECONCILIATION_GRACE_SECS: u64 = 120;
+
+    let mut rx = waiter.register(request_id.clone()).await;
+    if let Err(error) = session_mgr.send_to_session(session_id, msg).await {
+        waiter.cancel(&request_id).await;
+        return Err(format!("Send failed: {error}"));
+    }
+
+    match tokio::time::timeout(Duration::from_secs(PRIMARY_TIMEOUT_SECS), &mut rx).await {
+        Ok(Ok(result)) => return Ok((result, false)),
+        Ok(Err(_)) => {
+            waiter.cancel(&request_id).await;
+            return Err("Waiter channel closed".to_string());
+        }
+        Err(_) => {
+            let _ = app.emit("office-batch-progress", progress);
+        }
+    }
+
+    match tokio::time::timeout(Duration::from_secs(RECONCILIATION_GRACE_SECS), rx).await {
+        Ok(Ok(result)) => Ok((result, true)),
+        Ok(Err(_)) => {
+            waiter.cancel(&request_id).await;
+            Err("Waiter channel closed during reconciliation".to_string())
+        }
+        Err(_) => {
+            waiter.cancel(&request_id).await;
+            Err(format!(
+                "Timed out after {PRIMARY_TIMEOUT_SECS}s plus {RECONCILIATION_GRACE_SECS}s reconciliation grace; current chunk completion is unknown"
+            ))
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -209,33 +258,69 @@ pub async fn office_batch_execute(
                 .map_err(|e| format!("Serialization failed: {e}"))?,
         };
 
-        let result = match send_and_wait(
+        let reconciliation_progress = serde_json::json!({
+            "planId": plan_id.clone(),
+            "processed": chunk_index * CHUNK_SIZE,
+            "total": total,
+            "chunk": chunk_index + 1,
+            "chunkCount": chunk_count,
+            "phase": "reconciling",
+            "message": "Office host is still processing; waiting for its final result",
+        });
+        let (result, reconciled) = match send_batch_and_wait(
+            &app,
             &waiter,
             &session_mgr,
             request_id,
             &target.session_id,
             msg,
-            120,
+            reconciliation_progress,
         )
         .await
         {
             Ok(result) => result,
             Err(error) => {
-                let remaining = &plan.items[chunk_index * CHUNK_SIZE..];
-                aggregate.failed += remaining.len();
+                let current_start = chunk_index * CHUNK_SIZE;
+                let current_end = (current_start + CHUNK_SIZE).min(total);
+                let current = &plan.items[current_start..current_end];
+                let not_attempted = &plan.items[current_end..];
+                let completed = aggregate.converted + aggregate.skipped + aggregate.failed;
+                aggregate.failed += current.len() + not_attempted.len();
                 aggregate
                     .failures
-                    .extend(remaining.iter().map(|item| BatchFailure {
+                    .extend(current.iter().map(|item| BatchFailure {
                         source_id: item.source_id.clone(),
                         source_text: item.source_text.clone(),
                         error: format!(
-                            "Batch stopped after {} completed item(s): {error}",
-                            aggregate.converted + aggregate.skipped
+                            "Batch stopped after {completed} confirmed item(s): {error}"
                         ),
+                    }));
+                aggregate
+                    .failures
+                    .extend(not_attempted.iter().map(|item| BatchFailure {
+                        source_id: item.source_id.clone(),
+                        source_text: item.source_text.clone(),
+                        error: "Not attempted because the previous Office host result was not confirmed"
+                            .to_string(),
                     }));
                 break;
             }
         };
+
+        if reconciled {
+            let _ = app.emit(
+                "office-batch-progress",
+                serde_json::json!({
+                    "planId": plan_id.clone(),
+                    "processed": chunk_index * CHUNK_SIZE,
+                    "total": total,
+                    "chunk": chunk_index + 1,
+                    "chunkCount": chunk_count,
+                    "phase": "reconciled",
+                    "message": "Late Office host result received and reconciled",
+                }),
+            );
+        }
 
         if !result.success {
             let error = result

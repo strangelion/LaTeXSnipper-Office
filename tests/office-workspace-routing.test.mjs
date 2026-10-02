@@ -41,10 +41,15 @@ test("desktop routes COM and Office.js workspace launches to exact surfaces", ()
 
 test("large Office batches are bounded and preserve completed chunks", () => {
   const batch = read("src-tauri/src/commands/office_batch.rs");
+  const main = read("src/main.js");
   assert.match(batch, /const CHUNK_SIZE: usize = 25/);
   assert.match(batch, /plan\.items\.chunks\(CHUNK_SIZE\)/);
   assert.match(batch, /aggregate\.converted \+=/);
   assert.match(batch, /Batch stopped after/);
+  assert.match(batch, /send_batch_and_wait/);
+  assert.match(batch, /RECONCILIATION_GRACE_SECS: u64 = 120/);
+  assert.match(batch, /current chunk completion is unknown/);
+  assert.match(main, /payload\?\.phase === "reconciling"/);
   assert.doesNotMatch(batch, /Err\(error\)\s*=>\s*return Err/);
   assert.match(batch, /locator_start\(right\)\.cmp\(&locator_start\(left\)\)/);
   assert.match(batch, /"office-batch-progress"/);

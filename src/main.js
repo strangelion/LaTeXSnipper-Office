@@ -4518,6 +4518,12 @@ class UIController {
       listen("office-batch-progress", ({ payload }) => {
         const processed = Number(payload?.processed || 0);
         const total = Number(payload?.total || 0);
+        if (payload?.phase === "reconciling") {
+          this.showStatus(
+            `Office 仍在处理第 ${payload?.chunk || 0}/${payload?.chunkCount || 0} 批，正在核对迟到结果…`,
+          );
+          return;
+        }
         this.showStatus(
           total > 0
             ? `批量转换 ${processed}/${total}（第 ${payload?.chunk || 0}/${payload?.chunkCount || 0} 批）`
