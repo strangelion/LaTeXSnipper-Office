@@ -44,9 +44,11 @@ test("Native Office certificate trust script gates root trust on selfSigned", ()
     script,
     /if \(\[bool\]\$metadata\.selfSigned\) \{[\s\S]*?StoreName\s*\]::Root[\s\S]*?\}/,
   );
-  // Non-interactive store writes only: Import-Certificate can pop a UI prompt
-  // for the root store when no interactive session is available.
+  // CI uses certutil's forced current-user mode instead of an API that may wait
+  // for a hidden root-store confirmation dialog.
   assert.doesNotMatch(script, /Import-Certificate/);
+  assert.match(script, /\[switch\]\$NonInteractive/);
+  assert.match(script, /certutil\.exe -user -f -addstore/);
   assert.match(script, /sha256Thumbprint/);
 });
 
@@ -70,5 +72,15 @@ test("Windows package verification applies Native Office certificate trust befor
   assert.ok(
     trustStep < installStep,
     "certificate trust must run before the MSI install step",
+  );
+
+  const trustStepSource = workflow.slice(
+    workflow.lastIndexOf("- name:", trustStep),
+    workflow.indexOf("- name:", trustStep),
+  );
+  assert.match(trustStepSource, /timeout-minutes:\s*3/);
+  assert.match(
+    trustStepSource,
+    /trust-native-office-certificate\.ps1 -NonInteractive/,
   );
 });

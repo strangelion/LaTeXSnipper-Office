@@ -15,10 +15,9 @@
         reports selfSigned = true (a CA-issued release certificate relies on the
         operating system's normal root trust and is never copied there).
 
-    The script is non-interactive: it uses X509Store.Add, which is equivalent to
-    CertAddCertificateContextToStore and never raises a UI prompt, unlike the
-    certificate-import cmdlet, which can prompt for the root store when no
-    interactive session is available.
+    For unattended environments, -NonInteractive uses certutil with -user and
+    -f so certificate trust never waits for a hidden confirmation dialog. The
+    default X509Store path remains available for normal interactive use.
 
 .PARAMETER CertificatePath
     Public .cer file exported by apps/native-office/Installer/build.ps1.
@@ -28,13 +27,18 @@
 
 .PARAMETER StoreLocation
     Certificate store location to modify. Defaults to CurrentUser.
+
+.PARAMETER NonInteractive
+    Uses certutil.exe with forced current-user store writes. Intended for CI and
+    other sessions that have no interactive desktop.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [string]$CertificatePath,
     [string]$SigningMetadataPath,
     [System.Security.Cryptography.X509Certificates.StoreLocation]$StoreLocation =
-        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser,
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,6 +91,21 @@ else {
 }
 
 foreach ($storeName in $stores) {
+    if ($NonInteractive) {
+        if ($StoreLocation -ne [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser) {
+            throw '-NonInteractive currently supports only the CurrentUser certificate store.'
+        }
+
+        if ($PSCmdlet.ShouldProcess("$StoreLocation\$storeName", 'Add signing certificate with certutil')) {
+            & certutil.exe -user -f -addstore $storeName.ToString() $resolvedCertificate
+            if ($LASTEXITCODE -ne 0) {
+                throw "certutil failed to add the signing certificate to $StoreLocation\$storeName (exit code $LASTEXITCODE)"
+            }
+            Write-Host "  Trusted in $StoreLocation\$storeName" -ForegroundColor Green
+        }
+        continue
+    }
+
     $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, $StoreLocation)
     try {
         $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
