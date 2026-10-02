@@ -185,7 +185,10 @@ test("desktop, Office, and WPS controls keep visible text and stable action orde
   assert.match(office, /id="numberingOptions"[\s\S]*hidden/);
   assert.match(office, /Ctrl \+ Enter 插入或更新/);
   assert.match(officeLogic, /options\.hidden = !enabled/);
-  assert.match(officeLogic, /selectedFormulaId \? handleUpdate\(\) : handleInsert\(\)/);
+  assert.match(
+    officeLogic,
+    /selectedFormulaId \? handleUpdate\(\) : handleInsert\(\)/,
+  );
   assert.match(
     wps,
     /grid-template-areas:\s*"load insert" "update delete" "renumber renumber"/,

@@ -161,7 +161,10 @@ pub async fn office_batch_execute(
     // 10k-item plan as one request makes the desktop waiter time out while the
     // host is still mutating the document. Execute bounded chunks instead so
     // completed chunks are durable and later failures are isolated.
-    const CHUNK_SIZE: usize = 100;
+    // Real Word acceptance reached 114.5s for 100 simple equations, close to
+    // the 120s transport deadline. Keep smaller batches for headroom; a single
+    // pathological formula can still time out and requires reconciliation.
+    const CHUNK_SIZE: usize = 25;
     plan.items.sort_by(|left, right| {
         let left_scope = locator_scope(left);
         let right_scope = locator_scope(right);
@@ -177,7 +180,7 @@ pub async fn office_batch_execute(
         failed: 0,
         failures: Vec::new(),
     };
-    let chunk_count = (total + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    let chunk_count = total.div_ceil(CHUNK_SIZE);
     let _ = app.emit(
         "office-batch-progress",
         serde_json::json!({
@@ -304,7 +307,7 @@ pub async fn office_batch_execute(
             "converted": aggregate.converted,
             "skipped": aggregate.skipped,
             "failed": aggregate.failed,
-            "chunk": if total == 0 { 0 } else { (processed + CHUNK_SIZE - 1) / CHUNK_SIZE },
+            "chunk": processed.div_ceil(CHUNK_SIZE),
             "chunkCount": chunk_count,
             "complete": true,
         }),

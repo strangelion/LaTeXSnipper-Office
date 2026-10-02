@@ -150,3 +150,42 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 本专项只关闭 dirty `SEQ`/`REF` 的 Word x64 重算与重开证据；Ctrl+点击跳转、
 公式目录和 x86/多版本 Office 仍按验收清单单独跟踪。
+
+## 2026-10-02 Word 批量转换专项（O-06 部分证据）
+
+同一台 Word x64 上生成 250 段带唯一前后标记的正文，重复使用 Core 的
+`inline-integral` OMML，轮换 `$...$`、`$$...$$`、`\(...\)` 和 `\[...\]`。
+这验证分隔符扫描和宿主批量替换，不是 250 种公式的准确率测试。
+
+首次实测暴露了段落内裸 `Range.InsertXML(OMML)` 的问题：仅 1 条成功。
+正文替换现复用单条原生 OMML 插入及结构回读流程，确认插入成功后才删除原文。
+故意在第 126 项放入无效 OMML，以验证失败隔离。
+
+| 检查 | 结果 |
+| --- | --- |
+| 扫描 / 转换 / 跳过 / 失败 | 250 / 249 / 1 / 0 |
+| 无效项原文、所有邻接正文标记 | 保留 |
+| 保存、关闭、只读重开 | 249 个 OMath，1 条未转换源公式 |
+| Windows 剪贴板序列号 | 转换前后相同 |
+| 100 条一批基线 | 总计 286.985 秒，最慢一批 114.519 秒 |
+| 25 条一批复测 | 总计 277.524 秒，10 批各 16.218–38.719 秒 |
+
+桌面管道每批由 100 条缩小至 25 条，为现有 120 秒等待上限留出余量。
+单条异常慢公式仍可能超时；本测试直接调用原生执行器，不证明管道超时恢复。
+末批耗时比首批增长，不能据此线性推算 10,000 条的处理时间。
+
+| 本地证据（`src-tauri/target/word-batch-25-evidence`） | SHA-256 |
+| --- | --- |
+| `batch-evidence.json` | `B741459813A92D1EBD66FBAEC52052041447EC8B35C071AA79682A67F56E0907` |
+| `word-batch-acceptance.docx` | `8DD5DBF48480B39237F1E6C29BD6D915140C7202AA2C44D6CA3A818C6D9B6DFE` |
+
+先按上一节构建宿主测试和 fixture，然后执行：
+
+```powershell
+& 'apps\native-office\LaTeXSnipper.Word.HostTests\bin\x64\Release\LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri\target\word-native-host-fixture\word-nary-acceptance.generated.json' `
+  'src-tauri\target\word-batch-25-evidence' --batch
+```
+
+O-06 仍在进行：实际多格式剪贴板粘贴、管道超时状态核对、页眉/文本框、
+display 分隔符对应的段落排版，以及 Excel/PowerPoint 批量矩阵均未由此关闭。

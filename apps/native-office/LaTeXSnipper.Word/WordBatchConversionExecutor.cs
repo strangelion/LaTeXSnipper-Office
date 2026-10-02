@@ -128,6 +128,7 @@ internal sealed class WordBatchConversionExecutor
                 return TryReplaceByFind(doc, item);
             }
 
+            if (target == null) return false;
             originalText = target.Text;
 
             // Verify sourceHash if available
@@ -141,6 +142,9 @@ internal sealed class WordBatchConversionExecutor
                     return false;
                 }
             }
+
+            if (target.StoryType == WdStoryType.wdMainTextStory)
+                return ReplaceMainStory(doc, target, item);
 
             // Transactional replacement: backup original text
             string backupText = originalText;
@@ -193,25 +197,51 @@ internal sealed class WordBatchConversionExecutor
         range.Find.Execute(FindText: item.SourceText, Forward: true, Wrap: WdFindWrap.wdFindStop);
         if (!range.Find.Found) return false;
 
-        string backupText = range.Text;
-        var preInsertValidation = OmmlValidator.Validate(item.Omml);
-        if (!preInsertValidation.IsValid) return false;
+        return ReplaceMainStory(doc, range, item);
+    }
+
+    private bool ReplaceMainStory(Document doc, Range source, BatchConversionItem item)
+    {
+        if (!OmmlValidator.Validate(item.Omml).IsValid) return false;
+        if (!string.IsNullOrEmpty(item.SourceHash) &&
+            !string.Equals(ComputeSha256(source.Text), item.SourceHash, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        int start = source.Start;
+        int end = source.End;
+        string formulaId = FormulaIdHelper.NewId();
+        var adapter = new WordAdapter(_application);
+        // Keep the source until the existing, validated inline pipeline commits.
+        // Raw OMML InsertXML is not reliable in the middle of a Word paragraph.
+        var anchor = doc.Range(end, end);
+        bool inserted;
         try
         {
-            range.Text = "";
-            range.InsertXML(item.Omml!);
-            var readBack = OmmlValidator.ValidateHostReadBack(item.Omml!, range.WordOpenXML);
-            if (!readBack.IsValid)
-                throw new InvalidOperationException(
-                    "OMML host read-back failed: " + readBack.Issues[0].Code);
+            anchor.Select();
+            inserted = adapter.InsertFormula(new FormulaPayload
+            {
+                FormulaId = formulaId,
+                Latex = item.NormalizedLatex,
+                Omml = item.Omml,
+                StorageMode = "native-omml",
+                Display = "inline"
+            }, InsertMode.Inline).Success;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(anchor);
+        }
+        if (!inserted) return false;
+        try
+        {
+            source.SetRange(start, end);
+            source.Delete();
             return true;
         }
-        catch (Exception ex)
+        catch
         {
-            try { range.Text = backupText; } catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
-            System.Diagnostics.Debug.WriteLine(
-                $"[WordBatchConversion] Find-fallback failed: {ex.Message}");
-            return false;
+            adapter.DeleteFormula(formulaId);
+            throw;
         }
     }
 

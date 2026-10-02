@@ -41,7 +41,7 @@ test("desktop routes COM and Office.js workspace launches to exact surfaces", ()
 
 test("large Office batches are bounded and preserve completed chunks", () => {
   const batch = read("src-tauri/src/commands/office_batch.rs");
-  assert.match(batch, /const CHUNK_SIZE: usize = 100/);
+  assert.match(batch, /const CHUNK_SIZE: usize = 25/);
   assert.match(batch, /plan\.items\.chunks\(CHUNK_SIZE\)/);
   assert.match(batch, /aggregate\.converted \+=/);
   assert.match(batch, /Batch stopped after/);

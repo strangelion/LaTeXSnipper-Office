@@ -136,6 +136,8 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
             bool fieldRefreshMode = args.Length == 3 &&
                 string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
+            bool batchMode = args.Length == 3 &&
+                string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase);
             bool skipPreflight = args.Length == 3 &&
                 string.Equals(
                     args[2],
@@ -143,13 +145,13 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !fieldRefreshMode && !skipPreflight) ||
+                    !styleMode && !fieldRefreshMode && !batchMode && !skipPreflight) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --style | --field-refresh | --skip-preflight]");
+                    "--case <fixture-name> | --style | --field-refresh | --batch | --skip-preflight]");
                 return 2;
             }
 
@@ -205,6 +207,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (batchMode)
+                    return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (fieldRefreshMode)
                 {
                     FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(

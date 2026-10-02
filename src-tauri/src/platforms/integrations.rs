@@ -1087,7 +1087,7 @@ fn office_js_manifest_statuses() -> (bool, bool, bool) {
             .iter()
             .find(|host| host.name == name)
             .copied()
-            .map(&installed)
+            .map(installed)
             .unwrap_or(false)
     };
     (find("Word"), find("Excel"), find("PowerPoint"))
