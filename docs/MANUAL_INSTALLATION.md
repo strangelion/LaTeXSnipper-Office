@@ -8,20 +8,20 @@
 
 在 GitHub Release 的 **Assets** 中按平台选择文件：
 
-| 文件 | 用途 |
-|---|---|
-| `LaTeXSnipper.NativeOffice.exe` | Windows Native Office 引导安装器，推荐用于安装 VSTO、OLE 和必要运行库 |
-| `LaTeXSnipper.NativeOffice.msi` | Windows Native Office 独立 MSI，包含 Word、Excel、PowerPoint、Visio VSTO 与双位数 OLE 组件 |
-| `LaTeXSnipper-Office-VSTO_*.zip` | VSTO 独立部署包，适合高级用户和故障修复 |
-| `latexsnipper-obsidian_*.zip` | Obsidian 插件 |
-| `latexsnipper-wps_*.zip` | WPS 加载项 |
-| `latexsnipper-vscode-*.vsix` | VS Code 扩展 |
-| `latexsnipper-browser-chrome_*.zip` | Chrome / Edge 扩展 |
-| `latexsnipper-browser-firefox_*.zip` | Firefox 开发测试包 |
-| `*.msi` / `*.exe` | Windows 桌面应用 |
-| `*.dmg` | macOS 桌面应用 |
-| `*.deb` / `*.rpm` | Linux 桌面应用 |
-| `SHA256SUMS` | Release 文件完整性校验值 |
+| 文件                                 | 用途                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `LaTeXSnipper.NativeOffice.exe`      | Windows Native Office 引导安装器，推荐用于安装 VSTO、OLE 和必要运行库                      |
+| `LaTeXSnipper.NativeOffice.msi`      | Windows Native Office 独立 MSI，包含 Word、Excel、PowerPoint、Visio VSTO 与双位数 OLE 组件 |
+| `LaTeXSnipper-Office-VSTO_*.zip`     | VSTO 独立部署包，适合高级用户和故障修复                                                    |
+| `latexsnipper-obsidian_*.zip`        | Obsidian 插件                                                                              |
+| `latexsnipper-wps_*.zip`             | WPS 加载项                                                                                 |
+| `latexsnipper-vscode-*.vsix`         | VS Code 扩展                                                                               |
+| `latexsnipper-browser-chrome_*.zip`  | Chrome / Edge 扩展                                                                         |
+| `latexsnipper-browser-firefox_*.zip` | Firefox 开发测试包                                                                         |
+| `*.msi` / `*.exe`                    | Windows 桌面应用                                                                           |
+| `*.dmg`                              | macOS 桌面应用                                                                             |
+| `*.deb` / `*.rpm`                    | Linux 桌面应用                                                                             |
+| `SHA256SUMS`                         | Release 文件完整性校验值                                                                   |
 
 ## 2. 安装前检查
 
@@ -180,6 +180,16 @@ Import-Certificate `
 也可以双击 `.cer`，选择“当前用户”，并将证书放入“受信任的发布者”。
 
 请核对 `certificates\native-office-signing.json` 中的指纹信息。Release 不包含签名私钥或 PFX。
+
+> 自签名证书（`native-office-signing.json` 中 `selfSigned` 为 `true`，多见于开发/预览构建）除了“受信任的发布者”，还需要把同一张证书导入“受信任的根证书颁发机构”，否则 Office 可能提示 `Failed to install the add-in`。CA 签发的发布证书不需要这一步。
+>
+> MSI 不再写入当前用户根证书存储：在无交互桌面的会话（静默安装、CI）下，写入根存储会阻塞 `msiexec`。需要根信任时，在仓库根目录执行：
+>
+> ```powershell
+> scripts\trust-native-office-certificate.ps1
+> ```
+>
+> 脚本会先校验 `native-office-signing.json` 里的 SHA-256 指纹，始终信任“受信任的发布者”，并且只在 `selfSigned` 为 `true` 时写入根存储。
 
 ### 5.3 安装三个 VSTO 加载项
 

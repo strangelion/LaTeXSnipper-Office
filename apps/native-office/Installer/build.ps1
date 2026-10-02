@@ -387,11 +387,14 @@ if ($SkipSigning) {
         throw "Signing certificate does not have a private key: $thumbprint"
     }
 
-    # A self-signed VSTO publisher has no external certification chain. The
-    # per-user installer must therefore trust the same public certificate as a
-    # root as well as a publisher. CA-issued release certificates deliberately
-    # skip the root-store entry and continue to rely on the operating system's
-    # normal root trust.
+    # A self-signed VSTO publisher has no external certification chain, so Office
+    # needs the same public certificate trusted as a root as well as a publisher.
+    # Root trust is intentionally NOT written by the MSI: certificate actions that
+    # target the current-user root store block indefinitely when the installer runs
+    # without an interactive desktop session, which hangs msiexec. The selfSigned
+    # flag is recorded in native-office-signing.json and consumed by
+    # scripts/trust-native-office-certificate.ps1, which applies publisher trust
+    # (always) and root trust (self-signed only) outside the installer.
     $trustSigningCertificateAsRoot = $storeCert.Subject -eq $storeCert.Issuer
 
     # Prevent MSBuild/project files from seeing env:VstoManifestKeyFile and trying
@@ -813,7 +816,6 @@ $env:ProvenanceFile = $stagingAbs + "\build-provenance.json"
     -d OleDllX86Sha256=$oleDllX86Sha256 `
     -d OleDllX64Sha256=$oleDllX64Sha256 `
     -d CertificateDir=$env:CertificateDir `
-    -d TrustSigningCertificateAsRoot=$($trustSigningCertificateAsRoot.ToString().ToLowerInvariant()) `
     -d ProvenanceFile=$env:ProvenanceFile `
     -ext $uiExtension `
     -ext $iisExtension
