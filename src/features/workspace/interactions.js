@@ -4,6 +4,7 @@ export function bindWorkspaceInteractions({
   onOfficeRead,
   onOfficeReplace,
   onOfficeBatch,
+  onOfficeSelectionLatex,
 }) {
   for (const button of root.querySelectorAll("[data-command]")) {
     button.addEventListener("click", () => onCommand(button.dataset.command));
@@ -17,4 +18,7 @@ export function bindWorkspaceInteractions({
   root
     .getElementById("officeWorkspaceBatch")
     ?.addEventListener("click", onOfficeBatch);
+  root
+    .getElementById("officeWorkspaceSelectionLatex")
+    ?.addEventListener("click", onOfficeSelectionLatex);
 }

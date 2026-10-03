@@ -118,6 +118,9 @@ pub async fn office_batch_scan_latex(
     target: OfficeTarget,
     scope: String,
 ) -> Result<Vec<LatexCandidate>, String> {
+    if scope == "selection-latex" && target.host != OfficeHost::Word {
+        return Err("Undelimited selection conversion is only supported in Word".into());
+    }
     let request_id = format!("scan-{}", uuid_simple());
 
     let msg = DesktopMessage::ScanLatex {

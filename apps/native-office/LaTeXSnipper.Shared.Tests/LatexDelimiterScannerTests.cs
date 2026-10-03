@@ -44,6 +44,26 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 protectedOpening.Any(match => match.Latex == "b"),
                 "nested top-level opening was consumed by an earlier delimiter");
 
+            foreach (string raw in new[] { @"\frac{a}{b}", "x^2+y_1=0", @"\begin{matrix}a&b\\c&d\end{matrix}",
+                "a^2\r+b^2", @"\myunknownsymbol+1" })
+            {
+                var selected = LatexDelimiterScanner.ScanSelection("  " + raw + " \r");
+                failures += Expect(selected.Count == 1 && selected[0].Offset == 2 &&
+                    selected[0].OriginalText == raw && selected[0].Latex == raw,
+                    "explicit raw selection lost source or offset: " + raw);
+                failures += Expect(LatexDelimiterScanner.Scan(raw).Count == 0,
+                    "default scan guessed an undelimited formula");
+            }
+            foreach (string wrappedSource in new[] { "$x^2$", "$$x^2$$", @"\(x^2\)", @"\[x^2\]" })
+                failures += Expect(LatexDelimiterScanner.ScanSelection(wrappedSource)[0].Latex == "x^2",
+                    "selection wrappers were not normalized");
+            foreach (string rejected in new[] { "", "plain prose", @"C:\Users\x^2", "```x^2```", "$x^2", @"\frac{a}{b", "x^2\\", "x^2\ay^2", "before $x^2$ after", "x^2}\0" })
+            {
+                bool rejectedSafely = false;
+                try { LatexDelimiterScanner.ScanSelection(rejected); }
+                catch (FormatException) { rejectedSafely = true; }
+                failures += Expect(rejectedSafely, "unsafe selection accepted: " + rejected);
+            }
             return failures;
         }
 

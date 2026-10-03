@@ -25,6 +25,7 @@
         </group>
         <group id="ToolsGroup" getLabel="GetLabel">
           <button id="btnBatchConvert" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="B" size="large" imageMso="DataRefreshAll" onAction="OnButtonClick" tag="workspaceBatch" getEnabled="GetDesktopCommandEnabled"/>
+          <button id="btnSelectionLatex" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="Q" imageMso="EquationProfessional" onAction="OnButtonClick" tag="workspaceSelectionLatex" getEnabled="GetDesktopCommandEnabled"/>
           <box id="DocumentActionsBox" boxStyle="vertical">
             <button id="btnFormulaConvert" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="V" imageMso="FileSaveAs" onAction="OnButtonClick" tag="workspaceConversion" getEnabled="GetDesktopCommandEnabled"/>
             <button id="btnOfficeWorkspace" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="W" imageMso="FileProperties" onAction="OnButtonClick" tag="workspaceOffice" getEnabled="GetDesktopCommandEnabled"/>

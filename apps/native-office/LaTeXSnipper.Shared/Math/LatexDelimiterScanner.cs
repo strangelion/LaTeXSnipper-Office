@@ -36,6 +36,56 @@ namespace LaTeXSnipper.NativeOffice.Shared.Latex
         private const char UnsafeBoundary = '\0';
         private const char TableCellBoundary = '\a';
 
+        /// <summary>Explicit opt-in: the entire selected text is ONE formula,
+        /// never a heuristic scan of ordinary document prose.</summary>
+        public static IReadOnlyList<LatexDelimiterMatch> ScanSelection(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new FormatException("Select a LaTeX formula first.");
+            if (text.Length > 16384 || text.IndexOf(UnsafeBoundary) >= 0 ||
+                text.IndexOf(TableCellBoundary) >= 0)
+                throw new FormatException("Selection is too large or crosses a table/story boundary.");
+            int start = 0, end = text.Length;
+            while (start < end && char.IsWhiteSpace(text[start])) start++;
+            while (end > start && char.IsWhiteSpace(text[end - 1])) end--;
+            string source = text.Substring(start, end - start);
+            if (source.Contains("```") || source.Contains("://") ||
+                System.Text.RegularExpressions.Regex.IsMatch(source, @"[A-Za-z]:\\"))
+                throw new FormatException("Code blocks and paths are not selection formulas.");
+
+            var wrapped = Scan(source);
+            bool completeWrapper = wrapped.Count == 1 && wrapped[0].Offset == 0 &&
+                wrapped[0].Length == source.Length;
+            string latex = completeWrapper ? wrapped[0].Latex : source;
+            if (!completeWrapper && (wrapped.Count != 0 || ContainsTopLevelOpeningDelimiter(source, 0, source.Length)))
+                throw new FormatException("Select one complete formula, not mixed prose or incomplete delimiters.");
+
+            int depth = 0;
+            bool inComment = false;
+            for (int index = 0; index < latex.Length; index++)
+            {
+                char current = latex[index];
+                if (inComment)
+                {
+                    if (current == '\r' || current == '\n') inComment = false;
+                    continue;
+                }
+                if (current == '%' && !IsEscaped(latex, index)) { inComment = true; continue; }
+                if (IsEscaped(latex, index)) continue;
+                if (current == '{') depth++;
+                if (current == '}' && --depth < 0)
+                    throw new FormatException("Selection has unbalanced LaTeX braces.");
+            }
+            if (depth != 0 || latex.EndsWith("\\", StringComparison.Ordinal))
+                throw new FormatException("Selection has incomplete LaTeX syntax.");
+            // Conservative candidate gate, not a LaTeX parser. Core still converts
+            // the candidate and the user confirms its preview before any write.
+            if (!System.Text.RegularExpressions.Regex.IsMatch(latex, @"\\[A-Za-z]+|[_^=+]|[0-9]"))
+                throw new FormatException("Selection has no recognizable LaTeX math syntax; use the formula editor instead.");
+            return new[] { new LatexDelimiterMatch(start, source.Length, source, latex,
+                completeWrapper && wrapped[0].IsDisplay) };
+        }
+
         public static IReadOnlyList<LatexDelimiterMatch> Scan(string text)
         {
             var matches = new List<LatexDelimiterMatch>();

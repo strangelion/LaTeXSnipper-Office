@@ -25,13 +25,17 @@ internal sealed class WordBatchLatexScanner
 
     public List<LatexCandidateDto> Scan(string scope = "entireDocument")
     {
+        bool rawSelection = scope.Equals("selection-latex", StringComparison.OrdinalIgnoreCase);
+        if (!rawSelection && !scope.Equals("selection", StringComparison.OrdinalIgnoreCase) &&
+            !scope.Equals("entireDocument", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Unsupported Word scan scope.", nameof(scope));
         var candidates = new List<LatexCandidateDto>();
         try
         {
             var doc = _application.ActiveDocument;
             if (doc == null) return candidates;
 
-            if (scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
+            if (rawSelection || scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
             {
                 var selected = _application.Selection.Range;
                 if (selected.StoryType == WdStoryType.wdTextFrameStory)
@@ -42,18 +46,21 @@ internal sealed class WordBatchLatexScanner
                         {
                             if (shape.TextFrame.HasText != 0 && selected.InRange(shape.TextFrame.TextRange))
                             {
-                                ScanShapeTextRange(selected, shape.Name, candidates);
+                                ScanShapeTextRange(selected, shape.Name, candidates, rawSelection);
                                 break;
                             }
                         }
-                        catch (System.Runtime.InteropServices.COMException) { }
+                        catch (System.Runtime.InteropServices.COMException exception)
+                        {
+                            OfficeOperationLog.Failure("scan-selected-text-frame", "word", null, exception);
+                        }
                     }
                 }
                 else
                 {
                     int sectionIndex = selected.StoryType == WdStoryType.wdMainTextStory
                         ? 0 : selected.Sections[1].Index;
-                    ScanRange(selected, "Selection", selected.StoryType, candidates, sectionIndex);
+                    ScanRange(selected, "Selection", selected.StoryType, candidates, sectionIndex, rawSelection);
                 }
             }
             else
@@ -108,20 +115,23 @@ internal sealed class WordBatchLatexScanner
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[WordBatchLatexScanner] Scan error: {ex.Message}");
+            if (rawSelection) throw; // Host reports the actionable rejection, not an empty successful scan.
         }
         return candidates;
     }
 
-    private void ScanRange(Range range, string location, WdStoryType storyType, List<LatexCandidateDto> candidates, int sectionIndex = 0)
+    private void ScanRange(Range range, string location, WdStoryType storyType, List<LatexCandidateDto> candidates, int sectionIndex = 0, bool rawSelection = false)
     {
         try
         {
             string text = range.Text ?? "";
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (rawSelection && (range.OMaths.Count != 0 || range.ContentControls.Count != 0))
+                throw new FormatException("Select plain LaTeX text, not an existing formula/content control.");
+            if (!rawSelection && string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = range.Start;
             int searchStart = rangeStart;
-            var matches = LatexDelimiterScanner.Scan(text);
+            var matches = rawSelection ? LatexDelimiterScanner.ScanSelection(text) : LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
             foreach (LatexDelimiterMatch match in matches)
@@ -155,19 +165,21 @@ internal sealed class WordBatchLatexScanner
                 });
             }
         }
-        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+        catch (System.Runtime.InteropServices.COMException) when (!rawSelection) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
-    private void ScanShapeTextRange(Range textRange, string shapeName, List<LatexCandidateDto> candidates)
+    private void ScanShapeTextRange(Range textRange, string shapeName, List<LatexCandidateDto> candidates, bool rawSelection = false)
     {
         try
         {
             string text = textRange.Text ?? "";
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (rawSelection && (textRange.OMaths.Count != 0 || textRange.ContentControls.Count != 0))
+                throw new FormatException("Select plain LaTeX text, not an existing formula/content control.");
+            if (!rawSelection && string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = textRange.Start;
             int searchStart = rangeStart;
-            var matches = LatexDelimiterScanner.Scan(text);
+            var matches = rawSelection ? LatexDelimiterScanner.ScanSelection(text) : LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
             foreach (LatexDelimiterMatch match in matches)
@@ -199,11 +211,19 @@ internal sealed class WordBatchLatexScanner
                 });
             }
         }
-        catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
+        catch (System.Runtime.InteropServices.COMException) when (!rawSelection) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
     private static Range? ResolveSourceRange(Range scope, string text, LatexDelimiterMatch match, ref int searchStart)
     {
+        // An exact whole-selection match already has authoritative Word bounds.
+        // Do not run Word Find on bare backslash commands in that case.
+        if (match.Offset == 0 && match.Length == text.Length &&
+            string.Equals(scope.Text, match.OriginalText, StringComparison.Ordinal))
+        {
+            searchStart = scope.End;
+            return scope.Duplicate;
+        }
         // Floating drawing anchors consume Word positions but are omitted from
         // Range.Text. Numeric UTF-16 offsets alone can therefore target adjacent
         // prose. Resolve inside the exact story and verify the visible prefix as

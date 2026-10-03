@@ -135,6 +135,7 @@ namespace LaTeXSnipper.Word
                 case "workspaceRecognition":
                 case "workspaceConversion":
                 case "workspaceBatch":
+                case "workspaceSelectionLatex":
                 case "workspaceOffice":
                 case "workspaceDiagnostics":
                     addIn.Send(new VstoOpenEditor
@@ -185,6 +186,7 @@ namespace LaTeXSnipper.Word
                 "workspaceRecognition" => "recognition",
                 "workspaceConversion" => "conversion",
                 "workspaceBatch" => "batch",
+                "workspaceSelectionLatex" => "selection-latex",
                 "workspaceOffice" => "office",
                 "workspaceDiagnostics" => "diagnostics",
                 _ => "editor"

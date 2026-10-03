@@ -275,3 +275,45 @@ Word 实例，再运行 `scripts/run-word-pipe-batch-smoke.ps1`。脚本创建�
 步骤约 1 秒完成，安装、激活、同版本重装、跨版本升级及卸载步骤也通过。
 这关闭了该提交的无人值守证书卡点验证，不替代新源码 CI、实际 Word 加载项 UI
 或真实 release WebView2/桌面管道门禁。
+
+## 2026-10-03 无分隔符选区转换（部分验收）
+
+新增“将选区作为 LaTeX”入口：COM Word Ribbon、桌面 Office 工作区及 Office.js
+任务窗格。必须先生成预览，再由用户确认；默认全文扫描仍只识别明确分隔符。
+当前目标是行内 OMML，不代表 OLE、MathType 或其他格式转换已全部完成。
+
+真实 Word `--selection-latex` 最终专项耗时 5.648 秒：正文、页眉、浮动文本框
+三条公式转换，保存只读重开后仍有三个 OMath 和完整 LaTeX/OMML 清单。
+分数、上下标、矩阵、多行只读扫描、普通文字/路径/不完整命令拒绝、转换失败保留
+格式及陈旧选区不误替换相邻重复公式通过。新增格式保护实测确认不支持的目标和
+缺少 OMML 都失败且不改原文。这不是不同公式的转换准确率或批量速度比较。
+
+浏览器专项使用真实 Chrome 和生产编辑器预览，覆盖确认、取消、Escape、390px
+窄屏及预览失败禁用确认；宿主响应为夹具，不代表真实桌面管道已验收。
+Office.js 的跟踪选区、一次性确认、源文/OOXML 变化拒绝、元数据清理和取消回归
+使用模拟 Word API；实际 Office.js Word 宿主未运行，跨宿主矩阵仍待测试。
+桌面与 Office.js 生产构建、Native Office Release 解决方案、共享 C# 回归通过；
+前端全量 375/375；Office 默认功能配置 `cargo check --lib --locked` 通过。
+Core 严格 OMML 源校验 245 项及 1 项文档测试通过；Office 固定到已发布的
+`8951224`，对应 Core CI、WASM 和 CodeQL 全部成功。严格校验并不保证所有
+已接受 TeX 的排版都能无损转换，尚不支持的自定义宏保持原文并给出失败说明。
+
+通过的证据（本地生成目录不进入 Git）：
+
+| 文件（`src-tauri/target/` 下） | SHA-256 |
+| --- | --- |
+| `word-selection-latex-final-evidence/selection-latex-evidence.json` | `7C65B8A7DEF461497C09C1DCD1197C76827C7431E7EC58B99B409A4434507BF6` |
+| `word-selection-latex-final-evidence/word-selection-latex.docx` | `9398C1F1F6106C86E4F4B988E50EC4E16E0AB2E659C3D578514C94636C1A9125` |
+
+```powershell
+& 'apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri/target/word-native-host-fixture/word-nary-acceptance.generated.json' `
+  'src-tauri/target/word-selection-latex-final-evidence' --selection-latex
+node scripts/verify-office-selection-conversion.mjs
+```
+
+Office 上一提交 `bc2bb51` 的 CI 37111365601 失败于扫描器空 COM catch 的源码
+规范门禁，其他必需构建和打包任务成功，不是进程超时。已修正为记录异常；本地
+源码规范通过，新提交远端 CI 不以旧提交的成功任务代替。
+格式来源/目标选择器、第三方 MathType 边界及原位转换验收已记录于
+[batch-update-plan.md](batch-update-plan.md)，O-06 保持进行中。

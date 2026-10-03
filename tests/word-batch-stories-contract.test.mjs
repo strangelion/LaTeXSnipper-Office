@@ -57,3 +57,17 @@ test("Word batch replacement keeps source until validated story insertion", () =
   assert.match(harness, /Floating shape anchor shifted the body locator/);
   assert.match(harness, /Duplicate\/Unicode\/long-formula/);
 });
+
+test("storage conversion rejects relabel-only targets and retains rendering metadata", () => {
+  const conversion = adapter.slice(
+    adapter.indexOf("public InsertResult ConvertFormula("),
+    adapter.indexOf("private static string NormalizeOmml("),
+  );
+  assert.match(conversion, /targetMode != "native" && targetMode != "ole"/);
+  assert.match(conversion, /UNSUPPORTED_CONVERSION_TARGET/);
+  assert.match(conversion, /OMML_CONVERSION_DATA_MISSING/);
+  assert.doesNotMatch(conversion, /existing\.StorageMode = "image-manifest"/);
+  assert.match(conversion, /SchemaVersion = existing\.SchemaVersion/);
+  assert.match(conversion, /Render = existing\.Render/);
+  assert.match(conversion, /Presentation = existing\.Presentation/);
+});

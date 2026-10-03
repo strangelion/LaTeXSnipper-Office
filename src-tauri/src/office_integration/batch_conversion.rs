@@ -33,10 +33,14 @@ pub fn build_conversion_plan(
         let source_hash = format!("{:x}", hasher.finalize());
 
         // Try OMML conversion
-        let omml_result = latexsnipper_conversion::DocumentConverter::convert_latex_string(
-            &latex,
-            latexsnipper_conversion::OutputFormat::OMML,
-        );
+        let omml_result =
+            latexsnipper_conversion::omml::validate_omml_latex(&latex).and_then(|()| {
+                latexsnipper_conversion::DocumentConverter::convert_latex_string(
+                    &latex,
+                    latexsnipper_conversion::OutputFormat::OMML,
+                )
+                .map_err(|error| error.to_string())
+            });
 
         match omml_result {
             Ok(omml) => {

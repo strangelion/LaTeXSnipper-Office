@@ -2538,6 +2538,16 @@ namespace LaTeXSnipper.Word.Host
         /// </summary>
         public InsertResult ConvertFormula(string formulaId, string targetMode)
         {
+            // Only advertise conversions that create a real target object.
+            // Image export needs a separate renderer/insertion transaction; changing
+            // the manifest alone is not a format conversion.
+            if (targetMode != "native" && targetMode != "ole")
+                return new InsertResult
+                {
+                    Success = false,
+                    ErrorCode = "UNSUPPORTED_CONVERSION_TARGET",
+                    Error = "This conversion supports native OMML or LaTeXSnipper OLE only."
+                };
             try
             {
                 var doc = _application.ActiveDocument;
@@ -2568,9 +2578,8 @@ namespace LaTeXSnipper.Word.Host
                 var newStorageMode = targetMode switch
                 {
                     "ole" => "ole",
-                    "image" => "image-manifest",
                     "native" => "native-omml",
-                    _ => "native-omml"
+                    _ => throw new InvalidOperationException("Unsupported conversion target")
                 };
 
                 // Keep the same FormulaId across conversion — identity must not change
@@ -2581,11 +2590,14 @@ namespace LaTeXSnipper.Word.Host
                 {
                     // Convert to native OMML (only works in Word)
                     var omml = existing.Omml;
-                    if (string.IsNullOrEmpty(omml))
+                    if (string.IsNullOrWhiteSpace(omml))
                     {
-                        // Ask Desktop to render LaTeX → OMML
-                        // For now, reuse existing ContentControl with new tag
-                        existingCc.Tag = $"latexsnipper:formula:{convertedFormulaId}";
+                        return new InsertResult
+                        {
+                            Success = false,
+                            ErrorCode = "OMML_CONVERSION_DATA_MISSING",
+                            Error = "Native conversion requires valid OMML. Re-render the stored LaTeX first; the original object has not been changed."
+                        };
                     }
                     else
                     {
@@ -2649,7 +2661,10 @@ namespace LaTeXSnipper.Word.Host
                         Omml = existing.Omml,
                         Display = existing.Display,
                         StorageMode = "native-omml",
-                        Revision = existing.Revision + 1
+                        Revision = existing.Revision + 1,
+                        SchemaVersion = existing.SchemaVersion,
+                        Render = existing.Render,
+                        Presentation = existing.Presentation
                     };
                     FormulaDocumentManifest.Remove(doc, formulaId);
                     FormulaDocumentManifest.Write(doc, newPayload);
@@ -2707,12 +2722,12 @@ namespace LaTeXSnipper.Word.Host
                     return new InsertResult { Success = true, FormulaId = convertedFormulaId, StorageMode = "ole" };
                 }
 
-                // image-manifest: keep current OMML content but mark as image-manifest
-                existing.StorageMode = "image-manifest";
-                existing.Revision++;
-                FormulaDocumentManifest.Write(doc, existing);
-
-                return new InsertResult { Success = true, FormulaId = formulaId, StorageMode = "image-manifest" };
+                return new InsertResult
+                {
+                    Success = false,
+                    ErrorCode = "UNSUPPORTED_CONVERSION_TARGET",
+                    Error = "No target conversion was performed."
+                };
             }
             catch (Exception ex)
             {

@@ -3514,6 +3514,12 @@ x,y
               <div class="workspace-actions">
                 <button id="officeWorkspaceBatch" type="button">批量转换</button
                 ><button
+                  id="officeWorkspaceSelectionLatex"
+                  type="button"
+                  title="Word：选中一条裸 LaTeX，先预览再确认；无需 $ 或 $$"
+                >
+                  选区作为 LaTeX</button
+                ><button
                   id="officeWorkspaceInventory"
                   type="button"
                   disabled
@@ -3522,6 +3528,10 @@ x,y
                   文档公式清单
                 </button>
               </div>
+              <p>
+                默认批量扫描只转换有分隔符的公式。裸 LaTeX 请先在 Word
+                中选中一条，再预览确认；不会自动猜测正文。
+              </p>
             </article>
           </div>
         </section>

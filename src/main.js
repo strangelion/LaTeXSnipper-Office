@@ -2656,6 +2656,7 @@ class UIController {
       onOfficeRead: () => this.loadFromWord(),
       onOfficeReplace: () => this.replaceLoadedOfficeFormula(),
       onOfficeBatch: () => this.runOfficeBatchConversion(),
+      onOfficeSelectionLatex: () => this.runOfficeSelectionConversion(),
     });
 
     for (const button of document.querySelectorAll("[data-formula-resource]")) {
@@ -6257,6 +6258,10 @@ class UIController {
           this.showToast("输入公式后可复制 OMML、MathML、SVG 或导出图片");
         });
         break;
+      case "selection-latex":
+        this.switchSection("office");
+        void this.runOfficeSelectionConversion();
+        break;
       case "batch":
       case "office":
         this.switchSection("office");
@@ -6748,6 +6753,46 @@ class UIController {
       );
     } catch (error) {
       this.showToast(`批量转换失败：${error?.message || error}`);
+    }
+  }
+
+  async runOfficeSelectionConversion() {
+    if (this._officeSelectionConversionBusy) return;
+    this._officeSelectionConversionBusy = true;
+    const button = document.getElementById("officeWorkspaceSelectionLatex");
+    if (button) button.disabled = true;
+    try {
+      await this.updateOfficeHostSelector();
+      const session = this._sessions?.find(
+        (candidate) => candidate.session_id === this._selectedSessionId,
+      );
+      const {
+        prepareSelectionConversion,
+        confirmSelectionConversion,
+        executeSelectionConversion,
+      } = await import("./services/office-selection-conversion.js");
+      this.showStatus("正在读取并预览 Word 选区（尚未修改文档）…");
+      const plan = await prepareSelectionConversion({
+        host: session?.host_type,
+        sessionId: session?.session_id,
+        documentContext: session?.document_id,
+      });
+      const confirmed = await confirmSelectionConversion(plan, (latex) =>
+        this.editor.createPreviewNode(latex, false),
+      );
+      const result = await executeSelectionConversion(plan, confirmed);
+      if (result.cancelled) this.showToast("已取消，Word 原文未修改");
+      else if (result.converted === 1)
+        this.showToast("选区已转换为可回读的 Word 公式");
+      else
+        this.showToast(
+          `未替换：${result.failures?.[0]?.error || "选区已变化或宿主拒绝插入，请重新预览"}`,
+        );
+    } catch (error) {
+      this.showToast(`选区转换失败：${error?.message || error}`);
+    } finally {
+      this._officeSelectionConversionBusy = false;
+      if (button) button.disabled = false;
     }
   }
 

@@ -499,7 +499,8 @@ public class DesktopConvertFormula : DesktopDocumentCommand
 
 /// <summary>
 /// Request the VSTO host to scan for LaTeX candidates.
-/// Scope: "selection", "currentSlide", "selectedSlides", "entireDocument"
+/// Scope: "selection", "selection-latex" (Word explicit raw formula),
+/// "currentSlide", "selectedSlides", "entireDocument"
 /// </summary>
 public class DesktopScanLatex : DesktopDocumentCommand
 {

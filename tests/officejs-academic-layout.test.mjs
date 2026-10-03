@@ -21,6 +21,7 @@ before(async () => {
         'export * from "./apps/office-addin/src/model/equation-layout.ts";',
         'export * from "./apps/office-addin/src/adapters/word-ooxml.ts";',
         'export * from "./apps/office-addin/src/adapters/word-adapter.ts";',
+        'export * from "./apps/office-addin/src/adapters/word-selection-latex.ts";',
         'export * from "./apps/office-addin/src/adapters/excel-adapter.ts";',
         'export * from "./apps/office-addin/src/adapters/powerpoint-adapter.ts";',
       ].join("\n"),
@@ -44,6 +45,165 @@ function payload(overrides = {}) {
     ...overrides,
   };
 }
+
+test("Office.js explicit selection parser accepts math and rejects ambiguous source", () => {
+  for (const source of [
+    String.raw`\frac{a}{b}`,
+    "x^2+y_1=0",
+    String.raw`\begin{matrix}a&b\\c&d\end{matrix}`,
+  ]) {
+    assert.equal(office.selectionLatex(source), source);
+  }
+  for (const wrapper of [
+    "$x^2$",
+    "$$x^2$$",
+    String.raw`\(x^2\)`,
+    String.raw`\[x^2\]`,
+  ]) {
+    assert.equal(office.selectionLatex(wrapper), "x^2");
+  }
+  for (const source of [
+    "",
+    "ordinary prose",
+    String.raw`C:\Users\x^2`,
+    "x^2\r",
+    "a^2\nb^2",
+    String.raw`\frac{a}{b`,
+    "$x^2",
+    "x^2\\",
+    "before $x^2$ after",
+    "x^2\u0007y^2",
+  ]) {
+    assert.throws(() => office.selectionLatex(source), source);
+  }
+});
+
+function trackedSelectionHarness() {
+  const state = {
+    text: String.raw`\frac{a}{b}`,
+    xml: "<w:r><w:t>original</w:t></w:r>",
+    insertions: 0,
+    selections: 0,
+    tracks: 0,
+    releases: 0,
+    metadataAdds: 0,
+    metadataDeletes: 0,
+  };
+  const range = {
+    get text() {
+      return state.text;
+    },
+    load() {},
+    parentContentControlOrNullObject: { isNullObject: true, load() {} },
+    contentControls: { items: [], load() {} },
+    getOoxml() {
+      return { value: state.xml };
+    },
+    track() {
+      state.tracks++;
+    },
+    untrack() {
+      state.releases++;
+    },
+    insertOoxml(xml) {
+      state.insertions++;
+      state.insertedXml = xml;
+    },
+  };
+  const context = {
+    document: {
+      getSelection() {
+        state.selections++;
+        return range;
+      },
+    },
+    async sync() {},
+  };
+  globalThis.Word = {
+    InsertLocation: { replace: "Replace" },
+    run: async (...args) => args.at(-1)(context),
+  };
+  globalThis.Office = {
+    AsyncResultStatus: { Succeeded: "succeeded" },
+    context: {
+      document: {
+        customXmlParts: {
+          addAsync(_xml, done) {
+            state.metadataAdds++;
+            done({
+              status: "succeeded",
+              value: {
+                deleteAsync(callback) {
+                  state.metadataDeletes++;
+                  callback({ status: "succeeded" });
+                },
+              },
+            });
+          },
+        },
+      },
+    },
+  };
+  const bridge = {
+    async convert(_source, format) {
+      return {
+        content:
+          format === "svg"
+            ? '<svg xmlns="http://www.w3.org/2000/svg"/>'
+            : '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>x</m:t></m:r></m:oMath>',
+      };
+    },
+  };
+  return { state, controller: new office.WordSelectionLatex(bridge) };
+}
+
+test("Office.js selection prepare/cancel is read-only and confirm uses the tracked range once", async () => {
+  let { controller, state } = trackedSelectionHarness();
+  await controller.prepare();
+  assert.equal(state.insertions, 0);
+  assert.equal(state.metadataAdds, 0);
+  await controller.cancel();
+  assert.equal(state.releases, 1);
+  assert.equal(state.insertions, 0);
+
+  ({ controller, state } = trackedSelectionHarness());
+  await controller.prepare();
+  const converted = await controller.confirm();
+  assert.equal(converted.latex, state.text);
+  assert.equal(state.insertions, 1);
+  assert.equal(
+    state.selections,
+    1,
+    "confirmation must not read the newly active selection",
+  );
+  assert.equal(state.metadataAdds, 1);
+  assert.equal(state.metadataDeletes, 0);
+  assert.equal(state.releases, 1);
+  assert.match(state.insertedXml, /<w:sdt/);
+  await assert.rejects(controller.confirm(), /预览/);
+});
+
+test("Office.js rejects stale text/format, cleans staged metadata and releases failed previews", async () => {
+  for (const key of ["text", "xml"]) {
+    const { controller, state } = trackedSelectionHarness();
+    await controller.prepare();
+    state[key] += "changed";
+    await assert.rejects(controller.confirm(), /变化/);
+    assert.equal(state.insertions, 0);
+    assert.equal(state.metadataDeletes, 1);
+    assert.equal(state.releases, 1);
+  }
+  const { state } = trackedSelectionHarness();
+  const controller = new office.WordSelectionLatex({
+    async convert() {
+      throw new Error("unsupported macro");
+    },
+  });
+  await assert.rejects(controller.prepare(), /unsupported macro/);
+  assert.equal(state.insertions, 0);
+  assert.equal(state.metadataAdds, 0);
+  assert.equal(state.releases, 1);
+});
 
 function parse(xml) {
   const errors = [];

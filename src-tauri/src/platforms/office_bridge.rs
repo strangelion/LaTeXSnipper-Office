@@ -937,6 +937,20 @@ async fn handle_convert_v1(
         });
     }
 
+    if req.source_format == "latex" && req.target_format == "omml" {
+        if let Err(diagnostic) = latexsnipper_conversion::omml::validate_omml_latex(&req.content) {
+            return Json(OfficeConvertV1Response {
+                success: false,
+                content: String::new(),
+                format: req.target_format,
+                width_pt: None,
+                height_pt: None,
+                fallback_format: None,
+                diagnostic: Some(diagnostic),
+            });
+        }
+    }
+
     let result = match (req.source_format.as_str(), req.target_format.as_str()) {
         ("latex", "omml") => {
             let latex = req.content.clone();

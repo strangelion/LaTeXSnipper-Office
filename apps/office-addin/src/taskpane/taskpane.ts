@@ -1,5 +1,6 @@
 import { router } from "core-protocol/command.router";
 import { OfficeHostAdapter } from "../adapters/unified-adapter";
+import { WordSelectionLatex } from "../adapters/word-selection-latex";
 
 type InsertMode = "inline" | "display" | "display-numbered";
 type StatusType = "info" | "success" | "error";
@@ -20,6 +21,8 @@ let busy = false;
 let capabilities: CapabilityResult | null = null;
 let selectedFormulaId: string | undefined;
 let bridgeConnected = false;
+let selectionConversion: WordSelectionLatex | null = null;
+let selectionPreviewUrl: string | null = null;
 
 const CLIENT_ID_KEY = "latexsnipper-office-client-id";
 
@@ -77,6 +80,15 @@ Office.onReady((info) => {
   ensureAdapter();
   const hostName = info.host ? String(info.host) : "Office";
   setText("hostLabel", hostName);
+  document
+    .getElementById("selectionLatexBtn")
+    ?.addEventListener("click", () => void handleSelectionLatex());
+  document
+    .getElementById("confirmSelectionLatexBtn")
+    ?.addEventListener("click", () => void handleConfirmSelectionLatex());
+  document
+    .getElementById("cancelSelectionLatexBtn")
+    ?.addEventListener("click", () => void cancelSelectionLatex());
   document
     .getElementById("loadBtn")
     ?.addEventListener("click", () => void handleLoad());
@@ -192,6 +204,17 @@ function applyCapabilities(): void {
 }
 
 function applyBridgeCapabilities(): void {
+  const selectionButton = document.getElementById(
+    "selectionLatexBtn",
+  ) as HTMLButtonElement | null;
+  if (selectionButton)
+    selectionButton.disabled =
+      busy || !bridgeConnected || capabilities?.host !== "word";
+  const confirm = document.getElementById(
+    "confirmSelectionLatexBtn",
+  ) as HTMLButtonElement | null;
+  if (confirm)
+    confirm.disabled = busy || !bridgeConnected || !selectionConversion;
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     "[data-workspace], [data-convert-format]",
   )) {
@@ -200,6 +223,90 @@ function applyBridgeCapabilities(): void {
     button.title = bridgeConnected
       ? button.dataset.connectedTitle || ""
       : "需要启动 LaTeXSnipper 桌面端并连接本地桥接服务";
+  }
+}
+
+function clearSelectionPreview(): void {
+  const panel = document.getElementById("selectionLatexPreview");
+  if (panel) panel.hidden = true;
+  const image = document.getElementById(
+    "selectionLatexImage",
+  ) as HTMLImageElement | null;
+  image?.removeAttribute("src");
+  if (selectionPreviewUrl) URL.revokeObjectURL(selectionPreviewUrl);
+  selectionPreviewUrl = null;
+}
+
+async function cancelSelectionLatex(): Promise<void> {
+  if (busy) return;
+  setBusy(true);
+  const pending = selectionConversion;
+  selectionConversion = null;
+  clearSelectionPreview();
+  try {
+    await pending?.cancel();
+    setStatus("已取消，Word 原文未修改");
+  } catch (error) {
+    setStatus(`释放选区失败：${String(error)}`, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleSelectionLatex(): Promise<void> {
+  if (busy || !bridgeConnected || capabilities?.host !== "word") return;
+  setBusy(true);
+  setStatus("正在预览 Word 选区，尚未修改文档…");
+  try {
+    await selectionConversion?.cancel();
+    selectionConversion = null;
+    clearSelectionPreview();
+    const pending = new WordSelectionLatex();
+    // Retain ownership even if image decoding fails, so the range is released.
+    selectionConversion = pending;
+    const prepared = await pending.prepare();
+    const image = document.getElementById(
+      "selectionLatexImage",
+    ) as HTMLImageElement;
+    selectionPreviewUrl = URL.createObjectURL(
+      new Blob([prepared.svg], { type: "image/svg+xml" }),
+    );
+    image.src = selectionPreviewUrl;
+    await image.decode();
+    setText("selectionLatexSource", prepared.source);
+    const panel = document.getElementById("selectionLatexPreview");
+    if (panel) panel.hidden = false;
+    setStatus("预览就绪。确认后仅替换此选区为行内 OMML；原文变化会拒绝替换");
+  } catch (error) {
+    const pending = selectionConversion;
+    selectionConversion = null;
+    clearSelectionPreview();
+    try {
+      await pending?.cancel();
+    } finally {
+      setStatus(`选区预览失败，原文未修改：${String(error)}`, "error");
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleConfirmSelectionLatex(): Promise<void> {
+  if (busy || !selectionConversion || !bridgeConnected) return;
+  setBusy(true);
+  const pending = selectionConversion;
+  selectionConversion = null;
+  clearSelectionPreview();
+  setStatus("正在替换预览时的选区…");
+  try {
+    const payload = await pending.confirm();
+    selectedFormulaId = payload.formulaId;
+    setEditorContent(payload.latex);
+    setStatus("选区已转换为可回读的行内 Word 公式", "success");
+  } catch (error) {
+    setStatus(`选区替换失败，请检查原文后重新预览：${String(error)}`, "error");
+  } finally {
+    setBusy(false);
   }
 }
 
