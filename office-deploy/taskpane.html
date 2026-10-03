@@ -331,6 +331,31 @@
       #insertBtn {
         min-height: 38px;
       }
+      .selection-latex-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px;
+      }
+      #selectionLatexPreview {
+        padding: 10px;
+        border-top: 1px solid var(--border);
+      }
+      #selectionLatexPreview[hidden] {
+        display: none;
+      }
+      #selectionLatexSource {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 120px;
+        overflow: auto;
+      }
+      #selectionLatexImage {
+        display: block;
+        max-width: 100%;
+        max-height: 160px;
+        margin: 10px auto;
+      }
       .status {
         min-height: 28px;
         padding: 6px 8px;
@@ -375,7 +400,8 @@
         }
       }
     </style>
-    <script type="module" crossorigin src="/office/assets/taskpane-DssclvuO.js"></script>
+    <script type="module" crossorigin src="/office/assets/taskpane-Bq_ZFT85.js"></script>
+    <link rel="stylesheet" crossorigin href="/office/assets/taskpane-B2s1RwAA.css">
   </head>
   <body>
     <main id="app" aria-busy="false">
@@ -451,6 +477,30 @@
           <button data-workspace="settings">
             设置<span>外观、模型与集成配置</span>
           </button>
+        </div>
+      </section>
+
+      <section class="card" aria-label="将选区作为 LaTeX">
+        <div class="selection-latex-actions">
+          <button id="formatConversionBtn" title="选择来源和目标，预览后确认；OLE 和 MathType 会显示能力限制">格式转换…</button>
+          <button
+            id="selectionLatexBtn"
+            title="Word：先选中同一段落内的一条 LaTeX，无需 $ 或 $$；预览后才替换"
+          >
+            选区作为 LaTeX
+          </button>
+        </div>
+        <div id="selectionLatexPreview" hidden>
+          <pre id="selectionLatexSource"></pre>
+          <img id="selectionLatexImage" alt="选区公式预览" />
+          <p>
+            仅替换预览时选中的这条公式（行内 OMML）。需要桌面 Bridge，不需要 COM
+            加载项。不要选中段落结束标记；多行选区请使用原生 Word 加载项。
+          </p>
+          <div class="selection-latex-actions">
+            <button id="confirmSelectionLatexBtn">确认替换这一条</button>
+            <button id="cancelSelectionLatexBtn">取消，保留原文</button>
+          </div>
         </div>
       </section>
 
