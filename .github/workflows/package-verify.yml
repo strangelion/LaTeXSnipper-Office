@@ -543,11 +543,11 @@ jobs:
           if (-not (Test-Path $zip -PathType Leaf)) {
             throw "Standalone VSTO ZIP was not generated"
           }
-      - name: Trust Native Office signing certificate (current user)
+      - name: Trust Native Office signing certificate (disposable CI machine)
         timeout-minutes: 3
         shell: pwsh
         run: |
-          & scripts\trust-native-office-certificate.ps1 -NonInteractive
+          & scripts\trust-native-office-certificate.ps1 -NonInteractive -StoreLocation LocalMachine
       - name: Install, activate, same-version reinstall, cross-version upgrade, and uninstall
         timeout-minutes: 30
         shell: pwsh

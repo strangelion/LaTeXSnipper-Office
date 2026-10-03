@@ -44,11 +44,14 @@ test("Native Office certificate trust script gates root trust on selfSigned", ()
     script,
     /if \(\[bool\]\$metadata\.selfSigned\) \{[\s\S]*?StoreName\s*\]::Root[\s\S]*?\}/,
   );
-  // CI uses certutil's forced current-user mode instead of an API that may wait
-  // for a hidden root-store confirmation dialog.
+  // CurrentUser root import still prompts with -f. CI must use its elevated,
+  // disposable machine store and bound the child-process wait.
   assert.doesNotMatch(script, /Import-Certificate/);
   assert.match(script, /\[switch\]\$NonInteractive/);
-  assert.match(script, /certutil\.exe -user -f -addstore/);
+  assert.match(script, /Unattended CurrentUser root import/);
+  assert.match(script, /WaitForExit\(45000\)/);
+  assert.match(script, /\$process\.Kill\(\)/);
+  assert.match(script, /verificationStore\.Open/);
   assert.match(script, /sha256Thumbprint/);
 });
 
@@ -81,6 +84,6 @@ test("Windows package verification applies Native Office certificate trust befor
   assert.match(trustStepSource, /timeout-minutes:\s*3/);
   assert.match(
     trustStepSource,
-    /trust-native-office-certificate\.ps1 -NonInteractive/,
+    /trust-native-office-certificate\.ps1 -NonInteractive -StoreLocation LocalMachine/,
   );
 });

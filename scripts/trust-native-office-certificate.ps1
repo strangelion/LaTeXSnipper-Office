@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Applies current-user certificate trust for the Native Office VSTO signing certificate.
+    Applies certificate trust for the Native Office VSTO signing certificate.
 
 .DESCRIPTION
     The MSI deliberately does not write the current-user root store: WiX certificate
@@ -10,14 +10,15 @@
 
     This script owns that trust instead:
 
-      * the public certificate is always added to CurrentUser\TrustedPublisher;
-      * it is additionally added to CurrentUser\Root when native-office-signing.json
+      * the public certificate is added to the selected TrustedPublisher store;
+      * it is additionally added to the selected Root store when native-office-signing.json
         reports selfSigned = true (a CA-issued release certificate relies on the
         operating system's normal root trust and is never copied there).
 
-    For unattended environments, -NonInteractive uses certutil with -user and
-    -f so certificate trust never waits for a hidden confirmation dialog. The
-    default X509Store path remains available for normal interactive use.
+    CurrentUser root writes can still prompt even with certutil -f. Unattended
+    CI must explicitly select -StoreLocation LocalMachine on its elevated,
+    disposable runner. Each certutil child has a bounded wait and its result is
+    verified in the selected store. Interactive use defaults to CurrentUser.
 
 .PARAMETER CertificatePath
     Public .cer file exported by apps/native-office/Installer/build.ps1.
@@ -29,8 +30,8 @@
     Certificate store location to modify. Defaults to CurrentUser.
 
 .PARAMETER NonInteractive
-    Uses certutil.exe with forced current-user store writes. Intended for CI and
-    other sessions that have no interactive desktop.
+    Uses bounded certutil.exe writes. Self-signed roots require LocalMachine
+    and an elevated process in this mode; CurrentUser root writes are refused.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -83,24 +84,56 @@ $stores = @(
     [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPublisher
 )
 if ([bool]$metadata.selfSigned) {
-    Write-Host "  selfSigned = true -> CurrentUser\Root trust is required for this certificate" -ForegroundColor Gray
+    Write-Host "  selfSigned = true -> $StoreLocation\Root trust is required for this certificate" -ForegroundColor Gray
     $stores += [System.Security.Cryptography.X509Certificates.StoreName]::Root
 }
 else {
     Write-Host "  selfSigned = false -> CA-issued certificate, root trust comes from the operating system" -ForegroundColor Gray
 }
 
+if ($NonInteractive -and [bool]$metadata.selfSigned -and
+    $StoreLocation -eq [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser) {
+    throw 'Unattended CurrentUser root import can require a confirmation dialog. Use -StoreLocation LocalMachine on an elevated disposable CI runner, or use interactive installation.'
+}
+if ($NonInteractive -and -not $WhatIfPreference -and
+    $StoreLocation -eq [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine) {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+        if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'LocalMachine certificate trust requires an elevated process.'
+        }
+    }
+    finally { $identity.Dispose() }
+}
+
 foreach ($storeName in $stores) {
     if ($NonInteractive) {
-        if ($StoreLocation -ne [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser) {
-            throw '-NonInteractive currently supports only the CurrentUser certificate store.'
-        }
-
         if ($PSCmdlet.ShouldProcess("$StoreLocation\$storeName", 'Add signing certificate with certutil')) {
-            & certutil.exe -user -f -addstore $storeName.ToString() $resolvedCertificate
-            if ($LASTEXITCODE -ne 0) {
-                throw "certutil failed to add the signing certificate to $StoreLocation\$storeName (exit code $LASTEXITCODE)"
+            $arguments = @('-f', '-addstore', $storeName.ToString(), ('"' + $resolvedCertificate + '"'))
+            if ($StoreLocation -eq [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser) {
+                $arguments = @('-user') + $arguments
             }
+            $process = Start-Process -FilePath "$env:SystemRoot\System32\certutil.exe" -ArgumentList $arguments -WindowStyle Hidden -PassThru
+            try {
+                if (-not $process.WaitForExit(45000)) {
+                    $process.Kill()
+                    throw "certutil timed out after 45 seconds adding to $StoreLocation\$storeName"
+                }
+                if ($process.ExitCode -ne 0) {
+                    throw "certutil failed to add to $StoreLocation\$storeName (exit code $($process.ExitCode))"
+                }
+            }
+            finally { $process.Dispose() }
+            $verificationStore = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, $StoreLocation)
+            try {
+                $verificationStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+                $matches = @($verificationStore.Certificates | Where-Object { $_.Thumbprint -eq $certificate.Thumbprint })
+                if ($matches.Count -eq 0) {
+                    throw "Certificate import returned success but read-back failed in $StoreLocation\$storeName"
+                }
+            }
+            finally { $verificationStore.Close() }
             Write-Host "  Trusted in $StoreLocation\$storeName" -ForegroundColor Green
         }
         continue
@@ -126,4 +159,9 @@ foreach ($storeName in $stores) {
     }
 }
 
-Write-Host "Native Office certificate trust applied." -ForegroundColor Green
+if ($WhatIfPreference) {
+    Write-Host "Native Office certificate trust preview complete; no certificate was added." -ForegroundColor Gray
+}
+else {
+    Write-Host "Native Office certificate trust applied." -ForegroundColor Green
+}
