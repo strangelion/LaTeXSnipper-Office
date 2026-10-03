@@ -88,24 +88,10 @@ internal sealed class WordBatchConversionExecutor
             {
                 var loc = JsonSerializer.Deserialize<WordRangeLocator>(locJson);
                 if (loc == null) return false;
-                WdStoryType storyType = (WdStoryType)loc.StoryType;
-                target = doc.StoryRanges[storyType];
-                if (target == null) return false;
-
-                // For header/footer stories with SectionIndex > 0, navigate
-                // to the correct section's story range via NextStoryRange
-                if (loc.SectionIndex > 1)
-                {
-                    for (int i = 1; i < loc.SectionIndex; i++)
-                    {
-                        try { target = target.NextStoryRange; }
-                        catch { break; }
-                        if (target == null) break;
-                    }
-                }
-
-                if (target != null)
-                    target.SetRange(loc.Start, loc.End);
+                target = ResolveWordStory(doc, loc);
+                if (target == null || loc.Start < target.Start || loc.End > target.End || loc.End <= loc.Start)
+                    return false;
+                target.SetRange(loc.Start, loc.End);
             }
             else if (kind == "wordTextFrame")
             {
@@ -116,7 +102,9 @@ internal sealed class WordBatchConversionExecutor
                 {
                     if (shape.Name == loc.ShapeName && shape.TextFrame.HasText != 0)
                     {
-                        target = shape.TextFrame.TextRange;
+                        target = shape.TextFrame.TextRange.Duplicate;
+                        if (loc.Start < target.Start || loc.End > target.End || loc.End <= loc.Start)
+                            return false;
                         target.SetRange(loc.Start, loc.End);
                         break;
                     }
@@ -125,11 +113,15 @@ internal sealed class WordBatchConversionExecutor
             }
             else
             {
-                return TryReplaceByFind(doc, item);
+                // An unknown typed locator must never silently target the first
+                // matching formula in an unrelated story.
+                return false;
             }
 
             if (target == null) return false;
             originalText = target.Text;
+            if (!string.Equals(originalText, item.SourceText, StringComparison.Ordinal))
+                return false;
 
             // Verify sourceHash if available
             if (!string.IsNullOrEmpty(item.SourceHash))
@@ -143,44 +135,44 @@ internal sealed class WordBatchConversionExecutor
                 }
             }
 
-            if (target.StoryType == WdStoryType.wdMainTextStory)
-                return ReplaceMainStory(doc, target, item);
-
-            // Transactional replacement: backup original text
-            string backupText = originalText;
-            Range? backupRange = target.Duplicate;
-            var preInsertValidation = OmmlValidator.Validate(item.Omml);
-            if (!preInsertValidation.IsValid)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordBatchConversion] Invalid OMML for {item.SourceId}: " +
-                    preInsertValidation.Issues[0].Code);
-                return false;
-            }
-
-            try
-            {
-                target.Text = "";
-                target.InsertXML(item.Omml!);
-                var readBack = OmmlValidator.ValidateHostReadBack(item.Omml!, target.WordOpenXML);
-                if (!readBack.IsValid)
-                    throw new InvalidOperationException(
-                        "OMML host read-back failed: " + readBack.Issues[0].Code);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                // Restore original text on failure
-                try { backupRange.Text = backupText; }
-                catch (System.Runtime.InteropServices.COMException) { /* inaccessible */ }
-                System.Diagnostics.Debug.WriteLine(
-                    $"[WordBatchConversion] OMML insert failed, restored original: {ex.Message}");
-                return false;
-            }
+            return ReplaceStory(doc, target, item);
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            OfficeOperationLog.Failure("batch-replace-story", "word", item.SourceId, exception);
             return false;
+        }
+        finally
+        {
+            if (target != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(target);
+        }
+    }
+
+    private static Range? ResolveWordStory(Document doc, WordRangeLocator locator)
+    {
+        var story = (WdStoryType)locator.StoryType;
+        if (story == WdStoryType.wdMainTextStory) return doc.Content.Duplicate;
+        if (locator.SectionIndex < 1 || locator.SectionIndex > doc.Sections.Count) return null;
+        var section = doc.Sections[locator.SectionIndex];
+        HeaderFooter? item = null;
+        try
+        {
+            item = story switch
+            {
+                WdStoryType.wdPrimaryHeaderStory => section.Headers[WdHeaderFooterIndex.wdHeaderFooterPrimary],
+                WdStoryType.wdFirstPageHeaderStory => section.Headers[WdHeaderFooterIndex.wdHeaderFooterFirstPage],
+                WdStoryType.wdEvenPagesHeaderStory => section.Headers[WdHeaderFooterIndex.wdHeaderFooterEvenPages],
+                WdStoryType.wdPrimaryFooterStory => section.Footers[WdHeaderFooterIndex.wdHeaderFooterPrimary],
+                WdStoryType.wdFirstPageFooterStory => section.Footers[WdHeaderFooterIndex.wdHeaderFooterFirstPage],
+                WdStoryType.wdEvenPagesFooterStory => section.Footers[WdHeaderFooterIndex.wdHeaderFooterEvenPages],
+                _ => null
+            };
+            return item != null && item.Exists ? item.Range.Duplicate : null;
+        }
+        finally
+        {
+            if (item != null) System.Runtime.InteropServices.Marshal.ReleaseComObject(item);
+            System.Runtime.InteropServices.Marshal.ReleaseComObject(section);
         }
     }
 
@@ -197,10 +189,10 @@ internal sealed class WordBatchConversionExecutor
         range.Find.Execute(FindText: item.SourceText, Forward: true, Wrap: WdFindWrap.wdFindStop);
         if (!range.Find.Found) return false;
 
-        return ReplaceMainStory(doc, range, item);
+        return ReplaceStory(doc, range, item);
     }
 
-    private bool ReplaceMainStory(Document doc, Range source, BatchConversionItem item)
+    private bool ReplaceStory(Document doc, Range source, BatchConversionItem item)
     {
         if (!OmmlValidator.Validate(item.Omml).IsValid) return false;
         if (!string.IsNullOrEmpty(item.SourceHash) &&
@@ -213,19 +205,22 @@ internal sealed class WordBatchConversionExecutor
         var adapter = new WordAdapter(_application);
         // Keep the source until the existing, validated inline pipeline commits.
         // Raw OMML InsertXML is not reliable in the middle of a Word paragraph.
-        var anchor = doc.Range(end, end);
+        var anchor = source.Duplicate;
+        anchor.SetRange(end, end);
         bool inserted;
         try
         {
             anchor.Select();
-            inserted = adapter.InsertFormula(new FormulaPayload
+            var insertion = adapter.InsertFormula(new FormulaPayload
             {
                 FormulaId = formulaId,
                 Latex = item.NormalizedLatex,
                 Omml = item.Omml,
                 StorageMode = "native-omml",
                 Display = "inline"
-            }, InsertMode.Inline).Success;
+            }, InsertMode.Inline);
+            inserted = insertion.Success;
+            if (!inserted) throw new InvalidOperationException(insertion.Error ?? "Native inline insertion failed.");
         }
         finally
         {

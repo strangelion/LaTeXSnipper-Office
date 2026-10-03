@@ -33,7 +33,28 @@ internal sealed class WordBatchLatexScanner
 
             if (scope.Equals("selection", StringComparison.OrdinalIgnoreCase))
             {
-                ScanRange(_application.Selection.Range, "Selection", WdStoryType.wdMainTextStory, candidates);
+                var selected = _application.Selection.Range;
+                if (selected.StoryType == WdStoryType.wdTextFrameStory)
+                {
+                    foreach (Shape shape in doc.Shapes)
+                    {
+                        try
+                        {
+                            if (shape.TextFrame.HasText != 0 && selected.InRange(shape.TextFrame.TextRange))
+                            {
+                                ScanShapeTextRange(selected, shape.Name, candidates);
+                                break;
+                            }
+                        }
+                        catch (System.Runtime.InteropServices.COMException) { }
+                    }
+                }
+                else
+                {
+                    int sectionIndex = selected.StoryType == WdStoryType.wdMainTextStory
+                        ? 0 : selected.Sections[1].Index;
+                    ScanRange(selected, "Selection", selected.StoryType, candidates, sectionIndex);
+                }
             }
             else
             {
@@ -99,6 +120,7 @@ internal sealed class WordBatchLatexScanner
             if (string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = range.Start;
+            int searchStart = rangeStart;
             var matches = LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
@@ -108,15 +130,18 @@ internal sealed class WordBatchLatexScanner
                 string latex = match.Latex;
                 string source = match.OriginalText;
                 string sourceHash = ComputeSha256(source);
+                var resolved = ResolveSourceRange(range, text, match, ref searchStart);
+                if (resolved == null) continue;
 
                 var locator = new WordRangeLocator
                 {
                     StoryType = (int)storyType,
                     SectionIndex = sectionIndex,
                     StoryIndex = 0,
-                    Start = rangeStart + match.Offset,
-                    End = rangeStart + match.Offset + match.Length,
+                    Start = resolved.Start,
+                    End = resolved.End,
                 };
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(resolved);
 
                 candidates.Add(new LatexCandidateDto
                 {
@@ -141,6 +166,7 @@ internal sealed class WordBatchLatexScanner
             if (string.IsNullOrWhiteSpace(text)) return;
 
             int rangeStart = textRange.Start;
+            int searchStart = rangeStart;
             var matches = LatexDelimiterScanner.Scan(text);
             int matchIndex = 0;
 
@@ -150,13 +176,16 @@ internal sealed class WordBatchLatexScanner
                 string latex = match.Latex;
                 string source = match.OriginalText;
                 string sourceHash = ComputeSha256(source);
+                var resolved = ResolveSourceRange(textRange, text, match, ref searchStart);
+                if (resolved == null) continue;
 
                 var locator = new WordTextFrameLocator
                 {
                     ShapeName = shapeName,
-                    Start = rangeStart + match.Offset,
-                    End = rangeStart + match.Offset + match.Length,
+                    Start = resolved.Start,
+                    End = resolved.End,
                 };
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(resolved);
 
                 candidates.Add(new LatexCandidateDto
                 {
@@ -173,6 +202,48 @@ internal sealed class WordBatchLatexScanner
         catch (System.Runtime.InteropServices.COMException) { System.Diagnostics.Debug.WriteLine("Skipped: " + typeof(System.Runtime.InteropServices.COMException).Name); }
     }
 
+    private static Range? ResolveSourceRange(Range scope, string text, LatexDelimiterMatch match, ref int searchStart)
+    {
+        // Floating drawing anchors consume Word positions but are omitted from
+        // Range.Text. Numeric UTF-16 offsets alone can therefore target adjacent
+        // prose. Resolve inside the exact story and verify the visible prefix as
+        // well as source text (duplicate/commented formulas must not be retargeted).
+        var probe = scope.Duplicate;
+        probe.SetRange(searchStart, scope.End);
+        try
+        {
+            // Stay below Word Find's length limit even after escaping carets.
+            string needle = match.OriginalText.Length <= 120
+                ? match.OriginalText : match.OriginalText.Substring(0, 120);
+            // Even non-wildcard Word Find treats ^1, ^p etc. as special tokens.
+            needle = needle.Replace("^", "^^");
+            while (probe.Find.Execute(FindText: needle, MatchCase: true, MatchWholeWord: false,
+                MatchWildcards: false, MatchSoundsLike: false, MatchAllWordForms: false,
+                Forward: true, Wrap: WdFindWrap.wdFindStop, Format: false))
+            {
+                int next = probe.End;
+                if (probe.Start + match.Length <= scope.End)
+                {
+                    probe.SetRange(probe.Start, probe.Start + match.Length);
+                    var prefix = scope.Duplicate;
+                    prefix.SetRange(scope.Start, probe.Start);
+                    string prefixText = prefix.Text ?? "";
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(prefix);
+                    if (string.Equals(probe.Text, match.OriginalText, StringComparison.Ordinal) &&
+                        string.Equals(prefixText, text.Substring(0, match.Offset), StringComparison.Ordinal))
+                    {
+                        searchStart = probe.End;
+                        return probe.Duplicate;
+                    }
+                }
+                if (next >= scope.End) break;
+                probe.SetRange(next, scope.End);
+            }
+            return null;
+        }
+        finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(probe); }
+    }
+
     private static bool ShouldScanHeaderFooter(HeaderFooter item, int sectionIndex, HashSet<string> seen)
     {
         try
@@ -180,7 +251,9 @@ internal sealed class WordBatchLatexScanner
             if (!item.Exists) return false;
             if (sectionIndex > 1 && item.LinkToPrevious) return false;
             var range = item.Range;
-            string key = $"{(int)range.StoryType}:{range.Start}:{range.End}";
+            // Independent sections can have identical offsets and lengths.
+            // LinkToPrevious above, not matching range sizes, identifies sharing.
+            string key = $"{sectionIndex}:{(int)range.StoryType}";
             return seen.Add(key);
         }
         catch (System.Runtime.InteropServices.COMException) { return false; }

@@ -1150,6 +1150,7 @@ namespace LaTeXSnipper.Word.Host
             string scratchId = formulaId + "-inline-scratch-" + Guid.NewGuid().ToString("N");
             Microsoft.Office.Interop.Word.ContentControl scratchCandidate = null;
             Microsoft.Office.Interop.Word.Range scratchParagraph = null;
+            Microsoft.Office.Interop.Word.Range insertedRange = null;
             try
             {
                 var scratch = document.Range(
@@ -1173,11 +1174,14 @@ namespace LaTeXSnipper.Word.Host
                     throw new InvalidOperationException(
                         "Word scratch conversion returned an empty OMath range.");
 
-                var destination = document.Range(targetStart, targetStart);
+                // Numeric offsets are local to a Word story. Recreating this
+                // range through Document.Range would insert header/text-box
+                // formulas into the main body instead.
+                var destination = target.Duplicate;
+                destination.SetRange(targetStart, targetStart);
                 destination.FormattedText = sourceMath.FormattedText;
-                var insertedProbe = document.Range(
-                    targetStart,
-                    Math.Min(document.Content.End - 1, targetStart + sourceLength));
+                insertedRange = destination.Duplicate;
+                var insertedProbe = insertedRange.Duplicate;
                 if (insertedProbe.OMaths.Count != 1)
                     throw new InvalidOperationException(
                         "Word did not preserve one OMath while copying formatted math.");
@@ -1190,7 +1194,10 @@ namespace LaTeXSnipper.Word.Host
                 int insertedEnd = insertedMath.End;
                 while (insertedEnd > insertedMath.Start)
                 {
-                    string trailing = document.Range(insertedEnd - 1, insertedEnd).Text;
+                    var tail = insertedMath.Duplicate;
+                    tail.SetRange(insertedEnd - 1, insertedEnd);
+                    string trailing = tail.Text;
+                    ReleaseLocalComObject(tail);
                     if (trailing != "\r" && trailing != "\a")
                         break;
                     insertedEnd--;
@@ -1207,8 +1214,17 @@ namespace LaTeXSnipper.Word.Host
                 candidate.Title = "LaTeXSnipper Formula";
                 return candidate;
             }
+            catch
+            {
+                // Creating an inline content control can be unsupported in a
+                // story. Remove only the copied candidate; the batch source
+                // has not yet been deleted.
+                if (insertedRange != null) insertedRange.Delete();
+                throw;
+            }
             finally
             {
+                ReleaseLocalComObject(insertedRange);
                 if (scratchCandidate != null)
                 {
                     try

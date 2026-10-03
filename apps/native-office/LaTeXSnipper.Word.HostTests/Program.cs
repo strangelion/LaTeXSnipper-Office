@@ -138,6 +138,8 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
             bool batchMode = args.Length == 3 &&
                 string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase);
+            bool batchStoriesMode = args.Length == 3 &&
+                string.Equals(args[2], "--batch-stories", StringComparison.OrdinalIgnoreCase);
             bool skipPreflight = args.Length == 3 &&
                 string.Equals(
                     args[2],
@@ -145,13 +147,13 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !fieldRefreshMode && !batchMode && !skipPreflight) ||
+                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !skipPreflight) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --style | --field-refresh | --batch | --skip-preflight]");
+                    "--case <fixture-name> | --style | --field-refresh | --batch | --batch-stories | --skip-preflight]");
                 return 2;
             }
 
@@ -207,6 +209,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (batchStoriesMode)
+                    return BatchStoriesAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (batchMode)
                     return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (fieldRefreshMode)

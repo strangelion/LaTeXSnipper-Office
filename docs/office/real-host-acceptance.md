@@ -226,3 +226,52 @@ Word 实例，再运行 `scripts/run-word-pipe-batch-smoke.ps1`。脚本创建�
 后者已增加 `finally` 恢复原自定义符号库，避免测试夹具覆盖已有符号。
 新增脚本的 JavaScript/PowerShell 语法及安全前置条件回归通过；加入两项
 测试后，前端全量为 367/367。这些检查不替代尚未运行的真实宿主测试。
+
+## 2026-10-03 Word 故事定位与候选先行替换（O-06 部分验收）
+
+本轮修复四个独立问题：等长独立页眉被误判为重复；用节编号遍历故事链；
+页眉/文本框的数字坐标经 `Document.Range` 错落正文；浮动绘图锚点占用 Word
+位置但不出现在 `Range.Text`，导致纯文本偏移与实际范围不一致。
+扫描现在在指定故事内查找，并同时校验原文和可见前文；Word Find 的 `^` 特殊
+字符被转义，长公式仅使用有界查找前缀再校验全文。替换前检查故事边界、原文、
+哈希和 OMML，未知定位类型不再退回全文首个匹配；原文仅在候选插入校验成功后删除。
+
+真实 Word `--batch-stories` 专项：正文、两节各自独立的主页面页眉/页脚、
+仅第二节存在的首页页眉、浮动文本框共七个公式全部转换；保存只读重开后
+各故事均有一个 OMath，邻接文字保留，公式 ID 和七条源/OMML 清单仍可回读。
+另覆盖页眉/文本框选区定位、重复公式、Emoji 前文、300 字符公式、多行 display
+源的定位，以及三条
+无效定位/旧哈希请求不改变文本、公式及段落/字体格式。原始 `WordOpenXML`
+会重生成修订/绘图标识，因此拒绝测试按内容和格式语义核对，不按原始字节比较。
+
+250 条正文回归仍为 249 转换、1 故意损坏 OMML 保留、0 执行失败；重开数量、
+邻接标记及剪贴板序列检查通过。总时间 328.093 秒，25 条/批 18.136–48.795 秒。
+这不是多样公式准确率或性能改善声明。前端 369/369，Native Office Release
+解决方案构建和共享 C# 回归通过。后续预处理索引、无分隔符选区及增量更新见
+[batch-update-plan.md](batch-update-plan.md)；O-06 保持进行中。
+
+通过的本地证据（生成目录不进入 Git）：
+
+| 文件（`src-tauri/target/` 下） | SHA-256 |
+| --- | --- |
+| `word-batch-stories-evidence/batch-stories-evidence.json` | `601D7B88D94A86F2CEC0D887F3C66803C19F3B47B656913A121B9EED3152E845` |
+| `word-batch-stories-evidence/word-batch-stories.docx` | `BA0B4927CE97F784A00F042D5DDF89C12CA323058EF54664DF6D4F86C220DAA5` |
+| `word-batch-stories-body-regression/batch-evidence.json` | `89F2D11F2FEB15A6EB4CB5E9083DE30F7EFAA62048CE3AF4400612CC0A360A77` |
+| `word-batch-stories-body-regression/word-batch-acceptance.docx` | `DD9E61CACC825F9AA8D74E0586CD593BAA49728ECAF52AE3A223D7157B9459B7` |
+
+复现命令：
+
+```powershell
+& 'apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri/target/word-native-host-fixture/word-nary-acceptance.generated.json' `
+  'src-tauri/target/word-batch-stories-evidence' --batch-stories
+```
+
+### 打包 CI 验证（不包含本轮新源码）
+
+`bb268a6` 的普通 CI 全绿但跳过 package smoke。本轮额外运行的
+[Main Package Verify 37098619175](https://github.com/strangelion/LaTeXSnipper-Office/actions/runs/37098619175)
+在同一提交的 Windows/Linux/macOS 三平台全部成功；Windows 实际证书信任
+步骤约 1 秒完成，安装、激活、同版本重装、跨版本升级及卸载步骤也通过。
+这关闭了该提交的无人值守证书卡点验证，不替代新源码 CI、实际 Word 加载项 UI
+或真实 release WebView2/桌面管道门禁。
