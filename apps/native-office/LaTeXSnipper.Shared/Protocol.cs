@@ -336,6 +336,15 @@ public class VstoBatchConvertResult : VstoMessage
     [JsonPropertyName("skipped")] public int Skipped { get; set; }
     [JsonPropertyName("failed")] public int Failed { get; set; }
     [JsonPropertyName("failures")] public List<BatchFailureDto>? Failures { get; set; }
+
+    /// <summary>Bind the executor result to the desktop waiter that requested it.</summary>
+    public VstoBatchConvertResult WithRequestContext(DesktopBatchConvert request)
+    {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        RequestId = request.RequestId;
+        SessionId = request.SessionId;
+        return this;
+    }
 }
 
 public class BatchFailureDto

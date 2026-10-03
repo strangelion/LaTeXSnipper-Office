@@ -48,10 +48,27 @@ test("large Office batches are bounded and preserve completed chunks", () => {
   assert.match(batch, /Batch stopped after/);
   assert.match(batch, /send_batch_and_wait/);
   assert.match(batch, /RECONCILIATION_GRACE_SECS: u64 = 120/);
-  assert.match(batch, /current chunk completion is unknown/);
+  assert.match(batch, /wait_with_reconciliation/);
+  assert.match(
+    read("src-tauri/src/platforms/office_commit.rs"),
+    /current chunk completion is unknown/,
+  );
   assert.match(main, /payload\?\.phase === "reconciling"/);
   assert.doesNotMatch(batch, /Err\(error\)\s*=>\s*return Err/);
   assert.match(batch, /locator_start\(right\)\.cmp\(&locator_start\(left\)\)/);
   assert.match(batch, /"office-batch-progress"/);
   assert.match(batch, /"complete": true/);
+});
+
+test("every Native Office host correlates batch results before sending", () => {
+  for (const host of ["Word", "Excel", "PowerPoint"]) {
+    const source = read(`apps/native-office/LaTeXSnipper.${host}/ThisAddIn.cs`);
+    const handler = source.slice(
+      source.indexOf("case DesktopBatchConvert batchCmd:"),
+    );
+    assert.match(
+      handler,
+      /executor\.Execute\(batchCmd\.PlanId, items\)\.WithRequestContext\(batchCmd\)/,
+    );
+  }
 });

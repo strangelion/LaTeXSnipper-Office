@@ -189,3 +189,25 @@ powershell -NoProfile -ExecutionPolicy Bypass `
 
 O-06 仍在进行：实际多格式剪贴板粘贴、管道超时状态核对、页眉/文本框、
 display 分隔符对应的段落排版，以及 Excel/PowerPoint 批量矩阵均未由此关闭。
+
+## 2026-10-03 批处理结果关联与等待器回归（O-06）
+
+检查桌面到加载项的完整返回路径时，发现三个 `ThisAddIn` 的批处理分支
+没有把原请求的 `requestId` / `sessionId` 写回执行器结果。执行器可以已经
+修改文档，但桌面等待器无法匹配空请求 ID，随后仍会报超时。
+
+Word、Excel、PowerPoint 现统一使用 `WithRequestContext`，发送前补齐标识。
+共享 C# 测试从真实协议 JSON 反序列化请求，关联执行结果，再序列化为
+`BATCH_CONVERT_RESULT`，校验请求、会话、计划标识及计数和失败明细。
+
+生产等待逻辑抽取为 `RequestWaiter.wait_with_reconciliation`。五项 Tokio
+运行测试覆盖即时返回（含错误请求 ID 拒绝）、软超时后迟到返回、最终超时、
+宽限期断开，以及关闭通道/接收端丢弃；均校验清理后的等待器数量。
+测试通过事件触发迟到结果，使用短测试预算；生产预算仍为 120 + 120 秒。
+
+本地验证：Native Office Release 解决方案构建及共享 C# 测试通过；前端
+365/365；Rust desktop-full 库测试 129 通过、4 项需实际环境的测试忽略；
+Clippy all-targets `-D warnings` 通过，Office 契约检查通过。
+
+这证明协议关联和异步等待行为，不代表实际 Word 管道、长耗时 COM 调用、
+整个 10,000 公式矩阵或剪贴板粘贴已经验收。O-06 保持 in progress。

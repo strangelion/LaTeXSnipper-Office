@@ -1,5 +1,11 @@
 # LaTeXSnipper Office — 当前实现状态
 
+> 2026-10-03 状态入口：下文为历史功能概览，不能用来判定发布验收已完成。
+> 当前证据以 [实机验收清单](acceptance-checklist.md)、
+> [真实宿主记录](office/real-host-acceptance.md) 和 Core 仓库
+> `docs/closing-issue-ledger.md` 为准。O-06 本轮已补齐三宿主批处理返回标识
+> 与迟到结果等待器回归；实际管道、剪贴板粘贴和剩余宿主矩阵仍待验收。
+
 > 本文档只描述 **已实现** 的内容和已知限制。  
 > 计划/路线图内容请移步 `docs/roadmap.md`（TODO）。
 

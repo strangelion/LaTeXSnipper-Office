@@ -234,8 +234,7 @@ impl RequestWaiter {
     pub async fn resolve(&self, result: HostResult) -> bool {
         let sender = self.waiters.lock().await.remove(&result.request_id);
         if let Some(tx) = sender {
-            let _ = tx.send(result);
-            true
+            tx.send(result).is_ok()
         } else {
             false
         }
@@ -245,6 +244,40 @@ impl RequestWaiter {
     /// Prevents the sender from being dropped without resolution.
     pub async fn cancel(&self, request_id: &str) {
         self.waiters.lock().await.remove(request_id);
+    }
+
+    /// Retain the same receiver across a soft deadline and a bounded grace
+    /// window. A soft timeout must not discard the result of a host mutation.
+    pub async fn wait_with_reconciliation(
+        &self,
+        request_id: &str,
+        mut rx: oneshot::Receiver<HostResult>,
+        primary: std::time::Duration,
+        grace: std::time::Duration,
+        on_reconciling: impl FnOnce(),
+    ) -> Result<(HostResult, bool), String> {
+        match tokio::time::timeout(primary, &mut rx).await {
+            Ok(Ok(result)) => return Ok((result, false)),
+            Ok(Err(_)) => {
+                self.cancel(request_id).await;
+                return Err("Waiter channel closed".to_string());
+            }
+            Err(_) => on_reconciling(),
+        }
+        match tokio::time::timeout(grace, rx).await {
+            Ok(Ok(result)) => Ok((result, true)),
+            Ok(Err(_)) => {
+                self.cancel(request_id).await;
+                Err("Waiter channel closed during reconciliation".to_string())
+            }
+            Err(_) => {
+                self.cancel(request_id).await;
+                Err(format!(
+                    "Timed out after {}s plus {}s reconciliation grace; current chunk completion is unknown",
+                    primary.as_secs_f64(), grace.as_secs_f64()
+                ))
+            }
+        }
     }
 
     /// Cancel all pending waiters (e.g., on shutdown).
@@ -308,6 +341,138 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn host_result(request_id: &str) -> HostResult {
+        HostResult {
+            success: true,
+            request_id: request_id.into(),
+            session_id: "session-1".into(),
+            formula_id: None,
+            revision: None,
+            actual_storage_mode: None,
+            error_code: None,
+            error: None,
+            data: Some(serde_json::json!({ "converted": 25 })),
+        }
+    }
+
+    #[tokio::test]
+    async fn waiter_immediate_result_needs_no_reconciliation() {
+        let waiter = RequestWaiter::new();
+        let rx = waiter.register("batch-1".into()).await;
+        assert!(!waiter.resolve(host_result("other-request")).await);
+        assert!(waiter.resolve(host_result("batch-1")).await);
+        let (result, reconciled) = waiter
+            .wait_with_reconciliation(
+                "batch-1",
+                rx,
+                std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+                || panic!("unexpected soft timeout"),
+            )
+            .await
+            .unwrap();
+        assert!(!reconciled);
+        assert_eq!(result.data.unwrap()["converted"], 25);
+        assert_eq!(waiter.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn waiter_late_result_survives_soft_timeout() {
+        let waiter = RequestWaiter::new();
+        let rx = waiter.register("batch-late".into()).await;
+        let (soft_tx, soft_rx) = oneshot::channel();
+        let wait = waiter.wait_with_reconciliation(
+            "batch-late",
+            rx,
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(1),
+            || {
+                soft_tx.send(()).unwrap();
+            },
+        );
+        let resolve = async {
+            soft_rx.await.unwrap();
+            assert_eq!(waiter.pending_count().await, 1);
+            assert!(waiter.resolve(host_result("batch-late")).await);
+        };
+        let (outcome, ()) = tokio::join!(wait, resolve);
+        let (result, reconciled) = outcome.unwrap();
+        assert!(reconciled);
+        assert_eq!(result.request_id, "batch-late");
+        assert_eq!(waiter.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn waiter_final_timeout_cleans_pending_request() {
+        let waiter = RequestWaiter::new();
+        let rx = waiter.register("batch-timeout".into()).await;
+        let mut notified = false;
+        let error = waiter
+            .wait_with_reconciliation(
+                "batch-timeout",
+                rx,
+                std::time::Duration::from_millis(1),
+                std::time::Duration::from_millis(1),
+                || {
+                    notified = true;
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(notified);
+        assert!(error.contains("current chunk completion is unknown"));
+        assert_eq!(waiter.pending_count().await, 0);
+        assert!(!waiter.resolve(host_result("batch-timeout")).await);
+    }
+
+    #[tokio::test]
+    async fn waiter_channel_closed_during_grace_cleans_pending_request() {
+        let waiter = RequestWaiter::new();
+        let rx = waiter.register("batch-disconnected".into()).await;
+        let (soft_tx, soft_rx) = oneshot::channel();
+        let wait = waiter.wait_with_reconciliation(
+            "batch-disconnected",
+            rx,
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(1),
+            || {
+                soft_tx.send(()).unwrap();
+            },
+        );
+        let disconnect = async {
+            soft_rx.await.unwrap();
+            waiter.cancel("batch-disconnected").await;
+        };
+        let (outcome, ()) = tokio::join!(wait, disconnect);
+        assert_eq!(
+            outcome.unwrap_err(),
+            "Waiter channel closed during reconciliation"
+        );
+        assert_eq!(waiter.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn waiter_closed_channel_and_dropped_receiver_are_not_success() {
+        let waiter = RequestWaiter::new();
+        let rx = waiter.register("batch-closed".into()).await;
+        waiter.cancel("batch-closed").await;
+        let error = waiter
+            .wait_with_reconciliation(
+                "batch-closed",
+                rx,
+                std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(1),
+                || panic!("unexpected soft timeout"),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "Waiter channel closed");
+        let rx = waiter.register("batch-dropped".into()).await;
+        drop(rx);
+        assert!(!waiter.resolve(host_result("batch-dropped")).await);
+        assert_eq!(waiter.pending_count().await, 0);
+    }
 
     #[tokio::test]
     async fn register_and_resolve() {

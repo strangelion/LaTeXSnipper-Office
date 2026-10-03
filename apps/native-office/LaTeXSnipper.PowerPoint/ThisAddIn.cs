@@ -308,7 +308,7 @@ namespace LaTeXSnipper.PowerPoint
                 {
                     var executor = new PowerPointBatchConversionExecutor(Application);
                     var items = batchCmd.Plan?.Items ?? new List<BatchConversionItem>();
-                    var result = executor.Execute(batchCmd.PlanId, items);
+                    var result = executor.Execute(batchCmd.PlanId, items).WithRequestContext(batchCmd);
                     _pipeClient?.SendOnlyAsync(result);
                     break;
                 }

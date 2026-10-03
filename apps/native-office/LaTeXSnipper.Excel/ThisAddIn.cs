@@ -318,7 +318,7 @@ namespace LaTeXSnipper.Excel
                 {
                     var executor = new ExcelBatchConversionExecutor(Application);
                     var items = batchCmd.Plan?.Items ?? new List<BatchConversionItem>();
-                    var result = executor.Execute(batchCmd.PlanId, items);
+                    var result = executor.Execute(batchCmd.PlanId, items).WithRequestContext(batchCmd);
                     _pipeClient?.SendOnlyAsync(result);
                     break;
                 }

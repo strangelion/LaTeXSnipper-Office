@@ -83,36 +83,23 @@ async fn send_batch_and_wait(
     const PRIMARY_TIMEOUT_SECS: u64 = 120;
     const RECONCILIATION_GRACE_SECS: u64 = 120;
 
-    let mut rx = waiter.register(request_id.clone()).await;
+    let rx = waiter.register(request_id.clone()).await;
     if let Err(error) = session_mgr.send_to_session(session_id, msg).await {
         waiter.cancel(&request_id).await;
         return Err(format!("Send failed: {error}"));
     }
 
-    match tokio::time::timeout(Duration::from_secs(PRIMARY_TIMEOUT_SECS), &mut rx).await {
-        Ok(Ok(result)) => return Ok((result, false)),
-        Ok(Err(_)) => {
-            waiter.cancel(&request_id).await;
-            return Err("Waiter channel closed".to_string());
-        }
-        Err(_) => {
-            let _ = app.emit("office-batch-progress", progress);
-        }
-    }
-
-    match tokio::time::timeout(Duration::from_secs(RECONCILIATION_GRACE_SECS), rx).await {
-        Ok(Ok(result)) => Ok((result, true)),
-        Ok(Err(_)) => {
-            waiter.cancel(&request_id).await;
-            Err("Waiter channel closed during reconciliation".to_string())
-        }
-        Err(_) => {
-            waiter.cancel(&request_id).await;
-            Err(format!(
-                "Timed out after {PRIMARY_TIMEOUT_SECS}s plus {RECONCILIATION_GRACE_SECS}s reconciliation grace; current chunk completion is unknown"
-            ))
-        }
-    }
+    waiter
+        .wait_with_reconciliation(
+            &request_id,
+            rx,
+            Duration::from_secs(PRIMARY_TIMEOUT_SECS),
+            Duration::from_secs(RECONCILIATION_GRACE_SECS),
+            || {
+                let _ = app.emit("office-batch-progress", progress);
+            },
+        )
+        .await
 }
 
 // ---------------------------------------------------------------------------
