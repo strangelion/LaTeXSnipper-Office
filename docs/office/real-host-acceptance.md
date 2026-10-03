@@ -211,3 +211,18 @@ Clippy all-targets `-D warnings` 通过，Office 契约检查通过。
 
 这证明协议关联和异步等待行为，不代表实际 Word 管道、长耗时 COM 调用、
 整个 10,000 公式矩阵或剪贴板粘贴已经验收。O-06 保持 in progress。
+
+下一步端到端脚本已准备：先启动生产模式 release WebView2（使用独立
+`WEBVIEW2_USER_DATA_FOLDER`，CDP 默认 `http://127.0.0.1:9223`），关闭其他
+Word 实例，再运行 `scripts/run-word-pipe-batch-smoke.ps1`。脚本创建独立 DOCX，
+按精确文档上下文连接 Tauri 的扫描、计划和执行命令，要求四条公式全部返回
+确认结果，并实际保存、只读重开，核验四个 OMath 和全部邻接正文标记。
+不得将其用于用户现有文档；已有测试 DOCX 不会被覆盖。
+
+本轮 `cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+--features desktop-full,tauri/custom-protocol --bin latexsnipper-office` 构建通过。
+随后启动程序的命令被当前执行策略拒绝，因此上述端到端脚本和
+`scripts/verify-tauri-release-webview.mjs` **本轮未运行**，不能标为通过。
+后者已增加 `finally` 恢复原自定义符号库，避免测试夹具覆盖已有符号。
+新增脚本的 JavaScript/PowerShell 语法及安全前置条件回归通过；加入两项
+测试后，前端全量为 367/367。这些检查不替代尚未运行的真实宿主测试。

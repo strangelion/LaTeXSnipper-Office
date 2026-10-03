@@ -4,6 +4,7 @@ import { chromium } from "playwright-core";
 const endpoint = process.env.WEBVIEW2_CDP_URL || "http://127.0.0.1:9223";
 const browser = await chromium.connectOverCDP(endpoint);
 let page;
+let originalSymbolLibrary;
 
 try {
   const pages = browser.contexts().flatMap((context) => context.pages());
@@ -35,6 +36,9 @@ try {
   await page.locator("#app").waitFor({ state: "visible", timeout: 15_000 });
   assert.equal(await page.title(), "LaTeXSnipper Office");
   assert.equal(new URL(page.url()).hostname, "tauri.localhost");
+  originalSymbolLibrary = await page.evaluate(() =>
+    localStorage.getItem("latexsnipper.custom-symbols.v1"),
+  );
 
   const csp = await page.evaluate(async () => {
     const minimalModule = new Uint8Array([
@@ -307,6 +311,23 @@ try {
   );
 } finally {
   if (page) {
+    // Never leave a fixture library in place of the user's saved symbols,
+    // including when an assertion or drawing runtime fails mid-test.
+    if (originalSymbolLibrary !== undefined) {
+      try {
+        await page.evaluate((original) => {
+          const key = "latexsnipper.custom-symbols.v1";
+          if (original === null) localStorage.removeItem(key);
+          else localStorage.setItem(key, original);
+          window.dispatchEvent(
+            new CustomEvent("latexsnipper:custom-symbol-library-changed"),
+          );
+        }, originalSymbolLibrary);
+      } catch {
+        // A crashed/closed WebView cannot accept cleanup. Use an isolated
+        // WEBVIEW2_USER_DATA_FOLDER for unattended release verification.
+      }
+    }
     try {
       await page.locator("#editorBtn").click();
       await page.locator("#drawingModeTab").click();
