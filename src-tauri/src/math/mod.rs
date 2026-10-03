@@ -48,6 +48,14 @@ pub fn latex_to_omml(latex: String) -> Result<String, String> {
     latex_to_omml_str(&latex)
 }
 
+/// Read-only preparation for explicit format conversion. Unknown constructs
+/// must not silently disappear before the user confirms a replacement.
+#[command]
+pub fn latex_to_omml_strict(latex: String) -> Result<String, String> {
+    latexsnipper_conversion::omml::validate_omml_latex(&latex)?;
+    latex_to_omml_str(&latex)
+}
+
 #[command]
 pub fn mathml_to_latex(mathml: String) -> Result<String, String> {
     mathml_to_latex_str(&mathml)
@@ -70,6 +78,15 @@ pub fn convert_formula(latex: String, target_format: String) -> Result<String, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strict_format_preparation_rejects_unknown_and_malformed_source() {
+        assert!(latex_to_omml_strict(r"\frac{a}{b}".into())
+            .unwrap()
+            .contains("<m:f>"));
+        assert!(latex_to_omml_strict(r"\unknownmacro+x".into()).is_err());
+        assert!(latex_to_omml_strict(r"\frac{a}".into()).is_err());
+    }
 
     #[test]
     fn test_omml_to_latex_via_core() {

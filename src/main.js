@@ -39,6 +39,7 @@ import {
   mergeEditableMediaOlePayload,
 } from "./services/editable-media-office.js";
 import { bindWorkspaceInteractions } from "./features/workspace/interactions.js";
+import "./services/office-format-conversion.css";
 import {
   formulaCopyPlan,
   shouldPreserveNativeCopy,
@@ -2657,6 +2658,7 @@ class UIController {
       onOfficeReplace: () => this.replaceLoadedOfficeFormula(),
       onOfficeBatch: () => this.runOfficeBatchConversion(),
       onOfficeSelectionLatex: () => this.runOfficeSelectionConversion(),
+      onOfficeFormat: () => this.runOfficeFormatConversion(),
     });
 
     for (const button of document.querySelectorAll("[data-formula-resource]")) {
@@ -6249,14 +6251,7 @@ class UIController {
         this.drawingWorkspace?.activateMode("drawing");
         break;
       case "conversion":
-        this.switchSection("editor");
-        this.drawingWorkspace?.activateMode("formula");
-        requestAnimationFrame(() => {
-          document
-            .getElementById("officeActionDock")
-            ?.scrollIntoView({ block: "center", behavior: "smooth" });
-          this.showToast("输入公式后可复制 OMML、MathML、SVG 或导出图片");
-        });
+        void this.runOfficeFormatConversion();
         break;
       case "selection-latex":
         this.switchSection("office");
@@ -6793,6 +6788,211 @@ class UIController {
     } finally {
       this._officeSelectionConversionBusy = false;
       if (button) button.disabled = false;
+    }
+  }
+
+  async runOfficeFormatConversion() {
+    if (this._officeFormatConversionBusy) return;
+    this._officeFormatConversionBusy = true;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const service = await import("./services/office-format-conversion.js");
+      await this.updateOfficeHostSelector();
+      const session = this._sessions?.find(
+        (item) => item.session_id === this._selectedSessionId,
+      );
+      const target = {
+        host: session?.host_type,
+        sessionId: session?.session_id,
+        documentContext: session?.document_id,
+      };
+      const loaded = this._lastNativeOfficeFormula;
+      const managed =
+        loaded?.sessionId === target.sessionId &&
+        loaded?.documentContextId === target.documentContext &&
+        Boolean(loaded?.formula?.formulaId && loaded?.formula?.latex);
+      const editorLatex = this.editor.getLatex();
+      const display = this.getFormulaInsertMode();
+      const api = {
+        read: (bound, id) =>
+          invoke("native_office_read_formula_by_id", {
+            sessionId: bound.sessionId,
+            formulaId: id,
+            expectedDocumentId: bound.documentContext,
+          }),
+        omml: (latex) => invoke("latex_to_omml_strict", { latex }),
+        oleAvailable: async () =>
+          Boolean((await invoke("native_office_ole_status")).available),
+        render: async (latex, mode, presentation) => {
+          const rendered = await this.formulaSvgRenderer.renderFormulaSvg(
+            latex,
+            {
+              display: mode !== "inline",
+              styleProfile:
+                presentation?.styleProfile || this.currentFormulaStyle,
+            },
+          );
+          return {
+            svg: rendered.svg,
+            png: await this._svgToPngBase64(
+              rendered.svg,
+              rendered.widthPt,
+              rendered.heightPt,
+            ),
+            widthPt: rendered.widthPt,
+            heightPt: rendered.heightPt,
+          };
+        },
+        replace: (bound, payload) =>
+          invoke("native_office_replace_formula", {
+            sessionId: bound.sessionId,
+            expectedDocumentId: bound.documentContext,
+            formulaId: payload.formulaId,
+            expectedRevision: payload.revision,
+            latex: payload.latex,
+            omml: payload.omml || "",
+            display: payload.display,
+            storageMode: payload.storageMode,
+            svg: payload.render?.svg || null,
+            png: payload.render?.png || null,
+            widthPt: payload.render?.widthPt || null,
+            heightPt: payload.render?.heightPt || null,
+            presentation: payload.presentation || null,
+            numberingTemplate: payload.numberingTemplate || null,
+            numberingStyle: payload.numberingStyle || null,
+            numberingScheme: payload.numberingScheme || null,
+            numberingChapterLevel: payload.numberingChapterLevel ?? null,
+            numberingSeparator: payload.numberingSeparator || null,
+          }),
+      };
+      let ole = false;
+      if (hasDesktopRuntime() && target.host === "word") {
+        try {
+          ole = await api.oleAvailable();
+        } catch (error) {
+          Logger.warn("OLE conversion availability probe failed", error);
+        }
+      }
+      const answer = await service.openFormatConversionDialog({
+        context: {
+          native: hasDesktopRuntime(),
+          connected: Boolean(session),
+          host: target.host,
+          documentContext: target.documentContext,
+          documentTitle: session?.document_title,
+          managed,
+          editor: Boolean(editorLatex.trim()),
+          engine: hasDesktopRuntime(),
+          ole,
+        },
+        prepare: async ({ source, format }) => {
+          if (source === "selection") {
+            const plan = await service.prepareSelectionConversion(target);
+            return {
+              kind: "selection",
+              plan,
+              latex: plan.items[0].normalizedLatex,
+            };
+          }
+          if (source === "managed")
+            return service.prepareManagedFormatConversion(
+              target,
+              loaded.formula.formulaId,
+              format,
+              api,
+            );
+          return {
+            kind: "export",
+            latex: editorLatex,
+            artifact: await service.prepareFormatArtifact(
+              editorLatex,
+              format,
+              display,
+              api,
+            ),
+          };
+        },
+        renderPreview: async (prepared) => {
+          if (prepared.artifact?.mime?.startsWith("image/")) {
+            const artifact = prepared.artifact;
+            const image = document.createElement("img");
+            image.alt = "导出图像预览";
+            if (artifact.base64) {
+              image.src = `data:image/png;base64,${artifact.content.replace(/^data:image\/png;base64,/, "")}`;
+              await image.decode();
+              return image;
+            }
+            const url = URL.createObjectURL(
+              new Blob([artifact.content], { type: artifact.mime }),
+            );
+            image.src = url;
+            try {
+              await image.decode();
+              return image;
+            } finally {
+              URL.revokeObjectURL(url);
+            }
+          }
+          if (prepared.artifact?.filename?.endsWith(".tex")) {
+            const code = document.createElement("pre");
+            code.textContent = prepared.latex;
+            return code;
+          }
+          if (
+            prepared.payload?.storageMode === "ole" &&
+            prepared.payload.render?.png
+          ) {
+            const image = document.createElement("img");
+            image.alt = "目标 OLE 图片预览";
+            image.src = `data:image/png;base64,${prepared.payload.render.png.replace(/^data:image\/png;base64,/, "")}`;
+            await image.decode();
+            return image;
+          }
+          return this.editor.createPreviewNode(
+            prepared.latex,
+            prepared.kind === "selection"
+              ? false
+              : (prepared.snapshot?.display || display) !== "inline",
+          );
+        },
+      });
+      if (!answer) {
+        this.showToast("已取消，Office 文档未修改");
+        return;
+      }
+      const prepared = answer.prepared;
+      if (prepared.artifact) {
+        service.downloadFormatArtifact(prepared.artifact);
+        this.showToast("已导出公式副本，Office 文档未修改");
+      } else if (prepared.kind === "selection") {
+        const result = await service.executeSelectionConversion(
+          prepared.plan,
+          true,
+        );
+        if (result.converted !== 1)
+          throw new Error(
+            result.failures?.[0]?.error || "原文已变化或宿主拒绝转换",
+          );
+        this.showToast("选区已转换为行内 OMML");
+      } else {
+        const result = await service.executeManagedFormatConversion(
+          prepared,
+          true,
+          api,
+        );
+        this._lastNativeOfficeFormula = {
+          formula: result.formula,
+          sessionId: target.sessionId,
+          documentContextId: target.documentContext,
+        };
+        this.showToast(
+          `已原位转换为 ${service.FORMAT_NAMES[answer.format]}，ID 与 LaTeX 源回读通过`,
+        );
+      }
+    } catch (error) {
+      this.showToast(`格式转换未完成：${error?.message || error}`);
+    } finally {
+      this._officeFormatConversionBusy = false;
     }
   }
 

@@ -538,6 +538,7 @@ pub fn run() {
             platforms::office::invalidate_office_cache,
             math::omml_to_latex,
             math::latex_to_omml,
+            math::latex_to_omml_strict,
             math::mathml_to_latex,
             math::convert_formula,
             #[cfg(target_os = "windows")]

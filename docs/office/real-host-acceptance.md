@@ -317,3 +317,47 @@ Office 上一提交 `bc2bb51` 的 CI 37111365601 失败于扫描器空 COM catch
 源码规范通过，新提交远端 CI 不以旧提交的成功任务代替。
 格式来源/目标选择器、第三方 MathType 边界及原位转换验收已记录于
 [batch-update-plan.md](batch-update-plan.md)，O-06 保持进行中。
+
+## 2026-10-03 格式选择器与本应用 OMML/OLE 双向（部分验收）
+
+桌面与 Office.js 新增格式弹窗，COM Word 原有转换 Ribbon 入口指向它。
+来源、目标、目标文档及限制可见；预览失败、取消和迟到准备不提交。编辑器 SVG/PNG
+导出预览使用同一实际图像，不以另一遍渲染冒充目标。OMML 准备调用 Core 严格源校验。
+OLE 写入等待宿主结果，保留原 ID，递增 revision，并回读验证；修复 OLE 内部旧修订号、
+插入结果缺少实际 StorageMode，以及候选嵌套导致父控件删除候选的问题。
+清单写入读回未通过时保留原范围；提交后读回失败明确报告未知结果，不自动重试。
+
+真实 Word 专项：一个积分语法，行内/行间各一个本应用公式，四次转换；
+OMML→OLE 保存重开→OMML 保存重开均通过。ID、LaTeX、显示模式、修订号、
+创建元数据及黑色展示样式一致；OLE 自动化对象内 payload 与文档清单一致。
+缺少图像预览、陈旧 revision 拒绝且原文/OMath 数量/清单不变。耗时 **7.712 秒**。
+这不等于任意公式、字体/复杂样式、跨故事或编号引用已通过。
+
+前端全量 **392/392**，Office.js TypeScript/生产构建、桌面 Vite/WASM/CSP smoke、
+Native Office Release、共享 C# 回归和 Rust 严格准备专项通过。
+真实 Chrome 覆盖目标切换使旧预览失效、确认/取消/Escape、预览失败、迟到清理、
+390px 浅/深主题；浏览器宿主调用是夹具，不代替真实管道或 Office.js 宿主。
+
+当前明确限制：裸选区仅行内 OMML；编辑器 OLE 新插入继续走既有 Office 插入路线；
+图像和 LaTeX 导出副本不改文档；编号原位转换、MathType/MTEF、无源对象、真实
+Tauri 管道与实际 Office.js Word 宿主继续待验收。Word 手工修改但未同步源的核对
+属于后续预处理索引门禁，不能由清单 revision 校验推断已覆盖。
+
+本地证据（`src-tauri/target/`，不进入 Git）：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `word-format-conversion-evidence/format-conversion-evidence.json` | `26278C9CA654088C7FE700A50139D082A1C33EC579D98A79BAE025974B143221` |
+| `word-format-conversion-evidence/ole-stage.docx` | `68AB73230D1122A50CE00BD67B9FD9B24C6B8ADB17D6E3FE779ED6F5EF78657D` |
+| `word-format-conversion-evidence/native-stage.docx` | `DCF90636F4E7357D943339AEB292C89338F1D729C81D2A0D2723EA4DCC0CF0CE` |
+
+```powershell
+node scripts/verify-office-format-conversion.mjs
+& 'apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri/target/word-native-host-fixture/word-nary-acceptance.generated.json' `
+  'src-tauri/target/word-format-conversion-evidence' --format-conversion `
+  'output/playwright/office-format-conversion/inline-integral-render.json'
+```
+
+Office CI 修复提交 `6649175` 的 [CI 37115718227](https://github.com/strangelion/LaTeXSnipper-Office/actions/runs/37115718227)
+已成功：修正资源合约的 Core gitlink pin。该结果不代表本轮新增转换源码的 CI 也已完成。

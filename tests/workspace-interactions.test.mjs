@@ -26,6 +26,7 @@ test("command bar and Office workspace clicks invoke production handlers", () =>
     officeWorkspaceReplace: new FakeButton(),
     officeWorkspaceBatch: new FakeButton(),
     officeWorkspaceSelectionLatex: new FakeButton(),
+    officeWorkspaceFormat: new FakeButton(),
   };
   const calls = [];
   bindWorkspaceInteractions({
@@ -38,12 +39,14 @@ test("command bar and Office workspace clicks invoke production handlers", () =>
     onOfficeReplace: () => calls.push("office:replace"),
     onOfficeBatch: () => calls.push("office:batch"),
     onOfficeSelectionLatex: () => calls.push("office:selection-latex"),
+    onOfficeFormat: () => calls.push("office:format"),
   });
   for (const button of commandButtons) button.click();
   office.officeWorkspaceRead.click();
   office.officeWorkspaceReplace.click();
   office.officeWorkspaceBatch.click();
   office.officeWorkspaceSelectionLatex.click();
+  office.officeWorkspaceFormat.click();
   assert.deepEqual(calls, [
     "command:new",
     "command:open",
@@ -55,5 +58,6 @@ test("command bar and Office workspace clicks invoke production handlers", () =>
     "office:replace",
     "office:batch",
     "office:selection-latex",
+    "office:format",
   ]);
 });

@@ -128,6 +128,8 @@ namespace LaTeXSnipper.Word.HostTests
         {
             bool oleMode = args.Length == 4 &&
                 string.Equals(args[2], "--ole", StringComparison.OrdinalIgnoreCase);
+            bool formatConversionMode = args.Length == 4 &&
+                string.Equals(args[2], "--format-conversion", StringComparison.OrdinalIgnoreCase);
             bool imageMode = args.Length == 4 &&
                 string.Equals(args[2], "--editable-image", StringComparison.OrdinalIgnoreCase);
             bool caseMode = args.Length == 4 &&
@@ -149,13 +151,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !selectionLatexMode && !skipPreflight) ||
+                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !selectionLatexMode && !formatConversionMode && !skipPreflight) ||
+                (formatConversionMode && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --style | --field-refresh | --batch | --batch-stories | --selection-latex | --skip-preflight]");
+                    "--case <fixture-name> | --format-conversion <render.json> | --style | --field-refresh | --batch | --batch-stories | --selection-latex | --skip-preflight]");
                 return 2;
             }
 
@@ -201,7 +204,7 @@ namespace LaTeXSnipper.Word.HostTests
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
                 document = application.Documents.Add();
-                int? oleServerProcessId = oleMode
+                int? oleServerProcessId = oleMode || formatConversionMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 if (oleServerProcessId.HasValue)
@@ -211,6 +214,9 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (formatConversionMode)
+                    return FormatConversionAcceptance.Run(application, ref document, adapter, activeCases.First(),
+                        JsonSerializer.Deserialize<RenderData>(File.ReadAllText(args[3]), JsonOptions), evidenceDirectory);
                 if (selectionLatexMode)
                     return SelectionLatexAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (batchStoriesMode)

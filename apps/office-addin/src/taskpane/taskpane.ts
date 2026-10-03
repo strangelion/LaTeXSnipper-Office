@@ -1,6 +1,13 @@
 import { router } from "core-protocol/command.router";
 import { OfficeHostAdapter } from "../adapters/unified-adapter";
 import { WordSelectionLatex } from "../adapters/word-selection-latex";
+import { OfficeBridgeClient } from "../adapters/bridge-client";
+import {
+  openFormatConversionDialog,
+  downloadFormatArtifact,
+  type FormatArtifact,
+} from "../../../../src/services/office-format-conversion.js";
+import "../../../../src/services/office-format-conversion.css";
 
 type InsertMode = "inline" | "display" | "display-numbered";
 type StatusType = "info" | "success" | "error";
@@ -73,6 +80,9 @@ function ensureAdapter(): void {
 
 async function exec(command: any): Promise<any> {
   ensureAdapter();
+  document
+    .getElementById("formatConversionBtn")
+    ?.addEventListener("click", () => void handleFormatConversion());
   return router.dispatch("office", command);
 }
 
@@ -204,6 +214,10 @@ function applyCapabilities(): void {
 }
 
 function applyBridgeCapabilities(): void {
+  const formatButton = document.getElementById(
+    "formatConversionBtn",
+  ) as HTMLButtonElement | null;
+  if (formatButton) formatButton.disabled = busy;
   const selectionButton = document.getElementById(
     "selectionLatexBtn",
   ) as HTMLButtonElement | null;
@@ -223,6 +237,140 @@ function applyBridgeCapabilities(): void {
     button.title = bridgeConnected
       ? button.dataset.connectedTitle || ""
       : "需要启动 LaTeXSnipper 桌面端并连接本地桥接服务";
+  }
+}
+
+type PaneConversion =
+  | {
+      kind: "selection";
+      latex: string;
+      svg: string;
+      controller: WordSelectionLatex;
+    }
+  | { kind: "export"; latex: string; artifact: FormatArtifact };
+
+async function handleFormatConversion(): Promise<void> {
+  if (busy) return;
+  setBusy(true);
+  try {
+    await selectionConversion?.cancel();
+    selectionConversion = null;
+    clearSelectionPreview();
+    const bridge = new OfficeBridgeClient();
+    const latex = getEditorContent();
+    const mode = modeToDisplay(getInsertMode());
+    const answer = await openFormatConversionDialog<PaneConversion>({
+      context: {
+        native: false,
+        connected: bridgeConnected,
+        host: capabilities?.host,
+        managed: false,
+        editor: Boolean(latex.trim()),
+        engine: bridgeConnected,
+        ole: false,
+      },
+      prepare: async ({ source, format }) => {
+        if (source === "selection") {
+          const controller = new WordSelectionLatex(bridge);
+          try {
+            const prepared = await controller.prepare();
+            return { ...prepared, kind: "selection", controller };
+          } catch (error) {
+            await controller.cancel();
+            throw error;
+          }
+        }
+        if (
+          source !== "editor" ||
+          !["latex", "omml", "svg", "png"].includes(format)
+        )
+          throw new Error("此 Office.js 宿主不支持该转换路径");
+        const content =
+          format === "latex"
+            ? latex
+            : (
+                await bridge.convert(
+                  "latex",
+                  format as "omml" | "svg" | "png",
+                  latex,
+                  mode,
+                )
+              ).content;
+        return {
+          kind: "export",
+          latex,
+          artifact: {
+            content,
+            filename: `formula.${format === "latex" ? "tex" : format}`,
+            mime:
+              format === "svg"
+                ? "image/svg+xml"
+                : format === "png"
+                  ? "image/png"
+                  : format === "omml"
+                    ? "application/xml;charset=utf-8"
+                    : "text/plain;charset=utf-8",
+            base64: format === "png",
+          },
+        };
+      },
+      renderPreview: async (prepared) => {
+        if (
+          prepared.kind === "export" &&
+          prepared.artifact.filename.endsWith(".tex")
+        ) {
+          const code = document.createElement("pre");
+          code.textContent = prepared.latex;
+          return code;
+        }
+        if (prepared.kind === "export" && prepared.artifact.base64) {
+          const image = document.createElement("img");
+          image.alt = "导出 PNG 预览";
+          image.src = `data:image/png;base64,${prepared.artifact.content.replace(/^data:image\/png;base64,/, "")}`;
+          await image.decode();
+          return image;
+        }
+        const svg =
+          prepared.kind === "selection"
+            ? prepared.svg
+            : prepared.artifact.mime === "image/svg+xml"
+              ? prepared.artifact.content
+              : (await bridge.convert("latex", "svg", prepared.latex, mode))
+                  .content;
+        const url = URL.createObjectURL(
+          new Blob([svg], { type: "image/svg+xml" }),
+        );
+        const image = document.createElement("img");
+        image.alt = "公式转换预览";
+        image.src = url;
+        try {
+          await image.decode();
+          return image;
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      },
+      dispose: async (prepared) => {
+        if (prepared.kind === "selection") await prepared.controller.cancel();
+      },
+    });
+    if (!answer) {
+      setStatus("已取消，文档未修改");
+      return;
+    }
+    if (answer.prepared.kind === "export") {
+      downloadFormatArtifact(answer.prepared.artifact);
+      setStatus("已导出副本，文档未修改", "success");
+    } else {
+      const payload = await answer.prepared.controller.confirm();
+      selectedFormulaId = payload.formulaId;
+      setEditorContent(payload.latex);
+      setStatus("选区已转换为行内 OMML", "success");
+    }
+  } catch (error) {
+    setStatus(`格式转换未完成：${String(error)}`, "error");
+  } finally {
+    setBusy(false);
   }
 }
 

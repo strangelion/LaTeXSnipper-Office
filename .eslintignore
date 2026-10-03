@@ -2,6 +2,8 @@ dist/
 src/dist/
 src/public/
 src/generated/*.ts
+# Declaration bridge is checked by the strict Office.js TypeScript build.
+src/services/office-format-conversion.d.ts
 src-tauri/resources/
 **/node_modules/
 **/bin/

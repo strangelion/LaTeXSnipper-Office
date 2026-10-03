@@ -366,6 +366,7 @@ namespace LaTeXSnipper.Word.Host
             Microsoft.Office.Interop.Word.Document doc = null;
             FormulaPayload originalManifest = null;
             string candidateId = FormulaIdHelper.NewId();
+            bool originalDeleted = false;
             try
             {
                 doc = _application.ActiveDocument;
@@ -408,12 +409,19 @@ namespace LaTeXSnipper.Word.Host
                     var mode = ParseInsertMode(newPayload.Display);
                     string requestedFormulaId = newPayload.FormulaId;
                     newPayload.FormulaId = candidateId;
-                    if (originalOleShape != null)
-                        newPayload.StorageMode = "ole";
-                    else if (originalManifest != null && !string.IsNullOrWhiteSpace(originalManifest.StorageMode))
-                        newPayload.StorageMode = originalManifest.StorageMode;
+                    // Explicit format conversion must not be overwritten by the
+                    // original object's storage mode. Auto edits still preserve it.
+                    if (newPayload.StorageMode == "native") newPayload.StorageMode = "native-omml";
+                    bool explicitFormat = newPayload.StorageMode == "native-omml" || newPayload.StorageMode == "ole";
+                    if (!explicitFormat)
+                    {
+                        if (originalOleShape != null) newPayload.StorageMode = "ole";
+                        else if (originalManifest != null && !string.IsNullOrWhiteSpace(originalManifest.StorageMode))
+                            newPayload.StorageMode = originalManifest.StorageMode;
+                    }
 
-                    var candidatePoint = doc.Range(originalEnd, originalEnd);
+                    var candidatePoint = originalRange.Duplicate;
+                    candidatePoint.Collapse(Microsoft.Office.Interop.Word.WdCollapseDirection.wdCollapseEnd);
                     candidatePoint.Select();
                     var inserted = InsertFormula(newPayload, mode);
                     if (!inserted.Success)
@@ -431,8 +439,30 @@ namespace LaTeXSnipper.Word.Host
                     if (candidate == null || candidate.Range.Start < originalEnd)
                         throw new InvalidOperationException("Candidate formula ownership could not be read back.");
 
+                    if (explicitFormat && inserted.StorageMode != newPayload.StorageMode)
+                        return RollbackCandidate(doc, candidate, originalManifest, formulaId,
+                            "CONVERSION_TARGET_MISMATCH", "The requested target object was not created.");
+
+                    // Embed the committed revision in OLE as well as the manifest.
+                    // Otherwise save/reopen would recover an outdated object payload.
+                    newPayload.Revision = Math.Max(newPayload.Revision, originalManifest?.Revision ?? 0) + 1;
+                    if (originalManifest != null)
+                    {
+                        newPayload.CreatedUtcTicks = originalManifest.CreatedUtcTicks;
+                        if (newPayload.Source == null && originalManifest.Source != null)
+                            newPayload.Source = new SourceInfo
+                            {
+                                CoreVersion = originalManifest.Source.CoreVersion,
+                                ConverterVersion = originalManifest.Source.ConverterVersion,
+                                OmmlSha256 = SourceHash.Sha256Hex(newPayload.Omml)
+                            };
+                        newPayload.Host ??= originalManifest.Host;
+                        newPayload.DocumentContext ??= originalManifest.DocumentContext;
+                        newPayload.ObjectContext ??= originalManifest.ObjectContext;
+                        newPayload.ProtocolVersion ??= originalManifest.ProtocolVersion;
+                    }
                     Microsoft.Office.Interop.Word.InlineShape candidateOleShape = null;
-                    if (originalOleShape != null)
+                    if (newPayload.StorageMode == "ole")
                     {
                         foreach (Microsoft.Office.Interop.Word.InlineShape shape in candidate.Range.InlineShapes)
                         {
@@ -493,16 +523,43 @@ namespace LaTeXSnipper.Word.Host
                             formulaId,
                             appearanceError);
                     }
-                    newPayload.Revision = Math.Max(newPayload.Revision, originalManifest?.Revision ?? 0) + 1;
                     FormulaDocumentManifest.Write(doc, newPayload);
                     FormulaDocumentManifest.Remove(doc, candidateId);
+                    var committedMetadata = FormulaDocumentManifest.Read(doc, formulaId);
+                    if (committedMetadata == null ||
+                        System.Text.Json.JsonSerializer.Serialize(committedMetadata) !=
+                        System.Text.Json.JsonSerializer.Serialize(newPayload))
+                        return RollbackCandidate(doc, candidate, originalManifest, formulaId,
+                            "CONVERSION_METADATA_VERIFY_FAILED", "Candidate metadata could not be read back; the original was retained.");
                     var committedRange = candidate.Range.Duplicate;
 
                     try
                     {
+                        // At a content-control end boundary Word may nest the
+                        // candidate inside the original control. Delete(true) on
+                        // that parent would erase BOTH objects. Detach ownership
+                        // without deleting content, then delete only the captured
+                        // pre-insertion source span in its original story.
+                        bool nestedCandidate = candidate.Range.Start < cc.Range.End;
+                        string originalTitle = cc.Title;
                         cc.LockContents = false;
                         cc.LockContentControl = false;
-                        cc.Delete(true);
+                        if (nestedCandidate)
+                        {
+                            originalRange.SetRange(originalStart, originalEnd);
+                            cc.Delete(false);
+                            try { originalRange.Delete(); }
+                            catch
+                            {
+                                var restored = doc.ContentControls.Add(
+                                    Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
+                                    originalRange);
+                                ConfigureOleContentControl(restored, formulaId, originalTitle, "restore-original-ownership");
+                                throw;
+                            }
+                        }
+                        else cc.Delete(true);
+                        originalDeleted = true;
                     }
                     catch (Exception deleteError)
                     {
@@ -546,6 +603,9 @@ namespace LaTeXSnipper.Word.Host
             catch (Exception ex)
             {
                 OfficeOperationLog.Failure("candidate-first-replace", "word", formulaId, ex);
+                if (originalDeleted)
+                    return new InsertResult { Success = false, FormulaId = formulaId,
+                        ErrorCode = "COMMIT_READBACK_FAILED", Error = "The replacement was committed but final readback failed; inspect the document before retrying. " + ex.Message };
                 if (doc != null && candidate != null)
                     return RollbackCandidate(
                         doc,
@@ -1041,7 +1101,9 @@ namespace LaTeXSnipper.Word.Host
                     Success = true,
                     FormulaId = payload.FormulaId,
                     RangeStart = (uint)committedRange.Start,
-                    RangeEnd = (uint)committedRange.End
+                    RangeEnd = (uint)committedRange.End,
+                    StorageMode = "native-omml",
+                    Revision = payload.Revision
                 };
             }
             catch (Exception ex)
@@ -2139,7 +2201,9 @@ namespace LaTeXSnipper.Word.Host
                     Success = true,
                     FormulaId = payload.FormulaId,
                     RangeStart = (uint)(cc?.Range.Start ?? oleShape.Range.Start),
-                    RangeEnd = (uint)(cc?.Range.End ?? oleShape.Range.End)
+                    RangeEnd = (uint)(cc?.Range.End ?? oleShape.Range.End),
+                    StorageMode = "ole",
+                    Revision = payload.Revision
                 };
             }
             catch (Exception ex)
