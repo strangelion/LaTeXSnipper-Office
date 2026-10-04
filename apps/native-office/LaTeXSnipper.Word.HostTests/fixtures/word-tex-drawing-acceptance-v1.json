@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "modes": ["display"],
+  "cases": [
+    {
+      "name": "pgfplots-native-axis-fonts",
+      "latex": "drawing:pgf_plots",
+      "svg": "pgfplots-font-independent.svg",
+      "contentKind": "drawing",
+      "editorState": {
+        "schemaVersion": 1,
+        "kind": "drawing",
+        "language": "tikz",
+        "packageProfiles": ["pgf_plots"],
+        "source": "\\begin{axis}[grid=major,xlabel={$x$},ylabel={$f(x)$}]\n\\addplot[blue,thick,domain=-3:3,samples=100]{x^2};\n\\end{axis}"
+      },
+      "requestedWidthPt": 255.66,
+      "requestedHeightPt": 213.54
+    }
+  ]
+}

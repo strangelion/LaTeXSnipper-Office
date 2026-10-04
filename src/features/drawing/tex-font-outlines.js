@@ -86,6 +86,40 @@ function coordinate(element, name, fallback) {
   return Number(value);
 }
 
+export function materializeTexCurrentColor(svg) {
+  // Word's standalone SVG renderer does not reliably implement currentColor.
+  const inheritedColor = (element) => {
+    for (
+      let current = element;
+      current?.nodeType === 1;
+      current = current.parentNode
+    ) {
+      const value =
+        current.style?.getPropertyValue("color") ||
+        current.getAttribute("color");
+      if (
+        value &&
+        !/^(currentcolor|inherit|initial|unset)$/i.test(value.trim())
+      )
+        return value.trim();
+    }
+    return "#000000";
+  };
+  for (const element of [svg, ...svg.querySelectorAll("*")]) {
+    const color = inheritedColor(element);
+    for (const property of ["fill", "stroke", "stop-color"]) {
+      if (/^currentcolor$/i.test((element.getAttribute(property) || "").trim()))
+        element.setAttribute(property, color);
+      if (
+        /^currentcolor$/i.test(
+          (element.style?.getPropertyValue(property) || "").trim(),
+        )
+      )
+        element.style.setProperty(property, color);
+    }
+  }
+}
+
 /** Make native TeX SVG independent of WebView-only WOFF2 font faces. */
 export async function outlineBundledTexSvg(
   source,
@@ -96,6 +130,7 @@ export async function outlineBundledTexSvg(
   const svg = parsed.documentElement;
   if (svg?.localName !== "svg" || parsed.querySelector("parsererror"))
     throw new Error("TEX_SVG_INVALID");
+  materializeTexCurrentColor(svg);
   const textNodes = [...svg.querySelectorAll("text")];
   if (textNodes.length > MAX_TEXT_NODES) throw new Error("TEX_TEXT_LIMIT");
   let glyphCount = 0;

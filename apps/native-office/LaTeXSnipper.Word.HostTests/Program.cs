@@ -46,6 +46,7 @@ namespace LaTeXSnipper.Word.HostTests
         public int ActualNaryCount { get; set; }
         public int MaximumBlankGapPixels { get; set; }
         public int RightBlankMarginPixels { get; set; }
+        public int DarkInkPixels { get; set; }
         public string Screenshot { get; set; }
         public string LayoutScreenshot { get; set; }
         public string StorageMode { get; set; }
@@ -1623,6 +1624,22 @@ namespace LaTeXSnipper.Word.HostTests
                 throw new InvalidOperationException(
                     $"{fixture.Name}/{modeName} screenshot contains a {maximumBlankGap}px " +
                     "internal blank gap.");
+            int darkInkPixels = 0;
+            if (string.Equals(fixture.Name, "pgfplots-native-axis-fonts", StringComparison.Ordinal))
+            {
+                using (var bitmap = new Bitmap(Path.Combine(evidenceDirectory, screenshotName)))
+                {
+                    for (int x = 0; x < bitmap.Width; x++)
+                    for (int y = 0; y < bitmap.Height; y++)
+                    {
+                        Color pixel = bitmap.GetPixel(x, y);
+                        if (pixel.A > 16 && pixel.R < 64 && pixel.G < 64 && pixel.B < 64)
+                            darkInkPixels++;
+                    }
+                }
+                if (darkInkPixels < 100)
+                    throw new InvalidOperationException("PGFPlots axis text/border has no measurable dark ink in Word; blue curve alone is not visual acceptance.");
+            }
             if (string.Equals(
                     fixture.Name,
                     "extreme-wide-32-terms",
@@ -1651,6 +1668,7 @@ namespace LaTeXSnipper.Word.HostTests
                 ActualNaryCount = actualNaryCount,
                 MaximumBlankGapPixels = maximumBlankGap,
                 RightBlankMarginPixels = rightBlankMargin,
+                DarkInkPixels = darkInkPixels,
                 Screenshot = screenshotName,
                 LayoutScreenshot = layoutScreenshotName,
                 StorageMode = inserted.StorageMode,

@@ -5,6 +5,7 @@ import fontkit from "@pdf-lib/fontkit";
 import {
   bundledTexFontName,
   texGlyphPaths,
+  materializeTexCurrentColor,
 } from "../src/features/drawing/tex-font-outlines.js";
 
 function bundledFont(name) {
@@ -12,6 +13,29 @@ function bundledFont(name) {
     readFileSync(`node_modules/@rod2ik/tikzjax/dist/fonts/${name}.woff2`),
   );
 }
+
+test("portable TeX paint resolves inherited colors for standalone Office SVG", () => {
+  const make = (attributes, parentNode) => ({
+    nodeType: 1,
+    parentNode,
+    getAttribute: (name) => attributes[name] || null,
+    setAttribute: (name, value) => {
+      attributes[name] = value;
+    },
+    attributes,
+  });
+  const root = make({ fill: "currentColor" });
+  const blue = make({ color: "#123456", stroke: "currentColor" }, root);
+  const glyph = make({ fill: " currentColor ", stroke: "none" }, blue);
+  const red = make({ fill: "#ff0000" }, root);
+  root.querySelectorAll = () => [blue, glyph, red];
+  materializeTexCurrentColor(root);
+  assert.equal(root.attributes.fill, "#000000");
+  assert.equal(blue.attributes.stroke, "#123456");
+  assert.equal(glyph.attributes.fill, "#123456");
+  assert.equal(glyph.attributes.stroke, "none");
+  assert.equal(red.attributes.fill, "#ff0000");
+});
 
 test("TeX private-use axis digits, minus and variables produce real outlines", () => {
   for (const [name, text] of [

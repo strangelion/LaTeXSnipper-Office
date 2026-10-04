@@ -52,13 +52,18 @@ try {
     { timeout: 90_000 },
   );
   const exported = await page.evaluate(async () => {
+    // Export the compile result, not UI-only attributes on the preview element.
+    const result = await window.__app.drawingWorkspace.compile();
+    if (!result?.svg)
+      throw new Error("Native TeX compile returned no artifact");
     const svg = document.querySelector("#drawingPreview svg");
     const values = svg.getAttribute("viewBox").split(/\s+/).map(Number);
     const bbox = svg.getBBox();
     const { rasterizeDrawingSvg } =
       await import("/features/drawing/workspace.js");
     return {
-      svg: svg.outerHTML,
+      svg: result.svg,
+      coreValidated: result.success === true && !result.localPreviewOnly,
       glyphs: Number(svg.getAttribute("data-tex-glyph-outlines")),
       textNodes: svg.querySelectorAll("text,tspan").length,
       fonts: [
@@ -71,7 +76,7 @@ try {
       viewBox: values,
       inkWidthRatio: bbox.width / values[2],
       inkHeightRatio: bbox.height / values[3],
-      png: await rasterizeDrawingSvg(svg.outerHTML, values[2], values[3]),
+      png: await rasterizeDrawingSvg(result.svg, values[2], values[3]),
     };
   });
   assert.equal(
@@ -84,6 +89,10 @@ try {
     assert.ok(exported.fonts.includes(font));
   assert.ok(exported.inkWidthRatio > 0.8 && exported.inkHeightRatio > 0.8);
   assert.doesNotMatch(exported.svg, /[\uE000-\uF8FF]|@font-face|\.woff2/);
+  assert.doesNotMatch(
+    exported.svg,
+    /(?:fill|stroke|stop-color)=["']currentcolor["']/i,
+  );
   writeFileSync(join(directory, "pgfplots-font-independent.svg"), exported.svg);
   writeFileSync(
     join(directory, "pgfplots-font-independent.png"),

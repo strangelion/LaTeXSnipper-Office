@@ -1,5 +1,40 @@
 # Real-host acceptance
 
+## 2026-10-04 TeX 字形、明确颜色与 Word 绘图增量
+
+Office `02f04b8` 的新 release 可执行文件在隔离 WebView2 profile 实测通过：
+WASM 编译成功，动态 Function 被 CSP 拒绝，Graphviz 中文、TikZ、PGFPlots、
+混合自定义符号和库缩略图可见；控制台错误和请求失败均为空。
+TikZ 两个、PGFPlots 二十个 TeX 字形已转成 path，不再依赖私用码位 text。
+可执行文件 SHA-256 为
+`11C8E8F84BB52090B7038FD44F95CF72E8B3106BE0758E8198C0CD6310430B8B`。
+这不是重新安装后的整包验收，也不包含下述明确颜色修复。
+
+真实 Word SVG 图片第一次插入/回读/保存重开通过，但截图只剩蓝色曲线和灰色网格，
+黑色坐标文字、边框缺失；不能把该元数据检查结果当成视觉通过。
+TeX 输出中的 `fill/stroke=currentColor` 现按 SVG 内部继承色写成明确颜色，默认黑色，
+保留显式彩色内容。新增 PGFPlots fixture 和深色像素检查：旧 SVG 负对照被正确拒绝，
+新 compile 返回的 SVG（不是预览 DOM 快照）通过真实 Word 图片插入、源状态回读、
+保存关闭和重开；黑色刻度、变量和边框经截图人工确认，深色像素 25,718。
+请求尺寸为 255.66 × 213.54 pt，实际 Word 对象为 255.65 × 213.70 pt。
+截图来自 Range EMF，其右侧页面空白不是图片对象边框，不能用该空白判断对象 extent。
+此专项没有验证其他图表、中文字体、OCR 准确率或当前修复的 release WebView2。
+
+该 SVG 的真实 Word OLE 路线仍失败：`AddOLEObject` 返回 `0x800A1066`。
+本机 DLL 激活探针成功，安装 DLL 与 staging SHA-256 相同；原生日志证明载荷已读取，
+但生成有效 EMF 失败。独立 SVG→EMF 探针明确拒绝 `clipPath`；这是有意的有限能力边界，
+不能删除裁剪来冒充正确输出。需保留裁剪语义的支持或明确的 PNG fallback，之后再做
+实际 OLE 插入/回读。注册元数据中的 DLL 哈希与磁盘哈希不一致另记为打包一致性待核对，
+不把它当成本次插入失败的已证实原因。O-02/G-02 保持进行中。
+
+本地证据位于忽略的 `src-tauri/target/release-acceptance-*/`：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| 新 release `webview-result.json` | `BBD800E5173F0A725C28201E7222056623253D0DDAE46954F41ADF62CD023CAF` |
+| `font-export-compile-artifact/pgfplots-font-independent.svg` | `FAF2B911747875335B04EFBC076020DC991AF666CA577C179DDBABEC183FD946` |
+| `word-font-image-compile-artifact/evidence.json` | `A9BAD8915070C59676FAC55F66C3C957F37CFC5FA3B781AD520737E737AA8ABC` |
+
 ## 2026-10-04 release WebView2 与真实 Word 管道增量
 
 使用隔离 WebView2 profile 的本地 release 可执行文件（Office 源基线 `fc4ff7a`，
@@ -31,7 +66,7 @@ Word 开发加载项首次构建缺少 VSTO manifest，真实管道测试无法�
 MIT 的 `@pdf-lib/fontkit` 固定依赖（按需加载，压缩前约 626 kB），没有新安装系统字体。
 真实 Chromium 的 PGFPlots 导出为 20 字形、零 text/tspan、三种 TeX 字体路径；
 脱离字体的 SVG→PNG 导出通过，浅色背景下人工检查数字、负号和变量可读。
-该新修复尚待 release WebView2/Core 校验与 Word 插入/边框/保存重开，不能关闭 G-02。
+此处记录的是首轮浏览器证据；后续 release/Word 增量见上节，仍不能关闭完整 G-02。
 证据 `font-export-browser-result.json` SHA-256 为
 `0BCDA9E2386D090D88104D6EB88F75E8D371AF8FF8F3DCE26FBD76A955A24250`，
 `pgfplots-font-independent.svg` 为
