@@ -129,3 +129,64 @@ fn generate_plan_id() -> String {
         .as_nanos();
     format!("plan-{:x}", t)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(id: &str, source: &str) -> LatexCandidate {
+        LatexCandidate {
+            id: id.into(),
+            source: source.into(),
+            normalized_latex: None,
+            location: "test selection".into(),
+            locator: Some(serde_json::json!({ "testId": id })),
+            source_hash: None,
+            confidence: 1.0,
+        }
+    }
+
+    #[test]
+    fn unsupported_layout_does_not_abort_valid_batch_candidates() {
+        let source = r"\begin{align*}x&=1\\y&=2\end{align*}";
+        let plan = build_conversion_plan(vec![
+            candidate("before", r"\frac{1}{2}"),
+            candidate("starred", source),
+            candidate("after", r"\sqrt{x}"),
+        ])
+        .unwrap();
+        assert_eq!(plan.items.len(), 3);
+        assert_eq!(plan.items[0].status, BatchItemStatus::Converted);
+        assert_eq!(plan.items[1].status, BatchItemStatus::Failed);
+        assert_eq!(plan.items[2].status, BatchItemStatus::Converted);
+        assert!(plan.items[1].omml.is_none());
+        assert_eq!(plan.items[1].source_text, source);
+        assert_eq!(plan.items[1].normalized_latex, source);
+        assert_eq!(
+            plan.items[1].locator,
+            Some(serde_json::json!({ "testId": "starred" }))
+        );
+        assert!(plan.items[1]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("starred alignment"));
+        use sha2::{Digest, Sha256};
+        assert_eq!(
+            plan.items[1].source_hash.as_deref().unwrap(),
+            format!("{:x}", Sha256::digest(source.as_bytes()))
+        );
+        let summary = compute_batch_result(&plan);
+        assert_eq!(
+            (
+                summary.total,
+                summary.converted,
+                summary.failed,
+                summary.skipped
+            ),
+            (3, 2, 1, 0)
+        );
+        assert_eq!(summary.failures[0].source_id, "starred");
+        assert_eq!(summary.failures[0].source_text, source);
+    }
+}

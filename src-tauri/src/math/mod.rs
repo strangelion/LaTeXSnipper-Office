@@ -114,4 +114,38 @@ mod tests {
         let result = mathml_to_latex_str(xml).unwrap();
         assert!(result.contains("frac"), "got: {}", result);
     }
+
+    #[test]
+    fn core_readback_keeps_matrix_rows_and_nested_operands() {
+        let source = r"\begin{bmatrix}\begin{matrix}1&2\\3&4\end{matrix}&5\\6&7\end{bmatrix}";
+        let omml = latex_to_omml_str(source).unwrap();
+        let restored = omml_to_latex_str(&omml).unwrap();
+        // This numeric fixture has no significant text spaces.
+        assert_eq!(restored.replace(' ', ""), source, "{restored}");
+        let mathml = convert_formula(source.into(), "mathml".into()).unwrap();
+        assert_eq!(mathml.matches("<mtable>").count(), 2, "{mathml}");
+        assert_eq!(mathml.matches("<mtr>").count(), 4, "{mathml}");
+        let restored = mathml_to_latex_str(&mathml).unwrap();
+        assert_eq!(restored.matches(r"\begin{matrix}").count(), 2, "{restored}");
+    }
+
+    #[test]
+    fn core_readback_keeps_xml_references_and_rejects_invalid_text() {
+        let mathml = r#"<math><mtext> 输入 &amp; &#x4E2D; </mtext></math>"#;
+        assert!(mathml_to_latex_str(mathml).unwrap().contains(" 输入 & 中 "));
+        let omml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>A&lt;B&amp;C</m:t></m:r></m:oMath>"#;
+        assert!(omml_to_latex_str(omml).unwrap().contains("A<B&C"));
+        assert!(mathml_to_latex_str("<math><mtext>&unknown;</mtext></math>").is_err());
+        assert!(omml_to_latex_str("<m:oMath><m:r><m:t>&#0;</m:t></m:r></m:oMath>").is_err());
+    }
+
+    #[test]
+    fn starred_alignment_is_previewable_but_not_strictly_replaceable() {
+        for env in ["align*", "gather*"] {
+            let source = format!("\\begin{{{env}}}x=1\\\\y=2\\end{{{env}}}");
+            let xml = convert_formula(source.clone(), "mathml".into()).unwrap();
+            assert_eq!(xml.matches("<mtr>").count(), 2, "{xml}");
+            assert!(latex_to_omml_strict(source).is_err());
+        }
+    }
 }
