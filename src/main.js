@@ -6866,7 +6866,10 @@ class UIController {
           }),
       };
       let ole = false;
-      if (hasDesktopRuntime() && target.host === "word") {
+      if (
+        hasDesktopRuntime() &&
+        this._sessions?.some((item) => item.host_type === "word")
+      ) {
         try {
           ole = await api.oleAvailable();
         } catch (error) {
@@ -6878,25 +6881,68 @@ class UIController {
           native: hasDesktopRuntime(),
           connected: Boolean(session),
           host: target.host,
+          sessionId: target.sessionId,
           documentContext: target.documentContext,
           documentTitle: session?.document_title,
+          documents: (this._sessions || [])
+            .filter((item) => item.document_id)
+            .map((item) => ({
+              host: item.host_type,
+              sessionId: item.session_id,
+              documentContext: item.document_id,
+              documentTitle: item.document_title,
+              managed:
+                loaded?.sessionId === item.session_id &&
+                loaded?.documentContextId === item.document_id &&
+                Boolean(loaded?.formula?.formulaId && loaded?.formula?.latex),
+              ole: item.host_type === "word" && ole,
+            })),
           managed,
           editor: Boolean(editorLatex.trim()),
           engine: hasDesktopRuntime(),
           ole,
         },
-        prepare: async ({ source, format }) => {
+        prepare: async ({ source, format, document: chosenDocument }) => {
+          const bound = {
+            host: chosenDocument?.host,
+            sessionId: chosenDocument?.sessionId,
+            documentContext: chosenDocument?.documentContext,
+          };
+          if (source !== "editor") {
+            const liveSessions = await invoke("native_office_sessions");
+            if (
+              !liveSessions.some(
+                (item) =>
+                  item.session_id === bound.sessionId &&
+                  item.document_id === bound.documentContext &&
+                  item.host_type === bound.host,
+              )
+            )
+              throw new Error("所选文档已关闭或标识已变化，请重新打开转换窗口");
+          }
           if (source === "selection") {
-            const plan = await service.prepareSelectionConversion(target);
+            const plan = await service.prepareSelectionConversion(bound);
+            const latex = plan.items[0].normalizedLatex;
+            if (format !== "omml")
+              return {
+                kind: "export",
+                latex,
+                artifact: await service.prepareFormatArtifact(
+                  latex,
+                  format,
+                  "inline",
+                  api,
+                ),
+              };
             return {
               kind: "selection",
               plan,
-              latex: plan.items[0].normalizedLatex,
+              latex,
             };
           }
           if (source === "managed")
             return service.prepareManagedFormatConversion(
-              target,
+              bound,
               loaded.formula.formulaId,
               format,
               api,
@@ -6982,8 +7028,8 @@ class UIController {
         );
         this._lastNativeOfficeFormula = {
           formula: result.formula,
-          sessionId: target.sessionId,
-          documentContextId: target.documentContext,
+          sessionId: prepared.target.sessionId,
+          documentContextId: prepared.target.documentContext,
         };
         this.showToast(
           `已原位转换为 ${service.FORMAT_NAMES[answer.format]}，ID 与 LaTeX 源回读通过`,

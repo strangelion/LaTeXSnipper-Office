@@ -12,11 +12,24 @@ export interface ConversionContext {
   host?: string;
   documentContext?: string;
   documentTitle?: string;
+  sessionId?: string;
+  documents?: ConversionDocument[];
   managed: boolean;
   editor: boolean;
   engine: boolean;
   ole: boolean;
 }
+export interface ConversionDocument {
+  host?: string;
+  sessionId?: string;
+  documentContext?: string;
+  documentTitle?: string;
+  managed: boolean;
+  ole: boolean;
+}
+export function conversionDocuments(
+  context: ConversionContext,
+): Array<ConversionDocument & { value: string }>;
 export interface FormatArtifact {
   content: string;
   mime: string;
@@ -38,6 +51,7 @@ export function openFormatConversionDialog<
   prepare: (choice: {
     source: ConversionSource;
     format: ConversionFormat;
+    document?: ConversionDocument;
   }) => Promise<T>;
   renderPreview: (prepared: T) => Promise<Node>;
   dispose?: (prepared: T) => Promise<void>;

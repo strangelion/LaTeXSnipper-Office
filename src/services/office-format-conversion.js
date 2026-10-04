@@ -42,8 +42,13 @@ export function conversionChoices(context, source) {
     let reason = "";
     if (value === "mathtype")
       reason = "尚未实现 MTEF 读写，不能冒充 MathType 对象";
-    else if (source === "selection" && value !== "omml")
-      reason = "裸选区当前只支持行内 OMML；其他目标尚未验收";
+    else if (
+      source === "selection" &&
+      value !== "omml" &&
+      !(context.native && ["latex", "svg", "png"].includes(value))
+    )
+      reason =
+        "裸选区只支持行内 OMML 原位转换；桌面端还可导出 LaTeX/SVG/PNG 副本";
     else if (value === "ole" && source === "editor")
       reason = "新 OLE 公式请使用 Office 的 OLE 插入路线；本弹窗不覆盖光标选区";
     else if (value === "ole" && (!nativeWord || !context.ole))
@@ -53,6 +58,34 @@ export function conversionChoices(context, source) {
     return { value, label, reason };
   });
   return { sources, formats };
+}
+
+export function conversionDocuments(context) {
+  const documents =
+    context.documents ??
+    (context.connected
+      ? [
+          {
+            sessionId: context.sessionId,
+            host: context.host,
+            documentContext: context.documentContext,
+            documentTitle: context.documentTitle,
+            managed: context.managed,
+            ole: context.ole,
+          },
+        ]
+      : []);
+  const seen = new Set();
+  return documents.map((document) => {
+    const value = JSON.stringify([
+      document.host,
+      document.sessionId,
+      document.documentContext,
+    ]);
+    if (seen.has(value)) throw new Error("目标文档会话重复，请刷新文档列表");
+    seen.add(value);
+    return { ...structuredClone(document), value };
+  });
 }
 
 function stable(value) {
@@ -278,9 +311,15 @@ export function openFormatConversionDialog({
   note.textContent =
     "选择来源和目标，再预览确认。VSTO 是加载项技术，不是公式格式。MathType 及无本应用源信息的对象暂不支持原位转换。";
   const destination = root.createElement("p");
-  destination.textContent = context.connected
-    ? `宿主：${context.host || "未确认"}；目标文档：${context.documentTitle || context.documentContext || "当前 Office.js 文档（选区确认时再次核对）"}`
-    : "未连接 Office 文档，仅可导出可用的编辑器副本。";
+  const documents = conversionDocuments(context);
+  let selectedDocument =
+    documents.find(
+      (candidate) =>
+        candidate.sessionId === context.sessionId &&
+        candidate.documentContext === context.documentContext,
+    ) || documents[0];
+  const documentGroup = root.createElement("fieldset");
+  documentGroup.className = "conversion-documents";
   const sourceGroup = root.createElement("fieldset");
   const targetGroup = root.createElement("fieldset");
   let source =
@@ -318,6 +357,7 @@ export function openFormatConversionDialog({
   dialog.append(
     title,
     note,
+    documentGroup,
     destination,
     sourceGroup,
     targetGroup,
@@ -359,9 +399,9 @@ export function openFormatConversionDialog({
       const label = root.createElement("strong");
       label.textContent = choice.label;
       button.append(label);
-      if (choice.reason) {
+      if (choice.reason || choice.detail) {
         const detail = root.createElement("span");
-        detail.textContent = choice.reason;
+        detail.textContent = choice.reason || choice.detail;
         button.append(detail);
       }
       button.addEventListener("click", () => {
@@ -397,7 +437,9 @@ export function openFormatConversionDialog({
               enabled.length;
       const selected = enabled[next].dataset.value;
       choose(selected);
-      element.querySelector(`button[data-value="${selected}"]`)?.focus();
+      [...element.querySelectorAll("button[data-value]")]
+        .find((button) => button.dataset.value === selected)
+        ?.focus();
     });
     if (!rows.querySelector('button[tabindex="0"]:not(:disabled)'))
       rows
@@ -415,19 +457,54 @@ export function openFormatConversionDialog({
     update();
   }
   function update() {
-    const choices = conversionChoices(context, source);
+    const boundContext = {
+      ...context,
+      ...(selectedDocument || {
+        host: undefined,
+        documentContext: undefined,
+        managed: false,
+        ole: false,
+      }),
+      connected: Boolean(selectedDocument),
+    };
+    const choices = conversionChoices(boundContext, source);
     if (
-      !choices.formats.some(
-        (option) => option.value === format && !option.reason,
+      !choices.sources.some(
+        (option) => option.value === source && !option.reason,
       )
     )
-      format =
-        choices.formats.find((option) => !option.reason)?.value || "omml";
+      source =
+        choices.sources.find((option) => !option.reason)?.value || "editor";
+    const formats = conversionChoices(boundContext, source).formats;
+    if (!formats.some((option) => option.value === format && !option.reason))
+      format = formats.find((option) => !option.reason)?.value || "omml";
+    documentGroup.hidden = !documents.length;
+    group(
+      documentGroup,
+      context.native ? "目标文档" : "当前任务窗格文档",
+      documents.map((document) => ({
+        value: document.value,
+        label: `${document.host || "Office"} · ${document.documentTitle || document.documentContext || "当前文档"}`,
+        detail: document.sessionId
+          ? `会话：${document.sessionId}`
+          : "Office.js 只能操作此任务窗格所属文档；其他文档请打开各自的加载项。",
+      })),
+      selectedDocument?.value,
+      (value) => {
+        selectedDocument = documents.find(
+          (document) => document.value === value,
+        );
+        reset();
+      },
+    );
+    destination.textContent = selectedDocument
+      ? `目标文档：${selectedDocument.documentTitle || selectedDocument.documentContext || "当前 Office.js 文档"}。切换文档后须重新预览；提交时再次核对文档标识。`
+      : "未连接 Office 文档，仅可导出可用的编辑器副本。";
     group(sourceGroup, "来源", choices.sources, source, (value) => {
       source = value;
       reset();
     });
-    group(targetGroup, "目标格式", choices.formats, format, (value) => {
+    group(targetGroup, "目标格式", formats, format, (value) => {
       format = value;
       reset();
     });
@@ -444,9 +521,7 @@ export function openFormatConversionDialog({
       !choices.sources.some(
         (option) => option.value === source && !option.reason,
       ) ||
-      !choices.formats.some(
-        (option) => option.value === format && !option.reason,
-      );
+      !formats.some((option) => option.value === format && !option.reason);
     confirm.disabled = pending || !ready;
   }
   prepareButton.addEventListener("click", async () => {
@@ -460,7 +535,13 @@ export function openFormatConversionDialog({
     let value;
     try {
       await cleanup(old);
-      value = await prepare({ source, format });
+      value = await prepare({
+        source,
+        format,
+        document: selectedDocument
+          ? structuredClone(selectedDocument)
+          : undefined,
+      });
       if (closed) {
         await cleanup(value);
         return;

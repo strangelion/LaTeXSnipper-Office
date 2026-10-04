@@ -80,14 +80,14 @@ function ensureAdapter(): void {
 
 async function exec(command: any): Promise<any> {
   ensureAdapter();
-  document
-    .getElementById("formatConversionBtn")
-    ?.addEventListener("click", () => void handleFormatConversion());
   return router.dispatch("office", command);
 }
 
 Office.onReady((info) => {
   ensureAdapter();
+  document
+    .getElementById("formatConversionBtn")
+    ?.addEventListener("click", () => void handleFormatConversion());
   const hostName = info.host ? String(info.host) : "Office";
   setText("hostLabel", hostName);
   document
@@ -264,6 +264,8 @@ async function handleFormatConversion(): Promise<void> {
         native: false,
         connected: bridgeConnected,
         host: capabilities?.host,
+        documentContext: await resolveDocumentContext(),
+        documentTitle: Office.context.document.url || "当前未保存文档",
         managed: false,
         editor: Boolean(latex.trim()),
         engine: bridgeConnected,

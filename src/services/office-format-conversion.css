@@ -35,6 +35,14 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
+.office-format-dialog .conversion-documents .conversion-choices {
+  grid-template-columns: minmax(0, 1fr);
+  max-height: 180px;
+  overflow: auto;
+}
+.office-format-dialog .conversion-documents button {
+  overflow-wrap: anywhere;
+}
 .office-format-dialog button,
 .office-format-dialog .conversion-choices button[role="radio"] {
   min-height: 40px;

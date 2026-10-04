@@ -64,17 +64,41 @@ try {
             native: true,
             host: "word",
             documentContext: "fixture-doc",
+            sessionId: "fixture-a",
+            documents: [
+              {
+                host: "word",
+                sessionId: "fixture-a",
+                documentContext: "fixture-doc",
+                documentTitle: "同名文档",
+                managed: true,
+                ole: true,
+              },
+              {
+                host: "word",
+                sessionId: "fixture-b",
+                documentContext: 'fixture-doc-"b"',
+                documentTitle: "同名文档",
+                managed: false,
+                ole: true,
+              },
+            ],
             connected: true,
             managed: true,
             editor: true,
             engine: true,
             ole: true,
           },
-          prepare: async ({ source, format }) => {
+          prepare: async ({ source, format, document }) => {
             if (delayed)
               await new Promise((resolve) => setTimeout(resolve, 150));
             if (fail) throw new Error("Injected source validation failure");
-            return { latex: String.raw`\frac{a}{b}`, source, format };
+            return {
+              latex: String.raw`\frac{a}{b}`,
+              source,
+              format,
+              target: document,
+            };
           },
           renderPreview: async (value) => {
             window.__formatRendered++;
@@ -125,6 +149,56 @@ try {
     "ole",
   );
   assert.equal(await page.evaluate(() => window.__formatDisposed), 1);
+
+  await open();
+  const documents = dialog.getByRole("group", {
+    name: "目标文档",
+    exact: true,
+  });
+  assert.equal(await documents.getByRole("radio").count(), 2);
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await documents.getByRole("radio", { name: /fixture-b/ }).click();
+  assert.equal(
+    await dialog.getByRole("button", { name: "确认原位转换" }).isDisabled(),
+    true,
+  );
+  assert.equal(
+    await dialog.locator(".office-selection-preview").isVisible(),
+    false,
+  );
+  await page.waitForFunction(() => window.__formatDisposed === 1);
+  assert.equal(
+    await dialog
+      .getByRole("radio", { name: /已读取的本应用公式/ })
+      .isDisabled(),
+    true,
+  );
+  await documents.getByRole("radio", { name: /fixture-b/ }).press("ArrowUp");
+  assert.equal(
+    await documents
+      .getByRole("radio", { name: /fixture-a/ })
+      .getAttribute("aria-checked"),
+    "true",
+  );
+  await documents.getByRole("radio", { name: /fixture-a/ }).press("ArrowDown");
+  await dialog.getByRole("radio", { name: "SVG 矢量图", exact: true }).click();
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog.getByRole("button", { name: "确认导出副本" }).click();
+  const chosen = await page.evaluate(() => window.__formatAnswer);
+  assert.equal(chosen.prepared.target.sessionId, "fixture-b");
+  assert.equal(chosen.prepared.target.documentContext, 'fixture-doc-"b"');
+  assert.equal(chosen.source, "selection");
+  assert.equal(chosen.format, "svg");
 
   await open(true);
   await dialog.getByRole("button", { name: "生成预览" }).click();
@@ -245,7 +319,7 @@ try {
     [],
   );
   console.log(
-    "PASS: real browser format picker, preview, target reset, confirm/cancel/Escape, failure and late cleanup, 390px light/dark. Host calls are fixtures, not live Office acceptance.",
+    "PASS: real browser format and document picker (same titles, distinct sessions), preview invalidation, keyboard navigation, confirm/cancel/Escape, failure and late cleanup, 390px light/dark. Host calls are fixtures, not live Office acceptance.",
   );
 } finally {
   await browser.close();

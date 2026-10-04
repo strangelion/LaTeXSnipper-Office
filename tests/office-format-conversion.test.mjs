@@ -3,6 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import {
   conversionChoices,
+  conversionDocuments,
   prepareManagedFormatConversion,
   executeManagedFormatConversion,
   prepareFormatArtifact,
@@ -64,18 +65,73 @@ function fixture() {
   };
 }
 
-test("format matrix disables MTEF, raw non-OMML, and editor OLE", () => {
+test("format matrix allows raw copy exports but not raw/editor OLE", () => {
   for (const source of ["selection", "managed", "editor"]) {
     const { formats } = conversionChoices(context, source);
     assert.ok(formats.find((item) => item.value === "mathtype").reason);
     if (source === "selection")
       assert.deepEqual(
         formats.filter((item) => !item.reason).map((item) => item.value),
-        ["omml"],
+        ["omml", "svg", "png", "latex"],
       );
     if (source === "editor")
       assert.ok(formats.find((item) => item.value === "ole").reason);
   }
+});
+test("document choices pin distinct sessions even with identical titles", () => {
+  const documents = [
+    { ...target, documentTitle: "Same title", managed: true, ole: true },
+    {
+      ...target,
+      sessionId: "session-b",
+      documentContext: "doc-b",
+      documentTitle: "Same title",
+      managed: false,
+      ole: true,
+    },
+  ];
+  const choices = conversionDocuments({ ...context, documents });
+  assert.notEqual(choices[0].value, choices[1].value);
+  documents[0].documentContext = "changed";
+  assert.equal(choices[0].documentContext, "doc-a");
+  assert.ok(
+    conversionChoices({ ...context, ...choices[1] }, "managed").sources.find(
+      (item) => item.value === "managed",
+    ).reason,
+  );
+  assert.deepEqual(conversionDocuments({ ...context, documents: [] }), []);
+  assert.throws(
+    () =>
+      conversionDocuments({
+        ...context,
+        documents: [documents[1], documents[1]],
+      }),
+    /会话重复/,
+  );
+});
+test("Office.js stays scoped to its taskpane document and only raw OMML", () => {
+  const choices = conversionChoices({ ...context, native: false }, "selection");
+  assert.deepEqual(
+    choices.formats.filter((item) => !item.reason).map((item) => item.value),
+    ["omml"],
+  );
+  const pane = readFileSync(
+    new URL("../apps/office-addin/src/taskpane/taskpane.ts", import.meta.url),
+    "utf8",
+  );
+  const exec = pane.slice(
+    pane.indexOf("async function exec("),
+    pane.indexOf("Office.onReady("),
+  );
+  assert.doesNotMatch(exec, /formatConversionBtn/);
+  const ready = pane.slice(
+    pane.indexOf("Office.onReady("),
+    pane.indexOf("async function initializeHost"),
+  );
+  assert.equal(
+    (ready.match(/getElementById\("formatConversionBtn"\)/g) || []).length,
+    1,
+  );
 });
 test("Office.js cannot claim managed or OLE support", () => {
   const choices = conversionChoices({ ...context, native: false }, "managed");
