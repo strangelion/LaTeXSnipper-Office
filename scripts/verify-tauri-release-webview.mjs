@@ -57,15 +57,23 @@ try {
   assert.equal(csp.wasmCompiled, true);
   assert.equal(csp.dynamicCodeBlocked, true);
 
+  async function fillDrawingSource(source) {
+    await page.locator("#drawingSourceCodeEditor .cm-content").fill(source);
+    await page.waitForFunction(
+      (expected) =>
+        document.querySelector("#drawingSource")?.value === expected,
+      source,
+    );
+    assert.equal(await page.locator("#drawingSource").inputValue(), source);
+  }
+
   await page.locator("#editorBtn").click();
   await page.locator("#drawingModeTab").click();
   await page.locator('[data-drawing-language="graphviz_dot"]').first().click();
   await page.locator("#drawingSourceModeBtn").click();
-  await page
-    .locator("#drawingSource")
-    .fill(
-      'digraph G { rankdir=LR; input [label="输入"]; process [label="处理"]; output [label="输出"]; input -> process; process -> output; }',
-    );
+  await fillDrawingSource(
+    'digraph G { rankdir=LR; input [label="输入"]; process [label="处理"]; output [label="输出"]; input -> process; process -> output; }',
+  );
   await page.locator("#drawingCompileBtn").click();
   await page.locator("#drawingPreview svg").waitFor({ timeout: 45_000 });
   await page.waitForFunction(
@@ -124,7 +132,7 @@ try {
       null,
       { timeout: 45_000 },
     );
-    await page.locator("#drawingSource").fill(source);
+    await fillDrawingSource(source);
     await page.locator("#drawingCompileBtn").click();
     try {
       await page.locator("#drawingPreview svg").waitFor({ timeout: 45_000 });
@@ -164,6 +172,9 @@ try {
           document.querySelector("#drawingCompileStatus")?.textContent || "",
         viewBox: svg?.getAttribute("viewBox") || "",
         text: svg?.textContent || "",
+        textNodes: svg?.querySelectorAll("text,tspan").length || 0,
+        outlinedGlyphs:
+          svg?.querySelectorAll("g[data-tex-font] path").length || 0,
         inkWidthRatio: box && values[2] > 0 ? box.width / values[2] : 0,
         inkHeightRatio: box && values[3] > 0 ? box.height / values[3] : 0,
       };
@@ -180,6 +191,8 @@ try {
   assert.doesNotMatch(tikz.status, /编译失败|未生成|超时/i);
   assert.ok(tikz.inkWidthRatio > 0.7);
   assert.ok(tikz.inkHeightRatio > 0.7);
+  assert.equal(tikz.textNodes, 0);
+  assert.ok(tikz.outlinedGlyphs > 0);
 
   const pgfPlots = await compileTikzProfile({
     profile: "pgf_plots",
@@ -192,6 +205,8 @@ try {
   assert.doesNotMatch(pgfPlots.status, /编译失败|未生成|超时/i);
   assert.ok(pgfPlots.inkWidthRatio > 0.7);
   assert.ok(pgfPlots.inkHeightRatio > 0.7);
+  assert.equal(pgfPlots.textNodes, 0);
+  assert.ok(pgfPlots.outlinedGlyphs >= 20);
 
   await page.locator("#formulaModeTab").click();
   await page.evaluate(() => {
@@ -211,8 +226,13 @@ try {
       new CustomEvent("latexsnipper:custom-symbol-library-changed"),
     );
   });
-  await page.locator("#latexSource").fill("\\mysymbol\\frac12=");
-  await page.locator("#latexSource").dispatchEvent("input");
+  const mixedFormula = "\\mysymbol\\frac12=";
+  await page.locator("#formulaSourceEditor .cm-content").fill(mixedFormula);
+  await page.waitForFunction(
+    (expected) => document.querySelector("#latexSource")?.value === expected,
+    mixedFormula,
+  );
+  assert.equal(await page.locator("#latexSource").inputValue(), mixedFormula);
   await page
     .locator(
       '#previewHost[data-preview-kind="formula"] [class*="latexsnipper-custom-symbol-"]',
@@ -291,6 +311,14 @@ try {
       ),
   );
   assert.deepEqual(relevantErrors, []);
+  assert.deepEqual(
+    failedRequests.filter(
+      (request) =>
+        request.url.startsWith("http://tauri.localhost/") &&
+        request.error !== "net::ERR_ABORTED",
+    ),
+    [],
+  );
 
   console.log(
     JSON.stringify(
@@ -304,6 +332,8 @@ try {
         customSymbol,
         customSymbolLibrary,
         appearance,
+        consoleErrors,
+        failedRequests,
       },
       null,
       2,

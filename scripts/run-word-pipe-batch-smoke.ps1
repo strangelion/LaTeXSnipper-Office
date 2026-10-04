@@ -15,6 +15,22 @@ $documentPath = Join-Path $outputPath 'word-pipe-batch.docx'
 if (Test-Path -LiteralPath $documentPath) {
     throw 'The harness DOCX already exists. Select a fresh output directory instead of overwriting evidence.'
 }
+$manifest = (Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Office\Word\Addins\LaTeXSnipper.Word').Manifest
+$manifestPath = ($manifest -split '\|')[0]
+if ($manifestPath.StartsWith('file:', [StringComparison]::OrdinalIgnoreCase)) {
+    $manifestPath = ([uri]$manifestPath).LocalPath
+}
+if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw 'The registered development VSTO manifest is missing. Build signed manifests before starting Word.'
+}
+$addinDirectory = Split-Path -Parent $manifestPath
+$binaries = @($manifestPath, (Join-Path $addinDirectory 'LaTeXSnipper.Word.dll'), (Join-Path $addinDirectory 'LaTeXSnipper.Shared.dll'))
+$binaryHashes = @($binaries | ForEach-Object {
+    $binary = Get-FileHash -LiteralPath $_ -Algorithm SHA256
+    [ordered]@{ file = (Split-Path -Leaf $_); sha256 = $binary.Hash }
+})
+[ordered]@{ registeredDevelopmentManifest = $true; binaries = $binaryHashes } |
+    ConvertTo-Json -Depth 4 | Tee-Object -FilePath (Join-Path $outputPath 'addin-preflight.json')
 $oldTarget = $env:NATIVE_BATCH_TEST_DOCUMENT
 $word = $null
 $document = $null

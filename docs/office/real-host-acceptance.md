@@ -1,5 +1,42 @@
 # Real-host acceptance
 
+## 2026-10-04 release WebView2 与真实 Word 管道增量
+
+使用隔离 WebView2 profile 的本地 release 可执行文件（Office 源基线 `fc4ff7a`，
+Core `225cf61`），不是重新安装后的发行包。WASM 编译成功且动态 Function 被 CSP
+阻止；Graphviz 中文、TikZ 坐标轴、PGFPlots 抛物线安全编译、混合自定义符号及
+公式库缩略图通过。三绘图内容边界占 viewBox 比例约 0.862，不能据此证明实际 Word
+对象边框正确。此前 TikZ/PGFPlots 输出仍依赖 WebView 内的私用码位字体。
+
+Word 开发加载项首次构建缺少 VSTO manifest，真实管道测试无法加载；使用已有且已
+受信任的开发证书重新生成 manifest，没有创建证书或新增信任。安装目录 NativeOffice
+仍为旧提交，不能用开发加载项实测替代安装包版本一致性验收。
+
+真实 Tauri release→Word VSTO named pipe：四个分隔符公式扫描、计划和执行最终为
+4 转换/0 保留/0 失败，管道阶段 2.318 秒。保存后只读重开四个 OMath，邻接正文保留。
+该专项仅行内 OMML，不是 display 段落样式、多样公式准确率或完整剪贴板测试。
+前一次已加载的冷运行出现 0/4，原因未确定；增强验证器先输出完整结果再断言，
+后续单次通过不能关闭偶发失败/迟到结果风险。
+
+本地证据位于忽略的 `src-tauri/target/release-acceptance-*/`，不提交文档或机器路径：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `webview-result-rerun.json` | `1EE70A66E3326C63D816F6932BB9988D433CBF3CC4184702F593E0957A0B53E6` |
+| `runtime-provenance.json` | `5DA852FAD4D04CFB58364EE25B5D455B32E84F8827B54A13D666937CEDD3C10B` |
+| `word-pipe-diagnostic/pipe-result.json` | `33E9EE826BD70C08CD0489A309FD3F1030E967C7B994D3854F78C786EC81F08E` |
+| `word-pipe-diagnostic/reopen-result.json` | `19B7E89210C847C9C4F7311BC2D3155E66B4D95E51BC84DF93BDE36AFE3129AA` |
+
+后续字体修复将应用内已有 WOFF2 的 TeX 字形转为 SVG path，再走 Core 校验，新增
+MIT 的 `@pdf-lib/fontkit` 固定依赖（按需加载，压缩前约 626 kB），没有新安装系统字体。
+真实 Chromium 的 PGFPlots 导出为 20 字形、零 text/tspan、三种 TeX 字体路径；
+脱离字体的 SVG→PNG 导出通过，浅色背景下人工检查数字、负号和变量可读。
+该新修复尚待 release WebView2/Core 校验与 Word 插入/边框/保存重开，不能关闭 G-02。
+证据 `font-export-browser-result.json` SHA-256 为
+`0BCDA9E2386D090D88104D6EB88F75E8D371AF8FF8F3DCE26FBD76A955A24250`，
+`pgfplots-font-independent.svg` 为
+`32A46F506AC71F109EC6E859954E7BCE5A7967C4CA1BBA589428CE7BD520ACE6`。
+
 自动构建、mock、manifest 和 package smoke 不能替代真实宿主。每次 release 必须记录实际打开的宿主、Office/WPS 版本、bitness、操作、save/reopen、undo 和结果。
 
 Windows：Word inline/display/numbered OMML、renumber/reference、real OLE insert/double-click/update/delete、table/two-column/read-only/multiple documents、x86/x64；Excel 和 PowerPoint real OLE 与 image、update/delete、geometry、save/reopen、active document changed；Visio x86/x64 VSTO load、SVG-first/PNG fallback、selection CRUD、copy identity、save/reopen、page context、grouped update rejection。Visio OLE 不在初始验收范围，保持 Experimental/unavailable。

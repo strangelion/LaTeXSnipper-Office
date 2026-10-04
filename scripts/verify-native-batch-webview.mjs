@@ -69,12 +69,19 @@ try {
       durationMs: Math.round(performance.now() - started),
     };
   }, expectedContext);
+  const pass =
+    evidence.result.total === 4 &&
+    evidence.result.converted === 4 &&
+    evidence.result.skipped === 0 &&
+    evidence.result.failed === 0 &&
+    evidence.result.failures.length === 0;
+  // Preserve partial failures before assertions terminate the harness.
+  console.log(JSON.stringify({ pass, ...evidence }, null, 2));
   assert.equal(evidence.result.total, 4);
   assert.equal(evidence.result.converted, 4);
   assert.equal(evidence.result.skipped, 0);
   assert.equal(evidence.result.failed, 0);
   assert.deepEqual(evidence.result.failures, []);
-  console.log(JSON.stringify({ pass: true, ...evidence }, null, 2));
 } finally {
   await browser.close();
 }

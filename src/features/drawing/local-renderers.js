@@ -1,5 +1,6 @@
 import { parseVisualDocument } from "./source-adapters.js";
 import { serializeVisualDrawing } from "./visual-editor.js";
+import { outlineBundledTexSvg } from "./tex-font-outlines.js";
 
 const MAX_SOURCE_BYTES = 256 * 1024;
 const RENDER_TIMEOUT_MS = 35_000;
@@ -244,11 +245,16 @@ export async function renderTikz(
       }
     });
     observer.observe(host, { childList: true, subtree: true });
-    finishHandler = (event) => {
+    finishHandler = async (event) => {
       cleanup();
       const svg = event.target?.closest?.("svg") || host.querySelector("svg");
-      if (!svg) reject(new Error("TikZ 渲染未生成 SVG"));
-      else resolve(normalizeBundledSvg(svg.outerHTML, "TikZ"));
+      try {
+        if (!svg) throw new Error("TikZ 渲染未生成 SVG");
+        const portable = await outlineBundledTexSvg(svg.outerHTML);
+        resolve(normalizeBundledSvg(portable, "TikZ"));
+      } catch (error) {
+        reject(error);
+      }
     };
     host.addEventListener("tikzjax-load-finished", finishHandler, {
       once: true,
