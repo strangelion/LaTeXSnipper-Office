@@ -439,3 +439,32 @@ node scripts/prepare-word-native-host-fixture.mjs
 
 `--batch [count]` 接受 25–10,000，默认 250。能配置数量不代表 1,000/10,000 条已测。
 O-06、完整 OLE/图片矩阵、真实桌面管道和 Office.js 宿主验收均保持进行中。
+
+### 同日 scratch 内层采集与临时 COM 引用清理
+
+源码基线 `f67055b` 加本节对应改动，使用上文同一 Core 夹具和环境。
+保留原有逐目标读回、失败候选回滚和 scratch 段落精确清理；结束时释放本流程
+持有的临时范围/控件，不释放调用方文档、目标范围或返回的真实控件。
+三个新内层计时记录失败尝试，测试核对次数与有限非负耗时。
+
+25 条结果为 24 转换、1 故意损坏项保留、0 执行失败，19.427 秒；完整 payload、
+唯一 ID、邻接正文及保存只读重开通过，剪贴板序列不变。scratch 总计 12.702 秒，
+XML 插入 1.797 秒、控件查找 1.507 秒、公式复制 0.083 秒；其余约 9.315 秒
+尚未单独归因，可能涉及范围探测、控件包装及清理，但未测量，不能当作已证实原因。
+这是补充诊断和生命周期清理，不是 scratch 复用或性能提升验收。
+
+最终源码的跨故事复测为 7 转换、0 保留、0 失败，8.501 秒；3 项无效定位/哈希请求
+拒绝且原内容/格式保留，保存重开通过。前一批源码另外连续三轮 25 条测试均为
+24/1/0（21.221、16.882、18.026 秒），完整 payload 重开和剪贴板检查通过。
+这些通过记录不关闭上文原因未知的额外拒绝风险，也不将前一批 250 条结果归于
+新增清理后的源码；本次没有重新执行 250 条或完整 OLE/图片矩阵。
+
+| 本地证据文件（`src-tauri/target/` 下） | SHA-256 |
+| --- | --- |
+| `word-batch-scratch-phases-20261004/batch-evidence.json` | `08C46C4FEB359C5607A7EF294C664EC4DC07B1C2979623B211A40EB9638C78A6` |
+| `word-batch-scratch-phases-20261004/word-batch-acceptance.docx` | `57C99B8F95EAF174C8270090D341976F28311EA5CF211778259077E326544118` |
+| `word-batch-stories-scratch-phases-20261004/batch-stories-evidence.json` | `099E8F9EA2A4FD3A739A0AEE011B015A83C332A5154B876EEDCC79A706271822` |
+| `word-batch-stories-scratch-phases-20261004/word-batch-stories.docx` | `E558879F82BEB5F45A9255808133D4B64799666FD7A7E9CA6D11B806417DAB18` |
+| `word-batch-timing-stability-20261004-1/batch-evidence.json` | `DE4279105A345B41C73770652E757A382E10F121385658E2C1C88ABA560E6323` |
+| `word-batch-timing-stability-20261004-2/batch-evidence.json` | `0001D6E1F941D04A85CA23EB97A0F5259E76BBCF6344205233D2AFF47C91B883` |
+| `word-batch-timing-stability-20261004-3/batch-evidence.json` | `522E5B779BC608D2352DD81AA7DFAF810C885B6E6A9BB92E10815E704408D622` |

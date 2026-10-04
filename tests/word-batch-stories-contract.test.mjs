@@ -46,7 +46,7 @@ test("Word batch replacement keeps source until validated story insertion", () =
     /if \(!inserted\) return false;[\s\S]*source\.Delete\(\)/,
   );
   assert.doesNotMatch(executor, /target\.Text = ""/);
-  assert.match(adapter, /var destination = target\.Duplicate/);
+  assert.match(adapter, /destination = target\.Duplicate/);
   assert.match(adapter, /insertedRange = destination\.Duplicate/);
   assert.match(
     adapter,

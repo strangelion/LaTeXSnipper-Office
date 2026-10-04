@@ -21,6 +21,22 @@ assert.match(
 );
 assert.match(adapter, /ReleaseLocalComObject\(control\)/);
 assert.match(adapter, /ReleaseLocalComObject\(controls\)/);
+for (const owned of [
+  "scratchParagraph",
+  "scratchCandidate",
+  "scratch",
+  "sourceMath",
+  "destination",
+  "insertedProbe",
+  "insertedMath",
+])
+  assert.match(adapter, new RegExp(`ReleaseLocalComObject\\(${owned}\\)`));
+for (const stage of [
+  "scratch-insert-xml",
+  "scratch-find-control",
+  "scratch-copy-math",
+])
+  assert.ok(adapter.includes(`MeasureBatchStage("${stage}"`));
 assert.match(hostTest, /new\[\] \{ 1, 20, 100 \}/);
 assert.match(hostTest, /document\.Content\.End != baselineContentEnd/);
 assert.match(hostTest, /candidateRange\.End >= candidateParagraph\.End/);

@@ -173,7 +173,8 @@ namespace LaTeXSnipper.Word.HostTests
             int attempted, int converted)
         {
             string[] committedStages = { "insert-total", "scratch-materialize-and-copy", "readback-validation",
-                "presentation-style", "manifest-write", "delete-original" };
+                "presentation-style", "manifest-write", "delete-original", "scratch-insert-xml",
+                "scratch-find-control", "scratch-copy-math" };
             foreach (string stage in committedStages.Concat(new[] { "candidate-total", "validate-omml-and-source" }))
             {
                 int minimum = stage == "candidate-total" || stage == "validate-omml-and-source"

@@ -702,7 +702,7 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
-        private static void ReleaseLocalComObject(object value)
+        private static void ReleaseLocalComObject(object? value)
         {
             if (value == null || !Marshal.IsComObject(value))
                 return;
@@ -1212,7 +1212,7 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
-        private static Microsoft.Office.Interop.Word.ContentControl InsertInlineOmmlViaScratch(
+        private Microsoft.Office.Interop.Word.ContentControl InsertInlineOmmlViaScratch(
             Microsoft.Office.Interop.Word.Document document,
             Microsoft.Office.Interop.Word.Range target,
             string mathOnly,
@@ -1220,27 +1220,38 @@ namespace LaTeXSnipper.Word.Host
         {
             int targetStart = target.Start;
             string scratchId = formulaId + "-inline-scratch-" + Guid.NewGuid().ToString("N");
-            Microsoft.Office.Interop.Word.ContentControl scratchCandidate = null;
-            Microsoft.Office.Interop.Word.Range scratchParagraph = null;
-            Microsoft.Office.Interop.Word.Range insertedRange = null;
+            Microsoft.Office.Interop.Word.ContentControl? scratchCandidate = null;
+            Microsoft.Office.Interop.Word.Range? scratchParagraph = null;
+            Microsoft.Office.Interop.Word.Range? insertedRange = null;
+            Microsoft.Office.Interop.Word.Range? scratch = null;
+            Microsoft.Office.Interop.Word.Range? sourceMath = null;
+            Microsoft.Office.Interop.Word.Range? destination = null;
+            Microsoft.Office.Interop.Word.Range? insertedProbe = null;
+            Microsoft.Office.Interop.Word.Range? insertedMath = null;
             try
             {
-                var scratch = document.Range(
+                scratch = document.Range(
                     document.Content.End - 1,
                     document.Content.End - 1);
                 scratch.InsertParagraphAfter();
+                ReleaseLocalComObject(scratch);
+                scratch = null;
                 scratch = document.Range(
                     document.Content.End - 1,
                     document.Content.End - 1);
                 scratchParagraph = scratch.Paragraphs[1].Range.Duplicate;
-                scratch.InsertXML(BuildFlatOpc(
-                    BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
-                scratchCandidate = FindFormulaContentControl(document, scratchId);
+                MeasureBatchStage("scratch-insert-xml", () =>
+                {
+                    scratch.InsertXML(BuildFlatOpc(BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
+                    return true;
+                });
+                scratchCandidate = MeasureBatchStage("scratch-find-control", () =>
+                    FindFormulaContentControl(document, scratchId));
                 if (scratchCandidate == null || scratchCandidate.Range.OMaths.Count != 1)
                     throw new InvalidOperationException(
                         "Word scratch conversion did not create exactly one OMath.");
 
-                var sourceMath = scratchCandidate.Range.OMaths[1].Range.Duplicate;
+                sourceMath = scratchCandidate.Range.OMaths[1].Range.Duplicate;
                 int sourceLength = sourceMath.End - sourceMath.Start;
                 if (sourceLength <= 0)
                     throw new InvalidOperationException(
@@ -1249,11 +1260,15 @@ namespace LaTeXSnipper.Word.Host
                 // Numeric offsets are local to a Word story. Recreating this
                 // range through Document.Range would insert header/text-box
                 // formulas into the main body instead.
-                var destination = target.Duplicate;
+                destination = target.Duplicate;
                 destination.SetRange(targetStart, targetStart);
-                destination.FormattedText = sourceMath.FormattedText;
+                MeasureBatchStage("scratch-copy-math", () =>
+                {
+                    destination.FormattedText = sourceMath.FormattedText;
+                    return true;
+                });
                 insertedRange = destination.Duplicate;
-                var insertedProbe = insertedRange.Duplicate;
+                insertedProbe = insertedRange.Duplicate;
                 if (insertedProbe.OMaths.Count != 1)
                     throw new InvalidOperationException(
                         "Word did not preserve one OMath while copying formatted math.");
@@ -1262,7 +1277,7 @@ namespace LaTeXSnipper.Word.Host
                 // scratch length. Word can include a scratch paragraph boundary in
                 // the copied source range; a run-level content control must never
                 // own that boundary.
-                var insertedMath = insertedProbe.OMaths[1].Range.Duplicate;
+                insertedMath = insertedProbe.OMaths[1].Range.Duplicate;
                 int insertedEnd = insertedMath.End;
                 while (insertedEnd > insertedMath.Start)
                 {
@@ -1333,6 +1348,15 @@ namespace LaTeXSnipper.Word.Host
                             cleanupError);
                     }
                 }
+                // Release only ranges/controls owned by this scratch operation;
+                // the caller's document/target and returned candidate stay alive.
+                ReleaseLocalComObject(insertedMath);
+                ReleaseLocalComObject(insertedProbe);
+                ReleaseLocalComObject(destination);
+                ReleaseLocalComObject(sourceMath);
+                ReleaseLocalComObject(scratch);
+                ReleaseLocalComObject(scratchCandidate);
+                ReleaseLocalComObject(scratchParagraph);
             }
         }
 
