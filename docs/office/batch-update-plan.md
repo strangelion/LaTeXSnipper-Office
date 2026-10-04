@@ -74,6 +74,11 @@ Windows 默认功能 Rust 测试 134 项通过、4 项真实环境专项仍忽�
 TypeScript 检查通过；21 项 Office.js 夹具回归通过。以上不替代真实管道、
 加载项宿主、OLE 激活、视觉或多格式剪贴板验收，O-06 未关闭。
 
+2026-10-04 后续格式进度：Core 有独立 AsciiMath experimental Rust parser/AST
+pilot，分组、分数、根式、上下标和嵌套矩阵有有限 fixture；没有升级通用格式注册表，
+Office 的固定 Core、格式菜单和输入输出支持范围不变。UnicodeMath、MTEF、目标损失
+诊断与通用 API/UI 开放仍待验收，不能由该实验 parser 关闭 O-06/OLE 图片矩阵。
+
 同批远端 CI `37177025803` 暴露资源契约提交号未同步；更新
 `contracts/resources.v1.json` 的固定 Core SHA，保留资源哈希及全部验证门禁。
 

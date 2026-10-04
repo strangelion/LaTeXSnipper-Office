@@ -468,3 +468,8 @@ XML 插入 1.797 秒、控件查找 1.507 秒、公式复制 0.083 秒；其余�
 | `word-batch-timing-stability-20261004-1/batch-evidence.json` | `DE4279105A345B41C73770652E757A382E10F121385658E2C1C88ABA560E6323` |
 | `word-batch-timing-stability-20261004-2/batch-evidence.json` | `0001D6E1F941D04A85CA23EB97A0F5259E76BBCF6344205233D2AFF47C91B883` |
 | `word-batch-timing-stability-20261004-3/batch-evidence.json` | `522E5B779BC608D2352DD81AA7DFAF810C885B6E6A9BB92E10815E704408D622` |
+
+该后续源码提交 `07a7ea9` 的 [CI 37183115211](https://github.com/strangelion/LaTeXSnipper-Office/actions/runs/37183115211)
+已全部成功，包含源码/协议、原生矩阵、COM 激活和 Windows 包检查。
+上一轮 `f67055b` 在新提交触发后按 `cancel-in-progress` 取消，不是源码编译失败；
+不能将其 cancelled 或 gate 失败计为本轮通过，也不由 CI 包检查关闭真实 GUI/宿主矩阵。
