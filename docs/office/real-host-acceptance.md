@@ -597,3 +597,12 @@ SVG 实际 33.20×14.30、PNG 33.20×14.65、OLE 47.50×22.00 pt，尺寸一致�
 端到端验收。Office.js 生产 taskpane 的完整批量按钮浏览器测试使用模拟 Office API，
 覆盖启动、确认前不写、取消释放范围、重复公式、代码排除、进度及 390px CSS/CSP；
 不能替代真实 Office.js Word、混排/多故事或 10000 条语料验收。
+
+同日追加尺寸链专项：`selection-media-geometry-f2850b0ac8b84b9d89dddd8f56945360/`
+的 `selection-media-evidence.json` SHA-256 为
+`75CD39600079C95FAF5294E3196B2DEC73BD110AC1117994DC564E78E7B8D2F0`。
+三种媒体及保存重开仍通过，4.2301892 秒，仅诊断不作为性能数据。OLE 回报
+SVG_VECTOR_EMF、自然框 1278×596 HIMETRIC（36.2268×16.8945 pt），
+显示框 1676×776 HIMETRIC（47.5087×21.9969 pt）；原始 SVG 尺寸已是明确 pt。
+测试程序现在采集这些自然/显示 extent 及运行时诊断，后续修复可与此失败尺寸基线比较。
+只确认尺寸链差异，不宣称已确定缓存/DPI/固定缩放中的最终根因。

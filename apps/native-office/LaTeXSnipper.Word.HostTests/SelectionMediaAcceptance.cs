@@ -67,9 +67,22 @@ namespace LaTeXSnipper.Word.HostTests
                         "Wrong occurrence or surrounding text was replaced.");
                     var insertedControl = document.ContentControls.Cast<W.ContentControl>().Single(c => c.Tag == "latexsnipper:formula:" + payload.FormulaId);
                     var insertedShape = insertedControl.Range.InlineShapes[1];
+                    object oleGeometry = null;
+                    if (format == "ole")
+                    {
+                        object automation = insertedShape.OLEFormat.Object;
+                        try
+                        {
+                            Require(OleFormulaInterop.TryGetExtentPoints(automation, out OleExtentPoints extent), "OLE extent diagnostics unavailable.");
+                            OleFormulaInterop.TryGetDiagnosticsJson(automation, out string diagnostics);
+                            oleGeometry = new { extent.NaturalWidthPt, extent.NaturalHeightPt,
+                                extent.DisplayWidthPt, extent.DisplayHeightPt, diagnostics };
+                        }
+                        finally { Marshal.ReleaseComObject(automation); }
+                    }
                     checks.Add(new { format, sourcePreservedOnFailure = true, exactOccurrence = true, realObjectReadback = true,
                         requestedWidthPt = render.WidthPt, requestedHeightPt = render.HeightPt,
-                        actualWidthPt = insertedShape.Width, actualHeightPt = insertedShape.Height });
+                        actualWidthPt = insertedShape.Width, actualHeightPt = insertedShape.Height, oleGeometry });
                     Marshal.ReleaseComObject(insertedShape); Marshal.ReleaseComObject(insertedControl);
                 }
                 string path = Path.Combine(directory, "selection-media.docx");
