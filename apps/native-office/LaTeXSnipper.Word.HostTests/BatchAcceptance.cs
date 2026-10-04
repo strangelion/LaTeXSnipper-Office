@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using LaTeXSnipper.Word.Host;
 using InteropWord = Microsoft.Office.Interop.Word;
 
@@ -18,15 +19,16 @@ namespace LaTeXSnipper.Word.HostTests
         private static extern uint GetClipboardSequenceNumber();
 
         public static int Run(InteropWord.Application application, ref InteropWord.Document document,
-            AcceptanceCase fixture, string directory)
+            AcceptanceCase fixture, string directory, int count = 250)
         {
-            const int count = 250;
             var chunks = new List<object>();
             int converted = 0, skipped = 0, failed = 0;
             string error = null;
             bool reopened = false;
+            bool metadataVerified = false;
             uint clipboardBefore = GetClipboardSequenceNumber();
             var watch = Stopwatch.StartNew();
+            long scanMs = 0, validationMs = 0, saveMs = 0, reopenMs = 0;
             try
             {
                 // Unique paragraph markers detect accidental replacement of adjacent prose.
@@ -39,7 +41,9 @@ namespace LaTeXSnipper.Word.HostTests
                     source.Append($"Before{i:D4} {open}{fixture.Latex}{close} After{i:D4}\r");
                 }
                 document.Content.Text = source.ToString();
+                var stageWatch = Stopwatch.StartNew();
                 var candidates = new WordBatchLatexScanner(application).Scan();
+                scanMs = stageWatch.ElapsedMilliseconds;
                 if (candidates.Count != count)
                     throw new InvalidOperationException($"Scan expected {count}, got {candidates.Count}.");
                 var items = candidates.Select(candidate => new BatchConversionItem
@@ -51,7 +55,7 @@ namespace LaTeXSnipper.Word.HostTests
                 }).OrderByDescending(item => item.Locator.Value.GetProperty("start").GetInt32()).ToList();
                 // One bad payload in a later chunk must leave its source intact;
                 // successful earlier and later chunks must remain usable.
-                items[125].Omml = "<invalid/>";
+                items[count / 2].Omml = "<invalid/>";
                 var executor = new WordBatchConversionExecutor(application);
                 for (int offset = 0; offset < count; offset += 25)
                 {
@@ -61,24 +65,37 @@ namespace LaTeXSnipper.Word.HostTests
                     converted += result.Converted;
                     skipped += result.Skipped;
                     failed += result.Failed;
-                    chunks.Add(new { offset, elapsedMs = chunkWatch.ElapsedMilliseconds, result });
+                    var stages = executor.StageTimings;
+                    chunks.Add(new { offset, elapsedMs = chunkWatch.ElapsedMilliseconds,
+                        stages, result });
+                    ValidateStageTimings(stages, Math.Min(25, count - offset), result.Converted);
                     Console.WriteLine($"batch offset={offset} converted={result.Converted} " +
                         $"skipped={result.Skipped} failed={result.Failed}");
                 }
                 if (converted != count - 1 || skipped != 1 || failed != 0)
                     throw new InvalidOperationException(
-                        $"Expected 249/1/0 converted/skipped/failed, got {converted}/{skipped}/{failed}.");
-                ValidateDocument(document, count);
+                        $"Expected {count - 1}/1/0 converted/skipped/failed, got {converted}/{skipped}/{failed}.");
+                stageWatch.Restart();
+                var originalManifest = ValidateDocument(document, count, fixture);
+                validationMs = stageWatch.ElapsedMilliseconds;
                 if (GetClipboardSequenceNumber() != clipboardBefore)
                     throw new InvalidOperationException("Native batch conversion changed the clipboard.");
                 string path = Path.Combine(directory, "word-batch-acceptance.docx");
+                stageWatch.Restart();
                 document.SaveAs2(path, InteropWord.WdSaveFormat.wdFormatXMLDocument);
+                saveMs = stageWatch.ElapsedMilliseconds;
                 document.Close(InteropWord.WdSaveOptions.wdDoNotSaveChanges);
                 Marshal.ReleaseComObject(document);
                 document = null;
+                stageWatch.Restart();
                 document = application.Documents.Open(path, ReadOnly: true,
                     AddToRecentFiles: false, Visible: true);
-                ValidateDocument(document, count);
+                var reopenedManifest = ValidateDocument(document, count, fixture);
+                if (!originalManifest.OrderBy(entry => entry.Key, StringComparer.Ordinal)
+                    .SequenceEqual(reopenedManifest.OrderBy(entry => entry.Key, StringComparer.Ordinal)))
+                    throw new InvalidOperationException("Formula IDs or full payloads changed after save/reopen.");
+                metadataVerified = true;
+                reopenMs = stageWatch.ElapsedMilliseconds;
                 reopened = true;
             }
             catch (Exception exception)
@@ -103,8 +120,10 @@ namespace LaTeXSnipper.Word.HostTests
                     {
                         schemaVersion = 1, host = "word", requested = count,
                         converted, skipped, failed, elapsedMs = watch.ElapsedMilliseconds,
+                        stages = new { scanMs, validationMs, saveMs, reopenMs },
+                        timingScope = "Serial inclusive timings; nested stages overlap and must not be summed. Core conversion, pipe transport and field refresh are not measured.",
                         clipboardUnchanged = GetClipboardSequenceNumber() == clipboardBefore,
-                        saveReopenVerified = reopened, chunks, error,
+                        saveReopenVerified = reopened, metadataSaveReopenVerified = metadataVerified, chunks, error,
                         status = error == null ? "passed" : "failed",
                         scope = "Native scanner/executor; pipe timeout and clipboard paste excluded"
                     }, new JsonSerializerOptions { WriteIndented = true }));
@@ -112,7 +131,8 @@ namespace LaTeXSnipper.Word.HostTests
             return error == null ? 0 : 1;
         }
 
-        private static void ValidateDocument(InteropWord.Document document, int count)
+        private static Dictionary<string, string> ValidateDocument(InteropWord.Document document, int count,
+            AcceptanceCase fixture)
         {
             if (document.OMaths.Count != count - 1)
                 throw new InvalidOperationException($"Expected {count - 1} equations, got {document.OMaths.Count}.");
@@ -123,6 +143,51 @@ namespace LaTeXSnipper.Word.HostTests
             var remaining = new WordBatchLatexScanner(document.Application).Scan();
             if (remaining.Count != 1)
                 throw new InvalidOperationException($"Expected one preserved source, got {remaining.Count}.");
+            var manifest = FormulaDocumentManifest.ReadAll(document);
+            if (manifest.Count != count - 1 || manifest.Any(entry =>
+                entry.Key != entry.Value.FormulaId || entry.Value.Latex != fixture.Latex ||
+                entry.Value.Omml != fixture.Omml || entry.Value.StorageMode != "native-omml" ||
+                entry.Value.Display != "inline"))
+                throw new InvalidOperationException("Persistent formula index lost source, OMML or storage metadata.");
+            var controlIds = new HashSet<string>(StringComparer.Ordinal);
+            if (document.ContentControls.Count != count - 1)
+                throw new InvalidOperationException("Formula content-control count differs from the manifest.");
+            for (int index = 1; index <= document.ContentControls.Count; index++)
+            {
+                var control = document.ContentControls[index];
+                try
+                {
+                    const string prefix = "latexsnipper:formula:";
+                    string tag = control.Tag;
+                    if (!tag.StartsWith(prefix, StringComparison.Ordinal) ||
+                        !controlIds.Add(tag.Substring(prefix.Length)) ||
+                        !manifest.ContainsKey(tag.Substring(prefix.Length)))
+                        throw new InvalidOperationException("Formula control has an absent or duplicate persistent ID.");
+                }
+                finally { Marshal.ReleaseComObject(control); }
+            }
+            return manifest.ToDictionary(entry => entry.Key, entry => JsonSerializer.Serialize(entry.Value));
+        }
+
+        private static void ValidateStageTimings(Dictionary<string, BatchStageMeasurement> stages,
+            int attempted, int converted)
+        {
+            string[] committedStages = { "insert-total", "scratch-materialize-and-copy", "readback-validation",
+                "presentation-style", "manifest-write", "delete-original" };
+            foreach (string stage in committedStages.Concat(new[] { "candidate-total", "validate-omml-and-source" }))
+            {
+                int minimum = stage == "candidate-total" || stage == "validate-omml-and-source"
+                    ? attempted : converted;
+                int maximum = stage == "manifest-write" || stage == "delete-original" ? converted : attempted;
+                if (!stages.TryGetValue(stage, out var measurement) ||
+                    measurement.Calls < minimum || measurement.Calls > maximum ||
+                    double.IsNaN(measurement.ElapsedMs) || double.IsInfinity(measurement.ElapsedMs) ||
+                    measurement.ElapsedMs < 0)
+                    throw new InvalidOperationException($"Invalid measurement for {stage}; expected {minimum}..{maximum} calls.");
+            }
+            if (stages["candidate-total"].ElapsedMs < stages["insert-total"].ElapsedMs ||
+                stages["insert-total"].ElapsedMs < stages["scratch-materialize-and-copy"].ElapsedMs)
+                throw new InvalidOperationException("Nested timings are not inclusive.");
         }
     }
 }

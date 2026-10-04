@@ -361,3 +361,81 @@ node scripts/verify-office-format-conversion.mjs
 
 Office CI 修复提交 `6649175` 的 [CI 37115718227](https://github.com/strangelion/LaTeXSnipper-Office/actions/runs/37115718227)
 已成功：修正资源合约的 Core gitlink pin。该结果不代表本轮新增转换源码的 CI 也已完成。
+
+## 2026-10-04 Word 批量分阶段计时与拒绝诊断（部分验收）
+
+环境核对：Windows 11 `10.0.26200`、Office `16.0.18526.20672` x64。
+源码基线 `a638df9` 加本节对应的采集/保护改动；由 Core `1d151a1` 的 CLI
+重新生成 OMML 夹具。该 Core 提交与 Office 固定的 `225cf61` 相比仅改测试和文档，
+不改变渲染实现。生成夹具 SHA-256 为
+`7366643A2FC5370BCE4FCC10D0AE831890F745FB0FD6D55B27C00FFBD87FFF39`。
+
+测试创建自己的新 Word 实例/文档，结束后关闭；没有替换用户文档或改注册表。
+四种分隔符混合扫描，但转换目标统一为行内 OMML；不是 display 排版验收。
+一个积分语法重复 25/250 次，每个文档向一项注入非 OMML XML。结果如下：
+
+| 规模 | 转换 / 保留 / 执行失败 | 总时间 | 保存只读重开 | 完整 payload / ID / 邻接正文 | 剪贴板序列 |
+| --- | --- | --- | --- | --- | --- |
+| 25 | 24 / 1 / 0 | 17.247 秒 | 通过 | 通过 | 未变化 |
+| 250 | 249 / 1 / 0 | 232.841 秒 | 通过 | 通过 | 未变化 |
+
+保存前/重开后分别核对公式和内容控件数量、唯一 ID、LaTeX、OMML、存储/显示模式，
+再比较按 ID 排序的完整 payload 快照。拒绝项报告 `OMML_MATH_MISSING` 且原文保留。
+没有取消逐目标插入读回、提前删除原源或去掉失败回滚。
+
+250 条阶段累计：
+
+| 阶段 | 调用次数 | 秒 |
+| --- | ---: | ---: |
+| 候选执行（含定位及下列嵌套阶段） | 250 | 220.019 |
+| 插入总计（含 scratch/读回/样式/清单） | 249 | 207.795 |
+| scratch 创建与复制 | 249 | 181.220 |
+| 插入读回校验 | 249 | 11.287 |
+| 清单写入 | 249 | 11.128 |
+| 原源删除 | 249 | 0.718 |
+| 源/OMML 检查 | 250 | 0.101 |
+
+另测扫描 6.508 秒、最终文档核对 2.539 秒、保存 0.168 秒、重开并核对 3.106 秒。
+嵌套计时有重叠，不能将表中全部值相加。10 个 25 条批次的时间范围为
+12.121–34.552 秒，nearest-rank 批次 P95 为 34.552 秒；不是逐公式 P95。
+scratch 约占候选执行总计 82%，作为下一步复用设计的证据，不是已实现的优化。
+没有冷/热配对、峰值内存测量、实际 Core 逐项转换或桌面管道/字段刷新计时，
+不与旧报告直接比较宣传加速，也不提供多样公式准确率。
+
+共享计时器测试覆盖返回值、失败异常身份、失败计数、独立快照、嵌套与无效输入。
+OMML 校验新增数学节点存在性保护及 6 项结构回归，不代表完整 XSD 验证。
+Word 批处理保留源变化、OMML、插入/读回与宿主异常原因，不再全部归为定位失败。
+同批跨故事复测耗时 8.369 秒，七处正文/页眉/页脚/文本框公式及清单保存重开通过；
+3 项无效定位/哈希请求拒绝且原内容/格式保留。
+Native Office Release 构建、共享 C# 回归、前端 392/392、源码规范和协议生成检查通过。
+现有可空类型编译警告未在本批清除。
+
+失败记录也保留：最初 250 条运行在 149/1/0 后因错误的计时次数断言停止；
+另一次 25 条运行在插入读回阶段额外拒绝一项（23/2/0），旧通用错误未能确定原因。
+计时断言已区分尝试和提交；后续诊断与 25/250/跨故事复测通过，但偶发拒绝仍待
+重复/故障注入定位，不能宣称已修复。这两次失败不进入成功统计。
+
+本地证据（`src-tauri/target/` 下，不提交机器路径、文档或二进制）：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `word-batch-timing-25-diagnostic-20261004/batch-evidence.json` | `D6AC3BE58AA14BD8137024E2B069DBE155CB3923B35BD7EE91FA1A539674299B` |
+| `word-batch-timing-25-diagnostic-20261004/word-batch-acceptance.docx` | `788D08988C1418ACA2A11A61D820C93B106DED2A771DE02696132FE53EA95615` |
+| `word-batch-timing-250-final-20261004/batch-evidence.json` | `8EA9693DD011C2723BB54852E1633EF3B8059768B52D98C368FC4DA7381F9D31` |
+| `word-batch-timing-250-final-20261004/word-batch-acceptance.docx` | `8E63F995E36CCBE67C722C628C857666D68563251EC63154DF8DFE865BF89467` |
+| `word-batch-stories-timing-regression-20261004/batch-stories-evidence.json` | `16240707FEEAE5E04BBF0DBA07E2FCD28102CD598459DE45A6DDC53708B05E28` |
+| `word-batch-stories-timing-regression-20261004/word-batch-stories.docx` | `E43CDAC49BE3589D499756BF0724BD160E9B4D4897817FA41B87DB6BFC5B78B3` |
+| `word-batch-timing-20261004/batch-evidence.json`（断言失败） | `A0ED0F6FB4EC75B5BA5D87F77F81144D0B884F01848FFC54882CDA98350E7FDA` |
+| `word-batch-timing-25-20261004/batch-evidence.json`（额外拒绝） | `74E9A97AD368A165B976295EE763246EED385C5AA2D7C47EA3186339CCC0F06C` |
+
+复现（生成夹具后使用新证据目录）：
+
+```powershell
+node scripts/prepare-word-native-host-fixture.mjs
+& 'apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe' `
+  'src-tauri/target/word-native-host-fixture/word-nary-acceptance.generated.json' `
+  'src-tauri/target/word-batch-new-evidence' --batch 250
+```
+
+`--batch [count]` 接受 25–10,000，默认 250。能配置数量不代表 1,000/10,000 条已测。
+O-06、完整 OLE/图片矩阵、真实桌面管道和 Office.js 宿主验收均保持进行中。

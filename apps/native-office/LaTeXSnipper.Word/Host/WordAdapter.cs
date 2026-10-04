@@ -19,14 +19,20 @@ namespace LaTeXSnipper.Word.Host
 
         private readonly Microsoft.Office.Interop.Word.Application _application;
         private readonly int? _oleServerProcessId;
+        private readonly BatchStageTimings? _batchTimings;
 
         public WordAdapter(
             Microsoft.Office.Interop.Word.Application application,
-            int? oleServerProcessId = null)
+            int? oleServerProcessId = null,
+            BatchStageTimings? batchTimings = null)
         {
             _application = application;
             _oleServerProcessId = oleServerProcessId;
+            _batchTimings = batchTimings;
         }
+
+        private T MeasureBatchStage<T>(string stage, Func<T> operation) =>
+            _batchTimings == null ? operation() : _batchTimings.Measure(stage, operation);
 
         public string HostType => "word";
 
@@ -1156,12 +1162,12 @@ namespace LaTeXSnipper.Word.Host
                     // Materialize it in a scratch paragraph, copy the exact OMath
                     // FormattedText to the requested run position, then wrap that
                     // precise range in an inline content control.
-                    var candidate = InsertInlineOmmlViaScratch(
+                    var candidate = MeasureBatchStage("scratch-materialize-and-copy", () => InsertInlineOmmlViaScratch(
                         doc,
                         range,
                         mathOnly,
-                        payload.FormulaId);
-                    var readBackResult = ValidateNativeCandidate(candidate, mathOnly);
+                        payload.FormulaId));
+                    var readBackResult = MeasureBatchStage("readback-validation", () => ValidateNativeCandidate(candidate, mathOnly));
                     if (!readBackResult.IsValid)
                         return RollbackInvalidNativeCandidate(
                             doc,
@@ -1169,13 +1175,17 @@ namespace LaTeXSnipper.Word.Host
                             payload.FormulaId,
                             readBackResult);
 
-                    var styleFailure = ApplyNativeFormulaPresentationOrRollback(
+                    var styleFailure = MeasureBatchStage("presentation-style", () => ApplyNativeFormulaPresentationOrRollback(
                         candidate,
                         payload,
-                        InsertMode.Inline);
+                        InsertMode.Inline));
                     if (styleFailure != null) return styleFailure;
 
-                    FormulaDocumentManifest.Write(doc, payload);
+                    MeasureBatchStage("manifest-write", () =>
+                    {
+                        FormulaDocumentManifest.Write(doc, payload);
+                        return true;
+                    });
                     var committedRange = candidate.Range.Duplicate;
 
                     return new InsertResult

@@ -20,11 +20,15 @@ namespace LaTeXSnipper.Word.Host;
 internal sealed class WordBatchConversionExecutor
 {
     private readonly Application _application;
+    private BatchStageTimings _timings = new();
+
+    public Dictionary<string, BatchStageMeasurement> StageTimings => _timings.Snapshot();
 
     public WordBatchConversionExecutor(Application application) => _application = application;
 
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
+        _timings = new BatchStageTimings();
         var total = items.Count;
         var converted = 0;
         var skipped = 0;
@@ -53,9 +57,10 @@ internal sealed class WordBatchConversionExecutor
 
             try
             {
-                bool ok = TryReplaceWithLocator(doc, item);
+                string reason = "Locator resolution failed";
+                bool ok = _timings.Measure("candidate-total", () => TryReplaceWithLocator(doc, item, out reason));
                 if (ok) converted++;
-                else { skipped++; failures.Add(Failure(item, "Locator resolution failed")); }
+                else { skipped++; failures.Add(Failure(item, reason)); }
             }
             catch (Exception ex)
             {
@@ -68,15 +73,16 @@ internal sealed class WordBatchConversionExecutor
     }
 
     /// <summary>Resolve the locator, verify sourceHash, and replace with OMML.</summary>
-    private bool TryReplaceWithLocator(Document doc, BatchConversionItem item)
+    private bool TryReplaceWithLocator(Document doc, BatchConversionItem item, out string reason)
     {
+        reason = "Locator resolution failed";
         Range? target = null;
         string originalText = "";
 
         if (item.Locator == null)
         {
             // Fallback for legacy items without locator: use Find (less reliable)
-            return TryReplaceByFind(doc, item);
+            return TryReplaceByFind(doc, item, out reason);
         }
 
         try
@@ -121,7 +127,10 @@ internal sealed class WordBatchConversionExecutor
             if (target == null) return false;
             originalText = target.Text;
             if (!string.Equals(originalText, item.SourceText, StringComparison.Ordinal))
+            {
+                reason = "SOURCE_CHANGED: source text no longer matches the prepared item.";
                 return false;
+            }
 
             // Verify sourceHash if available
             if (!string.IsNullOrEmpty(item.SourceHash))
@@ -131,15 +140,17 @@ internal sealed class WordBatchConversionExecutor
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[WordBatchConversion] SOURCE_CHANGED for {item.SourceId}: hash mismatch");
+                    reason = "SOURCE_CHANGED: source hash no longer matches the prepared item.";
                     return false;
                 }
             }
 
-            return ReplaceStory(doc, target, item);
+            return ReplaceStory(doc, target, item, out reason);
         }
         catch (Exception exception)
         {
             OfficeOperationLog.Failure("batch-replace-story", "word", item.SourceId, exception);
+            reason = $"HOST_OPERATION_FAILED: {exception.GetType().Name} (0x{exception.HResult:X8}).";
             return false;
         }
         finally
@@ -177,8 +188,9 @@ internal sealed class WordBatchConversionExecutor
     }
 
     /// <summary>Legacy fallback: find by source text (no locator available).</summary>
-    private bool TryReplaceByFind(Document doc, BatchConversionItem item)
+    private bool TryReplaceByFind(Document doc, BatchConversionItem item, out string reason)
     {
+        reason = "Locator resolution failed";
         var find = doc.Content.Find;
         find.Text = item.SourceText;
         find.Forward = true;
@@ -189,20 +201,34 @@ internal sealed class WordBatchConversionExecutor
         range.Find.Execute(FindText: item.SourceText, Forward: true, Wrap: WdFindWrap.wdFindStop);
         if (!range.Find.Found) return false;
 
-        return ReplaceStory(doc, range, item);
+        return ReplaceStory(doc, range, item, out reason);
     }
 
-    private bool ReplaceStory(Document doc, Range source, BatchConversionItem item)
+    private bool ReplaceStory(Document doc, Range source, BatchConversionItem item, out string reason)
     {
-        if (!OmmlValidator.Validate(item.Omml).IsValid) return false;
-        if (!string.IsNullOrEmpty(item.SourceHash) &&
-            !string.Equals(ComputeSha256(source.Text), item.SourceHash, StringComparison.OrdinalIgnoreCase))
+        reason = "SOURCE_CHANGED: source hash no longer matches the prepared item.";
+        string validationError = reason;
+        bool valid = _timings.Measure("validate-omml-and-source", () =>
+        {
+            var validation = OmmlValidator.Validate(item.Omml);
+            if (!validation.IsValid)
+            {
+                validationError = validation.Issues[0].Code + ": " + validation.Issues[0].Message;
+                return false;
+            }
+            return string.IsNullOrEmpty(item.SourceHash) ||
+                string.Equals(ComputeSha256(source.Text), item.SourceHash, StringComparison.OrdinalIgnoreCase);
+        });
+        if (!valid)
+        {
+            reason = validationError;
             return false;
+        }
 
         int start = source.Start;
         int end = source.End;
         string formulaId = FormulaIdHelper.NewId();
-        var adapter = new WordAdapter(_application);
+        var adapter = new WordAdapter(_application, batchTimings: _timings);
         // Keep the source until the existing, validated inline pipeline commits.
         // Raw OMML InsertXML is not reliable in the middle of a Word paragraph.
         var anchor = source.Duplicate;
@@ -211,16 +237,21 @@ internal sealed class WordBatchConversionExecutor
         try
         {
             anchor.Select();
-            var insertion = adapter.InsertFormula(new FormulaPayload
+            var insertion = _timings.Measure("insert-total", () => adapter.InsertFormula(new FormulaPayload
             {
                 FormulaId = formulaId,
                 Latex = item.NormalizedLatex,
                 Omml = item.Omml,
                 StorageMode = "native-omml",
                 Display = "inline"
-            }, InsertMode.Inline);
+            }, InsertMode.Inline));
             inserted = insertion.Success;
-            if (!inserted) throw new InvalidOperationException(insertion.Error ?? "Native inline insertion failed.");
+            if (!inserted)
+            {
+                reason = (insertion.ErrorCode ?? "NATIVE_INLINE_INSERT_FAILED") + ": " +
+                    (insertion.Error ?? "Native inline insertion failed.");
+                return false;
+            }
         }
         finally
         {
@@ -229,8 +260,11 @@ internal sealed class WordBatchConversionExecutor
         if (!inserted) return false;
         try
         {
-            source.SetRange(start, end);
-            source.Delete();
+            _timings.Measure("delete-original", () =>
+            {
+                source.SetRange(start, end);
+                source.Delete();
+            });
             return true;
         }
         catch

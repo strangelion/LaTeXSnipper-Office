@@ -31,7 +31,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Omml
     }
 
     /// <summary>
-    /// Validates n-ary OMML ownership without rewriting or guessing structure.
+    /// Requires a namespaced math object and validates n-ary OMML ownership
+    /// without rewriting or guessing structure. This is not full XSD validation.
     /// The operand of an integral, sum, or product must be inside that
     /// operator's m:nary/m:e element.
     /// </summary>
@@ -76,6 +77,12 @@ namespace LaTeXSnipper.NativeOffice.Shared.Omml
             catch (Exception error)
             {
                 AddIssue(result, "OMML_XML_INVALID", "OMML could not be parsed: " + error.Message, -1);
+                return result;
+            }
+
+            if (!document.Descendants(Math + "oMath").Any())
+            {
+                AddIssue(result, "OMML_MATH_MISSING", "XML contains no OMML math object.", -1);
                 return result;
             }
 

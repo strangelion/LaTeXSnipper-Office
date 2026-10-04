@@ -11,6 +11,19 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
         internal static int Run()
         {
             int failures = 0;
+            foreach (string xml in new[] { "<invalid/>", "<oMath><r>x</r></oMath>",
+                "<m:oMath xmlns:m=\"urn:not-omml\"><m:r>x</m:r></m:oMath>" })
+            {
+                var missing = OmmlValidator.Validate(xml);
+                failures += Expect(!missing.IsValid && missing.HasIssue("OMML_MATH_MISSING"),
+                    "non-OMML XML was accepted as a math object");
+            }
+            failures += ExpectValid("math paragraph", "<m:oMathPara xmlns:m=\"" + M + "\">" +
+                Wrap(RunText("x")) + "</m:oMathPara>");
+            failures += ExpectValid("Word envelope", "<document>" + Wrap(RunText("x")) + "</document>");
+            var absentReadBack = OmmlValidator.ValidateHostReadBack(Wrap(RunText("x")), "<document/>");
+            failures += Expect(!absentReadBack.IsValid && absentReadBack.HasIssue("OMML_MATH_MISSING"),
+                "read-back without any math was accepted");
             failures += ExpectValid("integral", Nary("∫", "0", "1", RunText("f(x)dx")));
             failures += ExpectValid("sum", Nary("∑", "i=0", "n", RunText("a_i")));
             failures += ExpectValid("product", Nary("∏", "i=1", "n", RunText("x_i")));

@@ -138,8 +138,15 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
             bool fieldRefreshMode = args.Length == 3 &&
                 string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
-            bool batchMode = args.Length == 3 &&
+            bool batchMode = (args.Length == 3 || args.Length == 4) &&
                 string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase);
+            int batchCount = 250;
+            if (batchMode && args.Length == 4 &&
+                (!int.TryParse(args[3], out batchCount) || batchCount < 25 || batchCount > 10000))
+            {
+                Console.Error.WriteLine("Batch acceptance count must be between 25 and 10000.");
+                return 2;
+            }
             bool batchStoriesMode = args.Length == 3 &&
                 string.Equals(args[2], "--batch-stories", StringComparison.OrdinalIgnoreCase);
             bool selectionLatexMode = args.Length == 3 &&
@@ -158,7 +165,7 @@ namespace LaTeXSnipper.Word.HostTests
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --format-conversion <render.json> | --style | --field-refresh | --batch | --batch-stories | --selection-latex | --skip-preflight]");
+                    "--case <fixture-name> | --format-conversion <render.json> | --style | --field-refresh | --batch [count] | --batch-stories | --selection-latex | --skip-preflight]");
                 return 2;
             }
 
@@ -222,7 +229,7 @@ namespace LaTeXSnipper.Word.HostTests
                 if (batchStoriesMode)
                     return BatchStoriesAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (batchMode)
-                    return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
+                    return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory, batchCount);
                 if (fieldRefreshMode)
                 {
                     FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(
