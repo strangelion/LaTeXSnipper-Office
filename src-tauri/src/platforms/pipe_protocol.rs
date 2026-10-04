@@ -389,6 +389,17 @@ pub enum DesktopMessage {
         table: TablePayload,
     },
 
+    #[serde(rename = "REPLACE_SELECTION_MEDIA")]
+    ReplaceSelectionMedia {
+        requestId: String,
+        sessionId: String,
+        expectedContextId: String,
+        planId: String,
+        item: crate::office_integration::dto::BatchConversionItem,
+        formula: Box<FormulaPayload>,
+        targetFormat: String,
+    },
+
     #[serde(rename = "IMPORT_CONVERSATION")]
     ImportConversation {
         requestId: String,

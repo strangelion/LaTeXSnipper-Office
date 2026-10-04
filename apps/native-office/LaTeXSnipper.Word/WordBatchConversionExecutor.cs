@@ -12,6 +12,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Latex;
 using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 using Microsoft.Office.Interop.Word;
 
@@ -20,11 +21,42 @@ namespace LaTeXSnipper.Word.Host;
 internal sealed class WordBatchConversionExecutor
 {
     private readonly Application _application;
+    private readonly int? _oleServerProcessId;
     private BatchStageTimings _timings = new();
+    private FormulaPayload? _selectionMedia;
+    private string? _selectionFormat;
 
     public Dictionary<string, BatchStageMeasurement> StageTimings => _timings.Snapshot();
 
-    public WordBatchConversionExecutor(Application application) => _application = application;
+    public WordBatchConversionExecutor(Application application, int? oleServerProcessId = null)
+    { _application = application; _oleServerProcessId = oleServerProcessId; }
+
+    public VstoBatchConvertResult ExecuteSelectionMedia(string planId, BatchConversionItem item,
+        FormulaPayload formula, string format)
+    {
+        // Separate capability-gated command; old batch hosts must not silently insert OMML.
+        var render = formula?.Render;
+        bool valid = item != null && formula != null && item.Locator != null &&
+            !string.IsNullOrEmpty(item.SourceHash) && item.Status == "converted" &&
+            formula.Latex == item.NormalizedLatex && formula.Omml == item.Omml &&
+            FormulaIdHelper.IsCanonical(formula.FormulaId) && formula.Revision == 0 &&
+            formula.Display == "inline" && (formula.ContentKind == null || formula.ContentKind == "formula") &&
+            render != null && render.WidthPt > 0 && render.WidthPt <= 4096 &&
+            render.HeightPt > 0 && render.HeightPt <= 4096 &&
+            ((format == "svg" && formula.StorageMode == "image" && !string.IsNullOrEmpty(render.Svg) && render.Png == null) ||
+             (format == "png" && formula.StorageMode == "image" && !string.IsNullOrEmpty(render.Png) && render.Svg == null) ||
+             (format == "ole" && formula.StorageMode == "ole" && !string.IsNullOrEmpty(render.Png)));
+        if (!valid || item == null || formula == null)
+            return BuildResult(planId, 1, 0, 1, 0, new List<BatchFailureDto> {
+                Failure(item ?? new BatchConversionItem(), "SELECTION_MEDIA_INVALID") });
+        var matches = LatexDelimiterScanner.ScanSelection(item.SourceText);
+        if (matches.Count != 1 || matches[0].Latex != item.NormalizedLatex || matches[0].OriginalText != item.SourceText)
+            return BuildResult(planId, 1, 0, 1, 0, new List<BatchFailureDto> { Failure(item, "SELECTION_SOURCE_SEMANTICS_MISMATCH") });
+        _selectionMedia = JsonSerializer.Deserialize<FormulaPayload>(JsonSerializer.Serialize(formula));
+        _selectionFormat = format;
+        try { return Execute(planId, new List<BatchConversionItem> { item }); }
+        finally { _selectionMedia = null; _selectionFormat = null; }
+    }
 
     public VstoBatchConvertResult Execute(string planId, List<BatchConversionItem> items)
     {
@@ -39,6 +71,9 @@ internal sealed class WordBatchConversionExecutor
         if (doc == null)
             return BuildResult(planId, total, 0, 0, total,
                 items.ConvertAll(i => Failure(i, "No active document")));
+        if (doc.ReadOnly)
+            return BuildResult(planId, total, 0, total, 0,
+                items.ConvertAll(i => Failure(i, "DOCUMENT_READ_ONLY")));
 
         // Sort: items within the same story by start DESC (reverse order)
         // so earlier positions remain valid after later replacements.
@@ -125,6 +160,11 @@ internal sealed class WordBatchConversionExecutor
             }
 
             if (target == null) return false;
+            if (_selectionMedia != null && (target.OMaths.Count != 0 || target.ContentControls.Count != 0 || target.ParentContentControl != null))
+            {
+                reason = "SELECTION_NOT_PLAIN_LATEX";
+                return false;
+            }
             originalText = target.Text;
             if (!string.Equals(originalText, item.SourceText, StringComparison.Ordinal))
             {
@@ -150,7 +190,9 @@ internal sealed class WordBatchConversionExecutor
         catch (Exception exception)
         {
             OfficeOperationLog.Failure("batch-replace-story", "word", item.SourceId, exception);
-            reason = $"HOST_OPERATION_FAILED: {exception.GetType().Name} (0x{exception.HResult:X8}).";
+            reason = exception.Message.StartsWith("MEDIA_CANDIDATE_LOCATION_OR_KIND_MISMATCH:", StringComparison.Ordinal)
+                ? exception.Message
+                : $"HOST_OPERATION_FAILED: {exception.GetType().Name} (0x{exception.HResult:X8}).";
             return false;
         }
         finally
@@ -227,8 +269,13 @@ internal sealed class WordBatchConversionExecutor
 
         int start = source.Start;
         int end = source.End;
-        string formulaId = FormulaIdHelper.NewId();
-        var adapter = new WordAdapter(_application, batchTimings: _timings);
+        string formulaId = _selectionMedia?.FormulaId ?? FormulaIdHelper.NewId();
+        var adapter = new WordAdapter(_application, _oleServerProcessId, batchTimings: _timings);
+        if (_selectionMedia != null && adapter.ReadFormulaById(formulaId) != null)
+        {
+            reason = "FORMULA_ID_ALREADY_EXISTS";
+            return false;
+        }
         // Keep the source until the existing, validated inline pipeline commits.
         // Raw OMML InsertXML is not reliable in the middle of a Word paragraph.
         var anchor = source.Duplicate;
@@ -237,17 +284,19 @@ internal sealed class WordBatchConversionExecutor
         try
         {
             anchor.Select();
-            var insertion = _timings.Measure("insert-total", () => adapter.InsertFormula(new FormulaPayload
+            var payload = _selectionMedia ?? new FormulaPayload
             {
                 FormulaId = formulaId,
                 Latex = item.NormalizedLatex,
-                Omml = item.Omml,
+                Omml = item.Omml ?? "",
                 StorageMode = "native-omml",
                 Display = "inline"
-            }, InsertMode.Inline));
+            };
+            var insertion = _timings.Measure("insert-total", () => adapter.InsertFormula(payload, InsertMode.Inline));
             inserted = insertion.Success;
             if (!inserted)
             {
+                if (_selectionMedia != null) adapter.RollbackSelectionMedia(doc, formulaId);
                 reason = (insertion.ErrorCode ?? "NATIVE_INLINE_INSERT_FAILED") + ": " +
                     (insertion.Error ?? "Native inline insertion failed.");
                 return false;
@@ -260,16 +309,22 @@ internal sealed class WordBatchConversionExecutor
         if (!inserted) return false;
         try
         {
+            if (_selectionMedia != null)
+                adapter.ValidateSelectionMediaCandidate(doc, _selectionMedia, _selectionFormat!, source.StoryType, end, exactStart: true);
             _timings.Measure("delete-original", () =>
             {
                 source.SetRange(start, end);
+                if (source.Text != item.SourceText || (!string.IsNullOrEmpty(item.SourceHash) &&
+                    !string.Equals(ComputeSha256(source.Text), item.SourceHash, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("SOURCE_CHANGED_AFTER_INSERT");
                 source.Delete();
             });
             return true;
         }
         catch
         {
-            adapter.DeleteFormula(formulaId);
+            if (_selectionMedia != null) adapter.RollbackSelectionMedia(doc, formulaId);
+            else adapter.DeleteFormula(formulaId);
             throw;
         }
     }

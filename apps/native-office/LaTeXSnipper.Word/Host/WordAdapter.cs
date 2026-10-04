@@ -1033,6 +1033,68 @@ namespace LaTeXSnipper.Word.Host
             return DocumentContextId(document);
         }
 
+        internal void ValidateSelectionMediaCandidate(
+            Microsoft.Office.Interop.Word.Document document, FormulaPayload payload,
+            string format, Microsoft.Office.Interop.Word.WdStoryType story, int start, bool exactStart = false)
+        {
+            var control = FindFormulaContentControl(document, payload.FormulaId);
+            Microsoft.Office.Interop.Word.Range? range = null;
+            Microsoft.Office.Interop.Word.InlineShape? shape = null;
+            object? automation = null;
+            try
+            {
+                if (control == null) throw new InvalidOperationException("MEDIA_CONTROL_MISSING");
+                range = control.Range;
+                // Word's SDT opening marker occupies one position before its content range.
+                if (range.StoryType != story || (exactStart ? range.Start != start + 1 : range.Start < start) ||
+                    range.OMaths.Count != 0 || range.InlineShapes.Count != 1)
+                    throw new InvalidOperationException($"MEDIA_CANDIDATE_LOCATION_OR_KIND_MISMATCH: {range.Start}/{start}");
+                shape = range.InlineShapes[1];
+                if (!(shape.Width > 0 && shape.Width <= 4096 && shape.Height > 0 && shape.Height <= 4096))
+                    throw new InvalidOperationException("MEDIA_CANDIDATE_SIZE_INVALID");
+                bool embedded = shape.Type == Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject;
+                if (embedded != (format == "ole"))
+                    throw new InvalidOperationException("MEDIA_CANDIDATE_KIND_MISMATCH");
+                var stored = FormulaDocumentManifest.Read(document, payload.FormulaId);
+                if (stored == null || stored.Latex != payload.Latex || stored.Omml != payload.Omml ||
+                    stored.StorageMode != payload.StorageMode || stored.Display != "inline" ||
+                    stored.Revision != payload.Revision || stored.Render?.Svg != payload.Render?.Svg ||
+                    stored.Render?.Png != payload.Render?.Png)
+                    throw new InvalidOperationException("MEDIA_MANIFEST_READBACK_FAILED");
+                if (embedded)
+                {
+                    automation = shape.OLEFormat.Object;
+                    if (automation == null || !OleFormulaInterop.VerifyRoundTrip(automation, payload))
+                        throw new InvalidOperationException("MEDIA_OLE_READBACK_FAILED");
+                }
+                else
+                {
+                    var xml = range.WordOpenXML;
+                    bool svg = xml.Contains("image/svg+xml");
+                    if (svg != (format == "svg") || (!svg && !xml.Contains("image/png")))
+                        throw new InvalidOperationException("MEDIA_IMAGE_FORMAT_READBACK_FAILED");
+                }
+            }
+            finally
+            {
+                ReleaseLocalComObject(automation);
+                ReleaseLocalComObject(shape);
+                ReleaseLocalComObject(range);
+                ReleaseLocalComObject(control);
+            }
+        }
+
+        internal void RollbackSelectionMedia(Microsoft.Office.Interop.Word.Document document, string formulaId)
+        {
+            var candidate = FindFormulaContentControl(document, formulaId);
+            try
+            {
+                if (candidate != null) { candidate.LockContents = false; candidate.LockContentControl = false; candidate.Delete(true); }
+                FormulaDocumentManifest.Remove(document, formulaId);
+            }
+            finally { ReleaseLocalComObject(candidate); }
+        }
+
         private static string DocumentContextId(Microsoft.Office.Interop.Word.Document document)
         {
             var fullName = document.FullName;
@@ -2431,6 +2493,8 @@ namespace LaTeXSnipper.Word.Host
             InsertMode mode)
         {
             string tempPath = "";
+            Microsoft.Office.Interop.Word.InlineShape? image = null;
+            Microsoft.Office.Interop.Word.ContentControl? cc = null;
             try
             {
                 if (payload.Render?.Png == null && payload.Render?.Svg == null)
@@ -2443,7 +2507,6 @@ namespace LaTeXSnipper.Word.Host
                         : PrepareBlockOleInsertionRange(doc, range);
                 }
 
-                Microsoft.Office.Interop.Word.InlineShape image;
                 string imageId = Guid.NewGuid().ToString("N");
 
                 // PNG-first: Raw MathJax SVG can be accepted by Office but rendered blank.
@@ -2510,7 +2573,6 @@ namespace LaTeXSnipper.Word.Host
 
                 // Wrap the image in a ContentControl with tag so Delete/Replace/Convert can find it.
                 // Without this tag, image formulas cannot be read, replaced, deleted, or converted.
-                Microsoft.Office.Interop.Word.ContentControl? cc = null;
                 try
                 {
                     cc = doc.ContentControls.Add(
@@ -2535,8 +2597,8 @@ namespace LaTeXSnipper.Word.Host
                 }
                 catch
                 {
-                    // Best-effort; image is still inserted
-                    System.Diagnostics.Debug.WriteLine("[WordAdapter] Failed to wrap image with ContentControl");
+                    // A detached image is not a managed formula and cannot be committed.
+                    throw new InvalidOperationException("IMAGE_CONTENT_CONTROL_FAILED");
                 }
 
                 try
@@ -2682,10 +2744,19 @@ namespace LaTeXSnipper.Word.Host
             }
             catch (Exception ex)
             {
+                try
+                {
+                    if (cc != null) cc.Delete(true);
+                    else if (image != null) image.Delete();
+                    FormulaDocumentManifest.Remove(doc, payload.FormulaId);
+                }
+                catch (Exception cleanupError) { OfficeOperationLog.Failure("rollback-image-insert", "word", payload.FormulaId, cleanupError); }
                 return new InsertResult { Success = false, ErrorCode = "IMAGE_INSERT_FAILED", Error = $"Image insert failed: {ex.Message}" };
             }
             finally
             {
+                ReleaseLocalComObject(cc);
+                ReleaseLocalComObject(image);
                 try { if (!string.IsNullOrEmpty(tempPath) && System.IO.File.Exists(tempPath)) System.IO.File.Delete(tempPath); }
                 catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "word", payload?.FormulaId, ex); }
             }

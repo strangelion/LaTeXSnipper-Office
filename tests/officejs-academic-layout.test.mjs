@@ -117,7 +117,10 @@ function trackedSelectionHarness() {
         return range;
       },
     },
-    async sync() {},
+    async sync() {
+      if (state.failSync && state.insertions)
+        throw new Error("unknown sync completion");
+    },
   };
   globalThis.Word = {
     InsertLocation: { replace: "Replace" },
@@ -154,7 +157,7 @@ function trackedSelectionHarness() {
       };
     },
   };
-  return { state, controller: new office.WordSelectionLatex(bridge) };
+  return { state, range, controller: new office.WordSelectionLatex(bridge) };
 }
 
 test("Office.js selection prepare/cancel is read-only and confirm uses the tracked range once", async () => {
@@ -203,6 +206,18 @@ test("Office.js rejects stale text/format, cleans staged metadata and releases f
   assert.equal(state.insertions, 0);
   assert.equal(state.metadataAdds, 0);
   assert.equal(state.releases, 1);
+});
+
+test("Office.js explicit batch ranges never read the active selection and uncertain commits retain metadata", async () => {
+  const { state, range, controller } = trackedSelectionHarness();
+  await controller.prepare(range, false);
+  assert.equal(state.selections, 0);
+  state.failSync = true;
+  await assert.rejects(controller.confirm(), /unknown sync completion/);
+  assert.equal(state.insertions, 1);
+  assert.equal(state.metadataDeletes, 0);
+  assert.equal(state.releases, 1);
+  await assert.rejects(controller.confirm(), /预览/);
 });
 
 function parse(xml) {

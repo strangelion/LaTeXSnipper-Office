@@ -388,6 +388,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopPing), "PING")]
 [JsonDerivedType(typeof(DesktopInsertFormula), "INSERT_FORMULA")]
 [JsonDerivedType(typeof(DesktopReplaceFormula), "REPLACE_FORMULA")]
+[JsonDerivedType(typeof(DesktopReplaceSelectionMedia), "REPLACE_SELECTION_MEDIA")]
 [JsonDerivedType(typeof(DesktopInsertTable), "INSERT_TABLE")]
 [JsonDerivedType(typeof(DesktopImportConversation), "IMPORT_CONVERSATION")]
 [JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
@@ -508,6 +509,14 @@ public class DesktopRequestDocumentTargets : DesktopMessage { }
 public class DesktopActivateDocumentTarget : DesktopDocumentCommand
 {
     [JsonPropertyName("targetDocumentContextId")] public string TargetDocumentContextId { get; set; } = "";
+}
+
+public class DesktopReplaceSelectionMedia : DesktopDocumentCommand
+{
+    [JsonPropertyName("planId")] public string PlanId { get; set; } = "";
+    [JsonPropertyName("item")] public BatchConversionItem Item { get; set; } = new();
+    [JsonPropertyName("formula")] public FormulaPayload Formula { get; set; } = new();
+    [JsonPropertyName("targetFormat")] public string TargetFormat { get; set; } = "";
 }
 
 public class DesktopRequestReadFormula : DesktopDocumentCommand

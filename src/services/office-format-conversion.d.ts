@@ -19,6 +19,7 @@ export interface ConversionContext {
   engine: boolean;
   ole: boolean;
   readOnly?: boolean;
+  selectionMedia?: boolean;
 }
 export interface ConversionDocument {
   host?: string;
@@ -28,6 +29,7 @@ export interface ConversionDocument {
   managed: boolean;
   ole: boolean;
   readOnly?: boolean;
+  selectionMedia?: boolean;
 }
 export function collectConversionDocuments(
   sessions: Array<{
@@ -79,6 +81,7 @@ export const FORMAT_NAMES: Record<ConversionFormat, string>;
 export function conversionChoices(
   context: ConversionContext,
   source: ConversionSource,
+  operation?: "copy" | "replace",
 ): {
   sources: Array<{ value: ConversionSource; label: string; reason: string }>;
   formats: Array<{ value: ConversionFormat; label: string; reason: string }>;
@@ -90,6 +93,7 @@ export function openFormatConversionDialog<
   prepare: (choice: {
     source: ConversionSource;
     format: ConversionFormat;
+    operation: "copy" | "replace";
     document?: ConversionDocument;
   }) => Promise<T>;
   renderPreview: (prepared: T) => Promise<Node>;

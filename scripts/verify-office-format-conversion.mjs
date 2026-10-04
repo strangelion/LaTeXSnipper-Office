@@ -57,9 +57,10 @@ try {
     delayed = false,
     officeJs = false,
     refreshable = false,
+    media = false,
   ) {
     await page.evaluate(
-      async ({ fail, delayed, officeJs, refreshable }) => {
+      async ({ fail, delayed, officeJs, refreshable, media }) => {
         const { openFormatConversionDialog, prepareSelectionFormatExport } =
           await import("/services/office-format-conversion.js");
         window.__formatDisposed = 0;
@@ -79,6 +80,7 @@ try {
                 documentTitle: "同名文档",
                 managed: true,
                 ole: true,
+                selectionMedia: media,
               },
               {
                 host: "word",
@@ -87,6 +89,7 @@ try {
                 documentTitle: "同名文档",
                 managed: false,
                 ole: true,
+                selectionMedia: media,
               },
             ],
             connected: true,
@@ -95,7 +98,7 @@ try {
             engine: true,
             ole: true,
           },
-          prepare: async ({ source, format, document }) => {
+          prepare: async ({ source, format, operation, document }) => {
             if (delayed)
               await new Promise((resolve) => setTimeout(resolve, 150));
             if (fail) throw new Error("Injected source validation failure");
@@ -114,6 +117,7 @@ try {
               latex: String.raw`\frac{a}{b}`,
               source,
               format,
+              operation,
               target: document,
             };
           },
@@ -132,7 +136,7 @@ try {
             : undefined,
         });
       },
-      { fail, delayed, officeJs, refreshable },
+      { fail, delayed, officeJs, refreshable, media },
     );
   }
   await open();
@@ -172,6 +176,39 @@ try {
     "ole",
   );
   assert.equal(await page.evaluate(() => window.__formatDisposed), 1);
+
+  await open(false, false, false, false, true);
+  await dialog
+    .getByRole("radio", { name: "Word 裸 LaTeX 选区", exact: true })
+    .click();
+  await dialog.getByRole("radio", { name: "SVG 矢量图", exact: true }).click();
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog
+    .getByRole("radio", { name: "在文档内原位替换", exact: true })
+    .click();
+  assert.equal(
+    await dialog.getByRole("button", { name: "确认原位转换" }).isDisabled(),
+    true,
+  );
+  assert.equal(
+    await dialog.locator(".office-selection-preview").isVisible(),
+    false,
+  );
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog.getByRole("button", { name: "确认原位转换" }).click();
+  const mediaChoice = await page.evaluate(() => window.__formatAnswer);
+  assert.equal(mediaChoice.prepared.operation, "replace");
+  assert.equal(mediaChoice.format, "svg");
 
   await open(false, false, true);
   await dialog
@@ -414,10 +451,15 @@ try {
       String.raw`\int_0^1 x\,dx`,
       { display: false },
     );
+    const { portableFormulaSvg } =
+      await import("/services/office-format-conversion.js");
+    const svg = await portableFormulaSvg(result.svg);
+    if (/\b(?:fill|stroke)=["']currentcolor["']/i.test(svg))
+      throw new Error("Office SVG still contains unresolved paint");
     return {
-      svg: result.svg,
+      svg,
       png: await window.__app._svgToPngBase64(
-        result.svg,
+        svg,
         result.widthPt,
         result.heightPt,
       ),

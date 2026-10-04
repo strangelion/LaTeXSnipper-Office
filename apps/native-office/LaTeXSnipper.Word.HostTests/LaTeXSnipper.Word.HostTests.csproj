@@ -49,6 +49,7 @@
     <Compile Include="SelectionLatexAcceptance.cs" />
     <Compile Include="FormatConversionAcceptance.cs" />
     <Compile Include="DocumentTargetsAcceptance.cs" />
+    <Compile Include="SelectionMediaAcceptance.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

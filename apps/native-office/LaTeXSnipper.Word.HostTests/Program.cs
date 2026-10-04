@@ -131,6 +131,8 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--ole", StringComparison.OrdinalIgnoreCase);
             bool formatConversionMode = args.Length == 4 &&
                 string.Equals(args[2], "--format-conversion", StringComparison.OrdinalIgnoreCase);
+            bool selectionMediaMode = args.Length == 4 &&
+                string.Equals(args[2], "--selection-media", StringComparison.OrdinalIgnoreCase);
             bool imageMode = args.Length == 4 &&
                 string.Equals(args[2], "--editable-image", StringComparison.OrdinalIgnoreCase);
             bool caseMode = args.Length == 4 &&
@@ -161,14 +163,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !skipPreflight) ||
-                (formatConversionMode && !File.Exists(args[3])) ||
+                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --format-conversion <render.json> | --style | --field-refresh | --batch [count] | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -214,7 +216,7 @@ namespace LaTeXSnipper.Word.HostTests
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
                 document = application.Documents.Add();
-                int? oleServerProcessId = oleMode || formatConversionMode
+                int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 if (oleServerProcessId.HasValue)
@@ -224,6 +226,9 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (selectionMediaMode)
+                    return SelectionMediaAcceptance.Run(application, ref document, adapter, activeCases.First(),
+                        JsonSerializer.Deserialize<RenderData>(File.ReadAllText(args[3]), JsonOptions), evidenceDirectory, oleServerProcessId);
                 if (documentTargetsMode)
                     return DocumentTargetsAcceptance.Run(application, ref document, adapter, evidenceDirectory);
                 if (formatConversionMode)

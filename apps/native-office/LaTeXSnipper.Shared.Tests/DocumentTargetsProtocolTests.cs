@@ -33,7 +33,18 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 Require(roundTrip != null && roundTrip.Documents.Count == 2 && roundTrip.Documents[0].ReadOnly &&
                     roundTrip.Documents[0].DocumentContextId != roundTrip.Documents[1].DocumentContextId &&
                     roundTrip.RequestId == "query" && roundTrip.SessionId == "s", "response identity and readonly state");
-                Console.WriteLine("PASS document targets v3 wire contract");
+                DesktopMessage media = new DesktopReplaceSelectionMedia { RequestId = "media", SessionId = "s",
+                    ExpectedContextId = "word:a/same.docx", PlanId = "p", TargetFormat = "svg",
+                    Item = new BatchConversionItem { SourceText = "x^2", SourceHash = "hash", Status = "converted",
+                        Locator = JsonSerializer.SerializeToElement(new { kind = "wordRange", start = 1, end = 4 }) },
+                    Formula = new FormulaPayload { FormulaId = FormulaIdHelper.NewId(), Latex = "x^2", StorageMode = "image",
+                        Render = new RenderData { Svg = "<svg/>", WidthPt = 10, HeightPt = 8 } } };
+                var mediaRoundTrip = JsonSerializer.Deserialize<DesktopMessage>(JsonSerializer.Serialize(media)) as DesktopReplaceSelectionMedia;
+                Require(mediaRoundTrip != null && mediaRoundTrip.TargetFormat == "svg" &&
+                    mediaRoundTrip.Item.Locator?.GetProperty("kind").GetString() == "wordRange" &&
+                    mediaRoundTrip.ExpectedContextId == "word:a/same.docx" && mediaRoundTrip.Formula.StorageMode == "image",
+                    "selection media exact source/target wire contract");
+                Console.WriteLine("PASS document targets and selection media v3 wire contract");
                 return 0;
             }
             catch (Exception error) { Console.Error.WriteLine("FAIL document targets wire: " + error.Message); return 1; }

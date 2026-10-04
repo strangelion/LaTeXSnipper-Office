@@ -40,6 +40,8 @@ export async function collectConversionDocuments(sessions, loaded, ole, list) {
             loaded?.documentContextId === target.documentContextId &&
             Boolean(loaded?.formula?.formulaId && loaded?.formula?.latex),
           ole: session.host_type === "word" && ole,
+          selectionMedia:
+            session.capabilities?.includes("selection_media") === true,
         };
       });
     }),
@@ -55,7 +57,7 @@ export const FORMAT_NAMES = {
   mathtype: "MathType（MTEF）",
 };
 
-export function conversionChoices(context, source) {
+export function conversionChoices(context, source, operation = "copy") {
   const nativeWord =
     context.native && context.host === "word" && context.documentContext;
   const rawWord =
@@ -86,8 +88,16 @@ export function conversionChoices(context, source) {
       reason = "尚未实现 MTEF 读写，不能冒充 MathType 对象";
     else if (
       source === "selection" &&
+      ["svg", "png", "ole"].includes(value) &&
+      (operation === "replace" || value === "ole") &&
+      (!nativeWord || !context.selectionMedia)
+    )
+      reason =
+        "原位图片/OLE 转换需要新版原生 Word 加载项；SVG/PNG 仍可导出副本";
+    else if (
+      source === "selection" &&
       value !== "omml" &&
-      !["latex", "svg", "png"].includes(value)
+      !["latex", "svg", "png", "ole"].includes(value)
     )
       reason = "裸选区只支持行内 OMML 原位转换；LaTeX/SVG/PNG 可直接导出副本";
     else if (value === "ole" && source === "editor")
@@ -99,6 +109,116 @@ export function conversionChoices(context, source) {
     return { value, label, reason };
   });
   return { sources, formats };
+}
+
+export async function portableFormulaSvg(source) {
+  const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
+  if (
+    parsed.documentElement?.localName !== "svg" ||
+    parsed.querySelector("parsererror")
+  )
+    throw new Error("公式 SVG 无效，不能插入 Office");
+  const { materializeTexCurrentColor } =
+    await import("../features/drawing/tex-font-outlines.js");
+  materializeTexCurrentColor(parsed.documentElement);
+  return new XMLSerializer().serializeToString(parsed.documentElement);
+}
+
+export async function prepareSelectionMediaConversion(plan, format, api) {
+  if (
+    !["svg", "png", "ole"].includes(format) ||
+    plan.target?.host !== "word" ||
+    !plan.target.sessionId ||
+    !plan.target.documentContext ||
+    !plan.id ||
+    plan.items?.length !== 1 ||
+    plan.items[0].status !== "converted" ||
+    !plan.items[0].omml ||
+    !plan.items[0].locator ||
+    !plan.items[0].sourceHash
+  )
+    throw new Error("缺少可校验的原位转换计划，原文未修改");
+  if (format === "ole" && !(await api.oleAvailable()))
+    throw new Error("OLE 组件不可用，原文未修改");
+  const snapshot = structuredClone(plan);
+  const render = await api.render(snapshot.items[0].normalizedLatex, "inline");
+  if (
+    !render ||
+    !Number.isFinite(render.widthPt) ||
+    !Number.isFinite(render.heightPt) ||
+    render.widthPt <= 0 ||
+    render.heightPt <= 0 ||
+    render.widthPt > 4096 ||
+    render.heightPt > 4096 ||
+    (format === "svg" ? !render.svg : !render.png)
+  )
+    throw new Error("目标图像或尺寸无效，原文未修改");
+  const payload = {
+    formulaId: crypto.randomUUID().replaceAll("-", ""),
+    latex: snapshot.items[0].normalizedLatex,
+    omml: snapshot.items[0].omml,
+    display: "inline",
+    storageMode: format === "ole" ? "ole" : "image",
+    contentKind: "formula",
+    revision: 0,
+    render: {
+      ...render,
+      svg: format === "png" ? null : render.svg || null,
+      png: format === "svg" ? null : render.png || null,
+    },
+  };
+  const prepared = {
+    kind: "selectionMedia",
+    target: snapshot.target,
+    planId: snapshot.id,
+    item: snapshot.items[0],
+    format,
+    latex: payload.latex,
+    payload,
+  };
+  preparedCommits.set(prepared, fingerprint(prepared));
+  return prepared;
+}
+
+export async function executeSelectionMediaConversion(
+  prepared,
+  confirmed,
+  api,
+) {
+  if (confirmed !== true) return { cancelled: true };
+  if (
+    !preparedCommits.has(prepared) ||
+    preparedCommits.get(prepared) !== fingerprint(prepared) ||
+    consumed.has(prepared)
+  )
+    throw new Error("转换预览已变化或已使用，请重新预览；不会自动重试");
+  consumed.add(prepared);
+  const result = await api.replaceSelectionMedia(prepared);
+  if (
+    result.total !== 1 ||
+    result.converted !== 1 ||
+    result.failed ||
+    result.skipped
+  )
+    throw new Error(
+      result.failures?.[0]?.error || "宿主未确认原位转换，请检查文档后重新预览",
+    );
+  let readback;
+  try {
+    readback = requireFormula(
+      await api.read(prepared.target, prepared.payload.formulaId),
+      prepared.payload.formulaId,
+    );
+  } catch {
+    throw new Error("转换已提交但最终回读失败，请检查文档，勿重复点击");
+  }
+  if (
+    readback.latex !== prepared.latex ||
+    readback.storageMode !== prepared.payload.storageMode ||
+    readback.display !== "inline"
+  )
+    throw new Error("转换已提交但最终回读不一致，请检查文档，勿重复点击");
+  return { ...result, formula: readback };
 }
 
 export async function prepareSelectionFormatExport(
@@ -404,6 +524,7 @@ export function openFormatConversionDialog({
   refresh.hidden = !refreshDocuments;
   const sourceGroup = root.createElement("fieldset");
   const targetGroup = root.createElement("fieldset");
+  const operationGroup = root.createElement("fieldset");
   let source =
     context.managed && context.native
       ? "managed"
@@ -411,6 +532,7 @@ export function openFormatConversionDialog({
         ? "editor"
         : "selection";
   let format = "omml";
+  let operation = "copy";
   let pending = false;
   let closed = false;
   let prepared = null;
@@ -444,6 +566,7 @@ export function openFormatConversionDialog({
     destination,
     sourceGroup,
     targetGroup,
+    operationGroup,
     summary,
     code,
     preview,
@@ -550,7 +673,7 @@ export function openFormatConversionDialog({
       }),
       connected: Boolean(selectedDocument),
     };
-    const choices = conversionChoices(boundContext, source);
+    const choices = conversionChoices(boundContext, source, operation);
     if (
       !choices.sources.some(
         (option) => option.value === source && !option.reason,
@@ -558,7 +681,7 @@ export function openFormatConversionDialog({
     )
       source =
         choices.sources.find((option) => !option.reason)?.value || "editor";
-    const formats = conversionChoices(boundContext, source).formats;
+    const formats = conversionChoices(boundContext, source, operation).formats;
     if (!formats.some((option) => option.value === format && !option.reason))
       format = formats.find((option) => !option.reason)?.value || "omml";
     documentGroup.hidden = !documents.length;
@@ -592,12 +715,39 @@ export function openFormatConversionDialog({
       format = value;
       reset();
     });
+    operationGroup.hidden =
+      source !== "selection" || !["svg", "png"].includes(format);
+    group(
+      operationGroup,
+      "操作方式",
+      [
+        { value: "copy", label: "导出副本", reason: "" },
+        {
+          value: "replace",
+          label: "在文档内原位替换",
+          reason:
+            boundContext.native &&
+            boundContext.selectionMedia &&
+            !boundContext.readOnly
+              ? ""
+              : "需要新版原生 Word 加载项",
+        },
+      ],
+      operation,
+      (value) => {
+        operation = value;
+        reset();
+      },
+    );
     const exporting =
-      source === "editor" || ["latex", "svg", "png"].includes(format);
+      source === "editor" ||
+      format === "latex" ||
+      (["svg", "png"].includes(format) &&
+        (source !== "selection" || operation === "copy"));
     summary.textContent = exporting
       ? "操作：导出副本，不修改 Office 文档。"
       : source === "selection"
-        ? "范围：预览时的一条裸 LaTeX 选区，替换为行内 OMML。"
+        ? `范围：预览时的一条裸 LaTeX 选区，替换为行内 ${FORMAT_NAMES[format]}。先验证真实目标对象及源信息，再删除原文。`
         : "范围：已读取的公式 ID；保持原显示方式和样式。先校验目标对象，再删除原件。请先保存文档副本。";
     confirm.textContent = exporting ? "确认导出副本" : "确认原位转换";
     prepareButton.disabled =
@@ -648,6 +798,7 @@ export function openFormatConversionDialog({
       value = await prepare({
         source,
         format,
+        operation,
         document: selectedDocument
           ? structuredClone(selectedDocument)
           : undefined,

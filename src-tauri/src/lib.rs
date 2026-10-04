@@ -546,6 +546,8 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_document_targets,
             #[cfg(target_os = "windows")]
+            commands::native_office::native_office_replace_selection_media,
+            #[cfg(target_os = "windows")]
             commands::native_office::native_office_insert_formula,
             #[cfg(target_os = "windows")]
             commands::native_office::native_office_replace_formula,

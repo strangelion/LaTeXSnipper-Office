@@ -4302,7 +4302,7 @@ class UIController {
 
         // Workspace launchers from COM add-ins route to the requested desktop
         // surface instead of always dumping the user into the formula editor.
-        this.openDesktopWorkspace(workspace || "editor");
+        this.openDesktopWorkspace(workspace || "editor", sessionId);
 
         // Show and focus the window
         await win.show();
@@ -6235,7 +6235,7 @@ class UIController {
     return d.innerHTML;
   }
 
-  openDesktopWorkspace(workspace = "editor") {
+  openDesktopWorkspace(workspace = "editor", sourceSessionId = null) {
     const route = String(workspace || "editor").toLowerCase();
     switch (route) {
       case "formula-library":
@@ -6258,15 +6258,11 @@ class UIController {
         void this.runOfficeSelectionConversion();
         break;
       case "batch":
+        this.switchSection("office");
+        void this.runOfficeBatchConversion(sourceSessionId);
+        break;
       case "office":
         this.switchSection("office");
-        if (route === "batch") {
-          requestAnimationFrame(() =>
-            document
-              .getElementById("officeWorkspaceBatch")
-              ?.scrollIntoView({ block: "center", behavior: "smooth" }),
-          );
-        }
         break;
       case "diagnostics":
         this.switchSection("diagnostics");
@@ -6726,28 +6722,49 @@ class UIController {
     search.focus();
   }
 
-  async runOfficeBatchConversion() {
+  async runOfficeBatchConversion(sourceSessionId = null) {
+    if (this._officeBatchConversionBusy) return;
+    this._officeBatchConversionBusy = true;
+    const selectedId = sourceSessionId || this._selectedSessionId;
+    const expectedDocument = this._sessions?.find(
+      (candidate) => candidate.session_id === selectedId,
+    )?.document_id;
+    const button = document.getElementById("officeWorkspaceBatch");
+    if (button) button.disabled = true;
     try {
       await this.updateOfficeHostSelector();
       const session = this._sessions?.find(
-        (candidate) => candidate.session_id === this._selectedSessionId,
+        (candidate) => candidate.session_id === selectedId,
       );
       if (!session) throw new Error("请先选择已连接的 Office 宿主");
       if (!session.document_id)
         throw new Error("当前 Office 会话没有稳定文档标识");
-      const { batchConvertLatex } =
-        await import("./services/office-insertion-service.js");
-      this.showStatus("正在扫描并批量转换文档…");
-      const result = await batchConvertLatex({
-        host: session.host_type,
-        sessionId: session.session_id,
-        documentContext: session.document_id,
-      });
-      this.showToast(
-        `批量转换完成：${result.converted || 0}/${result.total || 0}`,
+      if (expectedDocument && session.document_id !== expectedDocument)
+        throw new Error("启动时文档已切换，请从目标文档重新启动批量转换");
+      const { startOfficeBatch, confirmOfficeBatch } =
+        await import("./services/office-batch-runner.js");
+      const result = await startOfficeBatch(
+        {
+          host: session.host_type,
+          sessionId: session.session_id,
+          documentContext: session.document_id,
+        },
+        {
+          confirm: confirmOfficeBatch,
+          onProgress: (status) => this.showStatus(status),
+        },
       );
+      const summary = result.cancelled
+        ? "已取消批量转换，原文未修改"
+        : `批量转换结果：${result.converted || 0}/${result.total || 0}；跳过 ${result.skipped || 0}，失败 ${result.failed || 0}`;
+      this.showStatus(summary);
+      this.showToast(summary);
     } catch (error) {
+      this.showStatus(`批量转换停止：${error?.message || error}`);
       this.showToast(`批量转换失败：${error?.message || error}`);
+    } finally {
+      this._officeBatchConversionBusy = false;
+      if (button) button.disabled = false;
     }
   }
 
@@ -6821,6 +6838,14 @@ class UIController {
             expectedDocumentId: bound.documentContext,
           }),
         omml: (latex) => invoke("latex_to_omml_strict", { latex }),
+        replaceSelectionMedia: (prepared) =>
+          invoke("native_office_replace_selection_media", {
+            target: prepared.target,
+            planId: prepared.planId,
+            item: prepared.item,
+            formula: prepared.payload,
+            targetFormat: prepared.format,
+          }),
         oleAvailable: async () =>
           Boolean((await invoke("native_office_ole_status")).available),
         render: async (latex, mode, presentation) => {
@@ -6832,10 +6857,11 @@ class UIController {
                 presentation?.styleProfile || this.currentFormulaStyle,
             },
           );
+          const svg = await service.portableFormulaSvg(rendered.svg);
           return {
-            svg: rendered.svg,
+            svg,
             png: await this._svgToPngBase64(
-              rendered.svg,
+              svg,
               rendered.widthPt,
               rendered.heightPt,
             ),
@@ -6904,7 +6930,12 @@ class UIController {
           engine: hasDesktopRuntime(),
           ole,
         },
-        prepare: async ({ source, format, document: chosenDocument }) => {
+        prepare: async ({
+          source,
+          format,
+          operation,
+          document: chosenDocument,
+        }) => {
           const bound = {
             host: chosenDocument?.host,
             sessionId: chosenDocument?.sessionId,
@@ -6938,6 +6969,11 @@ class UIController {
           if (source === "selection") {
             const plan = await service.prepareSelectionConversion(bound);
             const latex = plan.items[0].normalizedLatex;
+            if (
+              format === "ole" ||
+              (["svg", "png"].includes(format) && operation === "replace")
+            )
+              return service.prepareSelectionMediaConversion(plan, format, api);
             if (format !== "omml")
               return {
                 kind: "export",
@@ -7000,7 +7036,7 @@ class UIController {
             return code;
           }
           if (
-            prepared.payload?.storageMode === "ole" &&
+            ["ole", "image"].includes(prepared.payload?.storageMode) &&
             prepared.payload.render?.png
           ) {
             const image = document.createElement("img");
@@ -7008,6 +7044,25 @@ class UIController {
             image.src = `data:image/png;base64,${prepared.payload.render.png.replace(/^data:image\/png;base64,/, "")}`;
             await image.decode();
             return image;
+          }
+          if (
+            prepared.kind === "selectionMedia" &&
+            prepared.payload.render?.svg
+          ) {
+            const image = document.createElement("img");
+            image.alt = "目标 SVG 预览";
+            const url = URL.createObjectURL(
+              new Blob([prepared.payload.render.svg], {
+                type: "image/svg+xml",
+              }),
+            );
+            try {
+              image.src = url;
+              await image.decode();
+              return image;
+            } finally {
+              URL.revokeObjectURL(url);
+            }
           }
           return this.editor.createPreviewNode(
             prepared.latex,
@@ -7025,6 +7080,20 @@ class UIController {
       if (prepared.artifact) {
         service.downloadFormatArtifact(prepared.artifact);
         this.showToast("已导出公式副本，Office 文档未修改");
+      } else if (prepared.kind === "selectionMedia") {
+        const result = await service.executeSelectionMediaConversion(
+          prepared,
+          true,
+          api,
+        );
+        this._lastNativeOfficeFormula = {
+          formula: result.formula,
+          sessionId: prepared.target.sessionId,
+          documentContextId: prepared.target.documentContext,
+        };
+        this.showToast(
+          `选区已转换为 ${service.FORMAT_NAMES[answer.format]}，真实对象与 LaTeX 源回读通过`,
+        );
       } else if (prepared.kind === "selection") {
         const result = await service.executeSelectionConversion(
           prepared.plan,

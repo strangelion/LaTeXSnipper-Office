@@ -33,7 +33,10 @@ test("desktop routes COM and Office.js workspace launches to exact surfaces", ()
   const bridge = read("src-tauri/src/platforms/office_bridge.rs");
   assert.match(protocol, /workspace: Option<String>/);
   assert.match(session, /"workspace": workspace/);
-  assert.match(main, /openDesktopWorkspace\(workspace \|\| "editor"\)/);
+  assert.match(
+    main,
+    /openDesktopWorkspace\(workspace \|\| "editor", sessionId\)/,
+  );
   assert.match(main, /listen\("office-open-workspace"/);
   assert.match(bridge, /"\/api\/office\/open-workspace"/);
   assert.match(bridge, /\("latex", "mathml"\)/);

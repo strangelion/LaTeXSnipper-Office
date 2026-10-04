@@ -107,6 +107,253 @@ mod numbering_format_tests {
 use crate::platforms::pipe_protocol::*;
 use crate::platforms::session::{SessionInfo, SessionManager};
 
+fn validate_selection_media(
+    item: &crate::office_integration::dto::BatchConversionItem,
+    formula: &mut FormulaPayload,
+    format: &str,
+) -> Result<(), String> {
+    use crate::office_integration::dto::BatchItemStatus;
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    if item.status != BatchItemStatus::Converted
+        || item.locator.is_none()
+        || item.source_text.is_empty()
+        || item.source_text.len() > 65536
+        || item.normalized_latex != formula.latex
+        || formula.display != "inline"
+        || formula.revision != 0
+        || formula.editor_state.is_some()
+        || formula
+            .content_kind
+            .as_deref()
+            .is_some_and(|kind| kind != "formula")
+        || formula.formula_id.len() != 32
+        || !formula
+            .formula_id
+            .bytes()
+            .all(|value| value.is_ascii_hexdigit())
+        || item.source_hash.as_deref()
+            != Some(format!("{:x}", Sha256::digest(item.source_text.as_bytes())).as_str())
+    {
+        return Err("SELECTION_MEDIA_PLAN_INVALID".into());
+    }
+    latexsnipper_conversion::omml::validate_omml_latex(&formula.latex)?;
+    let omml = latexsnipper_conversion::DocumentConverter::convert_latex_string(
+        &formula.latex,
+        latexsnipper_conversion::OutputFormat::OMML,
+    )
+    .map_err(|error| error.to_string())?;
+    if item.omml.as_deref() != Some(omml.as_str()) || formula.omml != omml {
+        return Err("SELECTION_MEDIA_SEMANTICS_MISMATCH".into());
+    }
+    let render = formula
+        .render
+        .as_mut()
+        .ok_or("SELECTION_MEDIA_RENDER_REQUIRED")?;
+    if !render.width_pt.is_finite()
+        || !render.height_pt.is_finite()
+        || !(0.0..=4096.0).contains(&render.width_pt)
+        || render.width_pt == 0.0
+        || !(0.0..=4096.0).contains(&render.height_pt)
+        || render.height_pt == 0.0
+        || !matches!(
+            (format, formula.storage_mode.as_deref()),
+            ("svg" | "png", Some("image")) | ("ole", Some("ole"))
+        )
+        || (format == "svg" && (render.svg.is_none() || render.png.is_some()))
+        || (format == "png" && (render.png.is_none() || render.svg.is_some()))
+        || (format == "ole" && render.png.is_none())
+    {
+        return Err("SELECTION_MEDIA_RENDER_INVALID".into());
+    }
+    if let Some(svg) = &render.svg {
+        render.svg = Some(
+            latexsnipper_drawing::sanitize_svg(
+                svg,
+                &latexsnipper_drawing::DrawingSecurityPolicy::default(),
+            )
+            .map_err(|error| error.to_string())?
+            .canonical_svg,
+        );
+    }
+    if let Some(png) = &render.png {
+        if png.len() > 8 * 1024 * 1024 {
+            return Err("SELECTION_MEDIA_PNG_TOO_LARGE".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(png.strip_prefix("data:image/png;base64,").unwrap_or(png))
+            .map_err(|_| "SELECTION_MEDIA_PNG_INVALID")?;
+        let mut reader =
+            image::ImageReader::with_format(std::io::Cursor::new(&bytes), image::ImageFormat::Png);
+        let mut limits = image::Limits::default();
+        limits.max_image_width = Some(8192);
+        limits.max_image_height = Some(8192);
+        limits.max_alloc = Some(64 * 1024 * 1024);
+        reader.limits(limits);
+        reader.decode().map_err(|_| "SELECTION_MEDIA_PNG_INVALID")?;
+        render.png = Some(base64::engine::general_purpose::STANDARD.encode(bytes));
+    }
+    Ok(())
+}
+
+/// One confirmed selection mutation with a real media candidate and no automatic retry.
+#[cfg(test)]
+mod selection_media_tests {
+    use super::*;
+    use crate::office_integration::dto::{BatchConversionItem, BatchItemStatus};
+    use sha2::{Digest, Sha256};
+
+    fn fixture() -> (BatchConversionItem, FormulaPayload) {
+        let omml = latexsnipper_conversion::DocumentConverter::convert_latex_string(
+            "x^2",
+            latexsnipper_conversion::OutputFormat::OMML,
+        )
+        .unwrap();
+        let item = BatchConversionItem {
+            source_id: "selection".into(),
+            source_text: "x^2".into(),
+            normalized_latex: "x^2".into(),
+            omml: Some(omml.clone()),
+            locator: Some(serde_json::json!({ "kind": "wordRange", "start": 1, "end": 4 })),
+            source_hash: Some(format!("{:x}", Sha256::digest(b"x^2"))),
+            status: BatchItemStatus::Converted,
+            error: None,
+        };
+        let payload = serde_json::from_value(serde_json::json!({
+            "formulaId": "12345678123456781234567812345678", "latex": "x^2", "omml": omml,
+            "display": "inline", "revision": 0, "storageMode": "image",
+            "render": { "widthPt": 10, "heightPt": 8, "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 8\"><path d=\"M0 0L10 8\"/></svg>" }
+        })).unwrap();
+        (item, payload)
+    }
+    #[test]
+    fn validates_svg_and_new_wire_identity() {
+        let (item, mut formula) = fixture();
+        validate_selection_media(&item, &mut formula, "svg").unwrap();
+        let wire = DesktopMessage::ReplaceSelectionMedia {
+            requestId: "r".into(),
+            sessionId: "s".into(),
+            expectedContextId: "doc".into(),
+            planId: "p".into(),
+            item,
+            formula: Box::new(formula),
+            targetFormat: "svg".into(),
+        };
+        let json = serde_json::to_value(wire).unwrap();
+        assert_eq!(json["type"], "REPLACE_SELECTION_MEDIA");
+        assert_eq!(json["expectedContextId"], "doc");
+        assert_eq!(json["item"]["locator"]["kind"], "wordRange");
+        serde_json::from_value::<DesktopMessage>(json).unwrap();
+    }
+    #[test]
+    fn rejects_forged_semantics_missing_locator_and_unsafe_svg() {
+        let (mut item, mut formula) = fixture();
+        item.source_hash = None;
+        assert!(validate_selection_media(&item, &mut formula, "svg").is_err());
+        let (item, mut formula) = fixture();
+        formula.omml = "<m:oMath/>".into();
+        assert!(validate_selection_media(&item, &mut formula, "svg").is_err());
+        let (mut item, mut formula) = fixture();
+        item.locator = None;
+        assert!(validate_selection_media(&item, &mut formula, "svg").is_err());
+        let (item, mut formula) = fixture();
+        formula.render.as_mut().unwrap().svg = Some("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 8\"><script>alert(1)</script></svg>".into());
+        assert!(validate_selection_media(&item, &mut formula, "svg").is_err());
+    }
+    #[test]
+    fn requires_real_png_and_exclusive_requested_format() {
+        use base64::Engine;
+        let (item, mut formula) = fixture();
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgba8(1, 1)
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        let render = formula.render.as_mut().unwrap();
+        render.svg = None;
+        render.png = Some(base64::engine::general_purpose::STANDARD.encode(encoded.into_inner()));
+        validate_selection_media(&item, &mut formula, "png").unwrap();
+        formula.storage_mode = Some("ole".into());
+        validate_selection_media(&item, &mut formula, "ole").unwrap();
+        let (item, mut formula) = fixture();
+        formula.render.as_mut().unwrap().png = Some("AQID".into());
+        assert!(validate_selection_media(&item, &mut formula, "svg").is_err());
+        formula.render.as_mut().unwrap().svg = None;
+        assert!(validate_selection_media(&item, &mut formula, "png").is_err());
+        formula.render.as_mut().unwrap().height_pt = f32::INFINITY;
+        assert!(validate_selection_media(&item, &mut formula, "png").is_err());
+    }
+}
+
+/// Preserve the source until the host has verified a real media candidate.
+#[tauri::command]
+pub async fn native_office_replace_selection_media(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
+    target: crate::office_integration::dto::OfficeTarget,
+    plan_id: String,
+    item: crate::office_integration::dto::BatchConversionItem,
+    mut formula: FormulaPayload,
+    target_format: String,
+) -> Result<serde_json::Value, String> {
+    if target.host != crate::office_integration::dto::OfficeHost::Word
+        || target.document_context.is_empty()
+        || plan_id.is_empty()
+        || plan_id.len() > 128
+    {
+        return Err("SELECTION_MEDIA_TARGET_INVALID".into());
+    }
+    validate_selection_media(&item, &mut formula, &target_format)?;
+    let sessions = session_mgr.list_sessions().await;
+    if !sessions.iter().any(|session| {
+        session.session_id == target.session_id
+            && session.host_type == crate::platforms::session::HostType::Word
+            && session.document_id.as_deref() == Some(target.document_context.as_str())
+            && session
+                .capabilities
+                .iter()
+                .any(|capability| capability == "selection_media")
+    }) {
+        return Err("SELECTION_MEDIA_HOST_UNSUPPORTED_OR_DOCUMENT_CHANGED".into());
+    }
+    let request_id = format!("media-{}", uuid_simple());
+    let receiver = waiter.register(request_id.clone()).await;
+    let message = DesktopMessage::ReplaceSelectionMedia {
+        requestId: request_id.clone(),
+        sessionId: target.session_id.clone(),
+        expectedContextId: target.document_context,
+        planId: plan_id.clone(),
+        item,
+        formula: Box::new(formula),
+        targetFormat: target_format,
+    };
+    if let Err(error) = session_mgr
+        .send_to_session(&target.session_id, message)
+        .await
+    {
+        waiter.cancel(&request_id).await;
+        return Err(error.to_string());
+    }
+    let (reply, _) = waiter
+        .wait_with_reconciliation(
+            &request_id,
+            receiver,
+            std::time::Duration::from_secs(120),
+            std::time::Duration::from_secs(120),
+            || {},
+        )
+        .await?;
+    if !reply.success || reply.session_id != target.session_id {
+        return Err(reply
+            .error
+            .unwrap_or_else(|| "SELECTION_MEDIA_HOST_FAILED".into()));
+    }
+    let data = reply.data.ok_or("SELECTION_MEDIA_ACK_MISSING")?;
+    if data["planId"].as_str() != Some(plan_id.as_str()) || data["total"].as_u64() != Some(1) {
+        return Err("SELECTION_MEDIA_ACK_MISMATCH_DO_NOT_RETRY".into());
+    }
+    Ok(data)
+}
+
 /// Get list of connected VSTO sessions.
 #[tauri::command]
 pub async fn native_office_sessions(

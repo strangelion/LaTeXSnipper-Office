@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self' https://appsforoffice.microsoft.com; style-src 'unsafe-inline'; connect-src 'self' https://localhost:19876 https://127.0.0.1:19876; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'self' https://appsforoffice.microsoft.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://localhost:19876 https://127.0.0.1:19876; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <title>LaTeXSnipper</title>
     <script
@@ -400,7 +400,7 @@
         }
       }
     </style>
-    <script type="module" crossorigin src="./assets/taskpane-TPS8f9_g.js"></script>
+    <script type="module" crossorigin src="./assets/taskpane-NiNWJc9E.js"></script>
     <link rel="stylesheet" crossorigin href="./assets/taskpane-DfXnKgHF.css">
   </head>
   <body>
@@ -453,7 +453,9 @@
       <section class="card launcher-card" aria-labelledby="workspaceHeading">
         <div class="section-heading">
           <div id="workspaceHeading" class="section-title">功能中心</div>
-          <div class="selection-state">在桌面端打开对应工作区</div>
+          <div class="selection-state">
+            批量转换在此启动；其他功能打开工作区
+          </div>
         </div>
         <div class="workspace-launchers">
           <button data-workspace="formula-library">
@@ -466,7 +468,7 @@
             绘图<span>TikZ、PGFPlots 与 SVG</span>
           </button>
           <button data-workspace="batch">
-            批量转换<span>扫描当前 Office 文档</span>
+            批量转换<span>整段分隔符 → 行内 OMML · 确认后执行</span>
           </button>
           <button data-workspace="office">
             Office 工具<span>插入路线与文档操作</span>
@@ -478,11 +480,19 @@
             设置<span>外观、模型与集成配置</span>
           </button>
         </div>
+        <button id="cancelBatchBtn" type="button" hidden>
+          停止批量任务（保留已完成项）
+        </button>
       </section>
 
       <section class="card" aria-label="将选区作为 LaTeX">
         <div class="selection-latex-actions">
-          <button id="formatConversionBtn" title="选择来源和目标，预览后确认；OLE 和 MathType 会显示能力限制">格式转换…</button>
+          <button
+            id="formatConversionBtn"
+            title="选择来源和目标，预览后确认；OLE 和 MathType 会显示能力限制"
+          >
+            格式转换…
+          </button>
           <button
             id="selectionLatexBtn"
             title="Word：先选中同一段落内的一条 LaTeX，无需 $ 或 $$；预览后才替换"

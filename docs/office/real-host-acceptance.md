@@ -570,3 +570,30 @@ Excel/PowerPoint/Visio 全文档枚举、Office.js 实际宿主和 OLE/图片矩
 已全部成功，包含源码/协议、原生矩阵、COM 激活和 Windows 包检查。
 上一轮 `f67055b` 在新提交触发后按 `cancel-in-progress` 取消，不是源码编译失败；
 不能将其 cancelled 或 gate 失败计为本轮通过，也不由 CI 包检查关闭真实 GUI/宿主矩阵。
+
+## 2026-10-05：裸选区真实 SVG/PNG/OLE 原位转换专项
+
+使用独占测试 Word、生产浏览器渲染的一条行内积分与严格 Core OMML，三种目标分别
+插入真实图像/OLE 对象，确认实际格式、源清单和 OLE payload 后删除指定原范围。
+每种目标都有重复源文本，验证仅指定一处替换且周围文字及另一处源保留；陈旧 hash、
+零尺寸和损坏 PNG 拒绝且保留原文。三种对象保存重开后按 ID 及选区回读通过。
+最终专项耗时 3.6033072 秒；仅单语法三路线，不是准确率或通用性能基准。
+
+严格相邻位置校验实测发现 Word 的 SDT 开始标记占一位置，候选内容范围必须恰为
+原范围末尾 +1，不能接受任意更后位置。先前严格比较失败的运行未计入通过。
+生产 SVG 已将继承 paint 固化为颜色；上一轮 PDF 转 PNG 目视确认三种公式可见。
+最终 PDF 保留供复查。尺寸记录揭示 OLE 尚有显示尺寸差异：请求 33.2284×14.5730 pt，
+SVG 实际 33.20×14.30、PNG 33.20×14.65、OLE 47.50×22.00 pt，尺寸一致性门禁仍开放。
+
+最终证据位于忽略目录 `src-tauri/target/selection-media-final-8c9d3c38d7c341f9bbe0f7c1a40897a3/`：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `selection-media-evidence.json` | `B399003821443B00C647207D11D67BE764650E1E7FC180A7FF378C0EB0953DF3` |
+| `selection-media.docx` | `8C9F1479AE16D4AF23409C64D913F207D54D654EBF7750B9D71710CB73676B6A` |
+| `selection-media-visual.pdf` | `646FE2A39C127423EB0BD1A66FB060A8349B2A5413706727AE4CCE4047C49DFF` |
+
+明确 `pipeVerified=false`：这是 Word 适配器真实对象专项，不是已安装新加载项/Tauri
+端到端验收。Office.js 生产 taskpane 的完整批量按钮浏览器测试使用模拟 Office API，
+覆盖启动、确认前不写、取消释放范围、重复公式、代码排除、进度及 390px CSS/CSP；
+不能替代真实 Office.js Word、混排/多故事或 10000 条语料验收。

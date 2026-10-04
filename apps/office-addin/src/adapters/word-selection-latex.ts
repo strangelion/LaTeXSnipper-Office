@@ -24,13 +24,16 @@ export function selectionLatex(text: string): string {
     ["\\[", "\\]"],
   ];
   let latex = source;
+  let delimited = false;
   for (const [open, close] of wrappers) {
     if (!source.startsWith(open)) continue;
     if (!source.endsWith(close) || source.length <= open.length + close.length)
       throw new Error("请选择一条完整的公式");
     latex = source.slice(open.length, -close.length).trim();
+    delimited = true;
     break;
   }
+  if (!latex) throw new Error("公式内容为空");
   // No heuristic extraction from mixed prose and no unfinished delimiters.
   let depth = 0;
   for (let index = 0; index < latex.length; index++) {
@@ -52,7 +55,7 @@ export function selectionLatex(text: string): string {
     if (char === "}" && --depth < 0) throw new Error("LaTeX 花括号不匹配");
   }
   if (depth !== 0) throw new Error("LaTeX 花括号不匹配");
-  if (!/\\[A-Za-z]+|[_^=+]|[0-9]/.test(latex))
+  if (!delimited && !/\\[A-Za-z]+|[_^=+]|[0-9]/.test(latex))
     throw new Error("选区没有可识别的数学语法，请使用公式编辑器");
   return latex;
 }
@@ -74,12 +77,15 @@ export class WordSelectionLatex {
     private readonly ooxml = new WordOoxmlHelper(),
   ) {}
 
-  async prepare(): Promise<{ source: string; latex: string; svg: string }> {
+  async prepare(
+    existingRange?: Word.Range,
+    renderPreview = true,
+  ): Promise<{ source: string; latex: string; svg: string }> {
     await this.cancel();
-    let tracked: Word.Range | null = null;
+    let tracked: Word.Range | null = existingRange || null;
     try {
-      const snapshot = await Word.run(async (context) => {
-        const range = context.document.getSelection();
+      const read = async (context: Word.RequestContext) => {
+        const range = existingRange || context.document.getSelection();
         range.load("text");
         const parent = range.parentContentControlOrNullObject;
         parent.load("isNullObject");
@@ -95,7 +101,10 @@ export class WordSelectionLatex {
         await context.sync();
         tracked = range;
         return { range, source: range.text, latex, originalXml: xml.value };
-      });
+      };
+      const snapshot = await (existingRange
+        ? Word.run(existingRange, read)
+        : Word.run(read));
       const payload: OfficeFormulaPayload = {
         schemaVersion: 1,
         formulaId: createFormulaId(),
@@ -110,12 +119,9 @@ export class WordSelectionLatex {
         payload.latex,
         "inline",
       );
-      const rendered = await this.bridge.convert(
-        "latex",
-        "svg",
-        payload.latex,
-        "inline",
-      );
+      const rendered = renderPreview
+        ? await this.bridge.convert("latex", "svg", payload.latex, "inline")
+        : { content: "" };
       this.prepared = {
         ...snapshot,
         payload,
@@ -141,6 +147,7 @@ export class WordSelectionLatex {
     if (!prepared) throw new Error("请先预览 Word 选区");
     this.prepared = null; // one-shot: no double commit or timeout retry
     let stagedPart: Office.CustomXmlPart | null = null;
+    let mutationStarted = false;
     try {
       stagedPart = await new Promise<Office.CustomXmlPart>(
         (resolve, reject) => {
@@ -163,6 +170,7 @@ export class WordSelectionLatex {
           actual.value !== prepared.originalXml
         )
           throw new Error("预览后原文或格式已变化，未替换；请重新选择并预览");
+        mutationStarted = true;
         prepared.range.insertOoxml(
           prepared.replacementXml,
           Word.InsertLocation.replace,
@@ -171,7 +179,8 @@ export class WordSelectionLatex {
       });
       return prepared.payload;
     } catch (error) {
-      if (stagedPart)
+      // A timed-out sync may have committed: keep identity metadata for inspection.
+      if (stagedPart && !mutationStarted)
         await new Promise<void>((resolve, reject) =>
           stagedPart!.deleteAsync((result) => {
             if (result.status === Office.AsyncResultStatus.Succeeded) resolve();

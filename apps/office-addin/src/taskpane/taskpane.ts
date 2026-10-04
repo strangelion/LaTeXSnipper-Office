@@ -1,6 +1,8 @@
 import { router } from "core-protocol/command.router";
 import { OfficeHostAdapter } from "../adapters/unified-adapter";
 import { WordSelectionLatex } from "../adapters/word-selection-latex";
+import { WordBatchLatex } from "../adapters/word-batch-latex";
+import { confirmOfficeBatch } from "../../../../src/services/office-batch-runner.js";
 import { OfficeBridgeClient } from "../adapters/bridge-client";
 import {
   openFormatConversionDialog,
@@ -31,6 +33,7 @@ let selectedFormulaId: string | undefined;
 let bridgeConnected = false;
 let selectionConversion: WordSelectionLatex | null = null;
 let selectionPreviewUrl: string | null = null;
+let batchConversion: WordBatchLatex | null = null;
 
 const CLIENT_ID_KEY = "latexsnipper-office-client-id";
 
@@ -86,6 +89,10 @@ async function exec(command: any): Promise<any> {
 
 Office.onReady((info) => {
   ensureAdapter();
+  document.getElementById("cancelBatchBtn")?.addEventListener("click", () => {
+    batchConversion?.requestStop();
+    setStatus("将在当前步骤完成后停止；已完成项保留，不会重复提交");
+  });
   document
     .getElementById("formatConversionBtn")
     ?.addEventListener("click", () => void handleFormatConversion());
@@ -238,6 +245,11 @@ function applyBridgeCapabilities(): void {
     button.title = bridgeConnected
       ? button.dataset.connectedTitle || ""
       : "需要启动 LaTeXSnipper 桌面端并连接本地桥接服务";
+    if (button.dataset.workspace === "batch" && capabilities?.host !== "word") {
+      button.disabled = true;
+      button.title =
+        "任务窗格批量转换目前仅支持 Word；其他宿主请使用原生加载项";
+    }
   }
 }
 
@@ -621,6 +633,10 @@ async function handleReference(): Promise<void> {
 }
 
 async function handleOpenWorkspace(workspace: string): Promise<void> {
+  if (workspace === "batch") {
+    await handleBatchConversion();
+    return;
+  }
   if (!bridgeConnected || busy) {
     setStatus("请先启动 LaTeXSnipper 桌面端", "error");
     return;
@@ -643,6 +659,53 @@ async function handleOpenWorkspace(workspace: string): Promise<void> {
   } catch (error) {
     setStatus(`打开失败：${String(error)}`, "error");
   } finally {
+    setBusy(false);
+  }
+}
+
+async function handleBatchConversion(): Promise<void> {
+  if (busy) return;
+  if (String(capabilities?.host).toLowerCase() !== "word" || !bridgeConnected) {
+    setStatus(
+      "任务窗格批量转换目前需要 Word 和桌面 Bridge；其他宿主请使用原生加载项",
+      "error",
+    );
+    return;
+  }
+  setBusy(true);
+  const pending = new WordBatchLatex();
+  batchConversion = pending;
+  const stop = document.getElementById("cancelBatchBtn");
+  if (stop) stop.hidden = false;
+  setStatus("正在扫描本文档：整段分隔符公式；正文混排、页眉及代码块不改写…");
+  try {
+    const contextId = await resolveDocumentContext();
+    const plan = await pending.prepare((message) => setStatus(message));
+    if (!plan.items.length) {
+      setStatus("没有整段分隔符公式；混排或大型文档请使用原生加载项");
+      return;
+    }
+    if (!(await confirmOfficeBatch(plan))) {
+      setStatus("已取消，原文未修改");
+      return;
+    }
+    if (contextId !== (await resolveDocumentContext()))
+      throw new Error("扫描后文档已变化，请重新扫描");
+    const result = await pending.execute((message) => setStatus(message));
+    setStatus(
+      `${result.stopped ? "已停止" : "转换结束"}：${result.converted}/${result.total}，跳过 ${result.skipped}；已完成项保留`,
+      "success",
+    );
+  } catch (error) {
+    setStatus(`批量转换停止：${String(error)}`, "error");
+  } finally {
+    batchConversion = null;
+    try {
+      await pending.dispose();
+    } catch (error) {
+      setStatus(`清理跟踪范围失败：${String(error)}`, "error");
+    }
+    if (stop) stop.hidden = true;
     setBusy(false);
   }
 }

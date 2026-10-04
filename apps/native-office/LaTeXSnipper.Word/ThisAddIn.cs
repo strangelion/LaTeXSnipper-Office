@@ -128,6 +128,7 @@ namespace LaTeXSnipper.Word
                                     ["read_formula_by_id"] = true,
                                     ["replace_result_revision"] = true,
                                     ["open_documents"] = true,
+                                    ["selection_media"] = true,
                                 },
                             },
                             contextId, doc?.Name);
@@ -459,6 +460,22 @@ namespace LaTeXSnipper.Word
                     var executor = new WordBatchConversionExecutor(Application);
                     var items = batchCmd.Plan?.Items ?? new List<BatchConversionItem>();
                     var result = executor.Execute(batchCmd.PlanId, items).WithRequestContext(batchCmd);
+                    _pipeClient.SendOnlyAsync(result);
+                    break;
+                }
+                case DesktopReplaceSelectionMedia mediaCmd:
+                {
+                    if (string.IsNullOrEmpty(mediaCmd.ExpectedContextId))
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoHostError { RequestId = mediaCmd.RequestId, SessionId = mediaCmd.SessionId,
+                            ErrorCode = "CONTEXT_REQUIRED", Error = "Explicit document identity is required" });
+                        break;
+                    }
+                    var executor = new WordBatchConversionExecutor(Application);
+                    var result = executor.ExecuteSelectionMedia(mediaCmd.PlanId, mediaCmd.Item,
+                        mediaCmd.Formula, mediaCmd.TargetFormat);
+                    result.RequestId = mediaCmd.RequestId;
+                    result.SessionId = mediaCmd.SessionId;
                     _pipeClient.SendOnlyAsync(result);
                     break;
                 }

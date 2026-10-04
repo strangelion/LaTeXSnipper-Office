@@ -9,6 +9,8 @@ import {
   executeManagedFormatConversion,
   prepareFormatArtifact,
   prepareSelectionFormatExport,
+  prepareSelectionMediaConversion,
+  executeSelectionMediaConversion,
 } from "../src/services/office-format-conversion.js";
 
 const target = {
@@ -35,6 +37,154 @@ test("native document enumeration invoke stays Windows-only", () => {
     source,
     /#\[cfg\(target_os = "windows"\)\]\s+commands::native_office::native_office_document_targets,/,
   );
+  assert.match(
+    source,
+    /#\[cfg\(target_os = "windows"\)\]\s+commands::native_office::native_office_replace_selection_media,/,
+  );
+});
+
+test("selection media is capability gated and preserves copy exports for legacy/Office.js hosts", () => {
+  for (const format of ["svg", "png", "ole"]) {
+    assert.equal(
+      conversionChoices(
+        { ...context, selectionMedia: true },
+        "selection",
+        "replace",
+      ).formats.find((x) => x.value === format).reason,
+      "",
+    );
+    assert.ok(
+      conversionChoices(context, "selection", "replace").formats.find(
+        (x) => x.value === format,
+      ).reason,
+    );
+    assert.ok(
+      conversionChoices(
+        { ...context, native: false, selectionMedia: true },
+        "selection",
+        "replace",
+      ).formats.find((x) => x.value === format).reason,
+    );
+  }
+  assert.equal(
+    conversionChoices(context, "selection", "copy").formats.find(
+      (x) => x.value === "svg",
+    ).reason,
+    "",
+  );
+});
+
+function mediaPlan() {
+  return {
+    id: "media-plan",
+    target,
+    items: [
+      {
+        sourceText: "x^2",
+        normalizedLatex: "x^2",
+        omml: "<m:oMath/>",
+        status: "converted",
+        sourceHash: "hash",
+        locator: { kind: "wordRange", start: 0, end: 3 },
+      },
+    ],
+  };
+}
+function mediaApi() {
+  let stored;
+  const calls = [];
+  return {
+    calls,
+    oleAvailable: async () => true,
+    render: async () => ({
+      svg: "<svg/>",
+      png: "png",
+      widthPt: 10,
+      heightPt: 8,
+    }),
+    replaceSelectionMedia: async (prepared) => {
+      calls.push(prepared);
+      stored = structuredClone(prepared.payload);
+      return { total: 1, converted: 1, failed: 0, skipped: 0 };
+    },
+    read: async () => ({ success: true, formula: stored }),
+  };
+}
+test("selection media prepares exact requested format without writes, commits once and reads source back", async () => {
+  for (const format of ["svg", "png", "ole"]) {
+    const api = mediaApi();
+    const prepared = await prepareSelectionMediaConversion(
+      mediaPlan(),
+      format,
+      api,
+    );
+    assert.equal(api.calls.length, 0);
+    assert.equal(
+      prepared.payload.render[
+        format === "svg" ? "png" : format === "png" ? "svg" : "unused"
+      ] ?? null,
+      null,
+    );
+    assert.deepEqual(
+      await executeSelectionMediaConversion(prepared, false, api),
+      { cancelled: true },
+    );
+    assert.equal(api.calls.length, 0);
+    const result = await executeSelectionMediaConversion(prepared, true, api);
+    assert.equal(result.formula.latex, "x^2");
+    assert.equal(
+      result.formula.storageMode,
+      format === "ole" ? "ole" : "image",
+    );
+    await assert.rejects(executeSelectionMediaConversion(prepared, true, api));
+    assert.equal(api.calls.length, 1);
+  }
+});
+test("selection media rejects altered plans, invalid render and unavailable OLE before writes", async () => {
+  const api = mediaApi();
+  await assert.rejects(
+    prepareSelectionMediaConversion(mediaPlan(), "ole", {
+      ...api,
+      oleAvailable: async () => false,
+    }),
+  );
+  await assert.rejects(
+    prepareSelectionMediaConversion(mediaPlan(), "png", {
+      ...api,
+      render: async () => ({ png: "bad", widthPt: NaN, heightPt: 1 }),
+    }),
+  );
+  const prepared = await prepareSelectionMediaConversion(
+    mediaPlan(),
+    "png",
+    api,
+  );
+  prepared.target.documentContext = "other-doc";
+  await assert.rejects(executeSelectionMediaConversion(prepared, true, api));
+  assert.equal(api.calls.length, 0);
+});
+test("selection media timeout and failed readback cannot retry the same prepared mutation", async () => {
+  for (const failure of ["timeout", "readback"]) {
+    const api = mediaApi();
+    const prepared = await prepareSelectionMediaConversion(
+      mediaPlan(),
+      "png",
+      api,
+    );
+    if (failure === "timeout")
+      api.replaceSelectionMedia = async (value) => {
+        api.calls.push(value);
+        throw new Error("timeout");
+      };
+    else
+      api.read = async () => ({
+        success: true,
+        formula: { ...prepared.payload, latex: "other" },
+      });
+    await assert.rejects(executeSelectionMediaConversion(prepared, true, api));
+    await assert.rejects(executeSelectionMediaConversion(prepared, true, api));
+    assert.equal(api.calls.length, 1);
+  }
 });
 test("all open Word documents retain distinct paths and per-document source state", async () => {
   const sessions = [
