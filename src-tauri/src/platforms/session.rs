@@ -397,6 +397,77 @@ impl SessionManager {
                 }
             }
 
+            VstoMessage::DocumentTargetsResult {
+                requestId,
+                sessionId,
+                success,
+                activated,
+                activeDocumentContextId,
+                documents,
+                errorCode,
+                error,
+            } => {
+                let valid = !success
+                    || valid_document_targets(
+                        &documents,
+                        activeDocumentContextId.as_deref(),
+                        activated,
+                    );
+                let success = success && valid;
+                let error_code = if valid {
+                    errorCode
+                } else {
+                    Some("DOCUMENT_TARGET_LIST_INVALID".into())
+                };
+                let error = if valid {
+                    error
+                } else {
+                    Some("Host returned malformed or ambiguous document targets".into())
+                };
+                if success && activated {
+                    if let Some(session) = self.sessions.write().await.get_mut(&sessionId) {
+                        session.document_id = activeDocumentContextId.clone();
+                        session.document_title = documents
+                            .iter()
+                            .find(|item| {
+                                Some(&item.document_context_id) == activeDocumentContextId.as_ref()
+                            })
+                            .map(|item| item.document_title.clone());
+                    }
+                }
+                let waiter = self
+                    .app_handle
+                    .state::<Arc<super::office_commit::RequestWaiter>>();
+                waiter
+                    .resolve(super::office_commit::HostResult {
+                        success,
+                        request_id: requestId.clone(),
+                        session_id: sessionId.clone(),
+                        formula_id: None,
+                        revision: None,
+                        actual_storage_mode: None,
+                        error_code,
+                        error,
+                        data: Some(serde_json::json!({
+                            "activated": activated,
+                            "activeDocumentContextId": activeDocumentContextId,
+                            "documents": documents,
+                        })),
+                    })
+                    .await;
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: requestId.clone(),
+                        sessionId: sessionId.clone(),
+                        response: DesktopMessage::Ping {
+                            requestId,
+                            sessionId,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
             VstoMessage::FormulaSnapshot {
                 requestId,
                 sessionId,

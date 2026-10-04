@@ -115,6 +115,79 @@ pub async fn native_office_sessions(
     Ok(session_mgr.list_sessions().await)
 }
 
+/// Enumerate documents without activation, or activate one explicitly bound target.
+#[tauri::command]
+pub async fn native_office_document_targets(
+    session_mgr: State<'_, Arc<SessionManager>>,
+    waiter: State<'_, Arc<crate::platforms::office_commit::RequestWaiter>>,
+    session_id: String,
+    target_document_id: Option<String>,
+    expected_active_document_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let sessions = session_mgr.list_sessions().await;
+    let session = sessions
+        .iter()
+        .find(|item| item.session_id == session_id)
+        .ok_or("DOCUMENT_SESSION_CLOSED")?;
+    if !session
+        .capabilities
+        .iter()
+        .any(|item| item == "open_documents")
+    {
+        return Err("DOCUMENT_TARGETS_UNSUPPORTED".into());
+    }
+    let request_id = format!("doc-{}", uuid_simple());
+    let message = if let Some(target) = &target_document_id {
+        let active = expected_active_document_id
+            .filter(|value| !value.is_empty())
+            .ok_or("DOCUMENT_ACTIVE_ID_REQUIRED")?;
+        if target.is_empty() || target.len() > 4096 {
+            return Err("DOCUMENT_TARGET_INVALID".into());
+        }
+        DesktopMessage::ActivateDocumentTarget {
+            requestId: request_id.clone(),
+            sessionId: session_id.clone(),
+            expectedContextId: active,
+            targetDocumentContextId: target.clone(),
+        }
+    } else {
+        DesktopMessage::RequestDocumentTargets {
+            requestId: request_id.clone(),
+            sessionId: session_id.clone(),
+        }
+    };
+    let receiver = waiter.register(request_id.clone()).await;
+    if let Err(error) = session_mgr.send_to_session(&session_id, message).await {
+        waiter.cancel(&request_id).await;
+        return Err(error.to_string());
+    }
+    let reply = match tokio::time::timeout(std::time::Duration::from_secs(15), receiver).await {
+        Ok(Ok(reply)) => reply,
+        Ok(Err(_)) => return Err("DOCUMENT_TARGET_CHANNEL_CLOSED".into()),
+        Err(_) => {
+            waiter.cancel(&request_id).await;
+            return Err("DOCUMENT_TARGET_TIMEOUT_DO_NOT_RETRY_AUTOMATICALLY".into());
+        }
+    };
+    if !reply.success || reply.session_id != session_id {
+        return Err(reply
+            .error
+            .unwrap_or_else(|| "DOCUMENT_TARGET_FAILED".into()));
+    }
+    let data = reply.data.ok_or("DOCUMENT_TARGET_DATA_MISSING")?;
+    if let Some(target) = target_document_id {
+        if data
+            .get("activeDocumentContextId")
+            .and_then(|value| value.as_str())
+            != Some(target.as_str())
+            || data.get("activated").and_then(|value| value.as_bool()) != Some(true)
+        {
+            return Err("DOCUMENT_TARGET_ACTIVATION_MISMATCH".into());
+        }
+    }
+    Ok(data)
+}
+
 /// Insert formula into the current Office host.
 #[tauri::command]
 #[allow(

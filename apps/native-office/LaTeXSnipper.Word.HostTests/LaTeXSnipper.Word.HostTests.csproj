@@ -48,6 +48,7 @@
     <Compile Include="BatchStoriesAcceptance.cs" />
     <Compile Include="SelectionLatexAcceptance.cs" />
     <Compile Include="FormatConversionAcceptance.cs" />
+    <Compile Include="DocumentTargetsAcceptance.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

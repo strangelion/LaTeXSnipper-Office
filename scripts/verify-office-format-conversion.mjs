@@ -52,9 +52,14 @@ try {
   );
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
 
-  async function open(fail = false, delayed = false, officeJs = false) {
+  async function open(
+    fail = false,
+    delayed = false,
+    officeJs = false,
+    refreshable = false,
+  ) {
     await page.evaluate(
-      async ({ fail, delayed, officeJs }) => {
+      async ({ fail, delayed, officeJs, refreshable }) => {
         const { openFormatConversionDialog, prepareSelectionFormatExport } =
           await import("/services/office-format-conversion.js");
         window.__formatDisposed = 0;
@@ -119,9 +124,15 @@ try {
           dispose: async () => {
             window.__formatDisposed++;
           },
+          refreshDocuments: refreshable
+            ? () =>
+                new Promise((resolve) => {
+                  window.__formatRefreshResolve = resolve;
+                })
+            : undefined,
         });
       },
-      { fail, delayed, officeJs },
+      { fail, delayed, officeJs, refreshable },
     );
   }
   await open();
@@ -249,6 +260,82 @@ try {
   await page.waitForFunction(() => window.__formatDisposed === 1);
   assert.equal(await page.evaluate(() => window.__formatRendered), 0);
 
+  await open(false, false, false, true);
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog.getByRole("button", { name: "刷新文档" }).click();
+  assert.equal(
+    await dialog.getByRole("button", { name: "确认原位转换" }).isDisabled(),
+    true,
+  );
+  assert.equal(
+    await dialog.locator(".office-selection-preview").isVisible(),
+    false,
+  );
+  await page.waitForFunction(() => window.__formatDisposed === 1);
+  await page.evaluate(() =>
+    window.__formatRefreshResolve([
+      {
+        host: "word",
+        sessionId: "fixture-a",
+        documentContext: "new-doc",
+        documentTitle: "新文档",
+        managed: false,
+        ole: true,
+      },
+      {
+        host: "word",
+        sessionId: "fixture-a",
+        documentContext: "readonly-doc",
+        documentTitle: "只读文档",
+        readOnly: true,
+      },
+    ]),
+  );
+  await dialog.getByText("文档列表已刷新，请重新生成预览。").waitFor();
+  assert.equal(await documents.getByRole("radio").count(), 2);
+  assert.equal(
+    await documents.getByRole("radio", { name: /只读文档/ }).isDisabled(),
+    true,
+  );
+  assert.equal(
+    await documents
+      .getByRole("radio", { name: /新文档/ })
+      .getAttribute("aria-checked"),
+    "true",
+  );
+  assert.equal(
+    await documents.getByRole("radio", { name: /同名文档/ }).count(),
+    0,
+  );
+  assert.equal(
+    await dialog.getByRole("button", { name: "确认原位转换" }).isDisabled(),
+    true,
+  );
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog.getByRole("button", { name: "确认原位转换" }).click();
+  assert.equal(
+    (await page.evaluate(() => window.__formatAnswer)).prepared.target
+      .documentContext,
+    "new-doc",
+  );
+
+  await open(false, false, false, true);
+  await dialog.getByRole("button", { name: "刷新文档" }).click();
+  await dialog.getByRole("button", { name: "取消", exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__formatAnswer), null);
+  await page.evaluate(() => window.__formatRefreshResolve([]));
+  assert.equal(await dialog.count(), 0);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await open();
   await dialog.getByRole("button", { name: "生成预览" }).click();
@@ -352,7 +439,7 @@ try {
     [],
   );
   console.log(
-    "PASS: real browser format and document picker (same titles, distinct sessions), preview invalidation, keyboard navigation, confirm/cancel/Escape, failure and late cleanup, 390px light/dark. Host calls are fixtures, not live Office acceptance.",
+    "PASS: real browser format and document picker (same titles, distinct sessions), refresh removes stale targets and disables readonly documents, preview invalidation, keyboard navigation, confirm/cancel/Escape, failure and late cleanup, 390px light/dark. Host calls are fixtures, not live Office acceptance.",
   );
 } finally {
   await browser.close();

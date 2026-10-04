@@ -326,6 +326,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += WordNaryFixtureTests.Run();
             Console.WriteLine("RUN ProtocolV4Tests");
             failures += ProtocolV4Tests.Run();
+            failures += DocumentTargetsProtocolTests.Run();
             failures += BatchResultCorrelationTests.Run();
             failures += BatchStageTimingsTests.Run();
             Console.WriteLine("RUN SpreadsheetTablePayloadTests");

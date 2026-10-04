@@ -6,6 +6,39 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfficeDocumentTarget {
+    pub document_context_id: String,
+    pub document_title: String,
+    pub read_only: bool,
+}
+
+/// Reject malformed or ambiguous host lists before using an activation result.
+pub fn valid_document_targets(
+    documents: &[OfficeDocumentTarget],
+    active: Option<&str>,
+    activated: bool,
+) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    if documents.len() > 128
+        || documents.iter().any(|item| {
+            item.document_context_id.is_empty()
+                || item.document_context_id.len() > 4096
+                || item.document_title.len() > 4096
+                || !seen.insert(item.document_context_id.as_str())
+        })
+    {
+        return false;
+    }
+    match active {
+        Some(id) => documents
+            .iter()
+            .any(|item| item.document_context_id == id && (!activated || !item.read_only)),
+        None => !activated && documents.is_empty(),
+    }
+}
+
 pub const PROTOCOL_VERSION: u32 = 3;
 pub const PIPE_PREFIX: &str = "LaTeXSnipper.NativeOffice.v3";
 #[allow(
@@ -122,6 +155,18 @@ pub enum VstoMessage {
         formula: Option<FormulaPayload>,
         #[serde(rename = "rangeXml", skip_serializing_if = "Option::is_none")]
         rangeXml: Option<String>,
+    },
+
+    #[serde(rename = "DOCUMENT_TARGETS_RESULT")]
+    DocumentTargetsResult {
+        requestId: String,
+        sessionId: String,
+        success: bool,
+        activated: bool,
+        activeDocumentContextId: Option<String>,
+        documents: Vec<OfficeDocumentTarget>,
+        errorCode: Option<String>,
+        error: Option<String>,
     },
 
     #[serde(rename = "FORMULA_SNAPSHOT")]
@@ -351,6 +396,20 @@ pub enum DesktopMessage {
         #[serde(rename = "expectedContextId")]
         expectedContextId: String,
         plan: super::conversation_import::WordImportPlan,
+    },
+
+    #[serde(rename = "REQUEST_DOCUMENT_TARGETS")]
+    RequestDocumentTargets {
+        requestId: String,
+        sessionId: String,
+    },
+
+    #[serde(rename = "ACTIVATE_DOCUMENT_TARGET")]
+    ActivateDocumentTarget {
+        requestId: String,
+        sessionId: String,
+        expectedContextId: String,
+        targetDocumentContextId: String,
     },
 
     #[serde(rename = "REQUEST_READ_SELECTION")]
@@ -885,6 +944,83 @@ mod numbering_scope_wire_tests {
         let wire = serde_json::to_value(payload).expect("payload must serialize");
         assert_eq!(wire["contentKind"], "drawing");
         assert_eq!(wire["editorState"]["source"], "flowchart LR; A-->B");
+    }
+}
+
+#[cfg(test)]
+mod document_targets_wire_tests {
+    use super::{valid_document_targets, DesktopMessage, OfficeDocumentTarget, VstoMessage};
+
+    #[test]
+    fn target_lists_reject_duplicates_missing_active_and_readonly_activation() {
+        let first = OfficeDocumentTarget {
+            document_context_id: "word:a".into(),
+            document_title: "a".into(),
+            read_only: false,
+        };
+        let mut readonly = first.clone();
+        readonly.read_only = true;
+        assert!(valid_document_targets(
+            &[first.clone()],
+            Some("word:a"),
+            true
+        ));
+        assert!(valid_document_targets(
+            &[readonly.clone()],
+            Some("word:a"),
+            false
+        ));
+        assert!(!valid_document_targets(&[readonly], Some("word:a"), true));
+        assert!(!valid_document_targets(
+            &[first.clone(), first.clone()],
+            Some("word:a"),
+            false
+        ));
+        assert!(!valid_document_targets(
+            &[first],
+            Some("word:missing"),
+            true
+        ));
+        assert!(valid_document_targets(&[], None, false));
+        assert!(!valid_document_targets(&[], None, true));
+    }
+
+    #[test]
+    fn document_target_commands_preserve_explicit_source_and_target() {
+        let query = DesktopMessage::RequestDocumentTargets {
+            requestId: "query".into(),
+            sessionId: "s".into(),
+        };
+        let wire = serde_json::to_value(query).unwrap();
+        assert_eq!(wire["type"], "REQUEST_DOCUMENT_TARGETS");
+        assert!(wire.get("expectedContextId").is_none());
+        let activate: DesktopMessage = serde_json::from_value(serde_json::json!({
+            "type": "ACTIVATE_DOCUMENT_TARGET", "requestId": "activate", "sessionId": "s",
+            "expectedContextId": "word:b/same.docx", "targetDocumentContextId": "word:a/same.docx"
+        }))
+        .unwrap();
+        let wire = serde_json::to_value(activate).unwrap();
+        assert_eq!(wire["expectedContextId"], "word:b/same.docx");
+        assert_eq!(wire["targetDocumentContextId"], "word:a/same.docx");
+        assert!(serde_json::from_value::<DesktopMessage>(serde_json::json!({
+            "type": "ACTIVATE_DOCUMENT_TARGET", "requestId": "activate", "sessionId": "s",
+            "targetDocumentContextId": "word:a/same.docx"
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn document_target_response_matches_shared_csharp_wire_names() {
+        let wire = serde_json::json!({
+            "type": "DOCUMENT_TARGETS_RESULT", "requestId": "query", "sessionId": "s",
+            "success": true, "activated": false, "activeDocumentContextId": "word:b/same.docx",
+            "documents": [
+                { "documentContextId": "word:a/same.docx", "documentTitle": "same.docx", "readOnly": true },
+                { "documentContextId": "word:b/same.docx", "documentTitle": "same.docx", "readOnly": false }
+            ], "errorCode": null, "error": null
+        });
+        let response: VstoMessage = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(response).unwrap(), wire);
     }
 }
 

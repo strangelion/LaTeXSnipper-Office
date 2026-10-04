@@ -1030,10 +1030,71 @@ namespace LaTeXSnipper.Word.Host
             var document = _application.ActiveDocument;
             if (document == null)
                 return "word:unsaved:none";
+            return DocumentContextId(document);
+        }
+
+        private static string DocumentContextId(Microsoft.Office.Interop.Word.Document document)
+        {
             var fullName = document.FullName;
             if (!string.IsNullOrWhiteSpace(fullName))
                 return "word:" + fullName;
             return "word:" + document.Name;
+        }
+
+        public VstoDocumentTargetsResult DocumentTargets(string? targetContextId = null)
+        {
+            var result = new VstoDocumentTargetsResult();
+            Microsoft.Office.Interop.Word.Documents? documents = null;
+            Microsoft.Office.Interop.Word.Document? chosen = null;
+            try
+            {
+                documents = _application.Documents;
+                if (documents.Count > 128) throw new InvalidOperationException("DOCUMENT_TARGET_LIMIT");
+                for (int index = 1; index <= documents.Count; index++)
+                {
+                    var document = documents[index];
+                    try
+                    {
+                        string contextId = DocumentContextId(document);
+                        if (result.Documents.Any(item => StringComparer.Ordinal.Equals(item.DocumentContextId, contextId)))
+                            throw new InvalidOperationException("DOCUMENT_TARGET_AMBIGUOUS");
+                        result.Documents.Add(new OfficeDocumentTarget
+                        {
+                            DocumentContextId = contextId,
+                            DocumentTitle = document.Name,
+                            ReadOnly = document.ReadOnly,
+                        });
+                        if (StringComparer.Ordinal.Equals(contextId, targetContextId))
+                        {
+                            chosen = document;
+                            document = null;
+                        }
+                    }
+                    finally { if (document != null) Marshal.ReleaseComObject(document); }
+                }
+                if (targetContextId != null)
+                {
+                    if (chosen == null) throw new InvalidOperationException("DOCUMENT_TARGET_CLOSED_OR_RENAMED");
+                    if (chosen.ReadOnly) throw new InvalidOperationException("DOCUMENT_TARGET_READ_ONLY");
+                    chosen.Activate();
+                    if (!StringComparer.Ordinal.Equals(targetContextId, GetCurrentContextId()))
+                        throw new InvalidOperationException("DOCUMENT_TARGET_ACTIVATION_MISMATCH");
+                    result.Activated = true;
+                }
+                result.ActiveDocumentContextId = documents.Count == 0 ? null : GetCurrentContextId();
+                result.Success = true;
+            }
+            catch (Exception ex)
+            {
+                result.ErrorCode = "DOCUMENT_TARGET_REJECTED";
+                result.Error = ex.Message;
+            }
+            finally
+            {
+                if (chosen != null) Marshal.ReleaseComObject(chosen);
+                if (documents != null) Marshal.ReleaseComObject(documents);
+            }
+            return result;
         }
 
         public InsertResult InsertFormula(FormulaPayload payload, InsertMode mode)

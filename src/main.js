@@ -6876,7 +6876,21 @@ class UIController {
           Logger.warn("OLE conversion availability probe failed", error);
         }
       }
+      const refreshConversionDocuments = async () => {
+        if (!hasDesktopRuntime()) return [];
+        const sessions = await invoke("native_office_sessions");
+        return service.collectConversionDocuments(
+          sessions,
+          loaded,
+          ole,
+          (sessionId) =>
+            invoke("native_office_document_targets", { sessionId }),
+        );
+      };
       const answer = await service.openFormatConversionDialog({
+        refreshDocuments: hasDesktopRuntime()
+          ? refreshConversionDocuments
+          : undefined,
         context: {
           native: hasDesktopRuntime(),
           connected: Boolean(session),
@@ -6884,19 +6898,7 @@ class UIController {
           sessionId: target.sessionId,
           documentContext: target.documentContext,
           documentTitle: session?.document_title,
-          documents: (this._sessions || [])
-            .filter((item) => item.document_id)
-            .map((item) => ({
-              host: item.host_type,
-              sessionId: item.session_id,
-              documentContext: item.document_id,
-              documentTitle: item.document_title,
-              managed:
-                loaded?.sessionId === item.session_id &&
-                loaded?.documentContextId === item.document_id &&
-                Boolean(loaded?.formula?.formulaId && loaded?.formula?.latex),
-              ole: item.host_type === "word" && ole,
-            })),
+          documents: await refreshConversionDocuments(),
           managed,
           editor: Boolean(editorLatex.trim()),
           engine: hasDesktopRuntime(),
@@ -6909,7 +6911,20 @@ class UIController {
             documentContext: chosenDocument?.documentContext,
           };
           if (source !== "editor") {
-            const liveSessions = await invoke("native_office_sessions");
+            let liveSessions = await invoke("native_office_sessions");
+            const liveSession = liveSessions.find(
+              (item) => item.session_id === bound.sessionId,
+            );
+            if (liveSession?.capabilities?.includes("open_documents")) {
+              if (!liveSession.document_id)
+                throw new Error("Office 当前文档不可用，请刷新文档列表");
+              await invoke("native_office_document_targets", {
+                sessionId: bound.sessionId,
+                targetDocumentId: bound.documentContext,
+                expectedActiveDocumentId: liveSession.document_id,
+              });
+              liveSessions = await invoke("native_office_sessions");
+            }
             if (
               !liveSessions.some(
                 (item) =>

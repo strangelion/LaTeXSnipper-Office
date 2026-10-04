@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import {
   conversionChoices,
   conversionDocuments,
+  collectConversionDocuments,
   prepareManagedFormatConversion,
   executeManagedFormatConversion,
   prepareFormatArtifact,
@@ -25,6 +26,112 @@ const context = {
   engine: true,
   ole: true,
 };
+test("native document enumeration invoke stays Windows-only", () => {
+  const source = readFileSync(
+    new URL("../src-tauri/src/lib.rs", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /#\[cfg\(target_os = "windows"\)\]\s+commands::native_office::native_office_document_targets,/,
+  );
+});
+test("all open Word documents retain distinct paths and per-document source state", async () => {
+  const sessions = [
+    {
+      host_type: "word",
+      session_id: "session-a",
+      document_id: "doc-b",
+      capabilities: ["open_documents"],
+    },
+  ];
+  const calls = [];
+  const documents = await collectConversionDocuments(
+    sessions,
+    {
+      sessionId: "session-a",
+      documentContextId: "doc-a",
+      formula: { formulaId: "f", latex: "x" },
+    },
+    true,
+    async (id) => {
+      calls.push(id);
+      return {
+        documents: [
+          {
+            documentContextId: "doc-a",
+            documentTitle: "same.docx",
+            readOnly: false,
+          },
+          {
+            documentContextId: "doc-b",
+            documentTitle: "same.docx",
+            readOnly: true,
+          },
+        ],
+      };
+    },
+  );
+  assert.deepEqual(calls, ["session-a"]);
+  assert.equal(documents[0].managed, true);
+  assert.equal(documents[1].managed, false);
+  assert.equal(documents[1].readOnly, true);
+  const choices = conversionDocuments({ documents });
+  assert.notEqual(choices[0].value, choices[1].value);
+  assert.ok(
+    conversionChoices(
+      { ...context, ...documents[1] },
+      "selection",
+    ).sources.find((item) => item.value === "selection").reason,
+  );
+});
+test("legacy hosts use only their reported current document without enumeration", async () => {
+  const documents = await collectConversionDocuments(
+    [
+      {
+        host_type: "excel",
+        session_id: "legacy",
+        document_id: "workbook-a",
+        document_title: "Book",
+      },
+      { host_type: "word", session_id: "empty" },
+    ],
+    undefined,
+    true,
+    async () => {
+      throw new Error("unexpected enumeration");
+    },
+  );
+  assert.equal(documents.length, 1);
+  assert.equal(documents[0].documentContext, "workbook-a");
+  assert.equal(documents[0].ole, false);
+});
+test("enumeration failures and malformed target lists fail closed", async () => {
+  const sessions = [
+    { host_type: "word", session_id: "s", capabilities: ["open_documents"] },
+  ];
+  for (const documents of [
+    null,
+    [null],
+    [{}],
+    [{ documentContextId: "" }],
+    [{ documentContextId: "x".repeat(4097) }],
+    Array(129).fill({ documentContextId: "x" }),
+  ]) {
+    await assert.rejects(
+      collectConversionDocuments(sessions, undefined, false, async () => ({
+        documents,
+      })),
+      /DOCUMENT_TARGET/,
+    );
+  }
+  await assert.rejects(
+    collectConversionDocuments(sessions, undefined, false, async () => {
+      throw new Error("host timeout");
+    }),
+    /host timeout/,
+  );
+});
 function fixture() {
   let formula = {
     formulaId: "formula-a",

@@ -127,6 +127,7 @@ namespace LaTeXSnipper.Word
                                 {
                                     ["read_formula_by_id"] = true,
                                     ["replace_result_revision"] = true,
+                                    ["open_documents"] = true,
                                 },
                             },
                             contextId, doc?.Name);
@@ -200,7 +201,7 @@ namespace LaTeXSnipper.Word
             if (message is DesktopDocumentCommand docCmd && !string.IsNullOrEmpty(docCmd.ExpectedContextId))
             {
                 var currentContext = _adapter.GetCurrentContextId();
-                if (!string.IsNullOrEmpty(currentContext) &&
+                if (string.IsNullOrEmpty(currentContext) ||
                     !StringComparer.Ordinal.Equals(docCmd.ExpectedContextId, currentContext))
                 {
                     System.Diagnostics.Debug.WriteLine(
@@ -218,6 +219,25 @@ namespace LaTeXSnipper.Word
 
             switch (message)
             {
+                case DesktopRequestDocumentTargets listTargets:
+                {
+                    var result = _adapter.DocumentTargets();
+                    result.RequestId = listTargets.RequestId;
+                    result.SessionId = listTargets.SessionId;
+                    _pipeClient.SendOnlyAsync(result);
+                    break;
+                }
+                case DesktopActivateDocumentTarget activateTarget:
+                {
+                    var result = string.IsNullOrEmpty(activateTarget.ExpectedContextId) ||
+                        string.IsNullOrEmpty(activateTarget.TargetDocumentContextId)
+                        ? new VstoDocumentTargetsResult { ErrorCode = "DOCUMENT_TARGET_REQUIRED", Error = "Explicit source and target document identities are required" }
+                        : _adapter.DocumentTargets(activateTarget.TargetDocumentContextId);
+                    result.RequestId = activateTarget.RequestId;
+                    result.SessionId = activateTarget.SessionId;
+                    _pipeClient.SendOnlyAsync(result);
+                    break;
+                }
                 case DesktopInsertFormula cmd:
                 {
                     ResolveStorageMode(cmd);

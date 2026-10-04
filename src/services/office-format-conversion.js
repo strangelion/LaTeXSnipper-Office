@@ -5,6 +5,47 @@ import {
 
 const consumed = new WeakSet();
 const preparedCommits = new WeakMap();
+
+export async function collectConversionDocuments(sessions, loaded, ole, list) {
+  const groups = await Promise.all(
+    sessions.map(async (session) => {
+      const targets = session.capabilities?.includes("open_documents")
+        ? (await list(session.session_id)).documents
+        : session.document_id
+          ? [
+              {
+                documentContextId: session.document_id,
+                documentTitle: session.document_title,
+              },
+            ]
+          : [];
+      if (!Array.isArray(targets) || targets.length > 128)
+        throw new Error("DOCUMENT_TARGET_LIST_INVALID");
+      return targets.map((target) => {
+        if (
+          !target ||
+          typeof target.documentContextId !== "string" ||
+          !target.documentContextId ||
+          target.documentContextId.length > 4096
+        )
+          throw new Error("DOCUMENT_TARGET_ID_MISSING");
+        return {
+          host: session.host_type,
+          sessionId: session.session_id,
+          documentContext: target.documentContextId,
+          documentTitle: target.documentTitle || target.documentContextId,
+          readOnly: target.readOnly === true,
+          managed:
+            loaded?.sessionId === session.session_id &&
+            loaded?.documentContextId === target.documentContextId &&
+            Boolean(loaded?.formula?.formulaId && loaded?.formula?.latex),
+          ole: session.host_type === "word" && ole,
+        };
+      });
+    }),
+  );
+  return groups.flat();
+}
 export const FORMAT_NAMES = {
   omml: "Word 原生公式（OMML）",
   ole: "LaTeXSnipper OLE",
@@ -17,7 +58,8 @@ export const FORMAT_NAMES = {
 export function conversionChoices(context, source) {
   const nativeWord =
     context.native && context.host === "word" && context.documentContext;
-  const rawWord = context.host === "word" && context.connected;
+  const rawWord =
+    context.host === "word" && context.connected && !context.readOnly;
   const sources = [
     {
       value: "selection",
@@ -28,7 +70,7 @@ export function conversionChoices(context, source) {
       value: "managed",
       label: "已读取的本应用公式",
       reason:
-        nativeWord && context.managed
+        nativeWord && context.managed && !context.readOnly
           ? ""
           : "请先读取本应用公式；此路径需要原生 Word 加载项",
     },
@@ -335,6 +377,7 @@ export function openFormatConversionDialog({
   renderPreview,
   dispose = async () => {},
   root = document,
+  refreshDocuments,
 }) {
   const dialog = root.createElement("dialog");
   dialog.className = "office-format-dialog";
@@ -346,7 +389,7 @@ export function openFormatConversionDialog({
   note.textContent =
     "选择来源和目标，再预览确认。VSTO 是加载项技术，不是公式格式。MathType 及无本应用源信息的对象暂不支持原位转换。";
   const destination = root.createElement("p");
-  const documents = conversionDocuments(context);
+  let documents = conversionDocuments(context);
   let selectedDocument =
     documents.find(
       (candidate) =>
@@ -355,6 +398,10 @@ export function openFormatConversionDialog({
     ) || documents[0];
   const documentGroup = root.createElement("fieldset");
   documentGroup.className = "conversion-documents";
+  const refresh = root.createElement("button");
+  refresh.type = "button";
+  refresh.textContent = "刷新文档";
+  refresh.hidden = !refreshDocuments;
   const sourceGroup = root.createElement("fieldset");
   const targetGroup = root.createElement("fieldset");
   let source =
@@ -392,6 +439,7 @@ export function openFormatConversionDialog({
   dialog.append(
     title,
     note,
+    refresh,
     documentGroup,
     destination,
     sourceGroup,
@@ -521,8 +569,9 @@ export function openFormatConversionDialog({
         value: document.value,
         label: `${document.host || "Office"} · ${document.documentTitle || document.documentContext || "当前文档"}`,
         detail: document.sessionId
-          ? `会话：${document.sessionId}`
+          ? `文档：${document.documentContext}；会话：${document.sessionId}`
           : "Office.js 只能操作此任务窗格所属文档；其他文档请打开各自的加载项。",
+        reason: document.readOnly ? "只读文档；请使用可写副本进行转换" : "",
       })),
       selectedDocument?.value,
       (value) => {
@@ -533,7 +582,7 @@ export function openFormatConversionDialog({
       },
     );
     destination.textContent = selectedDocument
-      ? `目标文档：${selectedDocument.documentTitle || selectedDocument.documentContext || "当前 Office.js 文档"}。切换文档后须重新预览；提交时再次核对文档标识。`
+      ? `目标文档：${selectedDocument.documentTitle || selectedDocument.documentContext || "当前 Office.js 文档"}。${context.native ? "预览会激活所选原生文档，尚不修改内容；切换后须重新预览，提交时再次核对标识。" : "仅操作此任务窗格所属文档；预览尚不修改内容。"}`
       : "未连接 Office 文档，仅可导出可用的编辑器副本。";
     group(sourceGroup, "来源", choices.sources, source, (value) => {
       source = value;
@@ -558,7 +607,33 @@ export function openFormatConversionDialog({
       ) ||
       !formats.some((option) => option.value === format && !option.reason);
     confirm.disabled = pending || !ready;
+    refresh.disabled = pending;
   }
+  refresh.addEventListener("click", async () => {
+    if (pending || !refreshDocuments) return;
+    const selected = selectedDocument?.value;
+    reset();
+    pending = true;
+    update();
+    status.textContent = "正在刷新打开文档，尚未修改或切换文档…";
+    try {
+      const updated = conversionDocuments({
+        ...context,
+        documents: await refreshDocuments(),
+      });
+      if (closed) return;
+      documents = updated;
+      selectedDocument =
+        documents.find((item) => item.value === selected) ||
+        documents.find((item) => !item.readOnly);
+      status.textContent = "文档列表已刷新，请重新生成预览。";
+    } catch (error) {
+      if (!closed) status.textContent = `刷新失败：${error?.message || error}`;
+    } finally {
+      pending = false;
+      if (!closed) update();
+    }
+  });
   prepareButton.addEventListener("click", async () => {
     if (pending || prepareButton.disabled) return;
     const old = prepared;

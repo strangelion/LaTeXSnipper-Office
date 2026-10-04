@@ -18,6 +18,7 @@ export interface ConversionContext {
   editor: boolean;
   engine: boolean;
   ole: boolean;
+  readOnly?: boolean;
 }
 export interface ConversionDocument {
   host?: string;
@@ -26,7 +27,32 @@ export interface ConversionDocument {
   documentTitle?: string;
   managed: boolean;
   ole: boolean;
+  readOnly?: boolean;
 }
+export function collectConversionDocuments(
+  sessions: Array<{
+    session_id: string;
+    host_type: string;
+    document_id?: string;
+    document_title?: string;
+    capabilities?: string[];
+  }>,
+  loaded:
+    | {
+        sessionId?: string;
+        documentContextId?: string;
+        formula?: { formulaId?: string; latex?: string };
+      }
+    | undefined,
+  ole: boolean,
+  list: (sessionId: string) => Promise<{
+    documents: Array<{
+      documentContextId: string;
+      documentTitle?: string;
+      readOnly?: boolean;
+    }>;
+  }>,
+): Promise<ConversionDocument[]>;
 export function conversionDocuments(
   context: ConversionContext,
 ): Array<ConversionDocument & { value: string }>;
@@ -69,6 +95,7 @@ export function openFormatConversionDialog<
   renderPreview: (prepared: T) => Promise<Node>;
   dispose?: (prepared: T) => Promise<void>;
   root?: Document;
+  refreshDocuments?: () => Promise<ConversionDocument[]>;
 }): Promise<{
   source: ConversionSource;
   format: ConversionFormat;

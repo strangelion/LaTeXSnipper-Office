@@ -66,6 +66,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoRequestBoundary), "REQUEST_BOUNDARY")]
 [JsonDerivedType(typeof(VstoReadSelection), "READ_SELECTION")]
 [JsonDerivedType(typeof(VstoFormulaSnapshot), "FORMULA_SNAPSHOT")]
+[JsonDerivedType(typeof(VstoDocumentTargetsResult), "DOCUMENT_TARGETS_RESULT")]
 [JsonDerivedType(typeof(VstoReadTable), "READ_TABLE")]
 [JsonDerivedType(typeof(VstoInsertResult), "INSERT_RESULT")]
 [JsonDerivedType(typeof(VstoReplaceResult), "REPLACE_RESULT")]
@@ -93,6 +94,23 @@ public abstract class DesktopDocumentCommand : DesktopMessage
     [JsonPropertyName("expectedContextId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ExpectedContextId { get; set; }
+}
+
+public class OfficeDocumentTarget
+{
+    [JsonPropertyName("documentContextId")] public string DocumentContextId { get; set; } = "";
+    [JsonPropertyName("documentTitle")] public string DocumentTitle { get; set; } = "";
+    [JsonPropertyName("readOnly")] public bool ReadOnly { get; set; }
+}
+
+public class VstoDocumentTargetsResult : VstoMessage
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("activated")] public bool Activated { get; set; }
+    [JsonPropertyName("activeDocumentContextId")] public string? ActiveDocumentContextId { get; set; }
+    [JsonPropertyName("documents")] public List<OfficeDocumentTarget> Documents { get; set; } = new();
+    [JsonPropertyName("errorCode")] public string? ErrorCode { get; set; }
+    [JsonPropertyName("error")] public string? Error { get; set; }
 }
 
 public class VstoHello : VstoMessage
@@ -374,6 +392,8 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopImportConversation), "IMPORT_CONVERSATION")]
 [JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
 [JsonDerivedType(typeof(DesktopRequestReadFormula), "REQUEST_READ_FORMULA")]
+[JsonDerivedType(typeof(DesktopRequestDocumentTargets), "REQUEST_DOCUMENT_TARGETS")]
+[JsonDerivedType(typeof(DesktopActivateDocumentTarget), "ACTIVATE_DOCUMENT_TARGET")]
 [JsonDerivedType(typeof(DesktopRequestReadTable), "REQUEST_READ_TABLE")]
 [JsonDerivedType(typeof(DesktopDeleteCurrent), "DELETE_CURRENT")]
 [JsonDerivedType(typeof(DesktopFormatSelection), "FORMAT_SELECTION")]
@@ -483,6 +503,12 @@ public class DesktopInsertEquationList : DesktopMessage { }
 public class DesktopCheckNumbering : DesktopMessage { }
 
 public class DesktopRequestReadSelection : DesktopMessage { }
+
+public class DesktopRequestDocumentTargets : DesktopMessage { }
+public class DesktopActivateDocumentTarget : DesktopDocumentCommand
+{
+    [JsonPropertyName("targetDocumentContextId")] public string TargetDocumentContextId { get; set; } = "";
+}
 
 public class DesktopRequestReadFormula : DesktopDocumentCommand
 {

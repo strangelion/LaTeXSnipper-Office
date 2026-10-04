@@ -531,6 +531,31 @@ XML 插入 1.797 秒、控件查找 1.507 秒、公式复制 0.083 秒；其余�
 这些通过记录不关闭上文原因未知的额外拒绝风险，也不将前一批 250 条结果归于
 新增清理后的源码；本次没有重新执行 250 条或完整 OLE/图片矩阵。
 
+### 2026-10-04 Word 多文档目标专项
+
+源码基线 `9a82f75` 加本节对应改动；使用本地重新编译的 Word 适配器与
+HostTests，创建测试专属 Word 实例和两份不同目录中的 `same-title.docx`。
+运行前拒绝已有 Word 进程，不操作用户已有文档。
+
+结果通过：两份同名文件保留不同文档上下文，枚举不切换活动文档；明确选择后
+激活目标且选区所属文档一致。另存为后的旧标识、已关闭目标和只读目标均拒绝，
+拒绝不切换当前可写文档；回读源内容未修改。测试结束关闭测试文档和实例。
+
+本地证据 `src-tauri/target/document-targets-acceptance-82962e28734c4ccaac6516eb730785b2/document-targets-evidence.json`，
+SHA-256 `31BB9251E0761714E46C84CA79BB4D991E5973F789B875ADFB24F0E0F0F66F0E`。
+复现使用新目录：
+
+```powershell
+& 'apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe' `
+  'apps/native-office/LaTeXSnipper.Word.HostTests/fixtures/word-tex-drawing-acceptance-v1.json' `
+  'src-tauri/target/word-targets-new-evidence' --document-targets
+```
+
+共享 C#/Rust wire 专项及真实 Chromium 弹窗刷新/只读/旧预览失效、取消迟到响应、
+窄屏浅深色通过。浏览器宿主回调是夹具，本专项证据明确 `pipeVerified=false`；
+未通过实际新加载项/Tauri 管道或安装包，也未覆盖关闭后同一路径重开的实例身份。
+Excel/PowerPoint/Visio 全文档枚举、Office.js 实际宿主和 OLE/图片矩阵继续保持未关闭。
+
 | 本地证据文件（`src-tauri/target/` 下） | SHA-256 |
 | --- | --- |
 | `word-batch-scratch-phases-20261004/batch-evidence.json` | `08C46C4FEB359C5607A7EF294C664EC4DC07B1C2979623B211A40EB9638C78A6` |

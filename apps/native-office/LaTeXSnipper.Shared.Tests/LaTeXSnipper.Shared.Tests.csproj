@@ -50,6 +50,7 @@
     <Compile Include="OmmlValidatorTests.cs" />
     <Compile Include="WordNaryFixtureTests.cs" />
     <Compile Include="ProtocolV4Tests.cs" />
+    <Compile Include="DocumentTargetsProtocolTests.cs" />
     <Compile Include="BatchResultCorrelationTests.cs" />
     <Compile Include="BatchStageTimingsTests.cs" />
     <Compile Include="SpreadsheetTablePayloadTests.cs" />
