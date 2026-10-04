@@ -5,6 +5,7 @@ import { OfficeBridgeClient } from "../adapters/bridge-client";
 import {
   openFormatConversionDialog,
   downloadFormatArtifact,
+  prepareSelectionFormatExport,
   type FormatArtifact,
 } from "../../../../src/services/office-format-conversion.js";
 import "../../../../src/services/office-format-conversion.css";
@@ -274,6 +275,13 @@ async function handleFormatConversion(): Promise<void> {
       prepare: async ({ source, format }) => {
         if (source === "selection") {
           const controller = new WordSelectionLatex(bridge);
+          if (format !== "omml")
+            return prepareSelectionFormatExport(
+              controller,
+              format,
+              (from, to, content, display) =>
+                bridge.convert(from, to, content, display),
+            );
           try {
             const prepared = await controller.prepare();
             return { ...prepared, kind: "selection", controller };

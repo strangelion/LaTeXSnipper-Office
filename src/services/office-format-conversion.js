@@ -45,10 +45,9 @@ export function conversionChoices(context, source) {
     else if (
       source === "selection" &&
       value !== "omml" &&
-      !(context.native && ["latex", "svg", "png"].includes(value))
+      !["latex", "svg", "png"].includes(value)
     )
-      reason =
-        "裸选区只支持行内 OMML 原位转换；桌面端还可导出 LaTeX/SVG/PNG 副本";
+      reason = "裸选区只支持行内 OMML 原位转换；LaTeX/SVG/PNG 可直接导出副本";
     else if (value === "ole" && source === "editor")
       reason = "新 OLE 公式请使用 Office 的 OLE 插入路线；本弹窗不覆盖光标选区";
     else if (value === "ole" && (!nativeWord || !context.ole))
@@ -58,6 +57,42 @@ export function conversionChoices(context, source) {
     return { value, label, reason };
   });
   return { sources, formats };
+}
+
+export async function prepareSelectionFormatExport(
+  controller,
+  format,
+  convert,
+) {
+  if (!["latex", "svg", "png"].includes(format))
+    throw new Error("SELECTION_EXPORT_FORMAT_UNSUPPORTED");
+  try {
+    const prepared = await controller.prepare();
+    const content =
+      format === "latex"
+        ? prepared.latex
+        : format === "svg"
+          ? prepared.svg
+          : (await convert("latex", "png", prepared.latex, "inline")).content;
+    return {
+      kind: "export",
+      latex: prepared.latex,
+      artifact: {
+        content,
+        filename: `formula.${format === "latex" ? "tex" : format}`,
+        mime:
+          format === "svg"
+            ? "image/svg+xml"
+            : format === "png"
+              ? "image/png"
+              : "text/plain;charset=utf-8",
+        base64: format === "png",
+      },
+    };
+  } finally {
+    // A copy export must never retain a tracked range capable of later writes.
+    await controller.cancel();
+  }
 }
 
 export function conversionDocuments(context) {

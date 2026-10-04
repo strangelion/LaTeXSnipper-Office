@@ -36,6 +36,19 @@ export interface FormatArtifact {
   filename: string;
   base64?: boolean;
 }
+export function prepareSelectionFormatExport(
+  controller: {
+    prepare(): Promise<{ latex: string; svg: string }>;
+    cancel(): Promise<void>;
+  },
+  format: ConversionFormat,
+  convert: (
+    from: "latex",
+    to: "png",
+    content: string,
+    display: "inline",
+  ) => Promise<{ content: string }>,
+): Promise<{ kind: "export"; latex: string; artifact: FormatArtifact }>;
 export const FORMAT_NAMES: Record<ConversionFormat, string>;
 export function conversionChoices(
   context: ConversionContext,

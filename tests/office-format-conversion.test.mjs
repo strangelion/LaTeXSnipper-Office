@@ -7,6 +7,7 @@ import {
   prepareManagedFormatConversion,
   executeManagedFormatConversion,
   prepareFormatArtifact,
+  prepareSelectionFormatExport,
 } from "../src/services/office-format-conversion.js";
 
 const target = {
@@ -109,11 +110,11 @@ test("document choices pin distinct sessions even with identical titles", () => 
     /会话重复/,
   );
 });
-test("Office.js stays scoped to its taskpane document and only raw OMML", () => {
+test("Office.js stays scoped to its document and supports raw copy exports", () => {
   const choices = conversionChoices({ ...context, native: false }, "selection");
   assert.deepEqual(
     choices.formats.filter((item) => !item.reason).map((item) => item.value),
-    ["omml"],
+    ["omml", "svg", "png", "latex"],
   );
   const pane = readFileSync(
     new URL("../apps/office-addin/src/taskpane/taskpane.ts", import.meta.url),
@@ -132,6 +133,63 @@ test("Office.js stays scoped to its taskpane document and only raw OMML", () => 
     (ready.match(/getElementById\("formatConversionBtn"\)/g) || []).length,
     1,
   );
+});
+test("Office.js raw copy export releases its range and never commits", async () => {
+  for (const format of ["latex", "svg", "png"]) {
+    let released = 0;
+    const writes = [];
+    const controller = {
+      prepare: async () => ({ latex: "x^2", svg: "<svg/>" }),
+      cancel: async () => {
+        released++;
+      },
+      confirm: async () => {
+        writes.push("unexpected write");
+      },
+    };
+    const requests = [];
+    const result = await prepareSelectionFormatExport(
+      controller,
+      format,
+      async (...args) => {
+        requests.push(args);
+        return { content: "cG5n" };
+      },
+    );
+    assert.equal(result.kind, "export");
+    assert.equal(result.latex, "x^2");
+    assert.equal(released, 1);
+    assert.deepEqual(writes, []);
+    assert.equal(
+      result.artifact.content,
+      format === "latex" ? "x^2" : format === "svg" ? "<svg/>" : "cG5n",
+    );
+    assert.deepEqual(
+      requests,
+      format === "png" ? [["latex", "png", "x^2", "inline"]] : [],
+    );
+  }
+});
+test("Office.js raw export failures release the selection without writing", async () => {
+  for (const failAt of ["prepare", "convert"]) {
+    let released = 0;
+    const controller = {
+      prepare: async () => {
+        if (failAt === "prepare") throw new Error("invalid source");
+        return { latex: "x^2", svg: "<svg/>" };
+      },
+      cancel: async () => {
+        released++;
+      },
+    };
+    await assert.rejects(
+      prepareSelectionFormatExport(controller, "png", async () => {
+        throw new Error("render failed");
+      }),
+      /invalid source|render failed/,
+    );
+    assert.equal(released, 1);
+  }
 });
 test("Office.js cannot claim managed or OLE support", () => {
   const choices = conversionChoices({ ...context, native: false }, "managed");

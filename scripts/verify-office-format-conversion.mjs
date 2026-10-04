@@ -52,16 +52,17 @@ try {
   );
   await dialog.getByRole("button", { name: "取消", exact: true }).click();
 
-  async function open(fail = false, delayed = false) {
+  async function open(fail = false, delayed = false, officeJs = false) {
     await page.evaluate(
-      async ({ fail, delayed }) => {
-        const { openFormatConversionDialog } =
+      async ({ fail, delayed, officeJs }) => {
+        const { openFormatConversionDialog, prepareSelectionFormatExport } =
           await import("/services/office-format-conversion.js");
         window.__formatDisposed = 0;
         window.__formatRendered = 0;
+        window.__selectionReleased = 0;
         window.__formatAnswer = openFormatConversionDialog({
           context: {
-            native: true,
+            native: !officeJs,
             host: "word",
             documentContext: "fixture-doc",
             sessionId: "fixture-a",
@@ -84,7 +85,7 @@ try {
               },
             ],
             connected: true,
-            managed: true,
+            managed: !officeJs,
             editor: true,
             engine: true,
             ole: true,
@@ -93,6 +94,17 @@ try {
             if (delayed)
               await new Promise((resolve) => setTimeout(resolve, 150));
             if (fail) throw new Error("Injected source validation failure");
+            if (officeJs && source === "selection" && format !== "omml")
+              return prepareSelectionFormatExport(
+                {
+                  prepare: async () => ({ latex: "x^2", svg: "<svg/>" }),
+                  cancel: async () => {
+                    window.__selectionReleased++;
+                  },
+                },
+                format,
+                async () => ({ content: "cG5n" }),
+              );
             return {
               latex: String.raw`\frac{a}{b}`,
               source,
@@ -109,7 +121,7 @@ try {
           },
         });
       },
-      { fail, delayed },
+      { fail, delayed, officeJs },
     );
   }
   await open();
@@ -149,6 +161,27 @@ try {
     "ole",
   );
   assert.equal(await page.evaluate(() => window.__formatDisposed), 1);
+
+  await open(false, false, true);
+  await dialog
+    .getByRole("radio", { name: "Word 裸 LaTeX 选区", exact: true })
+    .click();
+  await dialog.getByRole("radio", { name: "SVG 矢量图", exact: true }).click();
+  assert.equal(
+    await dialog.getByRole("radio", { name: /LaTeXSnipper OLE/ }).isDisabled(),
+    true,
+  );
+  await dialog.getByRole("button", { name: "生成预览" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.querySelector(".conversion-actions button:nth-child(2)")
+        .disabled,
+  );
+  await dialog.getByRole("button", { name: "确认导出副本" }).click();
+  const paneExport = await page.evaluate(() => window.__formatAnswer);
+  assert.equal(paneExport.prepared.kind, "export");
+  assert.equal(paneExport.prepared.artifact.mime, "image/svg+xml");
+  assert.equal(await page.evaluate(() => window.__selectionReleased), 1);
 
   await open();
   const documents = dialog.getByRole("group", {
