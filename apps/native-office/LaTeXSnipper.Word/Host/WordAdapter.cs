@@ -2131,11 +2131,11 @@ namespace LaTeXSnipper.Word.Host
                     };
                 }
 
-                // Word preserves an embedded OLE object's insertion-time size and aspect
-                // ratio even when Width/Height or ScaleWidth are assigned through COM.
-                // Oversized payloads are therefore fitted before AddOLEObject. At this
-                // point Word's settled rectangle is authoritative and is synchronized
-                // back to the OLE server.
+                // Assign the container rectangle after initialization. SetExtent must
+                // not republish unchanged preview data during this host resize callback.
+                oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoFalse;
+                oleShape.Width = targetExtent.DisplayWidthPt;
+                oleShape.Height = targetExtent.DisplayHeightPt;
                 oleShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
 
                 float wordWidth = oleShape.Width;
@@ -2158,9 +2158,10 @@ namespace LaTeXSnipper.Word.Host
                     oleExtentReadBack &&
                     OleFormulaInterop.DisplayExtentMatches(wordSynchronizedExtent, finalOleExtent) &&
                     OleFormulaInterop.HostGeometryMatches(
-                        wordSynchronizedExtent,
+                        targetExtent,
                         wordWidth,
-                        wordHeight);
+                        wordHeight,
+                        geometryQuantizationPt: 0.5f);
                 if (OleFormulaInterop.TryGetDiagnosticsJson(
                     activation.AutomationObject,
                     out string geometryDiagnostics))

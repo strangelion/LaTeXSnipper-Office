@@ -635,6 +635,10 @@ void TestCompletedExtentIsRetained(DllGetClassObjectFn getClassObject)
     FormulaTestObject object;
     Expect(CreateFormulaTestObject(getClassObject, &object), L"could not create formula COM object");
     if (object.formula == nullptr || object.ole == nullptr) return;
+    DWORD miscStatus = 0;
+    Expect(SUCCEEDED(object.ole->GetMiscStatus(DVASPECT_CONTENT, &miscStatus)) &&
+        (miscStatus & OLEMISC_RECOMPOSEONRESIZE) == 0,
+        L"fixed vector presentation must scale, not recompose on host resize");
 
     ATL::CComBSTR payload(
         L"{"
@@ -699,6 +703,12 @@ void TestCompletedExtentIsRetained(DllGetClassObjectFn getClassObject)
             L"diagnostics omitted handler identity");
         SysFreeString(diagnosticsJson);
     }
+    SIZEL hostResize{ 4000, 1600 };
+    Expect(SUCCEEDED(object.ole->SetExtent(DVASPECT_CONTENT, &hostResize)),
+        L"completed object rejected a host resize");
+    object.ole->GetExtent(DVASPECT_CONTENT, &actual);
+    Expect(actual.cx == hostResize.cx && actual.cy == hostResize.cy,
+        L"completed object did not retain host resize geometry");
 }
 
 int wmain(int argc, wchar_t** argv)

@@ -606,3 +606,48 @@ SVG_VECTOR_EMF、自然框 1278×596 HIMETRIC（36.2268×16.8945 pt），
 显示框 1676×776 HIMETRIC（47.5087×21.9969 pt）；原始 SVG 尺寸已是明确 pt。
 测试程序现在采集这些自然/显示 extent 及运行时诊断，后续修复可与此失败尺寸基线比较。
 只确认尺寸链差异，不宣称已确定缓存/DPI/固定缩放中的最终根因。
+
+## 2026-10-05：固定矢量 OLE 缩放修复与范围限定
+
+先在独占 Word 测量：宽/高、100% 缩放及重新排版均仍为 47.5×22 pt。
+取消 SetExtent 的内容刷新后单独复测也失败，不能将重入通知单独当作已证实根因。
+去除固定矢量对象的 `OLEMISC_RECOMPOSEONRESIZE` 后，Word 接受初始化完成后的
+明确宽高；SetExtent 仅保存宿主几何、标记 dirty，不发布未改变的内容。实际 payload
+变化仍走刷新/持久化路径。有效物理 render 已包含字体/样式，不再重复应用旧字号倍率；
+无物理 render 的旧 helper 调用仍保留兼容倍率。
+
+最终裸选区三路线 3.7197449 秒，SVG 33.2×14.3、PNG 33.2×14.65、OLE 36×17 pt；
+OLE 自然框 36.2268×16.8945 pt 保留透明防裁切边距，并非强行缩到 SVG 外框。
+保存重开后 OLE 宿主/服务器尺寸及完整 payload、选区 ID 再次校验通过。
+PDF 转 PNG 检查三种公式可见、尺寸接近且无裁切。
+
+扩大回归：8 个样例 × 行内/行间/编号共 24 项 OLE 全部通过插入及保存重开。
+包含 cases、积分/求和、箭头上下标、绘图、自定义符号、32 项超宽公式及 12 层分数。
+超宽公式初次被固定 2% 比例阈值拒绝：约 294.3×6.2 pt 被 Word 取整为 294×6 pt。
+加入显式半点几何取整包络后复测通过，绝对尺寸上限 0.75 pt 不放宽；这不是一般
+变形豁免。代表性 cases 和超宽编号截图已目视检查；自动缩小的超宽公式仍较小，
+不宣称任意超宽内容可同时保持大字号和不超出容器。
+
+证据根目录为忽略的 `src-tauri/target/ole-geometry-verified-46e6e10a8f634ea18a990722f0077b1c/`：
+
+| 文件 | SHA-256 |
+| --- | --- |
+| `selection/selection-media-evidence.json` | `D0FA203A268783238ABAAACE9A0AEB59E2D32CE717A4D13BFA17D20698FE7C87` |
+| `matrix/evidence.json` | `9FE822519EA19BFF98186437CAF81E41E7E59E986F4AE265C10BEDB6EC206238` |
+
+x64/x86 原生向量/COM 单测、共享 C#、前端 420 项、lint/typecheck/格式检查通过。
+真实宿主用本次构建 x64 DLL（SHA-256
+`05C21B0610B6734B1559587DD64FC76B8916CE90E1FAD78658C33D317646B681`）临时替换
+本应用安装 DLL，Word 诊断读取实际加载路径并核对哈希。测试关闭时 DLL 曾短暂占用，
+进程退出后原 DLL 已恢复并逐字节哈希核对；未修改注册表，未持久升级用户安装。
+
+`pipeVerified=false`；仅固定本机 x64 Word 适配器证据。旧文档任意样式/手工缩放、
+跨 DPI/x86 Office、真实新加载项/Tauri 管道及完整产品字体门禁继续开放。
+PGFPlots 不受支持的 clipPath、真实 Office.js、10000 多样语料不由此关闭。
+
+同批 Excel/PowerPoint sample harness 复测：已有示例各 4 图片/4 OLE 验证通过；
+新建 drawing/customSymbol 各 2 图片/2 OLE，源状态及保存重开回读通过。
+`src-tauri/target/ole-geometry-other-hosts-9327b300aeb94b2ca43b2231d89fe226/evidence.json`
+SHA-256 `261B3A7E028BBEFFACE8417F48AE5332B3FF4959A960D302360ACBADA40F342D`。
+样例检查与新建/重开分开计数；该 harness 未逐对象核对实际 handler 路径/哈希，
+不作为新 DLL 的跨宿主尺寸、任意字体或端到端安装验收。

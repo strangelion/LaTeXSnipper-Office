@@ -1930,7 +1930,7 @@ namespace LaTeXSnipper.Word.HostTests
             ReleaseComObject(shape);
         }
 
-        private static void ValidateLoadedHandlerArtifact(string diagnostics)
+        internal static void ValidateLoadedHandlerArtifact(string diagnostics)
         {
             string expectedHash = Environment.GetEnvironmentVariable(
                 "LATEXSNIPPER_OLE_EXPECTED_HANDLER_SHA256");

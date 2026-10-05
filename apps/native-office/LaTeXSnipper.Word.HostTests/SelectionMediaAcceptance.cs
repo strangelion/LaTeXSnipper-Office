@@ -75,6 +75,12 @@ namespace LaTeXSnipper.Word.HostTests
                         {
                             Require(OleFormulaInterop.TryGetExtentPoints(automation, out OleExtentPoints extent), "OLE extent diagnostics unavailable.");
                             OleFormulaInterop.TryGetDiagnosticsJson(automation, out string diagnostics);
+                            Program.ValidateLoadedHandlerArtifact(diagnostics);
+                            var expectedExtent = OleFormulaInterop.GetInitialDisplayExtent(payload, extent, OleHostKind.Word);
+                            Require(OleFormulaInterop.HostGeometryMatches(expectedExtent, insertedShape.Width, insertedShape.Height),
+                                "Inserted OLE geometry does not match its requested natural frame.");
+                            Require(OleFormulaInterop.DisplayExtentMatches(expectedExtent, extent),
+                                "OLE server display extent drifted from the requested natural frame.");
                             oleGeometry = new { extent.NaturalWidthPt, extent.NaturalHeightPt,
                                 extent.DisplayWidthPt, extent.DisplayHeightPt, diagnostics };
                         }
@@ -98,7 +104,25 @@ namespace LaTeXSnipper.Word.HostTests
                     var control = document.ContentControls.Cast<W.ContentControl>().Single(c => c.Tag == "latexsnipper:formula:" + entry.Value);
                     control.Range.Select();
                     Require(adapter.ReadSelection()?.FormulaId == entry.Value, "Selection readback lost formula identity.");
-                    checks.Add(new { format = entry.Key, saveReopen = true, selectionReadback = true });
+                    var shape = control.Range.InlineShapes[1];
+                    if (entry.Key == "ole")
+                    {
+                        object automation = shape.OLEFormat.Object;
+                        try
+                        {
+                            Require(OleFormulaInterop.TryGetExtentPoints(automation, out OleExtentPoints extent), "Reopened OLE extent unavailable.");
+                            var expectedExtent = OleFormulaInterop.GetInitialDisplayExtent(stored, extent, OleHostKind.Word);
+                            Require(OleFormulaInterop.HostGeometryMatches(expectedExtent, shape.Width, shape.Height) &&
+                                OleFormulaInterop.DisplayExtentMatches(expectedExtent, extent), "Saved OLE geometry drifted after reopen.");
+                            Require(OleFormulaInterop.VerifyRoundTrip(automation, stored), "Reopened OLE payload mismatch.");
+                            OleFormulaInterop.TryGetDiagnosticsJson(automation, out string diagnostics);
+                            Program.ValidateLoadedHandlerArtifact(diagnostics);
+                        }
+                        finally { Marshal.ReleaseComObject(automation); }
+                    }
+                    checks.Add(new { format = entry.Key, saveReopen = true, selectionReadback = true,
+                        actualWidthPt = shape.Width, actualHeightPt = shape.Height, geometryVerified = entry.Key == "ole" });
+                    Marshal.ReleaseComObject(shape); Marshal.ReleaseComObject(control);
                 }
                 document.ExportAsFixedFormat(Path.Combine(directory, "selection-media-visual.pdf"), W.WdExportFormat.wdExportFormatPDF);
             }

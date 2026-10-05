@@ -29,6 +29,13 @@ const svgToEmf = readFileSync(
   ),
   "utf8",
 );
+const oleObject = readFileSync(
+  new URL(
+    "../apps/native-office/LaTeXSnipper.OleFormulaObjectNative/src/FormulaOleObject.cpp",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const adapterSources = ["Word", "Excel", "PowerPoint"].map((host) =>
   readFileSync(
     new URL(
@@ -71,5 +78,20 @@ assert.match(svgToEmf, /frameMarginClear/);
 assert.match(svgToEmf, /OLE_INK_FRAME_MARGIN_MISSING/);
 assert.match(svgToEmf, /expectedRaster->inkBounds\.left > 0/);
 assert.match(svgToEmf, /kMinimumRetainedInkCoverage/);
+const miscStatus = oleObject
+  .split("FormulaOleObject::GetMiscStatus")[1]
+  .split("FormulaOleObject::SetColorScheme")[0];
+assert.doesNotMatch(miscStatus, /OLEMISC_RECOMPOSEONRESIZE/);
+const setExtent = oleObject
+  .split("FormulaOleObject::SetExtent")[1]
+  .split("FormulaOleObject::GetExtent")[0];
+assert.match(setExtent, /containerExtent_ = \*size/);
+assert.match(setExtent, /dirty_ = true/);
+assert.doesNotMatch(setExtent, /NotifyViewChanged\(\)/);
+assert.match(
+  adapterSources[0],
+  /oleShape\.Width = targetExtent\.DisplayWidthPt/,
+);
+assert.match(adapterSources[0], /HostGeometryMatches\(\s*targetExtent,/);
 
 console.log("OLE RCW ownership and host evidence contract passed OK");

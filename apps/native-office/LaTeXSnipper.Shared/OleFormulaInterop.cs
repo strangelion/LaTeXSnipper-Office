@@ -386,13 +386,27 @@ public static class OleFormulaInterop
         float hostWidthPt,
         float hostHeightPt,
         float tolerancePt = 0.75f,
-        float aspectTolerance = 0.02f)
+        float aspectTolerance = 0.02f,
+        float geometryQuantizationPt = 0.0f)
     {
         if (hostWidthPt <= 0 || hostHeightPt <= 0 ||
             expected.DisplayWidthPt <= 0 || expected.DisplayHeightPt <= 0)
             return false;
         var expectedAspect = expected.DisplayWidthPt / expected.DisplayHeightPt;
         var actualAspect = hostWidthPt / hostHeightPt;
+        // Some Word OLE rectangles are quantized to whole points. A half-point
+        // error can exceed 2% for a very short, container-fitted formula. Keep
+        // absolute dimension guards and allow only this bounded rounding envelope.
+        float quantization = Math.Min(tolerancePt, Math.Max(0.0f, geometryQuantizationPt));
+        if (quantization > 0 && expected.DisplayHeightPt > quantization)
+        {
+            float largestAspect = (expected.DisplayWidthPt + quantization) /
+                (expected.DisplayHeightPt - quantization);
+            float smallestAspect = Math.Max(0.0f, expected.DisplayWidthPt - quantization) /
+                (expected.DisplayHeightPt + quantization);
+            aspectTolerance = Math.Max(aspectTolerance, Math.Max(
+                largestAspect / expectedAspect - 1.0f, 1.0f - smallestAspect / expectedAspect));
+        }
         return Math.Abs(expected.DisplayWidthPt - hostWidthPt) <= tolerancePt &&
                Math.Abs(expected.DisplayHeightPt - hostHeightPt) <= tolerancePt &&
                Math.Abs(actualAspect - expectedAspect) / expectedAspect <= aspectTolerance;
@@ -403,9 +417,13 @@ public static class OleFormulaInterop
         bool isDisplay = string.Equals(payload.Display, "block", StringComparison.OrdinalIgnoreCase) ||
                          string.Equals(payload.Display, "display", StringComparison.OrdinalIgnoreCase);
 
-        // MathJax renders at ~10pt. Inline formulas match Word default 11pt;
-        // display formulas scale up to ~15pt for independent formula appearance.
-        float scale = host switch
+        // Physical render dimensions already include the selected font/style.
+        // Keep the EMF safety margin, but do not apply legacy font scaling twice.
+        bool hasPhysicalRender = payload.Render != null &&
+            payload.Render.WidthPt > 0 && payload.Render.HeightPt > 0 &&
+            !float.IsNaN(payload.Render.WidthPt) && !float.IsInfinity(payload.Render.WidthPt) &&
+            !float.IsNaN(payload.Render.HeightPt) && !float.IsInfinity(payload.Render.HeightPt);
+        float scale = hasPhysicalRender ? 1.0f : host switch
         {
             OleHostKind.PowerPoint => 1.0f,
             OleHostKind.Excel => isDisplay ? 1.10f : 1.0f,

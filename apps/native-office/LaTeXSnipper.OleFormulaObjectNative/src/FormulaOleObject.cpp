@@ -637,19 +637,16 @@ STDMETHODIMP FormulaOleObject::SetExtent(DWORD drawAspect, SIZEL* size)
         return S_OK;
     }
 
-    const bool changed = !hasContainerExtent_ ||
-        containerExtent_.cx != size->cx ||
-        containerExtent_.cy != size->cy;
-
     containerExtent_ = *size;
     lastSetExtent_ = *size;
     hasContainerExtent_ = true;
+    dirty_ = true;
 
-    if (changed)
-    {
-        WriteNativeOleLog(L"FormulaOleObject SetExtent: committed extent and refreshed view.");
-        NotifyViewChanged();
-    }
+    // This is the container's resize callback, not a content change. Publishing
+    // unchanged metafile data here reenters Word while it is assigning geometry
+    // and can restore the previous cached InlineShape rectangle. The host owns
+    // repaint/layout; payload changes still publish through RequestLayoutAndNotify.
+    WriteNativeOleLog(L"FormulaOleObject SetExtent: committed host extent without republishing content.");
 
     return S_OK;
 }
@@ -721,11 +718,12 @@ STDMETHODIMP FormulaOleObject::GetMiscStatus(DWORD aspect, DWORD* status)
         return aspectResult;
     }
 
+    // A fixed vector presentation scales with its container; it does not
+    // reflow on resize. RECOMPOSEONRESIZE makes Word retain its cached size.
     *status = OLEMISC_CANTLINKINSIDE
         | OLEMISC_RENDERINGISDEVICEINDEPENDENT
         | OLEMISC_SETCLIENTSITEFIRST
-        | OLEMISC_IGNOREACTIVATEWHENVISIBLE
-        | OLEMISC_RECOMPOSEONRESIZE;
+        | OLEMISC_IGNOREACTIVATEWHENVISIBLE;
     return S_OK;
 }
 
