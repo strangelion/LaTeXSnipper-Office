@@ -171,7 +171,11 @@ pub async fn office_batch_convert_plan(
     target: OfficeTarget,
     candidates: Vec<LatexCandidate>,
 ) -> Result<BatchConversionPlan, String> {
-    let mut plan = batch_conversion::build_conversion_plan(candidates)?;
+    let mut plan = tauri::async_runtime::spawn_blocking(move || {
+        batch_conversion::build_conversion_plan(candidates)
+    })
+    .await
+    .map_err(|error| format!("Batch planning task failed: {error}"))??;
     plan.target = Some(target);
     Ok(plan)
 }

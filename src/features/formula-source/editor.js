@@ -1,4 +1,5 @@
-import { autocompletion } from "@codemirror/autocomplete";
+import { autocompletion, pickedCompletion } from "@codemirror/autocomplete";
+import { createCompletionSelector } from "./completion-selector.js";
 import {
   defaultKeymap,
   history,
@@ -211,14 +212,14 @@ const formulaStructureHighlighting = ViewPlugin.fromClass(
   { decorations: (plugin) => plugin.decorations },
 );
 
-function completionSource(context) {
+function completionSource(context, selector) {
   const match = context.matchBefore(/\\[A-Za-z]*|[A-Za-z]+/);
   if (!match || (!context.explicit && match.from === match.to)) return null;
   return {
     from: match.from,
-    options: latexCompletions.map((label) => ({
-      label,
-      type: label.startsWith("\\begin") ? "class" : "function",
+    options: selector.rank().map((option) => ({
+      ...option,
+      type: option.label.startsWith("\\begin") ? "class" : "function",
     })),
   };
 }
@@ -236,6 +237,37 @@ export function createFormulaSourceEditor({ textarea, host }) {
 
   let synchronizingFromEditor = false;
   let synchronizingFromTextarea = false;
+  let storage;
+  try {
+    storage = window.localStorage;
+  } catch {
+    /* Suggestions remain available without storage. */
+  }
+  const selector = createCompletionSelector(latexCompletions, storage);
+  let acceptance = null;
+  const controls = document.createElement("div");
+  controls.className = "formula-completion-controls";
+  const label = document.createElement("label");
+  const toggle = document.createElement("input");
+  toggle.type = "checkbox";
+  toggle.checked = selector.enabled;
+  label.append(toggle, document.createTextNode("本地偏好排序（实验）"));
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.textContent = "清空偏好";
+  const note = document.createElement("small");
+  note.textContent = "默认关闭；仅记录候选接受/撤销，不上传公式";
+  toggle.addEventListener("change", () => {
+    selector.setEnabled(toggle.checked);
+    acceptance = null;
+  });
+  reset.addEventListener("click", () => {
+    selector.reset();
+    toggle.checked = false;
+    acceptance = null;
+  });
+  controls.append(label, reset, note);
+  host.append(controls);
   const valueDescriptor = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
     "value",
@@ -255,7 +287,9 @@ export function createFormulaSourceEditor({ textarea, host }) {
       highlightActiveLine(),
       syntaxHighlighting(latexHighlightStyle),
       formulaStructureHighlighting,
-      autocompletion({ override: [completionSource] }),
+      autocompletion({
+        override: [(context) => completionSource(context, selector)],
+      }),
       keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
       latexLanguage,
       EditorView.lineWrapping,
@@ -267,6 +301,22 @@ export function createFormulaSourceEditor({ textarea, host }) {
         spellcheck: "false",
       }),
       EditorView.updateListener.of((update) => {
+        for (const transaction of update.transactions) {
+          const completion = transaction.annotation(pickedCompletion);
+          if (completion)
+            acceptance = {
+              before: transaction.startState.doc,
+              token: selector.accept(completion.label),
+            };
+          else if (
+            acceptance &&
+            transaction.isUserEvent("undo") &&
+            transaction.state.doc.eq(acceptance.before)
+          ) {
+            selector.undo(acceptance.token);
+            acceptance = null;
+          } else if (transaction.docChanged) acceptance = null;
+        }
         if (!update.docChanged || synchronizingFromTextarea) return;
         synchronizingFromEditor = true;
         setTextareaValue(update.state.doc.toString());
@@ -314,6 +364,7 @@ export function createFormulaSourceEditor({ textarea, host }) {
     },
     focus: () => view.focus(),
     destroy() {
+      controls.remove();
       textarea.removeEventListener("input", handleTextareaInput);
       const currentValue = view.state.doc.toString();
       view.destroy();

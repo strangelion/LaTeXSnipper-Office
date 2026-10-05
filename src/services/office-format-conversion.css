@@ -1,13 +1,39 @@
-.office-format-dialog {
+.office-format-dialog,
+.office-selection-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
   box-sizing: border-box;
   width: min(720px, calc(100vw - 24px));
   max-height: calc(100dvh - 24px);
-  overflow: auto;
+  overflow: hidden;
   padding: 20px;
   border: 1px solid var(--border-color, var(--border, #cedcf0));
   border-radius: 16px;
   background: var(--card-bg, var(--surface, #fff));
   color: var(--fg, var(--text, #172033));
+}
+.office-format-dialog[open],
+.office-selection-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.office-dialog-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.office-format-dialog > h2,
+.office-selection-dialog > h2 {
+  flex: none;
+}
+.office-format-dialog > .conversion-actions,
+.office-selection-dialog > .workspace-actions {
+  flex: none;
+  border-top: 1px solid var(--border-color, var(--border, #cedcf0));
+  padding-top: 12px;
+  background: var(--card-bg, var(--surface, #fff));
 }
 .office-format-dialog::backdrop {
   background: rgb(15 23 42 / 45%);

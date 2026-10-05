@@ -1,3 +1,5 @@
+import { mountOfficeDialog, showOfficeDialog } from "./office-dialog.js";
+
 // Start scanning at the Office entry point; confirmation is the only write gate.
 export async function startOfficeBatch(target, options = {}) {
   if (!target?.host || !target.sessionId || !target.documentContext)
@@ -49,8 +51,7 @@ export function confirmOfficeBatch(plan, root = document) {
   confirm.textContent = `确认转换 ${ready} 条`;
   confirm.disabled = ready === 0;
   actions.append(cancel, confirm);
-  dialog.append(title, note, sources, actions);
-  root.body.append(dialog);
+  mountOfficeDialog(dialog, title, [note, sources], actions);
   const answer = new Promise((resolve) => {
     dialog.addEventListener(
       "close",
@@ -64,7 +65,6 @@ export function confirmOfficeBatch(plan, root = document) {
     cancel.addEventListener("click", () => dialog.close("cancelled"));
     confirm.addEventListener("click", () => dialog.close("confirmed"));
   });
-  dialog.showModal();
-  cancel.focus();
+  showOfficeDialog(dialog, cancel);
   return answer;
 }

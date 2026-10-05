@@ -2,6 +2,7 @@ import {
   prepareSelectionConversion,
   executeSelectionConversion,
 } from "./office-selection-conversion.js";
+import { mountOfficeDialog, showOfficeDialog } from "./office-dialog.js";
 
 const consumed = new WeakSet();
 const preparedCommits = new WeakMap();
@@ -558,22 +559,24 @@ export function openFormatConversionDialog({
   cancel.type = "button";
   cancel.textContent = "取消";
   actions.append(prepareButton, confirm, cancel);
-  dialog.append(
+  mountOfficeDialog(
+    dialog,
     title,
-    note,
-    refresh,
-    documentGroup,
-    destination,
-    sourceGroup,
-    targetGroup,
-    operationGroup,
-    summary,
-    code,
-    preview,
-    status,
+    [
+      note,
+      refresh,
+      documentGroup,
+      destination,
+      sourceGroup,
+      targetGroup,
+      operationGroup,
+      summary,
+      code,
+      preview,
+      status,
+    ],
     actions,
   );
-  root.body.append(dialog);
   let resolveAnswer;
   const answer = new Promise((resolve) => {
     resolveAnswer = resolve;
@@ -803,12 +806,12 @@ export function openFormatConversionDialog({
           ? structuredClone(selectedDocument)
           : undefined,
       });
-      if (closed) {
+      if (closed || !dialog.open) {
         await cleanup(value);
         return;
       }
       const node = await renderPreview(value);
-      if (closed) {
+      if (closed || !dialog.open) {
         await cleanup(value);
         return;
       }
@@ -852,8 +855,7 @@ export function openFormatConversionDialog({
     { once: true },
   );
   update();
-  dialog.showModal();
-  cancel.focus();
+  showOfficeDialog(dialog, cancel);
   return answer;
 }
 

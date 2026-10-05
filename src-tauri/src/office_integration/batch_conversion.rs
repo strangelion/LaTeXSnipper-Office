@@ -8,6 +8,10 @@
 //!   5. Execute via Native Office pipe
 
 use super::dto::*;
+use std::collections::HashMap;
+
+const PLAN_CACHE_BYTES: usize = 2 * 1024 * 1024;
+const PLAN_CACHE_ENTRIES: usize = 256;
 
 /// Build a batch conversion plan from Latex candidates.
 ///
@@ -17,8 +21,30 @@ use super::dto::*;
 pub fn build_conversion_plan(
     candidates: Vec<LatexCandidate>,
 ) -> Result<BatchConversionPlan, String> {
+    build_conversion_plan_using(candidates, convert_omml, PLAN_CACHE_BYTES)
+}
+
+fn convert_omml(latex: &str) -> Result<String, String> {
+    latexsnipper_conversion::omml::validate_omml_latex(latex).and_then(|()| {
+        latexsnipper_conversion::DocumentConverter::convert_latex_string(
+            latex,
+            latexsnipper_conversion::OutputFormat::OMML,
+        )
+        .map_err(|error| error.to_string())
+    })
+}
+
+fn build_conversion_plan_using(
+    candidates: Vec<LatexCandidate>,
+    mut convert: impl FnMut(&str) -> Result<String, String>,
+    cache_budget: usize,
+) -> Result<BatchConversionPlan, String> {
     let plan_id = generate_plan_id();
     let mut items = Vec::with_capacity(candidates.len());
+    // Exact input keys, scoped to this plan: no stale versions or user-data
+    // persistence. Locations, IDs and original source hashes are never reused.
+    let mut cache: HashMap<String, Result<String, String>> = HashMap::new();
+    let mut cache_bytes = 0usize;
 
     for candidate in candidates {
         // If already normalized, use it; otherwise use the source
@@ -33,14 +59,21 @@ pub fn build_conversion_plan(
         let source_hash = format!("{:x}", hasher.finalize());
 
         // Try OMML conversion
-        let omml_result =
-            latexsnipper_conversion::omml::validate_omml_latex(&latex).and_then(|()| {
-                latexsnipper_conversion::DocumentConverter::convert_latex_string(
-                    &latex,
-                    latexsnipper_conversion::OutputFormat::OMML,
-                )
-                .map_err(|error| error.to_string())
-            });
+        let omml_result = if let Some(previous) = cache.get(&latex) {
+            previous.clone()
+        } else {
+            let result = convert(&latex);
+            let result_bytes = match &result {
+                Ok(value) | Err(value) => value.len(),
+            };
+            let bytes = latex.len().saturating_add(result_bytes);
+            if cache.len() < PLAN_CACHE_ENTRIES && bytes <= cache_budget.saturating_sub(cache_bytes)
+            {
+                cache_bytes += bytes;
+                cache.insert(latex.clone(), result.clone());
+            }
+            result
+        };
 
         match omml_result {
             Ok(omml) => {
@@ -144,6 +177,112 @@ mod tests {
             source_hash: None,
             confidence: 1.0,
         }
+    }
+
+    #[test]
+    fn plan_cache_preserves_every_target_and_original_hash() {
+        let mut a = candidate("a", "$x$");
+        a.normalized_latex = Some("x".into());
+        let mut b = candidate("b", "\\(x\\)");
+        b.normalized_latex = Some("x".into());
+        let mut calls = 0;
+        let plan = build_conversion_plan_using(
+            vec![a, b],
+            |_| {
+                calls += 1;
+                Ok("<math/>".into())
+            },
+            PLAN_CACHE_BYTES,
+        )
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(plan.items[0].source_id, "a");
+        assert_eq!(plan.items[1].source_id, "b");
+        assert_ne!(plan.items[0].locator, plan.items[1].locator);
+        assert_ne!(plan.items[0].source_hash, plan.items[1].source_hash);
+        assert_eq!(plan.items[0].omml, plan.items[1].omml);
+    }
+
+    #[test]
+    fn exact_keys_failures_and_cache_budgets_keep_diagnostics() {
+        for (budget, expected_calls) in [(PLAN_CACHE_BYTES, 2), (0, 3), (1, 3)] {
+            let mut calls = 0;
+            let plan = build_conversion_plan_using(
+                vec![
+                    candidate("a", "x"),
+                    candidate("b", "x"),
+                    candidate("c", " x"),
+                ],
+                |latex| {
+                    calls += 1;
+                    Err(format!("invalid: {latex}"))
+                },
+                budget,
+            )
+            .unwrap();
+            assert_eq!(calls, expected_calls);
+            assert_eq!(plan.items.len(), 3);
+            assert!(plan
+                .items
+                .iter()
+                .all(|item| item.status == BatchItemStatus::Failed));
+            assert_eq!(plan.items[0].error, plan.items[1].error);
+            assert_ne!(plan.items[0].error, plan.items[2].error);
+        }
+        let mut calls = 0;
+        let candidates = (0..PLAN_CACHE_ENTRIES + 1)
+            .map(|i| candidate(&format!("id-{i}"), &i.to_string()))
+            .chain(std::iter::once(candidate(
+                "repeat-uncached",
+                &PLAN_CACHE_ENTRIES.to_string(),
+            )))
+            .collect();
+        build_conversion_plan_using(
+            candidates,
+            |_| {
+                calls += 1;
+                Ok("math".into())
+            },
+            PLAN_CACHE_BYTES,
+        )
+        .unwrap();
+        assert_eq!(calls, PLAN_CACHE_ENTRIES + 2);
+    }
+
+    #[test]
+    #[ignore = "Manual release-only conversion-stage benchmark, not Word throughput"]
+    fn measure_plan_cache_conversion_stage() {
+        let formulas = [r"\frac{1}{2}", r"x_1^2", r"\sqrt{x}", r"\int_0^1 x\,dx"];
+        let candidates: Vec<_> = (0..1000)
+            .map(|i| candidate(&format!("fixture-{i}"), formulas[i % formulas.len()]))
+            .collect();
+        let mut records = Vec::new();
+        for repeat in 0..5 {
+            for budget in [0, PLAN_CACHE_BYTES] {
+                let start = std::time::Instant::now();
+                let mut calls = 0;
+                let plan = build_conversion_plan_using(
+                    candidates.clone(),
+                    |latex| {
+                        calls += 1;
+                        convert_omml(latex)
+                    },
+                    budget,
+                )
+                .unwrap();
+                assert!(plan
+                    .items
+                    .iter()
+                    .all(|item| item.status == BatchItemStatus::Converted));
+                records.push(serde_json::json!({ "repeat": repeat, "cache": budget > 0,
+                    "milliseconds": start.elapsed().as_secs_f64() * 1000.0,
+                    "conversions": calls, "items": plan.items.len() }));
+            }
+        }
+        println!(
+            "PLAN_CACHE_MEASUREMENT={}",
+            serde_json::to_string(&records).unwrap()
+        );
     }
 
     #[test]

@@ -6750,7 +6750,30 @@ class UIController {
           documentContext: session.document_id,
         },
         {
-          confirm: confirmOfficeBatch,
+          confirm: async (plan) => {
+            const answer = confirmOfficeBatch(plan);
+            // Word scanning may activate the host after the original launch.
+            // Request foreground again only when the confirmation is ready.
+            if (hasDesktopRuntime()) {
+              try {
+                const { getCurrentWindow } =
+                  await import("@tauri-apps/api/window");
+                const win = getCurrentWindow();
+                await win.unminimize();
+                await win.show();
+                await win.setFocus();
+              } catch (error) {
+                Logger.warn(
+                  "Batch confirmation foreground request failed",
+                  error,
+                );
+                this.showStatus(
+                  "确认窗口已打开，请切换至 LaTeXSnipper 确认；文档尚未修改",
+                );
+              }
+            }
+            return answer;
+          },
           onProgress: (status) => this.showStatus(status),
         },
       );

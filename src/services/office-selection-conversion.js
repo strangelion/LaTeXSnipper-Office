@@ -1,3 +1,5 @@
+import { mountOfficeDialog, showOfficeDialog } from "./office-dialog.js";
+
 // Explicit single-selection conversion. Preparation never mutates Word.
 export async function prepareSelectionConversion(target, api) {
   if (target?.host !== "word" || !target.sessionId || !target.documentContext) {
@@ -70,8 +72,7 @@ export function confirmSelectionConversion(
   confirm.textContent = "确认替换这一条";
   confirm.disabled = true;
   actions.append(cancel, confirm);
-  dialog.append(title, note, source, preview, status, actions);
-  root.body.append(dialog);
+  mountOfficeDialog(dialog, title, [note, source, preview, status], actions);
   const answer = new Promise((resolve) => {
     dialog.addEventListener(
       "close",
@@ -85,8 +86,7 @@ export function confirmSelectionConversion(
     cancel.addEventListener("click", () => dialog.close("cancelled"));
     confirm.addEventListener("click", () => dialog.close("confirmed"));
   });
-  dialog.showModal();
-  cancel.focus();
+  showOfficeDialog(dialog, cancel);
   Promise.resolve()
     .then(() => renderPreview(plan.items[0].normalizedLatex))
     .then((node) => {
