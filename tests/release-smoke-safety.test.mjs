@@ -15,6 +15,29 @@ test("release WebView smoke restores the original custom-symbol library on exit"
   assert.match(cleanup, /latexsnipper:custom-symbol-library-changed/);
 });
 
+test("installed Word pipe smoke binds installed payload hashes and isolates the development add-in", () => {
+  const host = fs.readFileSync("scripts/run-word-pipe-batch-smoke.ps1", "utf8");
+  assert.match(host, /LaTeXSnipper\.NativeOffice\.Shared\.dll/);
+  assert.match(host, /Installed-addin acceptance requires ExpectedStagingRoot/);
+  assert.match(host, /Installed payload provenance differs/);
+  assert.match(host, /Installed payload hash mismatch/);
+  assert.match(host, /\$word\.COMAddIns\.Item\(\$AddinProgId\)/);
+  assert.match(
+    host,
+    /development add-in loaded during installed-addin acceptance/,
+  );
+  const cleanup = host.slice(host.lastIndexOf("finally {"));
+  assert.match(cleanup, /-Name LoadBehavior -Value \$developmentLoadBehavior/);
+});
+
+test("OLE package export inspection resolves dumpbin before inspecting extracted DLLs", () => {
+  const script = fs.readFileSync("scripts/verify-package-contents.ps1", "utf8");
+  const resolved = script.indexOf("$dumpbin = Resolve-Dumpbin");
+  assert.ok(resolved >= 0);
+  assert.ok(resolved < script.indexOf("$exports = & $dumpbin"));
+  assert.match(script, /dumpbin is required to verify packaged OLE exports/);
+});
+
 test("real Word pipe smoke requires an exact dedicated document before mutation", () => {
   const driver = fs.readFileSync(
     "scripts/verify-native-batch-webview.mjs",
@@ -35,4 +58,9 @@ test("real Word pipe smoke requires an exact dedicated document before mutation"
     /\$word\.Documents\.Open\(\$documentPath, \$false, \$true\)/,
   );
   assert.match(host, /Equation count changed after save\/reopen/);
+  assert.match(driver, /NATIVE_BATCH_TEST_UI === "1"/);
+  assert.match(driver, /#officeWorkspaceBatch/);
+  assert.match(driver, /dialog\.office-batch-dialog/);
+  assert.match(driver, /确认转换 4 条/);
+  assert.match(driver, /exactly one host session/);
 });

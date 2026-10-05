@@ -1,5 +1,52 @@
 # Real-host acceptance
 
+## 2026-10-05 新版安装载荷验证与旧 MSI 卸载阻塞
+
+由 Office `de2f09d` / Core `225cf61` 重建 NativeOffice MSI、离线和在线安装器，
+复用本机已有且已信任的开发证书，没有生成证书或写入新 Root 信任。
+这些是本地开发签名包，不是已发布的生产签名发行包。
+
+MSI 管理解包后的 provenance 与 94 个载荷哈希检查通过；两种 OLE DLL 的 PE machine、
+文件版本 1.7.2.0、COM 导出和依赖检查通过。旧式包检查此前从未初始化 `dumpbin`，
+会在导出检查时报 null command；现在显式发现工具并实际重跑通过。
+首个解包命令因混合路径分隔符产生 MSI 1619/1324，改用 Windows 规范路径后通过，
+不把命令错误归因于包内 DLL 缺失。
+
+| 本地证据 | SHA-256 |
+| --- | --- |
+| 新 NativeOffice MSI | `98CF2BA85E4EA6102CB68408C03D4F846C8B5B6B444BAD6D6A246C52F142C8CB` |
+| 新包 x64 OLE DLL | `05C21B0610B6734B1559587DD64FC76B8916CE90E1FAD78658C33D317646B681` |
+| 新包 x86 OLE DLL | `CBD8EE8B5677081F7246A3908358D00FDA8FBD0825A61991A82A08E98EB357F7` |
+
+同轮 release 构建耗时 8 分 23 秒，独立 WebView2 profile 实测通过：WASM 编译成功，
+动态代码仍被 CSP 阻止；Graphviz 中文、TikZ、PGFPlots、自定义符号混合公式及库缩略图
+可见，控制台与请求错误均为空。TikZ 两个、PGFPlots 二十个字形为路径，零 text 节点；
+浅蓝主题背景 `#eef6ff`、前景 `#10213a`。这些仍不是安装后的真实 Word 字号/边界证明。
+可执行文件 SHA-256 为
+`0B941C5EA4F056F1DE9A0845A54A7A6B35A42C9E639EFED9686D82F654397A50`，
+`webview-result.json` SHA-256 为
+`BBD800E5173F0A725C28201E7222056623253D0DDAE46954F41ADF62CD023CAF`。
+自动终止测试程序/清理的组合命令被执行策略拒绝，未执行；程序和隔离 profile 保留，
+不据此声称清理完成。新开发包保留在忽略的证据目录，恢复本轮生成的 tracked 资源，
+不将待升级验收的本地签名包或机器路径作为新的默认发行资源提交。
+
+旧版本与新包具有相同 ProductVersion、不同 ProductCode，不能直接安装第二份后
+声称完成原位升级。本轮先备份旧安装的完整缓存 MSI，校验内嵌 OLE 载荷后发起卸载。
+旧包仍包含 Root 证书动作，日志停在第二个 `Wix4DeleteUserCertificate_X64`，
+新版安装尚未开始。卸载事务未确认结束，旧注册/安装状态也未确认回滚；
+应由用户取消可能的证书安全提示，随后确认 MSI 回滚或用已验证回退包恢复。
+不强杀系统安装服务，不叠加另一个安装事务，保留回退包和全部日志。
+
+`run-word-pipe-batch-smoke.ps1` 已支持明确的安装版 ProgID、准确的 per-user 安装路径、
+完整 provenance/hash 验证，以及可选开发加载项隔离（finally 恢复）。默认仍保留
+开发版兼容模式，证据明确区分二者。修复 Shared DLL 文件名，并释放加载项 COM 引用。
+`-VerifyUi` 模式按唯一文档会话点击桌面批量入口、查看确认、执行，再由真实 Word
+保存重开核对四个 OMath 和邻接正文；它不是 Word Ribbon 点击验收，也不是 10000 条矩阵。
+本轮尚未运行该新版真实宿主流程。422 项前端测试及静态检查通过不能替代它。
+
+本地包与日志保留在忽略的 `src-tauri/target/native-package-*/`，不提交用户文档或机器路径。
+O-02/O-06 和完整安装升级验收保持开放。
+
 ## 2026-10-04 TeX 字形、明确颜色与 Word 绘图增量
 
 Office `02f04b8` 的新 release 可执行文件在隔离 WebView2 profile 实测通过：

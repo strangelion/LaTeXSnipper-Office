@@ -2,6 +2,27 @@
 
 更新：2026-10-05。此文记录待实现工作，不代表已完成性能优化。
 
+## 2026-10-05：新版载荷与安装版管道前置门禁
+
+- [x] 由 `de2f09d` 重建 NativeOffice MSI、离线和在线安装器；复用已信任的开发签名，
+  没有新建证书或新增 Root 信任。MSI 解包后的 94 个文件通过 provenance/hash 校验；
+  x86/x64 OLE DLL 的 PE、版本、导出及依赖检查通过。
+- [x] 修复旧式包校验分支未初始化 `dumpbin`、真实 Word 管道脚本使用旧 Shared DLL
+  文件名的问题。安装版模式要求准确安装路径及全部载荷哈希匹配，不接受开发版冒充。
+- [x] 管道验收增加可选 UI 模式，按唯一文档会话选择宿主，点击批量按钮并确认后执行；
+  重开仍要求四条实际 OMath 和邻接正文。重复开发加载项只能显式隔离，结束恢复其状态。
+  以上为脚本实现与契约测试，不代表本轮 UI/Word 实测已通过。
+- [ ] 当前已安装旧 MSI 的卸载仍卡在 `Wix4DeleteUserCertificate_X64`，新版安装尚未开始。
+  完整缓存 MSI 已备份且嵌入 OLE 载荷验证通过。必须先取消旧事务并确认回滚/恢复，
+  不允许强杀系统安装服务或在挂起事务上叠加安装；清理证据时保留该回退包。
+- [ ] 解除旧安装器阻塞后，再做新版安装版 `-AddinProgId LaTeXSnipper.NativeOffice.Word
+  -ExpectedStagingRoot <verified-staging> -IsolateDevelopmentAddin -VerifyUi` 的完整管道验收。
+
+本轮 422 项前端测试、lint、TypeScript、格式及 PowerShell 语法检查通过。
+同轮新版 release 的真实 WebView2 CSP/WASM、Graphviz/TikZ/PGFPlots、混合自定义符号
+与库缩略图通过，控制台/请求错误为空，浅蓝主题验证通过；这不替代安装版 Word 管道。
+O-06 和完整安装升级门禁仍开放，详见 `real-host-acceptance.md`。
+
 ## 2026-10-05：Office 入口直接启动与选区媒体增量
 
 - [x] 原生 Ribbon 的批量路由直接启动扫描，不再仅滚动到桌面按钮；锁定来源会话，

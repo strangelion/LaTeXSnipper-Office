@@ -332,6 +332,13 @@ function Assert-ResourcePayload([string]$PackageRoot) {
     }
 }
 
+if ($WindowsPackageRoots.Count -gt 0 -and $expected.Count -gt 0) {
+    $dumpbin = Resolve-Dumpbin
+    if (-not $dumpbin) {
+        throw 'dumpbin is required to verify packaged OLE exports and dependencies.'
+    }
+}
+
 foreach ($rootValue in $WindowsPackageRoots) {
     $root = (Resolve-Path -LiteralPath $rootValue).Path
     $forbidden = Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object {
