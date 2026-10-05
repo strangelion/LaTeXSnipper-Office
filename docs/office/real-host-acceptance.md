@@ -1,5 +1,32 @@
 # Real-host acceptance
 
+## 2026-10-05：新版安装完成，VSTO 信任门禁仍开放
+
+用户处理旧安装器提示后，旧卸载日志确认 Removal completed successfully，
+客户端和服务端均返回 0；旧产品注册及安装 provenance 已移除，没有继续挂起的
+安装事务。随后安装前述同哈希的新 MSI，安装日志返回 0。
+这属于备份后的卸载/重装，不宣称同版本 MajorUpgrade 已通过。
+
+安装目录实际 94 个载荷哈希、四宿主 manifest 引用、证书元数据和源码 provenance
+全部匹配 `de2f09d` / Core `225cf61`。安装后的 x64/x86 OLE DLL 哈希与下节证据表一致，
+x64 InprocServer32 指向本应用的安装 DLL，ThreadingModel 为 Apartment。
+这是实际安装证据，不只是在 MSI 中找到了 DLL；本轮未重新验证 COM 激活或完整管道。
+
+安装版 `-VerifyUi` 流程尝试失败于 Word VSTO 加载，尚未进入批量扫描/确认。
+Application 日志 VSTO 4.0 的 SecurityException 明确报告证书未知、加载项未获信任。
+旧卸载已移除该自签名证书的 CurrentUser Root 信任；My 和 TrustedPublisher 中仍存在。
+不得将 MSI 成功等同于 VSTO 可用，也不自动导入开发证书到根存储或扩大到 LocalMachine。
+下一步需用户明确批准恢复当前用户的该张已核验开发证书信任，或在交互式 VSTO 安装器
+确认该加载项，然后重跑真实宿主验收。开发加载项 LoadBehavior 已恢复为 3，
+本轮 Word 测试进程已退出，没有更改用户文档。
+
+本轮证据：忽略目录 `native-package-de2f09d/replace-install.log`、旧卸载日志及
+`installed-word-pipe-594f424fa15140a5b7e5152dfef4f18a/addin-preflight.json`。
+没有成功的 pipe-result/reopen-result，不补造通过报告。保留旧 MSI 回退包。
+Office `ac28cc5` CI `37250793260` 已成功；Core `d2a5a6e` 的 CI `37250799812`、
+WASM `37250799921`、CodeQL `37250799929` 已成功。后续提交不由这次结果背书。
+O-02/O-06、真实加载项 UI 与完整升级门禁保持开放。
+
 ## 2026-10-05 新版安装载荷验证与旧 MSI 卸载阻塞
 
 由 Office `de2f09d` / Core `225cf61` 重建 NativeOffice MSI、离线和在线安装器，
