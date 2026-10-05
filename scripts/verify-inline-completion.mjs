@@ -3,7 +3,19 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 
-const output = "output/playwright/inline-completion";
+const cdpUrl = process.env.WEBVIEW2_CDP_URL;
+if (cdpUrl) {
+  assert.equal(
+    process.env.TAURI_UI_ISOLATED_PROFILE,
+    "1",
+    "Use an isolated test profile",
+  );
+  assert.match(
+    process.env.EXPECTED_TAURI_SOURCE_COMMIT || "",
+    /^[a-f0-9]{40}$/,
+  );
+}
+const output = `output/playwright/inline-completion${cdpUrl ? "-webview" : ""}`;
 mkdirSync(output, { recursive: true });
 const executablePath = [
   process.env.PW_CHROMIUM,
@@ -15,17 +27,39 @@ const executablePath = [
 ]
   .filter(Boolean)
   .find(existsSync);
-if (!executablePath) throw new Error("No Chromium browser is available");
-const browser = await chromium.launch({ executablePath, headless: true });
+if (!executablePath && !cdpUrl)
+  throw new Error("No Chromium browser is available");
+const browser = cdpUrl
+  ? await chromium.connectOverCDP(cdpUrl)
+  : await chromium.launch({ executablePath, headless: true });
 try {
-  const page = await browser.newPage({
-    viewport: { width: 1280, height: 800 },
-  });
+  const page = cdpUrl
+    ? browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidate) =>
+          candidate.url().startsWith("http://tauri.localhost/"),
+        )
+    : await browser.newPage({
+        viewport: { width: 1280, height: 800 },
+      });
   const errors = [];
   page.on("pageerror", (error) => errors.push(String(error)));
-  await page.goto(process.env.APP_URL || "http://127.0.0.1:2100/", {
-    waitUntil: "networkidle",
-  });
+  assert.ok(page, "No application page found");
+  let backend;
+  if (cdpUrl) {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    backend = await page.evaluate(() =>
+      window.__TAURI_INTERNALS__.invoke("export_diagnostics"),
+    );
+    assert.equal(
+      backend.sourceCommitSha,
+      process.env.EXPECTED_TAURI_SOURCE_COMMIT,
+    );
+  } else
+    await page.goto(process.env.APP_URL || "http://127.0.0.1:2100/", {
+      waitUntil: "networkidle",
+    });
   const editor = page.locator("#formulaSourceEditor .cm-content");
   const ghost = page.locator("#formulaSourceEditor .formula-inline-suggestion");
   const options = page.locator(".cm-tooltip-autocomplete [role='option']");
@@ -189,6 +223,10 @@ try {
   assert.deepEqual(errors, []);
   const result = {
     pass: true,
+    runtime: cdpUrl
+      ? "Tauri release WebView2"
+      : "Chromium development frontend",
+    sourceCommitSha: backend?.sourceCommitSha,
     themes,
     tabAndUndo: true,
     escapedAndSelectedTextGuard: true,

@@ -1,5 +1,21 @@
 # Real-host acceptance
 
+## 2026-10-05：8f20f9f 动态补全进入 desktop-only release
+
+准确源码 `8f20f9f2a0ee7310b613d66feeb705560cbf3df2`，Core pin 不变；
+exe SHA-256 `16F73720DC7AF54CF0DC39905DE4D09EF343BEFB10A41C2A66F06F902FA5BF0A`。
+在专用隔离 profile 的真实 WebView2 中，诊断源码匹配，动态积分/环境/上下标
+联想、公共候选反馈、已保存符号增删、淡字 Tab/撤销/Esc/唤出和主题样式通过。
+菜单/选中项深浅对比度均 >4.5，页面异常为空。10 次宽屏/390px 转换导出语义
+预览、外部/Esc 取消、窗口恢复授权及三成功一失败的只读计划重跑通过。
+证据分别位于 `output/playwright/inline-completion-webview` 和 `tauri-conversion-ui`。
+同源 CSP/WASM、Graphviz/TikZ/PGFPlots、自定义符号混合公式及库缩略图再次通过，
+绘图边界和路径化字体回归通过，控制台/请求错误为空；原始输出保留于
+`src-tauri/target/validation-inline-8f20f9f-webview.log`。
+
+这是桌面 exe 验证，不是完整同源 MSI/NativeOffice 包、真实 Word OS handoff、
+安装版 pipe/reopen 或补全学习质量验收；未扩大证书信任，相关门禁继续开放。
+
 ## 2026-10-05：500cf5a desktop-only release 验证更新
 
 准确源码 `500cf5aac2c57ae463324f5632e3453b56dddc5d`，Core pin `225cf61`。

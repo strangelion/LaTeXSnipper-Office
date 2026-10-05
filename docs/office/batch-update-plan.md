@@ -23,9 +23,13 @@
       WebView2 恢复/显示/聚焦命令获准，10 次宽屏/390px 导出语义预览和外部/Esc
       取消通过；只读后端四条计划为三条成功/一条失败，独立位置/哈希保留。
       同源 WebView2 CSP/WASM、三种绘图、混合符号与库缩略图通过，控制台/请求错误为空。
-- [ ] 上述 `500cf5a` 程序尚不含本节新增淡字/动态补全；新补全仅源码/浏览器验收。
-      本节不证明 Word 扫描后真实 OS 前台切换、不重建 NativeOffice 安装载荷、不关闭
-      VSTO 信任或安装版 pipe/reopen 门禁。新补全进入 release 后另记准确源码/hash。
+- [x] 后续 `8f20f9f` desktop-only exe 已重建（8m 33s），SHA-256 为
+      `16F73720DC7AF54CF0DC39905DE4D09EF343BEFB10A41C2A66F06F902FA5BF0A`。
+      实际 WebView2 的诊断源码标识匹配；新补全、主题菜单、符号增删和公共反馈通过，
+      10 次转换导出语义预览、取消及只读计划也重跑通过。CSP/WASM、三种绘图、
+      混合符号及公式库缩略图同源重跑通过，控制台/请求错误为空。
+- [ ] 本节不证明 Word 扫描后真实 OS 前台切换、不重建 NativeOffice 安装载荷、不关闭
+      VSTO 信任或安装版 pipe/reopen 门禁；安装包尚未纳入新增补全。
 
 证据与复现：`node scripts/verify-inline-completion.mjs`（本地应用服务）、
 `node scripts/verify-tauri-conversion-ui.mjs`（隔离 release profile，准确 source commit
@@ -33,6 +37,12 @@
 `tauri-conversion-ui`。实查 Office `500cf5a` CI `37269910922`、Core `1519a0d`
 CI `37268920389` / WASM `37268919959` / CodeQL `37268919969` 均成功，
 不作为本节尚未提交的新补全远端通过声明。
+
+真实 release 补全可复现：在专用隔离 profile 开启 WebView2 CDP 后，设置
+`TAURI_UI_ISOLATED_PROFILE=1`、`EXPECTED_TAURI_SOURCE_COMMIT=<built-source-sha>`、
+`WEBVIEW2_CDP_URL=<local-cdp-endpoint>`，执行同一 `verify-inline-completion.mjs`；
+证据保存于 `output/playwright/inline-completion-webview`。该脚本会修改测试 profile
+的补全偏好和符号 fixture，不得对用户实际 profile 使用。
 
 ## 2026-10-05：转换弹窗、计划缓存与本地补全排序增量
 
