@@ -542,7 +542,14 @@ class FormulaEditor {
     try {
       const { createFormulaSourceEditor } =
         await import("./features/formula-source/editor.js");
-      this.sourceEditor = createFormulaSourceEditor({ textarea, host });
+      this.sourceEditor = createFormulaSourceEditor({
+        textarea,
+        host,
+        getSymbols: () =>
+          listCustomSymbolPreviews()
+            .filter((symbol) => symbol.usable)
+            .map((symbol) => ({ label: symbol.command, name: symbol.name })),
+      });
       Logger.info("LaTeX source highlighting initialized");
     } catch (error) {
       Logger.warn(

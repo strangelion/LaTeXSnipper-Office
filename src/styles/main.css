@@ -1595,6 +1595,63 @@ a:hover {
   cursor: pointer;
 }
 
+/* Completion tooltips may be mounted outside the source editor container. */
+.cm-tooltip.cm-tooltip-autocomplete {
+  background: var(--card-bg);
+  color: var(--fg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--fg) 15%, transparent);
+  overflow: hidden;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: min(280px, 40vh);
+  scrollbar-color: var(--muted) var(--card-bg);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete > ul > li[role="option"] {
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--fg);
+}
+
+.cm-tooltip.cm-tooltip-autocomplete
+  > ul
+  > li[role="option"][aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 22%, var(--card-bg));
+  color: var(--fg);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: -1px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.85em;
+  margin-left: 14px;
+}
+
+.cm-tooltip.cm-tooltip-autocomplete .cm-completionIcon {
+  color: var(--accent);
+}
+
+.formula-inline-suggestion {
+  color: var(--fg);
+  opacity: 0.48;
+  pointer-events: none;
+  user-select: none;
+}
+
+.formula-inline-key {
+  margin-left: 8px;
+  padding: 1px 4px;
+  border: 1px solid var(--muted);
+  border-radius: 4px;
+  font: 0.65em var(--font-stack);
+}
+
 .formula-source-code-editor:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);

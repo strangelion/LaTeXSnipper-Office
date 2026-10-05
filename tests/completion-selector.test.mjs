@@ -96,3 +96,22 @@ test("feedback is bounded and older undo cannot erase a newer acceptance", () =>
   assert.equal(JSON.parse(storage.getItem()).entries.c0.count, 100);
   assert.ok(selector.rank()[0].boost <= 8);
 });
+
+test("expanded public catalog remains bounded and supports feedback past legacy indices", () => {
+  const publicLabels = Array.from(
+    { length: 130 },
+    (_, index) => `public-${index}`,
+  );
+  const storage = store();
+  const selector = createCompletionSelector(publicLabels, storage);
+  assert.equal(selector.rank().length, 128);
+  selector.setEnabled(true);
+  selector.accept(publicLabels[127]);
+  assert.equal(selector.accept(publicLabels[128]), null);
+  assert.deepEqual(Object.keys(JSON.parse(storage.getItem()).entries), [
+    "c127",
+  ]);
+  assert.ok(
+    createCompletionSelector(publicLabels, storage).rank()[127].boost > 0,
+  );
+});

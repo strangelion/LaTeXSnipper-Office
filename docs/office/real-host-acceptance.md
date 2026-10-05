@@ -1,5 +1,23 @@
 # Real-host acceptance
 
+## 2026-10-05：500cf5a desktop-only release 验证更新
+
+准确源码 `500cf5aac2c57ae463324f5632e3453b56dddc5d`，Core pin `225cf61`。
+exe SHA-256 为 `EA11BBC4819CE3455DA247F9DA598644632726B887CE44C78DF41D9D391FC2E2`。
+以现有 staged resources 重建桌面 exe，没有重建 NativeOffice/安装器；不得当成
+同源完整 release package。真实 WebView2 CSP/WASM、Graphviz/TikZ/PGFPlots、
+自定义符号混合公式、库缩略图和浅蓝/深色主题通过，控制台及请求错误为空。
+
+新脚本 `scripts/verify-tauri-conversion-ui.mjs` 在专用隔离 profile 中验证
+unminimize/show/set_focus 权限及 1280×800/390×640 共 10 次格式导出语义预览：
+居中、底部按钮可见，外部点击/Esc 取消；只读计划三成功一失败且位置/哈希独立。
+没有扫描/执行真实 Office 转换，不据此声明 Word 抢焦点后的 OS 前台行为通过。
+早先混合 selector/reload harness 没有完成，已拆分为独立浏览器补全生命周期与此
+release 转换 UI 门禁；本段不声明 release selector 重载验证通过。
+
+新动态补全和主题菜单另见 `batch-update-plan.md`，目前仅源码/Chromium 验证。
+安装版 VSTO 信任、Word pipe/reopen 和完整同源安装包门禁继续开放；不修改证书信任。
+
 ## 2026-10-05：转换窗口和本地选择器源码验证（非宿主验收）
 
 新源码修复转换/批量/选区弹窗居中与固定操作区，切换只保留一个确认窗口；

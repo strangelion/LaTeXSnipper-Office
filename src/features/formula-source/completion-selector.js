@@ -3,7 +3,7 @@ const STORAGE_KEY = "latexsnipper.formula-completion-preferences.v1";
 const MAX_SEQUENCE = 100000000;
 
 export function createCompletionSelector(labels, storage) {
-  const catalog = labels.slice(0, 64);
+  const catalog = labels.slice(0, 128);
   const catalogId = catalog.join("\n");
   const freshState = () => ({
     version: 1,
