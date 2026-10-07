@@ -35,6 +35,12 @@ namespace LaTeXSnipper.Word.HostTests
         public JsonElement? EditorState { get; set; }
         public float RequestedWidthPt { get; set; }
         public float RequestedHeightPt { get; set; }
+        public string Source { get; set; }
+        public string[] RequiredTags { get; set; }
+        public string[][] AlternativeTags { get; set; }
+        public string[] Probes { get; set; }
+        public bool Preserve { get; set; }
+        public bool Unscanned { get; set; }
     }
 
     internal sealed class EvidenceRecord
@@ -141,8 +147,10 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--style", StringComparison.OrdinalIgnoreCase);
             bool fieldRefreshMode = args.Length == 3 &&
                 string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
+            bool baselineBatchMode = (args.Length == 3 || args.Length == 4) &&
+                string.Equals(args[2], "--batch-baseline", StringComparison.OrdinalIgnoreCase);
             bool batchMode = (args.Length == 3 || args.Length == 4) &&
-                string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase);
+                (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode);
             int batchCount = 250;
             if (batchMode && args.Length == 4 &&
                 (!int.TryParse(args[3], out batchCount) || batchCount < 25 || batchCount > 10000))
@@ -152,6 +160,10 @@ namespace LaTeXSnipper.Word.HostTests
             }
             bool batchStoriesMode = args.Length == 3 &&
                 string.Equals(args[2], "--batch-stories", StringComparison.OrdinalIgnoreCase);
+            bool scratchReuseMode = args.Length == 3 &&
+                string.Equals(args[2], "--batch-scratch", StringComparison.OrdinalIgnoreCase);
+            bool standardMode = args.Length == 4 &&
+                string.Equals(args[2], "--standard", StringComparison.OrdinalIgnoreCase) && File.Exists(args[3]);
             bool selectionLatexMode = args.Length == 3 &&
                 string.Equals(args[2], "--selection-latex", StringComparison.OrdinalIgnoreCase);
             bool documentTargetsMode = args.Length == 3 &&
@@ -163,14 +175,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -226,6 +238,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (standardMode)
+                    return StandardBatchAcceptance.Run(application, ref document, activeCases, args[3], evidenceDirectory);
                 if (selectionMediaMode)
                     return SelectionMediaAcceptance.Run(application, ref document, adapter, activeCases.First(),
                         JsonSerializer.Deserialize<RenderData>(File.ReadAllText(args[3]), JsonOptions), evidenceDirectory, oleServerProcessId);
@@ -238,8 +252,11 @@ namespace LaTeXSnipper.Word.HostTests
                     return SelectionLatexAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (batchStoriesMode)
                     return BatchStoriesAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
+                if (scratchReuseMode)
+                    return BatchAcceptance.RunScratchSafety(application, ref document, activeCases, evidenceDirectory);
                 if (batchMode)
-                    return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory, batchCount);
+                    return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory, batchCount,
+                        reuseInlineScratch: !baselineBatchMode);
                 if (fieldRefreshMode)
                 {
                     FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(

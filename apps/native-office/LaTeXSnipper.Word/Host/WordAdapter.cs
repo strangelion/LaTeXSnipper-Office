@@ -20,15 +20,98 @@ namespace LaTeXSnipper.Word.Host
         private readonly Microsoft.Office.Interop.Word.Application _application;
         private readonly int? _oleServerProcessId;
         private readonly BatchStageTimings? _batchTimings;
+        private readonly InlineScratchSession? _inlineScratchSession;
 
         public WordAdapter(
             Microsoft.Office.Interop.Word.Application application,
             int? oleServerProcessId = null,
-            BatchStageTimings? batchTimings = null)
+            BatchStageTimings? batchTimings = null,
+            InlineScratchSession? inlineScratchSession = null)
         {
             _application = application;
             _oleServerProcessId = oleServerProcessId;
             _batchTimings = batchTimings;
+            _inlineScratchSession = inlineScratchSession;
+        }
+
+        // One exact OMML template per batch, never a cross-document/global cache.
+        internal sealed class InlineScratchSession : IDisposable
+        {
+            private Microsoft.Office.Interop.Word.Document? _document;
+            private string? _mathOnly;
+            private Microsoft.Office.Interop.Word.Range? _math;
+            private Microsoft.Office.Interop.Word.ContentControl? _control;
+            private Microsoft.Office.Interop.Word.Range? _paragraph;
+
+            public Microsoft.Office.Interop.Word.Range? TryGet(
+                Microsoft.Office.Interop.Word.Document document, string mathOnly)
+            {
+                if (!ReferenceEquals(_document, document) ||
+                    !string.Equals(_mathOnly, mathOnly, StringComparison.Ordinal))
+                    return null;
+                return _math?.Duplicate;
+            }
+
+            public void Retain(Microsoft.Office.Interop.Word.Document document,
+                string mathOnly, Microsoft.Office.Interop.Word.Range math,
+                Microsoft.Office.Interop.Word.ContentControl control,
+                Microsoft.Office.Interop.Word.Range paragraph)
+            {
+                // Duplicate before taking ownership, so a failed COM call leaves
+                // the caller responsible for all temporary objects.
+                _math = math.Duplicate;
+                _document = document;
+                _mathOnly = mathOnly;
+                _control = control;
+                _paragraph = paragraph;
+            }
+
+            public void Dispose()
+            {
+                var control = _control;
+                var paragraph = _paragraph;
+                var math = _math;
+                _document = null;
+                _mathOnly = null;
+                _control = null;
+                _paragraph = null;
+                _math = null;
+                try
+                {
+                    try
+                    {
+                        if (control != null)
+                        {
+                            control.LockContents = false;
+                            control.LockContentControl = false;
+                            control.Delete(true);
+                        }
+                    }
+                    finally
+                    {
+                        if (paragraph != null)
+                        {
+                            Microsoft.Office.Interop.Word.Range? cleanupRange = null;
+                            try
+                            {
+                                cleanupRange = paragraph.Paragraphs[1].Range;
+                                // Live Word ranges can move after document edits.
+                                // Never delete a paragraph that now contains user content.
+                                if (!string.IsNullOrWhiteSpace(cleanupRange.Text.Trim('\r', '\a')))
+                                    throw new InvalidOperationException("BATCH_SCRATCH_CLEANUP_NOT_EMPTY");
+                                cleanupRange.Delete();
+                            }
+                            finally { ReleaseLocalComObject(cleanupRange); }
+                        }
+                    }
+                }
+                finally
+                {
+                    ReleaseLocalComObject(math);
+                    ReleaseLocalComObject(control);
+                    ReleaseLocalComObject(paragraph);
+                }
+            }
         }
 
         private T MeasureBatchStage<T>(string stage, Func<T> operation) =>
@@ -1353,32 +1436,53 @@ namespace LaTeXSnipper.Word.Host
             Microsoft.Office.Interop.Word.Range? insertedMath = null;
             try
             {
-                scratch = document.Range(
-                    document.Content.End - 1,
-                    document.Content.End - 1);
-                scratch.InsertParagraphAfter();
-                ReleaseLocalComObject(scratch);
-                scratch = null;
-                scratch = document.Range(
-                    document.Content.End - 1,
-                    document.Content.End - 1);
-                scratchParagraph = scratch.Paragraphs[1].Range.Duplicate;
-                MeasureBatchStage("scratch-insert-xml", () =>
+                sourceMath = _inlineScratchSession?.TryGet(document, mathOnly);
+                if (sourceMath == null)
                 {
-                    scratch.InsertXML(BuildFlatOpc(BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
-                    return true;
-                });
-                scratchCandidate = MeasureBatchStage("scratch-find-control", () =>
-                    FindFormulaContentControl(document, scratchId));
-                if (scratchCandidate == null || scratchCandidate.Range.OMaths.Count != 1)
-                    throw new InvalidOperationException(
-                        "Word scratch conversion did not create exactly one OMath.");
+                    _inlineScratchSession?.Dispose();
+                    scratch = document.Range(
+                        document.Content.End - 1,
+                        document.Content.End - 1);
+                    scratch.InsertParagraphAfter();
+                    ReleaseLocalComObject(scratch);
+                    scratch = null;
+                    scratch = document.Range(
+                        document.Content.End - 1,
+                        document.Content.End - 1);
+                    scratchParagraph = scratch.Paragraphs[1].Range.Duplicate;
+                    MeasureBatchStage("scratch-insert-xml", () =>
+                    {
+                        scratch.InsertXML(BuildFlatOpc(BuildFormulaBody(mathOnly, scratchId, InsertMode.Inline)));
+                        return true;
+                    });
+                    scratchCandidate = MeasureBatchStage("scratch-find-control", () =>
+                        _inlineScratchSession == null
+                            ? FindFormulaContentControl(document, scratchId)
+                            : FindScratchContentControl(document, scratchId));
+                    if (scratchCandidate == null || scratchCandidate.Range.OMaths.Count != 1)
+                        throw new InvalidOperationException(
+                            "Word scratch conversion did not create exactly one OMath.");
 
-                sourceMath = scratchCandidate.Range.OMaths[1].Range.Duplicate;
-                int sourceLength = sourceMath.End - sourceMath.Start;
-                if (sourceLength <= 0)
-                    throw new InvalidOperationException(
-                        "Word scratch conversion returned an empty OMath range.");
+                    sourceMath = scratchCandidate.Range.OMaths[1].Range.Duplicate;
+                    int sourceLength = sourceMath.End - sourceMath.Start;
+                    if (sourceLength <= 0)
+                        throw new InvalidOperationException(
+                            "Word scratch conversion returned an empty OMath range.");
+
+                    if (_inlineScratchSession != null)
+                    {
+                        var templateValidation = ValidateNativeCandidate(scratchCandidate, mathOnly);
+                        if (!templateValidation.IsValid)
+                            throw new InvalidOperationException("BATCH_SCRATCH_TEMPLATE_INVALID");
+                        _inlineScratchSession.Retain(document, mathOnly, sourceMath, scratchCandidate, scratchParagraph);
+                        scratchCandidate = null;
+                        scratchParagraph = null;
+                    }
+                }
+                else
+                {
+                    MeasureBatchStage("scratch-template-reuse", () => true);
+                }
 
                 // Numeric offsets are local to a Word story. Recreating this
                 // range through Document.Range would insert header/text-box
@@ -1430,6 +1534,7 @@ namespace LaTeXSnipper.Word.Host
                 // story. Remove only the copied candidate; the batch source
                 // has not yet been deleted.
                 if (insertedRange != null) insertedRange.Delete();
+                _inlineScratchSession?.Dispose();
                 throw;
             }
             finally
@@ -1564,6 +1669,14 @@ namespace LaTeXSnipper.Word.Host
                     OfficeOperationLog.Failure("hide-existing-formula-control", "word", null, ex);
                 }
             }
+        }
+
+        private static Microsoft.Office.Interop.Word.ContentControl? FindScratchContentControl(
+            Microsoft.Office.Interop.Word.Document document, string scratchId)
+        {
+            var controls = document.SelectContentControlsByTag("latexsnipper:formula:" + scratchId);
+            try { return controls.Count == 1 ? controls[1] : null; }
+            finally { ReleaseLocalComObject(controls); }
         }
 
         private static InsertResult? ApplyNativeFormulaPresentationOrRollback(

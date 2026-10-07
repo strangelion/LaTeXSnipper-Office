@@ -25,11 +25,14 @@ internal sealed class WordBatchConversionExecutor
     private BatchStageTimings _timings = new();
     private FormulaPayload? _selectionMedia;
     private string? _selectionFormat;
+    private readonly bool _reuseInlineScratch;
+    private WordAdapter.InlineScratchSession? _scratchSession;
 
     public Dictionary<string, BatchStageMeasurement> StageTimings => _timings.Snapshot();
 
-    public WordBatchConversionExecutor(Application application, int? oleServerProcessId = null)
-    { _application = application; _oleServerProcessId = oleServerProcessId; }
+    public WordBatchConversionExecutor(Application application, int? oleServerProcessId = null,
+        bool reuseInlineScratch = true)
+    { _application = application; _oleServerProcessId = oleServerProcessId; _reuseInlineScratch = reuseInlineScratch; }
 
     public VstoBatchConvertResult ExecuteSelectionMedia(string planId, BatchConversionItem item,
         FormulaPayload formula, string format)
@@ -81,27 +84,51 @@ internal sealed class WordBatchConversionExecutor
             .OrderByDescending(i => GetLocatorStart(i))
             .ToList();
 
-        foreach (var item in ordered)
+        // Retaining unique templates adds COM work without a possible cache hit.
+        // Only repeated exact payloads share the one-template batch session.
+        var repeatedTemplates = new HashSet<string>(ordered
+            .Where(item => item.Status == "converted" && !string.IsNullOrEmpty(item.Omml))
+            .GroupBy(item => item.Omml!, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1).Select(group => group.Key), StringComparer.Ordinal);
+        var scratchSession = _reuseInlineScratch && _selectionMedia == null && repeatedTemplates.Count > 0
+            ? new WordAdapter.InlineScratchSession() : null;
+        bool screenUpdating = _application.ScreenUpdating;
+        try
         {
-            if (item.Status != "converted" || string.IsNullOrEmpty(item.Omml))
+            _application.ScreenUpdating = false;
+            foreach (var item in ordered)
             {
-                skipped++;
-                failures.Add(Failure(item, item.Error ?? "No OMML content"));
-                continue;
-            }
+                _scratchSession = item.Omml != null && repeatedTemplates.Contains(item.Omml)
+                    ? scratchSession : null;
+                if (item.Status != "converted" || string.IsNullOrEmpty(item.Omml))
+                {
+                    skipped++;
+                    failures.Add(Failure(item, item.Error ?? "No OMML content"));
+                    continue;
+                }
 
+                try
+                {
+                    string reason = "Locator resolution failed";
+                    bool ok = _timings.Measure("candidate-total", () => TryReplaceWithLocator(doc, item, out reason));
+                    if (ok) converted++;
+                    else { skipped++; failures.Add(Failure(item, reason)); }
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    failures.Add(Failure(item, ex.Message));
+                }
+            }
+        }
+        finally
+        {
+            _scratchSession = null;
             try
             {
-                string reason = "Locator resolution failed";
-                bool ok = _timings.Measure("candidate-total", () => TryReplaceWithLocator(doc, item, out reason));
-                if (ok) converted++;
-                else { skipped++; failures.Add(Failure(item, reason)); }
+                _timings.Measure("scratch-session-cleanup", () => { scratchSession?.Dispose(); return true; });
             }
-            catch (Exception ex)
-            {
-                failed++;
-                failures.Add(Failure(item, ex.Message));
-            }
+            finally { _application.ScreenUpdating = screenUpdating; }
         }
 
         return BuildResult(planId, total, converted, skipped, failed, failures);
@@ -270,7 +297,8 @@ internal sealed class WordBatchConversionExecutor
         int start = source.Start;
         int end = source.End;
         string formulaId = _selectionMedia?.FormulaId ?? FormulaIdHelper.NewId();
-        var adapter = new WordAdapter(_application, _oleServerProcessId, batchTimings: _timings);
+        var adapter = new WordAdapter(_application, _oleServerProcessId, batchTimings: _timings,
+            inlineScratchSession: _scratchSession);
         if (_selectionMedia != null && adapter.ReadFormulaById(formulaId) != null)
         {
             reason = "FORMULA_ID_ALREADY_EXISTS";

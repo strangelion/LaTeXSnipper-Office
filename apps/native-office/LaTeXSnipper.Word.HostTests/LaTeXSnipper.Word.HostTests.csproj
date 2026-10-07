@@ -45,6 +45,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="BatchAcceptance.cs" />
+    <Compile Include="StandardBatchAcceptance.cs" />
     <Compile Include="BatchStoriesAcceptance.cs" />
     <Compile Include="SelectionLatexAcceptance.cs" />
     <Compile Include="FormatConversionAcceptance.cs" />
