@@ -14,6 +14,24 @@ namespace LaTeXSnipper.NativeOffice.Shared;
 public static class OleFormulaInterop
 {
     /// <summary>
+    /// Read host class metadata and the associated storage root before Object.
+    /// This is an allowlist, not binary authentication of COM registration.
+    /// </summary>
+    public static object? AcquireOwnedAutomation(Func<string?> readProgId, Func<Guid?> readStorageClass, Func<object?> acquire)
+    {
+        if (readProgId == null) throw new ArgumentNullException(nameof(readProgId));
+        if (acquire == null) throw new ArgumentNullException(nameof(acquire));
+        if (readStorageClass == null) throw new ArgumentNullException(nameof(readStorageClass));
+        string? progId = readProgId();
+        if (!string.IsNullOrEmpty(progId) && !string.Equals(progId, "Unknown", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(progId, "LaTeXSnipper.Formula.1", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(progId, "LaTeXSnipper.Formula", StringComparison.OrdinalIgnoreCase))
+            return null;
+        if (readStorageClass() != OleStorageIdentity.FormulaClassId) return null;
+        return acquire();
+    }
+
+    /// <summary>
     /// Create compact host-shape metadata for selection readback when a host
     /// cannot expose the native OLE automation object through its interop API.
     /// Binary render and EMF fields remain in the embedded object or picture;

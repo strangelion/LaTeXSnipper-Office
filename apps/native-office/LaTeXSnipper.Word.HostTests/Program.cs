@@ -166,6 +166,8 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--batch-scratch", StringComparison.OrdinalIgnoreCase);
             bool standardMode = args.Length == 4 &&
                 string.Equals(args[2], "--standard", StringComparison.OrdinalIgnoreCase) && File.Exists(args[3]);
+            bool ownedOleReadMode = args.Length == 4 &&
+                string.Equals(args[2], "--owned-ole-read", StringComparison.OrdinalIgnoreCase) && File.Exists(args[3]);
             bool selectionLatexMode = args.Length == 3 &&
                 string.Equals(args[2], "--selection-latex", StringComparison.OrdinalIgnoreCase);
             bool documentTargetsMode = args.Length == 3 &&
@@ -177,14 +179,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -230,7 +232,7 @@ namespace LaTeXSnipper.Word.HostTests
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
                 document = application.Documents.Add();
-                int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode
+                int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode || ownedOleReadMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
                 if (oleServerProcessId.HasValue)
@@ -240,6 +242,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (ownedOleReadMode)
+                    return OleReadBoundaryAcceptance.Run(application, ref document, adapter, args[3], evidenceDirectory);
                 if (standardMode)
                     return StandardBatchAcceptance.Run(application, ref document, activeCases, args[3], evidenceDirectory);
                 if (selectionMediaMode)

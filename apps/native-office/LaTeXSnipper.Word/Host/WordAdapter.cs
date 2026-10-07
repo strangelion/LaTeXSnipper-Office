@@ -140,7 +140,7 @@ namespace LaTeXSnipper.Word.Host
                         {
                             try
                             {
-                                var oleObj = inlineShape.OLEFormat?.Object;
+                                var oleObj = GetOwnedOleAutomationObject(inlineShape);
                                 if (oleObj != null)
                                 {
                                     var json = OleFormulaInterop.GetPayloadJson(oleObj);
@@ -177,7 +177,7 @@ namespace LaTeXSnipper.Word.Host
                         {
                             try
                             {
-                                var oleObj = inlineShape.OLEFormat?.Object;
+                                var oleObj = GetOwnedOleAutomationObject(inlineShape);
                                 if (oleObj != null)
                                 {
                                     var json = OleFormulaInterop.GetPayloadJson(oleObj);
@@ -206,7 +206,7 @@ namespace LaTeXSnipper.Word.Host
                         {
                             try
                             {
-                                var oleObj = inlineShape.OLEFormat?.Object;
+                                var oleObj = GetOwnedOleAutomationObject(inlineShape);
                                 if (oleObj != null)
                                 {
                                     var json = OleFormulaInterop.GetPayloadJson(oleObj);
@@ -566,7 +566,7 @@ namespace LaTeXSnipper.Word.Host
 
                         newPayload.FormulaId = formulaId;
                         newPayload = OleFormulaInterop.NormalizeForOle(newPayload);
-                        object automationObject = candidateOleShape.OLEFormat?.Object;
+                        object automationObject = GetOwnedOleAutomationObject(candidateOleShape);
                         if (automationObject == null ||
                             !OleFormulaInterop.ReplacePayloadJson(automationObject, newPayload))
                             throw new InvalidOperationException("Candidate OLE payload verification failed.");
@@ -729,7 +729,7 @@ namespace LaTeXSnipper.Word.Host
                 {
                     if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
                         continue;
-                    var automationObject = shape.OLEFormat?.Object;
+                    var automationObject = GetOwnedOleAutomationObject(shape);
                     var json = automationObject == null ? null : OleFormulaInterop.GetPayloadJson(automationObject);
                     var payload = string.IsNullOrWhiteSpace(json)
                         ? null
@@ -1116,6 +1116,25 @@ namespace LaTeXSnipper.Word.Host
             return DocumentContextId(document);
         }
 
+        private static object? GetOwnedOleAutomationObject(Microsoft.Office.Interop.Word.InlineShape shape)
+        {
+            if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapeEmbeddedOLEObject)
+                return null;
+            Microsoft.Office.Interop.Word.OLEFormat? format = null;
+            Microsoft.Office.Interop.Word.Range? selected = null;
+            try
+            {
+                format = shape.OLEFormat;
+                if (format == null) return null;
+                return OleFormulaInterop.AcquireOwnedAutomation(() => format.ProgID,
+                    () => {
+                        selected = shape.Range;
+                        return OleStorageIdentity.ReadSelectedWordStorageClass(selected.WordOpenXML);
+                    }, () => format.Object);
+            }
+            finally { ReleaseLocalComObject(selected); ReleaseLocalComObject(format); }
+        }
+
         internal void ValidateSelectionMediaCandidate(
             Microsoft.Office.Interop.Word.Document document, FormulaPayload payload,
             string format, Microsoft.Office.Interop.Word.WdStoryType story, int start, bool exactStart = false)
@@ -1146,7 +1165,7 @@ namespace LaTeXSnipper.Word.Host
                     throw new InvalidOperationException("MEDIA_MANIFEST_READBACK_FAILED");
                 if (embedded)
                 {
-                    automation = shape.OLEFormat.Object;
+                    automation = GetOwnedOleAutomationObject(shape);
                     if (automation == null || !OleFormulaInterop.VerifyRoundTrip(automation, payload))
                         throw new InvalidOperationException("MEDIA_OLE_READBACK_FAILED");
                 }
@@ -2151,7 +2170,7 @@ namespace LaTeXSnipper.Word.Host
                             Range: range);
 
                     activation = OleFormulaActivation.ActivateAndVerify(
-                        () => oleShape.OLEFormat?.Object,
+                        () => GetOwnedOleAutomationObject(oleShape),
                         payload,
                         () => oleShape.Delete(),
                         OleRcwOwnership.OwnedTemporaryRcw);

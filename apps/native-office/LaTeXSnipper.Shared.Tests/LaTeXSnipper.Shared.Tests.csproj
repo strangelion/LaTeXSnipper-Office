@@ -43,6 +43,8 @@
     <Compile Include="PendingPayloadTests.cs" />
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
+    <Compile Include="OleOwnershipTests.cs" />
+    <Compile Include="OleStorageIdentityTests.cs" />
     <Compile Include="OfficeStaDispatcherTests.cs" />
     <Compile Include="PipeReconnectCoordinatorTests.cs" />
     <Compile Include="VisioIntegrationTests.cs" />
