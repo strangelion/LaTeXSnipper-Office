@@ -149,8 +149,10 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--field-refresh", StringComparison.OrdinalIgnoreCase);
             bool baselineBatchMode = (args.Length == 3 || args.Length == 4) &&
                 string.Equals(args[2], "--batch-baseline", StringComparison.OrdinalIgnoreCase);
+            bool selectionBatchMode = (args.Length == 3 || args.Length == 4) &&
+                string.Equals(args[2], "--batch-selection", StringComparison.OrdinalIgnoreCase);
             bool batchMode = (args.Length == 3 || args.Length == 4) &&
-                (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode);
+                (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode || selectionBatchMode);
             int batchCount = 250;
             if (batchMode && args.Length == 4 &&
                 (!int.TryParse(args[3], out batchCount) || batchCount < 25 || batchCount > 10000))
@@ -182,7 +184,7 @@ namespace LaTeXSnipper.Word.HostTests
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -256,7 +258,7 @@ namespace LaTeXSnipper.Word.HostTests
                     return BatchAcceptance.RunScratchSafety(application, ref document, activeCases, evidenceDirectory);
                 if (batchMode)
                     return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory, batchCount,
-                        reuseInlineScratch: !baselineBatchMode);
+                        reuseInlineScratch: !baselineBatchMode, useRangeInsertion: !selectionBatchMode);
                 if (fieldRefreshMode)
                 {
                     FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(

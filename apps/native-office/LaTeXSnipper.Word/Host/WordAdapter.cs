@@ -1879,6 +1879,40 @@ namespace LaTeXSnipper.Word.Host
                 paragraph.Alignment = ResolveWordParagraphAlignment(style.Alignment);
         }
 
+        internal InsertResult InsertNativeInlineAt(
+            Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.Range anchor,
+            FormulaPayload payload)
+        {
+            Microsoft.Office.Interop.Word.Document? rangeDocument = null;
+            try
+            {
+                rangeDocument = anchor.Document;
+                if (!ReferenceEquals(rangeDocument, document) || anchor.Start != anchor.End ||
+                    document.ReadOnly || payload.StorageMode != "native-omml" || payload.Display != "inline")
+                    return new InsertResult { Success = false, ErrorCode = "NATIVE_INLINE_TARGET_INVALID" };
+                return InsertWordInlineNative(document, anchor, payload);
+            }
+            finally { ReleaseLocalComObject(rangeDocument); }
+        }
+
+        internal void RollbackNativeInlineCandidate(
+            Microsoft.Office.Interop.Word.Document document, string formulaId)
+        {
+            var candidate = FindFormulaContentControl(document, formulaId);
+            try
+            {
+                if (candidate != null)
+                {
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+                FormulaDocumentManifest.Remove(document, formulaId);
+            }
+            finally { ReleaseLocalComObject(candidate); }
+        }
+
         /// <summary>
         /// Adjust the paragraph containing the OLE InlineShape so that line spacing
         /// does not clip the object. Some documents use "Exact" line spacing which

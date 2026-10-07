@@ -74,6 +74,10 @@ namespace LaTeXSnipper.Word.HostTests
                 Require(selection.Count == 1 && selection[0].Locator.Value.GetProperty("kind").GetString() == "wordTextFrame",
                     "Text-frame selection did not retain the shape locator.");
                 checks.Add(new { name = "selection-story-locators", status = "passed" });
+                var selectionSentinel = box.TextFrame.TextRange.Duplicate;
+                selectionSentinel.SetRange(selectionSentinel.Start, selectionSentinel.Start + "BoxBefore".Length);
+                selectionSentinel.Select();
+                Marshal.ReleaseComObject(selectionSentinel);
 
                 var executor = new WordBatchConversionExecutor(application);
                 var body = candidates.First(candidate => candidate.Location.StartsWith("Body/", StringComparison.Ordinal));
@@ -110,6 +114,10 @@ namespace LaTeXSnipper.Word.HostTests
                 checks.Add(new { name = "remaining-after-conversion", candidates = scanner.Scan(), bodyText = document.Content.Text });
                 Require(result.Converted == 7 && result.Skipped == 0 && result.Failed == 0,
                     "Expected seven conversions: " + JsonSerializer.Serialize(result));
+                Require(application.Selection.StoryType == W.WdStoryType.wdTextFrameStory &&
+                    application.Selection.Range.Text == "BoxBefore",
+                    "Cross-story conversion moved the unrelated text-frame selection.");
+                checks.Add(new { name = "cross-story-selection-preserved", status = "passed" });
                 Validate(document);
                 string path = Path.Combine(directory, "word-batch-stories.docx");
                 document.SaveAs2(path, W.WdSaveFormat.wdFormatXMLDocument);

@@ -19,7 +19,8 @@ namespace LaTeXSnipper.Word.HostTests
         private static extern uint GetClipboardSequenceNumber();
 
         public static int Run(InteropWord.Application application, ref InteropWord.Document document,
-            AcceptanceCase fixture, string directory, int count = 250, bool reuseInlineScratch = true)
+            AcceptanceCase fixture, string directory, int count = 250, bool reuseInlineScratch = true,
+            bool useRangeInsertion = true)
         {
             var chunks = new List<object>();
             int converted = 0, skipped = 0, failed = 0;
@@ -41,6 +42,8 @@ namespace LaTeXSnipper.Word.HostTests
                     source.Append($"Before{i:D4} {open}{fixture.Latex}{close} After{i:D4}\r");
                 }
                 document.Content.Text = source.ToString();
+                document.Range(0, "Before0000".Length).Select();
+                string selectedText = application.Selection.Range.Text;
                 var stageWatch = Stopwatch.StartNew();
                 var candidates = new WordBatchLatexScanner(application).Scan();
                 scanMs = stageWatch.ElapsedMilliseconds;
@@ -56,7 +59,8 @@ namespace LaTeXSnipper.Word.HostTests
                 // One bad payload in a later chunk must leave its source intact;
                 // successful earlier and later chunks must remain usable.
                 items[count / 2].Omml = "<invalid/>";
-                var executor = new WordBatchConversionExecutor(application, reuseInlineScratch: reuseInlineScratch);
+                var executor = new WordBatchConversionExecutor(application, reuseInlineScratch: reuseInlineScratch,
+                    useRangeInsertion: useRangeInsertion);
                 for (int offset = 0; offset < count; offset += 25)
                 {
                     var chunkWatch = Stopwatch.StartNew();
@@ -69,6 +73,8 @@ namespace LaTeXSnipper.Word.HostTests
                     chunks.Add(new { offset, elapsedMs = chunkWatch.ElapsedMilliseconds,
                         stages, result });
                     ValidateStageTimings(stages, Math.Min(25, count - offset), result.Converted, reuseInlineScratch);
+                    if (useRangeInsertion && application.Selection.Range.Text != selectedText)
+                        throw new InvalidOperationException("Batch range insertion moved the unrelated selection.");
                     Console.WriteLine($"batch offset={offset} converted={result.Converted} " +
                         $"skipped={result.Skipped} failed={result.Failed}");
                 }
@@ -118,7 +124,7 @@ namespace LaTeXSnipper.Word.HostTests
                 File.WriteAllText(Path.Combine(directory, "batch-evidence.json"),
                     JsonSerializer.Serialize(new
                     {
-                        schemaVersion = 1, host = "word", requested = count, reuseInlineScratch,
+                        schemaVersion = 1, host = "word", requested = count, reuseInlineScratch, useRangeInsertion,
                         converted, skipped, failed, elapsedMs = watch.ElapsedMilliseconds,
                         stages = new { scanMs, validationMs, saveMs, reopenMs },
                         timingScope = "Serial inclusive timings; nested stages overlap and must not be summed. Core conversion, pipe transport and field refresh are not measured.",
@@ -204,6 +210,19 @@ namespace LaTeXSnipper.Word.HostTests
                 document = null;
                 document = application.Documents.Open(path, ReadOnly: true, AddToRecentFiles: false, Visible: true);
                 ValidateMixedScratchDocument(document, sequence);
+                var readOnlyAnchor = document.Range(0, 0);
+                try
+                {
+                    var refused = new WordAdapter(application).InsertNativeInlineAt(document, readOnlyAnchor,
+                        new FormulaPayload { FormulaId = "readonly-range-probe", Latex = first.Latex,
+                            Omml = first.Omml, StorageMode = "native-omml", Display = "inline" });
+                    if (refused.ErrorCode != "NATIVE_INLINE_TARGET_INVALID" ||
+                        FormulaDocumentManifest.Read(document, "readonly-range-probe") != null)
+                        throw new InvalidOperationException("Read-only explicit range target was accepted.");
+                    ValidateMixedScratchDocument(document, sequence);
+                    checks.Add(new { name = "readonly-range-rejected-without-mutation", status = "passed" });
+                }
+                finally { Marshal.ReleaseComObject(readOnlyAnchor); }
                 document.Close(InteropWord.WdSaveOptions.wdDoNotSaveChanges);
                 Marshal.ReleaseComObject(document);
                 document = null;
@@ -224,6 +243,8 @@ namespace LaTeXSnipper.Word.HostTests
                 checks.Add(new { name = "fresh-document-and-batch", result, stages = executor.StageTimings });
                 ValidateScratchCleanupGuard(document);
                 checks.Add(new { name = "cleanup-preserves-new-paragraph-content", status = "passed" });
+                ValidateExplicitRangeGuards(application, document, first);
+                checks.Add(new { name = "explicit-range-document-and-rollback-isolation", status = "passed" });
             }
             catch (Exception exception) { error = exception.ToString(); Console.Error.WriteLine(error); }
             File.WriteAllText(Path.Combine(directory, "scratch-evidence.json"), JsonSerializer.Serialize(new
@@ -263,6 +284,53 @@ namespace LaTeXSnipper.Word.HostTests
                 if (paragraph != null) Marshal.ReleaseComObject(paragraph);
                 Marshal.ReleaseComObject(controlRange);
                 Marshal.ReleaseComObject(scratch);
+            }
+        }
+
+        private static void ValidateExplicitRangeGuards(InteropWord.Application application,
+            InteropWord.Document document, AcceptanceCase fixture)
+        {
+            InteropWord.Document other = null;
+            InteropWord.Range anchor = null;
+            InteropWord.Range otherAnchor = null;
+            InteropWord.Range expanded = null;
+            var adapter = new WordAdapter(application);
+            string id = "range-guard-" + Guid.NewGuid().ToString("N");
+            var payload = new FormulaPayload { FormulaId = id, Latex = fixture.Latex,
+                Omml = fixture.Omml, StorageMode = "native-omml", Display = "inline" };
+            try
+            {
+                other = application.Documents.Add();
+                other.Content.Text = "OtherBefore OtherAfter\r";
+                other.Range(0, "OtherBefore".Length).Select();
+                string selected = application.Selection.Range.Text;
+                anchor = document.Range(document.Content.End - 1, document.Content.End - 1);
+                otherAnchor = other.Range(other.Content.End - 1, other.Content.End - 1);
+                expanded = document.Range(0, 1);
+                string original = document.Content.Text;
+                if (adapter.InsertNativeInlineAt(document, otherAnchor, payload).ErrorCode != "NATIVE_INLINE_TARGET_INVALID" ||
+                    adapter.InsertNativeInlineAt(document, expanded, payload).ErrorCode != "NATIVE_INLINE_TARGET_INVALID" ||
+                    document.Content.Text != original || other.OMaths.Count != 0)
+                    throw new InvalidOperationException("Invalid explicit target changed a document.");
+                var inserted = adapter.InsertNativeInlineAt(document, anchor, payload);
+                if (!inserted.Success || !ReferenceEquals(application.ActiveDocument, other) ||
+                    application.Selection.Range.Text != selected || FormulaDocumentManifest.Read(document, id) == null)
+                    throw new InvalidOperationException("Explicit range insertion depended on the active document.");
+                // The same ID in another document must not be removed by rollback.
+                if (!adapter.InsertNativeInlineAt(other, otherAnchor, payload).Success)
+                    throw new InvalidOperationException("Could not set up independent rollback target.");
+                adapter.RollbackNativeInlineCandidate(document, id);
+                if (FormulaDocumentManifest.Read(document, id) != null || document.Content.Text != original ||
+                    FormulaDocumentManifest.Read(other, id) == null || other.OMaths.Count != 1)
+                    throw new InvalidOperationException("Rollback used the active document or left stale metadata.");
+            }
+            finally
+            {
+                if (expanded != null) Marshal.ReleaseComObject(expanded);
+                if (otherAnchor != null) Marshal.ReleaseComObject(otherAnchor);
+                if (anchor != null) Marshal.ReleaseComObject(anchor);
+                if (other != null) { other.Close(InteropWord.WdSaveOptions.wdDoNotSaveChanges); Marshal.ReleaseComObject(other); }
+                document.Activate();
             }
         }
 

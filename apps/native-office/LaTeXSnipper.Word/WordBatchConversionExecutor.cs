@@ -26,13 +26,17 @@ internal sealed class WordBatchConversionExecutor
     private FormulaPayload? _selectionMedia;
     private string? _selectionFormat;
     private readonly bool _reuseInlineScratch;
+    private readonly bool _useRangeInsertion;
     private WordAdapter.InlineScratchSession? _scratchSession;
 
     public Dictionary<string, BatchStageMeasurement> StageTimings => _timings.Snapshot();
 
     public WordBatchConversionExecutor(Application application, int? oleServerProcessId = null,
-        bool reuseInlineScratch = true)
-    { _application = application; _oleServerProcessId = oleServerProcessId; _reuseInlineScratch = reuseInlineScratch; }
+        bool reuseInlineScratch = true, bool useRangeInsertion = true)
+    {
+        _application = application; _oleServerProcessId = oleServerProcessId;
+        _reuseInlineScratch = reuseInlineScratch; _useRangeInsertion = useRangeInsertion;
+    }
 
     public VstoBatchConvertResult ExecuteSelectionMedia(string planId, BatchConversionItem item,
         FormulaPayload formula, string format)
@@ -311,7 +315,6 @@ internal sealed class WordBatchConversionExecutor
         bool inserted;
         try
         {
-            anchor.Select();
             var payload = _selectionMedia ?? new FormulaPayload
             {
                 FormulaId = formulaId,
@@ -320,7 +323,13 @@ internal sealed class WordBatchConversionExecutor
                 StorageMode = "native-omml",
                 Display = "inline"
             };
-            var insertion = _timings.Measure("insert-total", () => adapter.InsertFormula(payload, InsertMode.Inline));
+            var insertion = _timings.Measure("insert-total", () =>
+            {
+                if (_useRangeInsertion && _selectionMedia == null)
+                    return adapter.InsertNativeInlineAt(doc, anchor, payload);
+                _timings.Measure("select-anchor", () => { anchor.Select(); return true; });
+                return adapter.InsertFormula(payload, InsertMode.Inline);
+            });
             inserted = insertion.Success;
             if (!inserted)
             {
@@ -352,7 +361,7 @@ internal sealed class WordBatchConversionExecutor
         catch
         {
             if (_selectionMedia != null) adapter.RollbackSelectionMedia(doc, formulaId);
-            else adapter.DeleteFormula(formulaId);
+            else adapter.RollbackNativeInlineCandidate(doc, formulaId);
             throw;
         }
     }
