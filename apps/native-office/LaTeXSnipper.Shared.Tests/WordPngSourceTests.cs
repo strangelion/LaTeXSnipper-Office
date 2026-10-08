@@ -20,6 +20,18 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             Action<bool, string> check = (ok, message) => { if (!ok) { Console.Error.WriteLine("FAIL " + message); failures++; } };
             check(WordPngSourceReader.Read(Package())?.Length == 8, "exact associated PNG bytes");
             check(WordPngSourceReader.Read(Package(" \n" + Signature + "\t"))?.Length == 8, "Word Base64 line wrapping");
+            string svgPicture = Package().Replace("<a:blip r:embed='rId1'/>",
+                "<a:blip r:embed='rId1'><a:extLst><a:ext uri='{96DAC541-7B7A-43D3-8B79-37D633B846F1}'>" +
+                "<asvg:svgBlip xmlns:asvg='http://schemas.microsoft.com/office/drawing/2016/SVG/main' r:embed='rId2'/>" +
+                "</a:ext></a:extLst></a:blip>");
+            check(WordPngSourceReader.Read(svgPicture) == null, "SVG fallback is not the original PNG carrier");
+            string completeSvgPicture = svgPicture.Replace("</Relationships>",
+                "<Relationship Id='rId2' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/image' Target='media/image2.svg'/></Relationships>")
+                .Replace("</pkg:package>", "<pkg:part pkg:name='/word/media/image2.svg' pkg:contentType='image/svg+xml'><pkg:xmlData>" +
+                    "<svg xmlns='http://www.w3.org/2000/svg'><metadata/></svg></pkg:xmlData></pkg:part></pkg:package>");
+            check(WordPngSourceReader.Read(completeSvgPicture) == null, "associated SVG XML part does not enable PNG fallback reading");
+            check(WordPngSourceReader.Read(svgPicture.Replace("r:embed='rId2'", "r:link='rId2'")) == null, "linked SVG fallback denied");
+            check(WordPngSourceReader.Read(svgPicture.Replace("/2016/SVG/main", "/future/SVG/main")) == null, "unknown SVG extension denied");
             foreach (string xml in new[] {
                 Package(target: "../media/image1.png"), Package(target: "https://example.invalid/image.png"),
                 Package(mode: "TargetMode='External'"), Package(extra: "<a:blip r:embed='rId1'/>"),

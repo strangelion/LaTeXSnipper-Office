@@ -11,6 +11,8 @@ Word 内的只读窗口。可以选择候选、查看并复制源码；原图与
 浮动图形、链接图片、OLE、SVG/XMP、文档批次及 Office.js 入口仍待实现。
 图片最多 4 MiB，范围 Flat OPC 最多 16 Mi 字符、深度 64、100,000 XML 事件和
 128 个 part。拒绝重复/外部/含路径跳转的关系及 DTD；不读取 OLE Object。
+包含 SVG 扩展的图片不会转读 PNG 回退图；本机 Word 还会重写 SVG 并丢失
+受控样例中的公式元数据，见 [SVG 读取限制](svg-source-read-boundary.md)。
 
 PNG 原字节 SHA-256、文档、会话和请求 ID 绑定本次结果。窗口关闭、超时、
 旧请求及不匹配回复均不重新显示候选。20 秒未返回显示失败，可关闭后重试。
@@ -18,7 +20,7 @@ PNG 原字节 SHA-256、文档、会话和请求 ID 绑定本次结果。窗口�
 查看/复制，不自动执行、渲染或转换。新增 v3 消息为 `READ_PNG_SOURCE` 与
 `PNG_SOURCE_RESULT`；部署时应同时更新桌面与原生加载项。
 
-Core pin：`8ee9139`，包含有限 PNG 及 SVG metadata 提取器；当前 Word 入口仍只接 PNG，
+Core pin：`ec27f22`，包含有限 PNG 及 SVG metadata 提取器和宿主丢失限制；当前 Word 入口仍只接 PNG，
 公共转换注册表未新增图片→公式承诺。
 
 已验证：共享 C# 的关联提取与消息往返；Rust 的 PNG/哈希/冲突/错误与响应

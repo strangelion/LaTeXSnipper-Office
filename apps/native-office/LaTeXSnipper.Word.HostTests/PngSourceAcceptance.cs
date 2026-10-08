@@ -89,7 +89,7 @@ namespace LaTeXSnipper.Word.HostTests
                 Marshal.ReleaseComObject(picture);
                 document.SaveAs2(docPath, W.WdSaveFormat.wdFormatXMLDocument);
                 document.Close(W.WdSaveOptions.wdDoNotSaveChanges); Marshal.ReleaseComObject(document); document = null;
-                document = app.Documents.Open(docPath, ReadOnly: false, AddToRecentFiles: false);
+                document = app.Documents.Open(docPath, ReadOnly: false, AddToRecentFiles: false, Visible: false);
                 picture = document.InlineShapes[1];
                 Check(document, picture, adapter, expected, checks);
                 Marshal.ReleaseComObject(picture);

@@ -28,7 +28,9 @@ PNG，经 Core 检查元数据，在 Word 内查看和复制候选源码；见 [
 安装版 Ribbon→管道→Core→窗口的完整运行尚未验证。
 
 Core 已有有限 SVG metadata 提取及 native 导入器候选元数据，并保留源码片段位置；
-SVG 的 Word 选区入口和 XMP profile 尚未接入。
+SVG 的 Word 选区入口和 XMP profile 尚未接入。当前 Word 会丢弃受控 SVG 的
+公式元数据；已拒绝将 PNG 回退图当原图，后续须保留原始资产/源绑定，见
+[SVG 限制](svg-source-read-boundary.md)。
 
 下一步：同步 Excel/PowerPoint 等宿主；补 SVG 宿主入口、XMP、有界容器提取，以及
 通用选区/文档清单读取入口。MTEF 目前仍只有 raw

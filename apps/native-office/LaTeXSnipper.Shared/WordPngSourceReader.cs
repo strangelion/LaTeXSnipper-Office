@@ -44,6 +44,10 @@ public static class WordPngSourceReader
             if (document == null || document.Descendants(o + "OLEObject").Any()) return null;
             var blips = document.Descendants(a + "blip").ToArray();
             if (blips.Length != 1 || blips[0].Attribute(r + "link") != null) return null;
+            // An SVG picture's primary blip can reference only its PNG fallback.
+            // Never present that fallback as the selected original PNG carrier.
+            // Reject unknown svgBlip namespaces too instead of guessing a route.
+            if (blips[0].Descendants().Any(e => e.Name.LocalName == "svgBlip")) return null;
             string? id = (string?)blips[0].Attribute(r + "embed");
             if (id == null || id.Length == 0) return null;
             var links = parts.SingleOrDefault(p => (string?)p.Attribute(pkg + "name") == "/word/_rels/document.xml.rels")
