@@ -20,7 +20,7 @@ PNG 原字节 SHA-256、文档、会话和请求 ID 绑定本次结果。窗口�
 查看/复制，不自动执行、渲染或转换。新增 v3 消息为 `READ_PNG_SOURCE` 与
 `PNG_SOURCE_RESULT`；部署时应同时更新桌面与原生加载项。
 
-Core pin：`ccaa115`，包含有限 PNG/SVG 提取器、独立实验性 MTEF 读取和宿主边界说明。PNG 候选窗口仍只接 PNG；
+Core pin：`c032912`，包含有限 PNG/SVG 提取器、独立实验性 MTEF 读取/有界语义复用和宿主边界说明。PNG 候选窗口仍只接 PNG；
 本应用 SVG 使用文档清单的原资产绑定与校验读回，见 [SVG 说明](svg-source-read-boundary.md)。
 公共转换注册表未新增图片→公式承诺。
 
