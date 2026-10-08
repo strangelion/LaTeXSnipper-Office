@@ -175,6 +175,7 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--document-targets", StringComparison.OrdinalIgnoreCase);
             bool pngSourceMode = args.Length == 3 && string.Equals(args[2], "--png-source", StringComparison.OrdinalIgnoreCase);
             bool svgSourceMode = args.Length == 3 && string.Equals(args[2], "--svg-source", StringComparison.OrdinalIgnoreCase);
+            bool managedSvgMode = args.Length == 3 && string.Equals(args[2], "--managed-svg-source", StringComparison.OrdinalIgnoreCase);
             bool skipPreflight = args.Length == 3 &&
                 string.Equals(
                     args[2],
@@ -182,14 +183,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !managedSvgMode && !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --png-source | --svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --png-source | --svg-source | --managed-svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -231,10 +232,10 @@ namespace LaTeXSnipper.Word.HostTests
             {
                 application = new InteropWord.Application
                 {
-                    Visible = !(pngSourceMode || svgSourceMode),
+                    Visible = !(pngSourceMode || svgSourceMode || managedSvgMode),
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
-                document = application.Documents.Add(Visible: !(pngSourceMode || svgSourceMode));
+                document = application.Documents.Add(Visible: !(pngSourceMode || svgSourceMode || managedSvgMode));
                 int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode || ownedOleReadMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
@@ -245,6 +246,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (managedSvgMode)
+                    return ManagedSvgAcceptance.Run(application, ref document, adapter, evidenceDirectory);
                 if (svgSourceMode)
                     return SvgSourceAcceptance.Run(application, ref document, adapter, evidenceDirectory);
                 if (pngSourceMode)

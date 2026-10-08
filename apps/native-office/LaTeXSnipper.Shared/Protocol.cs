@@ -683,6 +683,18 @@ public class SourceInfo
     [JsonPropertyName("coreVersion")] public string CoreVersion { get; set; } = "";
     [JsonPropertyName("converterVersion")] public string ConverterVersion { get; set; } = "";
     [JsonPropertyName("ommlSha256")] public string OmmlSha256 { get; set; } = "";
+    [JsonPropertyName("wordSvgBinding")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WordSvgBinding? WordSvgBinding { get; set; }
+}
+
+/// <summary>Correlation hashes, not authentication or proof of source/graphics equivalence.</summary>
+public class WordSvgBinding
+{
+    [JsonPropertyName("version")] public int Version { get; set; } = 1;
+    [JsonPropertyName("originalSvgSha256")] public string OriginalSvgSha256 { get; set; } = "";
+    [JsonPropertyName("wordSvgSha256")] public string WordSvgSha256 { get; set; } = "";
+    [JsonPropertyName("sourceSha256")] public string SourceSha256 { get; set; } = "";
 }
 
 public class TablePayload

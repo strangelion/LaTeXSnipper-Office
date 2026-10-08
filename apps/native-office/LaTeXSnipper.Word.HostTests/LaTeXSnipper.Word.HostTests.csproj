@@ -56,6 +56,7 @@
     <Compile Include="OleReadBoundaryAcceptance.cs" />
     <Compile Include="PngSourceAcceptance.cs" />
     <Compile Include="SvgSourceAcceptance.cs" />
+    <Compile Include="ManagedSvgAcceptance.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

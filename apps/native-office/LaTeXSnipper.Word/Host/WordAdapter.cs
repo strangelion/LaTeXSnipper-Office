@@ -272,6 +272,8 @@ namespace LaTeXSnipper.Word.Host
                     var fromManifest = FormulaDocumentManifest.Read(doc, existingFormulaId);
                     if (fromManifest != null)
                     {
+                        if (fromManifest.Source?.WordSvgBinding != null &&
+                            !VerifyManagedSvgSelection(doc, range, fromManifest)) return null;
                         // Also read fresh OMML from the document for latest state
                         fromManifest.FormulaId = existingFormulaId;
                         return fromManifest;
@@ -359,6 +361,34 @@ namespace LaTeXSnipper.Word.Host
             }
 
             return null;
+        }
+
+        private static bool VerifyManagedSvgSelection(Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.Range? selection, FormulaPayload payload)
+        {
+            Microsoft.Office.Interop.Word.ContentControls? controls = null;
+            Microsoft.Office.Interop.Word.ContentControl? control = null;
+            Microsoft.Office.Interop.Word.Range? owned = null;
+            Microsoft.Office.Interop.Word.InlineShapes? shapes = null;
+            try
+            {
+                if (payload.StorageMode != "image") return false;
+                controls = document.SelectContentControlsByTag("latexsnipper:formula:" + payload.FormulaId);
+                if (controls.Count != 1) return false;
+                control = controls[1];
+                owned = control.Range;
+                shapes = owned.InlineShapes;
+                if (shapes.Count != 1 || (selection != null && (owned.StoryType != selection.StoryType ||
+                    selection.Start < owned.Start || selection.End > owned.End))) return false;
+                return WordSvgSourceBinding.Matches(payload, owned.WordOpenXML);
+            }
+            finally
+            {
+                ReleaseLocalComObject(shapes);
+                ReleaseLocalComObject(owned);
+                ReleaseLocalComObject(control);
+                ReleaseLocalComObject(controls);
+            }
         }
 
         private static string ExtractOmmlFromXml(string xml)
@@ -500,6 +530,10 @@ namespace LaTeXSnipper.Word.Host
 
                 string targetTag = $"latexsnipper:formula:{formulaId}";
                 originalManifest = FormulaDocumentManifest.Read(doc, formulaId);
+                if (originalManifest?.Source?.WordSvgBinding != null &&
+                    !VerifyManagedSvgSelection(doc, null, originalManifest))
+                    return new InsertResult { Success = false, ErrorCode = "OFFICE_TARGET_CHANGED",
+                        Error = "The SVG picture or its stored source no longer matches the managed binding." };
                 if (originalManifest != null &&
                     newPayload.Revision != originalManifest.Revision)
                 {
@@ -510,6 +544,13 @@ namespace LaTeXSnipper.Word.Host
                         Error = $"Formula revision changed from {newPayload.Revision} to {originalManifest.Revision}."
                     };
                 }
+
+                // Bound SVG reads are supported, but overlapping Word SDT image
+                // updates can block inside COM. Fail before changing the source.
+                if (originalManifest?.Source?.WordSvgBinding != null &&
+                    (newPayload.StorageMode == null || newPayload.StorageMode == "auto" || newPayload.StorageMode == "image"))
+                    return new InsertResult { Success = false, ErrorCode = "SVG_UPDATE_BOUNDARY_UNSUPPORTED",
+                        Error = "In-place managed SVG image update is not yet supported; the original object is unchanged." };
 
                 foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
                 {
@@ -758,7 +799,9 @@ namespace LaTeXSnipper.Word.Host
                 if (doc == null) return null;
 
                 var manifest = FormulaDocumentManifest.Read(doc, formulaId);
-                if (manifest != null) return manifest;
+                if (manifest != null)
+                    return manifest.Source?.WordSvgBinding == null || VerifyManagedSvgSelection(doc, null, manifest)
+                        ? manifest : null;
 
                 var control = FindFormulaContentControl(doc, formulaId);
                 if (control == null) return null;
@@ -1309,6 +1352,12 @@ namespace LaTeXSnipper.Word.Host
             try
             {
                 string storageMode = payload.StorageMode ?? "auto";
+                if (storageMode != "image" && payload.Source?.WordSvgBinding != null)
+                    payload.Source = new SourceInfo {
+                        CoreVersion = payload.Source.CoreVersion,
+                        ConverterVersion = payload.Source.ConverterVersion,
+                        OmmlSha256 = payload.Source.OmmlSha256,
+                    };
 
                 if (storageMode == "ole")
                 {
@@ -2704,6 +2753,17 @@ namespace LaTeXSnipper.Word.Host
                 if (payload.Render?.Png == null && payload.Render?.Svg == null)
                     return new InsertResult { Success = false, ErrorCode = "NO_RENDER_DATA", Error = "No render data for image insertion" };
 
+                // Never replace or nest inside an existing managed formula via
+                // AddPicture. Use the revision-aware update transaction instead.
+                var targetParent = range.ParentContentControl;
+                try
+                {
+                    if (targetParent != null && targetParent.Tag.StartsWith("latexsnipper:formula:", StringComparison.Ordinal))
+                        return new InsertResult { Success = false, ErrorCode = "IMAGE_INSIDE_MANAGED_FORMULA",
+                            Error = "Move outside the existing formula, or use its update command." };
+                }
+                finally { ReleaseLocalComObject(targetParent); }
+
                 if (mode != InsertMode.Inline)
                 {
                     range = mode == InsertMode.DisplayNumbered
@@ -2718,13 +2778,13 @@ namespace LaTeXSnipper.Word.Host
                 {
                     tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{imageId}.png");
                     System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render.Png));
-                    image = range.InlineShapes.AddPicture(tempPath);
+                    image = range.InlineShapes.AddPicture(tempPath, LinkToFile: false, SaveWithDocument: true, Range: range);
                 }
                 else if (payload.Render?.Svg != null)
                 {
                     tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"lsno_{imageId}.svg");
                     System.IO.File.WriteAllText(tempPath, payload.Render.Svg);
-                    image = range.InlineShapes.AddPicture(tempPath);
+                    image = range.InlineShapes.AddPicture(tempPath, LinkToFile: false, SaveWithDocument: true, Range: range);
                 }
                 else
                 {
@@ -2779,6 +2839,15 @@ namespace LaTeXSnipper.Word.Host
                 // Without this tag, image formulas cannot be read, replaced, deleted, or converted.
                 try
                 {
+                    var insertedRange = image.Range;
+                    Microsoft.Office.Interop.Word.ContentControl? parent = null;
+                    try
+                    {
+                        parent = insertedRange.ParentContentControl;
+                        if (parent != null && parent.Tag.StartsWith("latexsnipper:formula:", StringComparison.Ordinal))
+                            throw new InvalidOperationException("IMAGE_INSIDE_MANAGED_FORMULA");
+                    }
+                    finally { ReleaseLocalComObject(parent); ReleaseLocalComObject(insertedRange); }
                     cc = doc.ContentControls.Add(
                         Microsoft.Office.Interop.Word.WdContentControlType.wdContentControlRichText,
                         image.Range.Duplicate);
@@ -2916,8 +2985,38 @@ namespace LaTeXSnipper.Word.Host
                     }
                 }
 
+                // Keep original source in the existing payload and correlate it
+                // with the actual Word SVG part, never the PNG fallback.
+                WordSvgBinding? svgBinding = null;
+                if (payload.Render?.Png == null && payload.Render?.Svg != null)
+                {
+                    var imageRange = image.Range;
+                    try { svgBinding = WordSvgSourceBinding.Create(payload, imageRange.WordOpenXML); }
+                    finally { ReleaseLocalComObject(imageRange); }
+                    if (svgBinding == null) throw new InvalidOperationException("SVG_SOURCE_BINDING_FAILED");
+                }
+                if (payload.Source != null || svgBinding != null)
+                    payload.Source = new SourceInfo {
+                        CoreVersion = payload.Source?.CoreVersion ?? "",
+                        ConverterVersion = payload.Source?.ConverterVersion ?? "",
+                        OmmlSha256 = payload.Source?.OmmlSha256 ?? "",
+                        WordSvgBinding = svgBinding,
+                    };
+
                 // Write to manifest for reliable read/replace/delete/convert
                 FormulaDocumentManifest.Write(doc, payload);
+                if (svgBinding != null)
+                {
+                    var stored = FormulaDocumentManifest.Read(doc, payload.FormulaId);
+                    var imageRange = image.Range;
+                    try
+                    {
+                        if (stored == null || !WordSvgSourceBinding.Matches(stored, imageRange.WordOpenXML) ||
+                            stored.Source?.WordSvgBinding?.WordSvgSha256 != svgBinding.WordSvgSha256)
+                            throw new InvalidOperationException("SVG_SOURCE_MANIFEST_READBACK_FAILED");
+                    }
+                    finally { ReleaseLocalComObject(imageRange); }
+                }
 
                 try
                 {

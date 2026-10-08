@@ -680,6 +680,43 @@ pub struct SourceInfo {
     pub converter_version: String,
     #[serde(rename = "ommlSha256")]
     pub omml_sha256: String,
+    #[serde(
+        default,
+        rename = "wordSvgBinding",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub word_svg_binding: Option<WordSvgBinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WordSvgBinding {
+    pub version: u32,
+    pub original_svg_sha256: String,
+    pub word_svg_sha256: String,
+    pub source_sha256: String,
+}
+
+#[cfg(test)]
+mod svg_source_binding_wire_tests {
+    use super::SourceInfo;
+
+    #[test]
+    fn retains_optional_word_svg_identity_and_legacy_source_info() {
+        let legacy =
+            serde_json::json!({"coreVersion":"3.2.1", "converterVersion":"", "ommlSha256":""});
+        let source: SourceInfo = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(source.word_svg_binding.is_none());
+        assert_eq!(serde_json::to_value(source).unwrap(), legacy);
+        let wire = serde_json::json!({
+            "coreVersion":"3.2.1", "converterVersion":"", "ommlSha256":"",
+            "wordSvgBinding": {"version":1, "originalSvgSha256":"a".repeat(64),
+                "wordSvgSha256":"b".repeat(64), "sourceSha256":"c".repeat(64)}
+        });
+        let source: SourceInfo = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(source.word_svg_binding.as_ref().unwrap().version, 1);
+        assert_eq!(serde_json::to_value(source).unwrap(), wire);
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
