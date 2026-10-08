@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "measuredDate": "2026-10-09",
+  "environment": {
+    "os": "Windows x64",
+    "cpu": "13th Gen Intel Core i5-13500H",
+    "wordVersion": "16.0.18526.20672",
+    "configuration": "Release"
+  },
+  "scope": "Authored x^2 repeated 250 times, four delimiter forms, one intentionally invalid OMML. Native scanner/executor only; no Core, pipe, native Word baseline, visual or general accuracy claims.",
+  "order": [
+    "legacy-1",
+    "append-1",
+    "append-2",
+    "legacy-2"
+  ],
+  "chunkSize": 25,
+  "warmup": "No separate discarded warmup; order reversed in round two; two trials per route only.",
+  "legacyMeanExecutionMs": 58193,
+  "appendMeanExecutionMs": 70029,
+  "appendMeanExecutionChangePercent": 20.33921605691407,
+  "timing": "Sum of chunk elapsedMs; excludes scan, save/reopen and final validation. Nested stage times must not be summed.",
+  "runs": [
+    {
+      "run": "legacy-1",
+      "requested": 250,
+      "converted": 249,
+      "skipped": 1,
+      "failed": 0,
+      "status": "passed",
+      "executionMs": 55947,
+      "manifestMs": 7851.8033000000005,
+      "clipboard": true,
+      "reopen": true,
+      "evidenceSha256": "0ef06a04064e16b9640478452cc17a5fe08f2f6a8a03b4185760b1bd05ca3dfb"
+    },
+    {
+      "run": "append-1",
+      "requested": 250,
+      "converted": 249,
+      "skipped": 1,
+      "failed": 0,
+      "status": "passed",
+      "executionMs": 76741,
+      "manifestMs": 10819.2891,
+      "clipboard": true,
+      "reopen": true,
+      "evidenceSha256": "9aba1ce9995adbe9db7b1feadc590e3e78145cb3b88b381d80c2fb917984ec68"
+    },
+    {
+      "run": "append-2",
+      "requested": 250,
+      "converted": 249,
+      "skipped": 1,
+      "failed": 0,
+      "status": "passed",
+      "executionMs": 63317,
+      "manifestMs": 9089.3512,
+      "clipboard": true,
+      "reopen": true,
+      "evidenceSha256": "6eee160e4f2803ec5ad2bb33600f253689bfb516a521bb50c48a79fb6fa0d101"
+    },
+    {
+      "run": "legacy-2",
+      "requested": 250,
+      "converted": 249,
+      "skipped": 1,
+      "failed": 0,
+      "status": "passed",
+      "executionMs": 60439,
+      "manifestMs": 7179.1839,
+      "clipboard": true,
+      "reopen": true,
+      "evidenceSha256": "353ae495f06935bda7981962e603f45821dedeea78530bd839371357be45d256"
+    }
+  ],
+  "safetySha256": "eabd01404408e401fa37ce4fbde3cfc5687ac3681779ecdad10a4720dabc7102",
+  "measuredArtifactSha256": {
+    "apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.dll": "872a0373153dba6691566c2b329495f07fc54127d27b3341db03782f6cf007d5",
+    "apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.NativeOffice.Shared.dll": "2973c74ffdf47ab33c4c94ee29ef2b2c204887eab752d2ee61e3295bacb52995",
+    "apps/native-office/LaTeXSnipper.Word.HostTests/bin/x64/Release/LaTeXSnipper.Word.HostTests.exe": "f97fc360c0bb915fadae935ec6394016d1a815043fab171ea9b1789aafd78405",
+    "apps/native-office/LaTeXSnipper.Word.HostTests/fixtures/word-manifest-append-v1.json": "46cfbb3b57d3489989db63bea4643326efcee3e3b3db1afb1db5afb04de55a0b"
+  },
+  "defaultGate": "Disabled after measurement; benchmark passes the flag explicitly. Default-gate and safety-harness-only edits followed the measured build."
+}

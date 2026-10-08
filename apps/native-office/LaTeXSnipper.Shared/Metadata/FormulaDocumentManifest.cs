@@ -16,7 +16,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
     /// One CustomXMLPart per document, keyed by namespace
     /// "urn:latexsnipper:office:objects:v3".
     /// </summary>
-    public static class FormulaDocumentManifest
+    public static partial class FormulaDocumentManifest
     {
         private const string NamespaceUri = "urn:latexsnipper:office:objects:v3";
         private const string PartId = "LatexSnipperFormulaManifest";
@@ -40,7 +40,22 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 if (oldEntry != null)
                     oldEntry.Remove();
 
-                root.Add(new XElement("formula",
+                root.Add(BuildWordEntryElement(payload));
+
+                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
+
+                // Add new part BEFORE deleting old one (protect against Add failure)
+                doc.CustomXMLParts.Add(newXml);
+                existing.Delete();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Write failed: {ex.Message}");
+            }
+        }
+
+        internal static XElement BuildWordEntryElement(FormulaPayload payload) =>
+            new XElement("formula",
                     new XAttribute("id", payload.FormulaId),
                     new XAttribute("revision", payload.Revision),
                     new XAttribute("storageMode", ChooseStorageMode(payload)),
@@ -56,19 +71,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                     string.IsNullOrEmpty(payload.Omml) ? null :
                         new XElement("omml", new XAttribute("sha256", ComputeSha256(payload.Omml)),
                             Convert.ToBase64String(Encoding.UTF8.GetBytes(payload.Omml)))
-                ));
-
-                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
-
-                // Add new part BEFORE deleting old one (protect against Add failure)
-                doc.CustomXMLParts.Add(newXml);
-                existing.Delete();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Write failed: {ex.Message}");
-            }
-        }
+                );
 
         /// <summary>
         /// Read a formula entry from the manifest by formulaId.

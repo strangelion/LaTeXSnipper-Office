@@ -20,7 +20,7 @@ namespace LaTeXSnipper.Word.HostTests
 
         public static int Run(InteropWord.Application application, ref InteropWord.Document document,
             AcceptanceCase fixture, string directory, int count = 250, bool reuseInlineScratch = true,
-            bool useRangeInsertion = true)
+            bool useRangeInsertion = true, bool useIncrementalManifest = true, bool hidden = false)
         {
             var chunks = new List<object>();
             int converted = 0, skipped = 0, failed = 0;
@@ -42,10 +42,10 @@ namespace LaTeXSnipper.Word.HostTests
                     source.Append($"Before{i:D4} {open}{fixture.Latex}{close} After{i:D4}\r");
                 }
                 document.Content.Text = source.ToString();
-                document.Range(0, "Before0000".Length).Select();
-                string selectedText = application.Selection.Range.Text;
+                if (!hidden) document.Range(0, "Before0000".Length).Select();
+                string selectedText = hidden ? null : application.Selection.Range.Text;
                 var stageWatch = Stopwatch.StartNew();
-                var candidates = new WordBatchLatexScanner(application).Scan();
+                var candidates = new WordBatchLatexScanner(application, hidden ? document : null).Scan();
                 scanMs = stageWatch.ElapsedMilliseconds;
                 if (candidates.Count != count)
                     throw new InvalidOperationException($"Scan expected {count}, got {candidates.Count}.");
@@ -60,7 +60,8 @@ namespace LaTeXSnipper.Word.HostTests
                 // successful earlier and later chunks must remain usable.
                 items[count / 2].Omml = "<invalid/>";
                 var executor = new WordBatchConversionExecutor(application, reuseInlineScratch: reuseInlineScratch,
-                    useRangeInsertion: useRangeInsertion);
+                    useRangeInsertion: useRangeInsertion, useIncrementalManifest: useIncrementalManifest,
+                    targetDocument: hidden ? document : null);
                 for (int offset = 0; offset < count; offset += 25)
                 {
                     var chunkWatch = Stopwatch.StartNew();
@@ -73,7 +74,7 @@ namespace LaTeXSnipper.Word.HostTests
                     chunks.Add(new { offset, elapsedMs = chunkWatch.ElapsedMilliseconds,
                         stages, result });
                     ValidateStageTimings(stages, Math.Min(25, count - offset), result.Converted, reuseInlineScratch);
-                    if (useRangeInsertion && application.Selection.Range.Text != selectedText)
+                    if (useRangeInsertion && !hidden && application.Selection.Range.Text != selectedText)
                         throw new InvalidOperationException("Batch range insertion moved the unrelated selection.");
                     Console.WriteLine($"batch offset={offset} converted={result.Converted} " +
                         $"skipped={result.Skipped} failed={result.Failed}");
@@ -96,6 +97,7 @@ namespace LaTeXSnipper.Word.HostTests
                 stageWatch.Restart();
                 document = application.Documents.Open(path, ReadOnly: true,
                     AddToRecentFiles: false, Visible: true);
+                if (hidden) Program.RequireHiddenWord(application);
                 var reopenedManifest = ValidateDocument(document, count, fixture);
                 if (!originalManifest.OrderBy(entry => entry.Key, StringComparer.Ordinal)
                     .SequenceEqual(reopenedManifest.OrderBy(entry => entry.Key, StringComparer.Ordinal)))
@@ -124,7 +126,7 @@ namespace LaTeXSnipper.Word.HostTests
                 File.WriteAllText(Path.Combine(directory, "batch-evidence.json"),
                     JsonSerializer.Serialize(new
                     {
-                        schemaVersion = 1, host = "word", requested = count, reuseInlineScratch, useRangeInsertion,
+                        schemaVersion = 1, host = "word", requested = count, reuseInlineScratch, useRangeInsertion, useIncrementalManifest,
                         converted, skipped, failed, elapsedMs = watch.ElapsedMilliseconds,
                         stages = new { scanMs, validationMs, saveMs, reopenMs },
                         timingScope = "Serial inclusive timings; nested stages overlap and must not be summed. Core conversion, pipe transport and field refresh are not measured.",
@@ -146,7 +148,7 @@ namespace LaTeXSnipper.Word.HostTests
             for (int i = 0; i < count; i++)
                 if (!text.Contains($"Before{i:D4}") || !text.Contains($"After{i:D4}"))
                     throw new InvalidOperationException($"Adjacent prose lost at item {i}.");
-            var remaining = new WordBatchLatexScanner(document.Application).Scan();
+            var remaining = new WordBatchLatexScanner(document.Application, document).Scan();
             if (remaining.Count != 1)
                 throw new InvalidOperationException($"Expected one preserved source, got {remaining.Count}.");
             var manifest = FormulaDocumentManifest.ReadAll(document);

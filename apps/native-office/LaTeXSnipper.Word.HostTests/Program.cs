@@ -130,6 +130,23 @@ namespace LaTeXSnipper.Word.HostTests
             IntPtr windowHandle,
             out uint processId);
 
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr windowHandle);
+
+        internal static void RequireHiddenWord(InteropWord.Application application)
+        {
+            if (application.Visible) throw new InvalidOperationException("Hidden Word application became visible.");
+            foreach (InteropWord.Window window in application.Windows)
+            {
+                try
+                {
+                    if (IsWindowVisible(new IntPtr(window.Hwnd)))
+                        throw new InvalidOperationException("Hidden Word has a visible OS window.");
+                }
+                finally { Marshal.ReleaseComObject(window); }
+            }
+        }
+
         [STAThread]
         private static int Main(string[] args)
         {
@@ -152,8 +169,13 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--batch-baseline", StringComparison.OrdinalIgnoreCase);
             bool selectionBatchMode = (args.Length == 3 || args.Length == 4) &&
                 string.Equals(args[2], "--batch-selection", StringComparison.OrdinalIgnoreCase);
+            bool legacyManifestMode = (args.Length == 3 || args.Length == 4) &&
+                string.Equals(args[2], "--batch-manifest-legacy", StringComparison.OrdinalIgnoreCase);
+            bool manifestBatchMode = (args.Length == 3 || args.Length == 4) &&
+                (string.Equals(args[2], "--batch-manifest", StringComparison.OrdinalIgnoreCase) || legacyManifestMode);
+            bool manifestSafetyMode = args.Length == 3 && string.Equals(args[2], "--manifest-safety", StringComparison.OrdinalIgnoreCase);
             bool batchMode = (args.Length == 3 || args.Length == 4) &&
-                (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode || selectionBatchMode);
+                (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode || selectionBatchMode || manifestBatchMode);
             int batchCount = 250;
             if (batchMode && args.Length == 4 &&
                 (!int.TryParse(args[3], out batchCount) || batchCount < 25 || batchCount > 10000))
@@ -183,14 +205,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !managedSvgMode && !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !manifestSafetyMode && !managedSvgMode && !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --png-source | --svg-source | --managed-svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --png-source | --svg-source | --managed-svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-manifest [count] | --batch-manifest-legacy [count] | --manifest-safety | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -232,10 +254,14 @@ namespace LaTeXSnipper.Word.HostTests
             {
                 application = new InteropWord.Application
                 {
-                    Visible = !(pngSourceMode || svgSourceMode || managedSvgMode),
+                    Visible = !(pngSourceMode || svgSourceMode || managedSvgMode || manifestBatchMode || manifestSafetyMode),
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
-                document = application.Documents.Add(Visible: !(pngSourceMode || svgSourceMode || managedSvgMode));
+                // Word InsertXML needs an active internal document window. The
+                // application stays hidden; verify the OS window is not shown.
+                document = application.Documents.Add(Visible: manifestBatchMode || manifestSafetyMode ||
+                    !(pngSourceMode || svgSourceMode || managedSvgMode));
+                if (manifestBatchMode || manifestSafetyMode) RequireHiddenWord(application);
                 int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode || ownedOleReadMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
@@ -246,6 +272,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (manifestSafetyMode)
+                    return ManifestAppendAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (managedSvgMode)
                     return ManagedSvgAcceptance.Run(application, ref document, adapter, evidenceDirectory);
                 if (svgSourceMode)
@@ -272,7 +300,8 @@ namespace LaTeXSnipper.Word.HostTests
                     return BatchAcceptance.RunScratchSafety(application, ref document, activeCases, evidenceDirectory);
                 if (batchMode)
                     return BatchAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory, batchCount,
-                        reuseInlineScratch: !baselineBatchMode, useRangeInsertion: !selectionBatchMode);
+                        reuseInlineScratch: !baselineBatchMode, useRangeInsertion: !selectionBatchMode,
+                        useIncrementalManifest: manifestBatchMode && !legacyManifestMode, hidden: manifestBatchMode);
                 if (fieldRefreshMode)
                 {
                     FieldRefreshEvidence fieldRefreshEvidence = ValidateDirtyFieldRefresh(

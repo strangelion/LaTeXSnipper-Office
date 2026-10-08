@@ -13,6 +13,7 @@ using System.Text;
 using System.Text.Json;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Latex;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 using Microsoft.Office.Interop.Word;
 
@@ -22,20 +23,26 @@ internal sealed class WordBatchConversionExecutor
 {
     private readonly Application _application;
     private readonly int? _oleServerProcessId;
+    private readonly Document? _targetDocument;
     private BatchStageTimings _timings = new();
     private FormulaPayload? _selectionMedia;
     private string? _selectionFormat;
     private readonly bool _reuseInlineScratch;
     private readonly bool _useRangeInsertion;
+    private readonly bool _useIncrementalManifest;
     private WordAdapter.InlineScratchSession? _scratchSession;
+    private FormulaManifestAppendSession? _manifestSession;
 
     public Dictionary<string, BatchStageMeasurement> StageTimings => _timings.Snapshot();
 
     public WordBatchConversionExecutor(Application application, int? oleServerProcessId = null,
-        bool reuseInlineScratch = true, bool useRangeInsertion = true)
+        bool reuseInlineScratch = true, bool useRangeInsertion = true, bool useIncrementalManifest = false,
+        Document? targetDocument = null)
     {
         _application = application; _oleServerProcessId = oleServerProcessId;
         _reuseInlineScratch = reuseInlineScratch; _useRangeInsertion = useRangeInsertion;
+        _useIncrementalManifest = useIncrementalManifest;
+        _targetDocument = targetDocument;
     }
 
     public VstoBatchConvertResult ExecuteSelectionMedia(string planId, BatchConversionItem item,
@@ -74,7 +81,7 @@ internal sealed class WordBatchConversionExecutor
         var failed = 0;
         var failures = new List<BatchFailureDto>();
 
-        var doc = _application.ActiveDocument;
+        var doc = _targetDocument ?? _application.ActiveDocument;
         if (doc == null)
             return BuildResult(planId, total, 0, 0, total,
                 items.ConvertAll(i => Failure(i, "No active document")));
@@ -96,6 +103,9 @@ internal sealed class WordBatchConversionExecutor
             .Where(group => group.Count() > 1).Select(group => group.Key), StringComparer.Ordinal);
         var scratchSession = _reuseInlineScratch && _selectionMedia == null && repeatedTemplates.Count > 0
             ? new WordAdapter.InlineScratchSession() : null;
+        var manifestSession = _useIncrementalManifest && _useRangeInsertion && _selectionMedia == null
+            ? FormulaDocumentManifest.OpenWordAppendSession(doc) : null;
+        _manifestSession = manifestSession;
         bool screenUpdating = _application.ScreenUpdating;
         try
         {
@@ -128,11 +138,16 @@ internal sealed class WordBatchConversionExecutor
         finally
         {
             _scratchSession = null;
+            _manifestSession = null;
             try
             {
                 _timings.Measure("scratch-session-cleanup", () => { scratchSession?.Dispose(); return true; });
             }
-            finally { _application.ScreenUpdating = screenUpdating; }
+            finally
+            {
+                try { manifestSession?.Dispose(); }
+                finally { _application.ScreenUpdating = screenUpdating; }
+            }
         }
 
         return BuildResult(planId, total, converted, skipped, failed, failures);
@@ -302,7 +317,7 @@ internal sealed class WordBatchConversionExecutor
         int end = source.End;
         string formulaId = _selectionMedia?.FormulaId ?? FormulaIdHelper.NewId();
         var adapter = new WordAdapter(_application, _oleServerProcessId, batchTimings: _timings,
-            inlineScratchSession: _scratchSession);
+            inlineScratchSession: _scratchSession, manifestAppendSession: _manifestSession);
         if (_selectionMedia != null && adapter.ReadFormulaById(formulaId) != null)
         {
             reason = "FORMULA_ID_ALREADY_EXISTS";

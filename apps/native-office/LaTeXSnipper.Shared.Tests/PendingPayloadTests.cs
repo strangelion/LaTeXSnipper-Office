@@ -291,6 +291,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
         private static int Run(string[] args)
         {
             if (args.Length == 1 && args[0] == "--child") return ChildMain();
+            if (args.Length == 1 && args[0] == "--manifest-append") return ManifestAppendTests.Run() == 0 ? 0 : 1;
 
             Console.WriteLine("RUN TestCrossThreadRead");
             TestCrossThreadRead();
@@ -341,6 +342,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += SpreadsheetTablePayloadTests.Run();
             Console.WriteLine("RUN FormulaPresentationStyleTests");
             failures += FormulaPresentationStyleTests.Run();
+            failures += ManifestAppendTests.Run();
             Console.WriteLine("RUN FormulaIdTests");
             string formulaId = FormulaIdHelper.NewId();
             Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");

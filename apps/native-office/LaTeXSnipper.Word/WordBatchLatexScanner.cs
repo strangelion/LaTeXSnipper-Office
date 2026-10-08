@@ -20,19 +20,25 @@ namespace LaTeXSnipper.Word.Host;
 internal sealed class WordBatchLatexScanner
 {
     private readonly Application _application;
+    private readonly Document? _targetDocument;
 
-    public WordBatchLatexScanner(Application application) => _application = application;
+    public WordBatchLatexScanner(Application application, Document? targetDocument = null)
+    {
+        _application = application; _targetDocument = targetDocument;
+    }
 
     public List<LatexCandidateDto> Scan(string scope = "entireDocument")
     {
         bool rawSelection = scope.Equals("selection-latex", StringComparison.OrdinalIgnoreCase);
+        if (_targetDocument != null && !scope.Equals("entireDocument", StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Explicit document scanning requires entireDocument scope.", nameof(scope));
         if (!rawSelection && !scope.Equals("selection", StringComparison.OrdinalIgnoreCase) &&
             !scope.Equals("entireDocument", StringComparison.OrdinalIgnoreCase))
             throw new ArgumentException("Unsupported Word scan scope.", nameof(scope));
         var candidates = new List<LatexCandidateDto>();
         try
         {
-            var doc = _application.ActiveDocument;
+            var doc = _targetDocument ?? _application.ActiveDocument;
             if (doc == null) return candidates;
 
             if (rawSelection || scope.Equals("selection", StringComparison.OrdinalIgnoreCase))

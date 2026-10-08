@@ -21,17 +21,20 @@ namespace LaTeXSnipper.Word.Host
         private readonly int? _oleServerProcessId;
         private readonly BatchStageTimings? _batchTimings;
         private readonly InlineScratchSession? _inlineScratchSession;
+        private readonly FormulaManifestAppendSession? _manifestAppendSession;
 
         public WordAdapter(
             Microsoft.Office.Interop.Word.Application application,
             int? oleServerProcessId = null,
             BatchStageTimings? batchTimings = null,
-            InlineScratchSession? inlineScratchSession = null)
+            InlineScratchSession? inlineScratchSession = null,
+            FormulaManifestAppendSession? manifestAppendSession = null)
         {
             _application = application;
             _oleServerProcessId = oleServerProcessId;
             _batchTimings = batchTimings;
             _inlineScratchSession = inlineScratchSession;
+            _manifestAppendSession = manifestAppendSession;
         }
 
         // One exact OMML template per batch, never a cross-document/global cache.
@@ -1489,11 +1492,29 @@ namespace LaTeXSnipper.Word.Host
                         InsertMode.Inline));
                     if (styleFailure != null) return styleFailure;
 
-                    MeasureBatchStage("manifest-write", () =>
+                    try
                     {
-                        FormulaDocumentManifest.Write(doc, payload);
-                        return true;
-                    });
+                        MeasureBatchStage("manifest-write", () =>
+                        {
+                            if (_manifestAppendSession != null) _manifestAppendSession.WriteNew(doc, payload);
+                            else FormulaDocumentManifest.Write(doc, payload);
+                            return true;
+                        });
+                    }
+                    catch (Exception metadataError)
+                    {
+                        // Metadata must persist before the executor deletes the source.
+                        // Remove this exact candidate, not a lookup of a colliding ID.
+                        try
+                        {
+                            candidate.LockContents = false;
+                            candidate.LockContentControl = false;
+                            candidate.Delete(true);
+                        }
+                        catch (Exception cleanup) { OfficeOperationLog.Failure("batch-metadata-candidate-cleanup", "word", payload.FormulaId, cleanup); }
+                        return new InsertResult { Success = false, ErrorCode = "BATCH_MANIFEST_WRITE_FAILED",
+                            Error = metadataError.Message };
+                    }
                     var committedRange = candidate.Range.Duplicate;
 
                     return new InsertResult
@@ -2010,7 +2031,8 @@ namespace LaTeXSnipper.Word.Host
                     candidate.LockContentControl = false;
                     candidate.Delete(true);
                 }
-                FormulaDocumentManifest.Remove(document, formulaId);
+                if (_manifestAppendSession != null) _manifestAppendSession.RemoveCreated(document, formulaId);
+                else FormulaDocumentManifest.Remove(document, formulaId);
             }
             finally { ReleaseLocalComObject(candidate); }
         }
