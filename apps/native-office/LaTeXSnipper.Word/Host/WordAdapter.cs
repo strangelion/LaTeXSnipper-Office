@@ -10,7 +10,7 @@ using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 
 namespace LaTeXSnipper.Word.Host
 {
-    internal sealed class WordAdapter : ICommandHostAdapter
+    internal sealed partial class WordAdapter : ICommandHostAdapter
     {
         // Keep numbered image/OLE content inside the same central lane used by
         // native OMML's three-column equation table. This leaves a stable right
@@ -545,12 +545,9 @@ namespace LaTeXSnipper.Word.Host
                     };
                 }
 
-                // Bound SVG reads are supported, but overlapping Word SDT image
-                // updates can block inside COM. Fail before changing the source.
                 if (originalManifest?.Source?.WordSvgBinding != null &&
                     (newPayload.StorageMode == null || newPayload.StorageMode == "auto" || newPayload.StorageMode == "image"))
-                    return new InsertResult { Success = false, ErrorCode = "SVG_UPDATE_BOUNDARY_UNSUPPORTED",
-                        Error = "In-place managed SVG image update is not yet supported; the original object is unchanged." };
+                    return ReplaceManagedInlineSvg(doc, originalManifest, newPayload);
 
                 foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
                 {
