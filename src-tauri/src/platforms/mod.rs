@@ -20,6 +20,7 @@ pub mod pipe_protocol;
 pub mod pipe_security;
 #[cfg(target_os = "windows")]
 pub mod pipe_server;
+#[cfg(any(target_os = "windows", test))]
 pub mod png_source;
 pub mod process;
 #[cfg(target_os = "windows")]
