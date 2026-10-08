@@ -45,6 +45,7 @@
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OleOwnershipTests.cs" />
     <Compile Include="OleStorageIdentityTests.cs" />
+    <Compile Include="WordPngSourceTests.cs" />
     <Compile Include="OfficeStaDispatcherTests.cs" />
     <Compile Include="PipeReconnectCoordinatorTests.cs" />
     <Compile Include="VisioIntegrationTests.cs" />

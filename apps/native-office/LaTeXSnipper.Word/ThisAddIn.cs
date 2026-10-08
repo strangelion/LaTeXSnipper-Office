@@ -21,6 +21,43 @@ namespace LaTeXSnipper.Word
         private WordRibbonExtensibility _ribbon;
         private string _sessionId;
         private volatile bool _pipeConnected;
+        private PngSourceDialog _pngSourceDialog;
+
+        internal async void ReadPngFormulaSource()
+        {
+            PngSourceDialog dialog = null;
+            try
+            {
+                if (!PipeConnected) return;
+                var request = _adapter.ReadSelectedPngSource();
+                if (request == null)
+                {
+                    System.Windows.Forms.MessageBox.Show(RibbonLocalizer.GetString("PngSourceSelection"), RibbonLocalizer.GetString("PngSourceTitle"));
+                    return;
+                }
+                request.RequestId = Guid.NewGuid().ToString("N");
+                request.SessionId = _sessionId;
+                _pngSourceDialog?.Close();
+                dialog = new PngSourceDialog(request);
+                _pngSourceDialog = dialog;
+                dialog.FormClosed += (_, __) => {
+                    if (ReferenceEquals(_pngSourceDialog, dialog)) _pngSourceDialog = null;
+                };
+                var window = Application.ActiveWindow;
+                try { dialog.Show(new PngSourceDialog.WordWindow(window.Hwnd)); }
+                finally { Marshal.ReleaseComObject(window); }
+                try { await _pipeClient.SendOnlyAsync(request).ConfigureAwait(false); }
+                finally { request.PngBase64 = ""; }
+            }
+            catch (Exception)
+            {
+                _staDispatcher?.TryPost("png-source-read-failed", () => {
+                    dialog?.Fail("PNG_SOURCE_READ_FAILED");
+                    if (dialog == null || dialog.IsDisposed)
+                        System.Windows.Forms.MessageBox.Show(RibbonLocalizer.GetString("PngSourceFailed"), RibbonLocalizer.GetString("PngSourceTitle"));
+                });
+            }
+        }
 
         internal Host.WordAdapter Adapter => _adapter;
         internal bool PipeConnected => _pipeConnected;
@@ -129,6 +166,7 @@ namespace LaTeXSnipper.Word
                                     ["replace_result_revision"] = true,
                                     ["open_documents"] = true,
                                     ["selection_media"] = true,
+                                    ["png_source_read"] = true,
                                 },
                             },
                             contextId, doc?.Name);
@@ -220,6 +258,9 @@ namespace LaTeXSnipper.Word
 
             switch (message)
             {
+                case DesktopPngSourceResult pngSource:
+                    _pngSourceDialog?.Complete(pngSource);
+                    break;
                 case DesktopRequestDocumentTargets listTargets:
                 {
                     var result = _adapter.DocumentTargets();
@@ -526,6 +567,7 @@ namespace LaTeXSnipper.Word
 
         private void ThisAddIn_Shutdown(object sender, System.EventArgs e)
         {
+            _pngSourceDialog?.Close();
             System.Diagnostics.Debug.WriteLine(
                 "[LaTeXSnipper.Word] ThisAddIn_Shutdown reached.");
 

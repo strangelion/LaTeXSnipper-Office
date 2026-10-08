@@ -124,6 +124,43 @@ namespace LaTeXSnipper.Word.Host
             return GetCurrentContextId();
         }
 
+        public VstoReadPngSource? ReadSelectedPngSource()
+        {
+            Microsoft.Office.Interop.Word.Selection? selection = null;
+            Microsoft.Office.Interop.Word.Range? range = null;
+            Microsoft.Office.Interop.Word.InlineShapes? shapes = null;
+            Microsoft.Office.Interop.Word.InlineShape? shape = null;
+            Microsoft.Office.Interop.Word.Range? pictureRange = null;
+            try
+            {
+                string context = GetCurrentContextId();
+                selection = _application.Selection;
+                range = selection.Range;
+                shapes = range.InlineShapes;
+                if (shapes.Count != 1) return null;
+                shape = shapes[1];
+                if (shape.Type != Microsoft.Office.Interop.Word.WdInlineShapeType.wdInlineShapePicture) return null;
+                pictureRange = shape.Range;
+                if (range.Start != pictureRange.Start || range.End != pictureRange.End) return null;
+                byte[]? bytes = WordPngSourceReader.Read(pictureRange.WordOpenXML);
+                if (bytes == null || context != GetCurrentContextId()) return null;
+                using var hash = System.Security.Cryptography.SHA256.Create();
+                return new VstoReadPngSource {
+                    DocumentContextId = context,
+                    CarrierSha256 = BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant(),
+                    PngBase64 = Convert.ToBase64String(bytes),
+                };
+            }
+            finally
+            {
+                ReleaseLocalComObject(pictureRange);
+                ReleaseLocalComObject(shape);
+                ReleaseLocalComObject(shapes);
+                ReleaseLocalComObject(range);
+                ReleaseLocalComObject(selection);
+            }
+        }
+
         public FormulaPayload? ReadSelection()
         {
             try

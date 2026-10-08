@@ -12,6 +12,7 @@
           </box>
         </group>
         <group id="EditGroup" getLabel="GetLabel">
+          <button id="btnReadPngSource" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="PS" imageMso="FileProperties" onAction="OnButtonClick" tag="readPngSource" getEnabled="GetDesktopCommandEnabled"/>
           <button id="btnLoadSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="E" size="large" imageMso="ReviewDisplayForReview" onAction="OnButtonClick" tag="readSelection"/>
           <button id="btnDeleteSelected" getLabel="GetLabel" getScreentip="GetScreentip" getSupertip="GetSupertip" keytip="X" imageMso="Delete" onAction="OnButtonClick" tag="delete"/>
         </group>

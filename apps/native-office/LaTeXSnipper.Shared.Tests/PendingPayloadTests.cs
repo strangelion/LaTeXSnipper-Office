@@ -316,6 +316,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += OleOwnershipTests.Run();
             Console.WriteLine("RUN OleStorageIdentityTests");
             failures += OleStorageIdentityTests.Run();
+            Console.WriteLine("RUN WordPngSourceTests");
+            failures += WordPngSourceTests.Run();
             Console.WriteLine("RUN OfficeStaDispatcherTests");
             failures += OfficeStaDispatcherTests.Run();
             Console.WriteLine("RUN PipeReconnectCoordinatorTests");

@@ -64,6 +64,7 @@
     <Compile Include="Metadata\FormulaDocumentManifest.cs" />
     <Compile Include="OleFormulaInterop.cs" />
     <Compile Include="OleStorageIdentity.cs" />
+    <Compile Include="WordPngSourceReader.cs" />
     <Compile Include="OleFormulaActivation.cs" />
     <Compile Include="OleFormulaPendingPayloadStore.cs" />
     <Compile Include="OfficeOperationLog.cs" />

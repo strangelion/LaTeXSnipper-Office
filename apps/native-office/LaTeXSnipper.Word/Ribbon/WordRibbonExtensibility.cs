@@ -56,6 +56,9 @@ namespace LaTeXSnipper.Word
 
             switch (control.Tag as string)
             {
+                case "readPngSource":
+                    addIn.ReadPngFormulaSource();
+                    break;
                 case "insertInline":
                     addIn.Send(new VstoOpenEditor
                     {

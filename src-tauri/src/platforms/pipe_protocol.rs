@@ -59,6 +59,14 @@ pub const CUSTOM_XML_NAMESPACE: &str = "urn:latexsnipper:office:objects:v3";
     reason = "Field names and enum layout are fixed by the VSTO wire protocol"
 )]
 pub enum VstoMessage {
+    #[serde(rename = "READ_PNG_SOURCE")]
+    ReadPngSource {
+        requestId: String,
+        sessionId: String,
+        documentContextId: String,
+        carrierSha256: String,
+        pngBase64: String,
+    },
     #[serde(rename = "HELLO")]
     Hello {
         requestId: String,
@@ -334,6 +342,15 @@ pub enum VstoMessage {
     reason = "Field names are fixed by the VSTO wire protocol"
 )]
 pub enum DesktopMessage {
+    #[serde(rename = "PNG_SOURCE_RESULT")]
+    PngSourceResult {
+        requestId: String,
+        sessionId: String,
+        documentContextId: String,
+        carrierSha256: String,
+        #[serde(flatten)]
+        result: super::png_source::SourceResult,
+    },
     #[serde(rename = "HELLO_ACK")]
     HelloAck {
         requestId: String,

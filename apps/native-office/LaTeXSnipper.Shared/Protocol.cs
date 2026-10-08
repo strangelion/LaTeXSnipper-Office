@@ -65,6 +65,7 @@ public static class NativeOfficeProtocol
 [JsonDerivedType(typeof(VstoRequestReference), "REQUEST_REFERENCE")]
 [JsonDerivedType(typeof(VstoRequestBoundary), "REQUEST_BOUNDARY")]
 [JsonDerivedType(typeof(VstoReadSelection), "READ_SELECTION")]
+[JsonDerivedType(typeof(VstoReadPngSource), "READ_PNG_SOURCE")]
 [JsonDerivedType(typeof(VstoFormulaSnapshot), "FORMULA_SNAPSHOT")]
 [JsonDerivedType(typeof(VstoDocumentTargetsResult), "DOCUMENT_TARGETS_RESULT")]
 [JsonDerivedType(typeof(VstoReadTable), "READ_TABLE")]
@@ -392,6 +393,7 @@ public class VstoHostError : VstoMessage
 [JsonDerivedType(typeof(DesktopInsertTable), "INSERT_TABLE")]
 [JsonDerivedType(typeof(DesktopImportConversation), "IMPORT_CONVERSATION")]
 [JsonDerivedType(typeof(DesktopRequestReadSelection), "REQUEST_READ_SELECTION")]
+[JsonDerivedType(typeof(DesktopPngSourceResult), "PNG_SOURCE_RESULT")]
 [JsonDerivedType(typeof(DesktopRequestReadFormula), "REQUEST_READ_FORMULA")]
 [JsonDerivedType(typeof(DesktopRequestDocumentTargets), "REQUEST_DOCUMENT_TARGETS")]
 [JsonDerivedType(typeof(DesktopActivateDocumentTarget), "ACTIVATE_DOCUMENT_TARGET")]
@@ -504,6 +506,30 @@ public class DesktopInsertEquationList : DesktopMessage { }
 public class DesktopCheckNumbering : DesktopMessage { }
 
 public class DesktopRequestReadSelection : DesktopMessage { }
+
+public class VstoReadPngSource : VstoMessage
+{
+    [JsonPropertyName("documentContextId")] public string DocumentContextId { get; set; } = "";
+    [JsonPropertyName("carrierSha256")] public string CarrierSha256 { get; set; } = "";
+    [JsonPropertyName("pngBase64")] public string PngBase64 { get; set; } = "";
+}
+
+public class FormulaSourceCandidate
+{
+    [JsonPropertyName("format")] public string Format { get; set; } = "";
+    [JsonPropertyName("source")] public string Source { get; set; } = "";
+    [JsonPropertyName("provenance")] public string Provenance { get; set; } = "";
+}
+
+public class DesktopPngSourceResult : DesktopMessage
+{
+    [JsonPropertyName("documentContextId")] public string DocumentContextId { get; set; } = "";
+    [JsonPropertyName("carrierSha256")] public string CarrierSha256 { get; set; } = "";
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("conflict")] public bool Conflict { get; set; }
+    [JsonPropertyName("candidates")] public List<FormulaSourceCandidate> Candidates { get; set; } = new();
+    [JsonPropertyName("errorCode")] public string? ErrorCode { get; set; }
+}
 
 public class DesktopRequestDocumentTargets : DesktopMessage { }
 public class DesktopActivateDocumentTarget : DesktopDocumentCommand

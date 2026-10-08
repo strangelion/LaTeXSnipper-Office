@@ -183,6 +183,7 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Settings.settings</DependentUpon>
     </Compile>
+    <Compile Include="Ribbon\PngSourceDialog.cs" />
     <Compile Include="Ribbon\WordRibbonExtensibility.cs">
       <SubType>Code</SubType>
     </Compile>

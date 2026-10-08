@@ -3381,6 +3381,8 @@ version = "3.2.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "crc32fast",
+ "flate2",
  "imagesize 0.13.0",
  "latexsnipper-ast",
  "latexsnipper-export",

@@ -326,6 +326,43 @@ impl SessionManager {
                 }
             }
 
+            VstoMessage::ReadPngSource {
+                requestId,
+                sessionId,
+                documentContextId,
+                carrierSha256,
+                pngBase64,
+            } => {
+                let allowed = self.sessions.read().await.get(&sessionId).is_some_and(|s| {
+                    s.host_type == HostType::Word
+                        && s.document_id.as_deref() == Some(documentContextId.as_str())
+                        && !documentContextId.is_empty()
+                        && documentContextId.len() <= 4096
+                });
+                let result = if allowed {
+                    super::png_source::inspect(&pngBase64, &carrierSha256)
+                } else {
+                    super::png_source::SourceResult {
+                        error_code: Some("CONTEXT_CHANGED".into()),
+                        ..Default::default()
+                    }
+                };
+                HandleMessageResult {
+                    response: ResponseEnvelope {
+                        requestId: requestId.clone(),
+                        sessionId: sessionId.clone(),
+                        response: DesktopMessage::PngSourceResult {
+                            requestId,
+                            sessionId,
+                            documentContextId,
+                            carrierSha256,
+                            result,
+                        },
+                    },
+                    connection_id: None,
+                }
+            }
+
             VstoMessage::ReadSelection {
                 requestId,
                 sessionId,

@@ -133,6 +133,7 @@ namespace LaTeXSnipper.Word.HostTests
         [STAThread]
         private static int Main(string[] args)
         {
+            if (args.Length == 1 && args[0] == "--png-viewer") return PngSourceAcceptance.Viewer();
             bool oleMode = args.Length == 4 &&
                 string.Equals(args[2], "--ole", StringComparison.OrdinalIgnoreCase);
             bool formatConversionMode = args.Length == 4 &&
@@ -172,6 +173,7 @@ namespace LaTeXSnipper.Word.HostTests
                 string.Equals(args[2], "--selection-latex", StringComparison.OrdinalIgnoreCase);
             bool documentTargetsMode = args.Length == 3 &&
                 string.Equals(args[2], "--document-targets", StringComparison.OrdinalIgnoreCase);
+            bool pngSourceMode = args.Length == 3 && string.Equals(args[2], "--png-source", StringComparison.OrdinalIgnoreCase);
             bool skipPreflight = args.Length == 3 &&
                 string.Equals(
                     args[2],
@@ -179,14 +181,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --png-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -242,6 +244,8 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (pngSourceMode)
+                    return PngSourceAcceptance.Run(application, ref document, adapter, evidenceDirectory);
                 if (ownedOleReadMode)
                     return OleReadBoundaryAcceptance.Run(application, ref document, adapter, args[3], evidenceDirectory);
                 if (standardMode)
