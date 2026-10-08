@@ -27,6 +27,9 @@ Word 原生 Ribbon 已实现有限“读取 PNG 公式源”入口：精确选�
 PNG，经 Core 检查元数据，在 Word 内查看和复制候选源码；见 [入口说明](png-source-read.md)。
 安装版 Ribbon→管道→Core→窗口的完整运行尚未验证。
 
-下一步：同步 Excel/PowerPoint 等宿主；补 SVG/XMP、有界容器提取，以及
+Core 已有有限 SVG metadata 提取及 native 导入器候选元数据，并保留源码片段位置；
+SVG 的 Word 选区入口和 XMP profile 尚未接入。
+
+下一步：同步 Excel/PowerPoint 等宿主；补 SVG 宿主入口、XMP、有界容器提取，以及
 通用选区/文档清单读取入口。MTEF 目前仍只有 raw
 检查与去重/结构分组，没有语义转换、第三方写回或正式 UI 支持。
