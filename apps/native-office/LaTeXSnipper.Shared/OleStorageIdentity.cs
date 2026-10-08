@@ -49,7 +49,7 @@ public static class OleStorageIdentity
     /// </summary>
     public static Guid? ReadSelectedWordStorageClass(string? xml)
     {
-        if (string.IsNullOrEmpty(xml) || xml.Length > MaxWordXmlChars) return null;
+        if (xml == null || xml.Length == 0 || xml.Length > MaxWordXmlChars) return null;
         try
         {
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit,
