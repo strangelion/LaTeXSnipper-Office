@@ -175,6 +175,7 @@ namespace LaTeXSnipper.Excel.Host
                             }
                         }
                     }
+                    catch (HostIdentityReconciliationException) { throw; }
                     catch (Exception ex)
                     {
                         OfficeOperationLog.Failure("read-ole-selection", "excel", formulaId, ex);
@@ -185,24 +186,32 @@ namespace LaTeXSnipper.Excel.Host
                     var altText = shape.AlternativeText as string;
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
                     {
-                        return new FormulaPayload
+                        return ReconcileCopiedFormulaIdentity(shape, new FormulaPayload
                         {
-                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
+                            FormulaId = formulaId ?? "",
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
-                            Display = "inline"
-                        };
+                            Display = "inline", StorageMode = HostPictureSnapshot.IsPicture(shape) ? "image" : "ole"
+                        }, null);
                     }
 
                     // Layer 1c: v3 alt text format (LSNO:v3:id=...;storage=...)
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO:v3:"))
                     {
-                        return new FormulaPayload
+                        Microsoft.Office.Interop.Excel.Worksheet? owner = null;
+                        Microsoft.Office.Interop.Excel.Workbook? book = null; Microsoft.Office.Core.CustomXMLParts? parts = null;
+                        try
                         {
-                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
-                            Latex = "",
-                            Display = "inline",
-                            StorageMode = "ole"
-                        };
+                            owner = HostIdentityReconciliation.FindOwner<Microsoft.Office.Interop.Excel.Worksheet>(shape);
+                            book = (Microsoft.Office.Interop.Excel.Workbook)owner.Parent; parts = book.CustomXMLParts;
+                            return ReconcileCopiedFormulaIdentity(shape, HostIdentityReconciliation.ReadLegacyReference(parts, altText, formulaId), null);
+                        }
+                        catch (HostIdentityReconciliationException) { throw; }
+                        catch (Exception error) { throw new HostIdentityReconciliationException("HOST_IDENTITY_SOURCE_UNAVAILABLE", error); }
+                        finally
+                        {
+                            if (parts != null) Marshal.ReleaseComObject(parts); if (book != null) Marshal.ReleaseComObject(book);
+                            if (owner != null) Marshal.ReleaseComObject(owner);
+                        }
                     }
 
                     // Layer 1d: JSON-based alt text format
@@ -215,6 +224,7 @@ namespace LaTeXSnipper.Excel.Host
                             if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
                                 return ReconcileCopiedFormulaIdentity(shape, jsonPayload, null);
                         }
+                        catch (HostIdentityReconciliationException) { throw; }
                         catch (Exception ex) { OfficeOperationLog.Failure("read-ole-payload", "excel", formulaId, ex); }
                     }
                 }
@@ -255,27 +265,26 @@ namespace LaTeXSnipper.Excel.Host
                                             var payload = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
                                                 new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                             if (payload != null && !string.IsNullOrEmpty(payload.FormulaId))
-                                                return payload;
+                                                return hostShape == null ? throw new HostIdentityReconciliationException("HOST_IDENTITY_TARGET_UNAVAILABLE",
+                                                    new InvalidOperationException("OLE source has no captured host shape.")) :
+                                                    ReconcileCopiedFormulaIdentity(hostShape, payload, automation);
                                         }
                                     }
                                 }
+                                catch (HostIdentityReconciliationException) { throw; }
                                 catch (Exception ex) { OfficeOperationLog.Failure("read-shape-metadata", "excel", extractedId, ex); }
 
                                 // Fallback: alt text with formula ID
                                 if (!string.IsNullOrEmpty(extractedId))
                                 {
-                                    return new FormulaPayload
-                                    {
-                                        FormulaId = extractedId,
-                                        Latex = "",
-                                        Display = "inline",
-                                        StorageMode = "ole"
-                                    };
+                                    throw new HostIdentityReconciliationException("HOST_IDENTITY_SOURCE_UNAVAILABLE",
+                                        new InvalidOperationException("OLE identity exists but its source could not be read."));
                                 }
                             }
                         }
                     }
                 }
+                catch (HostIdentityReconciliationException) { throw; }
                 catch (Exception ex) { OfficeOperationLog.Failure("read-selected-shape", "excel", null, ex); }
 
                 // Layer 2: read cell text
@@ -294,6 +303,7 @@ namespace LaTeXSnipper.Excel.Host
                     }
                 }
             }
+            catch (HostIdentityReconciliationException) { throw; }
             catch (Exception ex) { OfficeOperationLog.Failure("read-selection", "excel", null, ex); }
             return null;
         }
@@ -327,8 +337,11 @@ namespace LaTeXSnipper.Excel.Host
             try
             {
                 selection = _application.Selection;
-                if (selection is Microsoft.Office.Interop.Excel.ShapeRange shapeRange && shapeRange.Count > 0)
+                if (selection is Microsoft.Office.Interop.Excel.ShapeRange shapeRange)
+                {
+                    if (shapeRange.Count != 1) throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS", new InvalidOperationException("Select one formula object."));
                     return shapeRange.Item(1);
+                }
 
                 try
                 {
@@ -338,6 +351,8 @@ namespace LaTeXSnipper.Excel.Host
                         null,
                         selection,
                         null);
+                    if ((int)((dynamic)reflectedRange).Count != 1)
+                        throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS", new InvalidOperationException("Select one formula object."));
                     object reflectedShape = reflectedRange.GetType().InvokeMember(
                         "Item",
                         System.Reflection.BindingFlags.GetProperty |
@@ -347,6 +362,7 @@ namespace LaTeXSnipper.Excel.Host
                         new object[] { 1 });
                     if (reflectedShape != null) return reflectedShape;
                 }
+                catch (HostIdentityReconciliationException) { throw; }
                 catch (Exception ex)
                 {
                     OfficeOperationLog.Failure("resolve-selected-shape-range", "excel", null, ex);
@@ -376,8 +392,10 @@ namespace LaTeXSnipper.Excel.Host
                 try
                 {
                     dynamic range = selected.ShapeRange;
-                    if (range != null && range.Count > 0) return range.Item(1);
+                    if (range != null && range.Count > 1) throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS", new InvalidOperationException("Select one formula object."));
+                    if (range != null && range.Count == 1) return range.Item(1);
                 }
+                catch (HostIdentityReconciliationException) { throw; }
                 catch (Exception ex)
                 {
                     OfficeOperationLog.Failure("resolve-selected-shape-direct-range", "excel", null, ex);
@@ -387,13 +405,16 @@ namespace LaTeXSnipper.Excel.Host
                 {
                     dynamic item = selected.Item(1);
                     dynamic range = item.ShapeRange;
-                    if (range != null && range.Count > 0) return range.Item(1);
+                    if (range != null && range.Count > 1) throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS", new InvalidOperationException("Select one formula object."));
+                    if (range != null && range.Count == 1) return range.Item(1);
                 }
+                catch (HostIdentityReconciliationException) { throw; }
                 catch (Exception ex)
                 {
                     OfficeOperationLog.Failure("resolve-selected-shape-item-range", "excel", null, ex);
                 }
             }
+            catch (HostIdentityReconciliationException) { throw; }
             catch (Exception ex)
             {
                 OfficeOperationLog.Failure("resolve-selected-shape", "excel", null, ex);
@@ -462,43 +483,26 @@ namespace LaTeXSnipper.Excel.Host
             }
         }
 
-        private string EnsureShapeFormulaId(dynamic shape, string? formulaId)
+        internal FormulaPayload ReconcileCopiedFormulaIdentity(object shape, FormulaPayload payload, object? automation)
         {
-            if (!string.IsNullOrEmpty(formulaId) && FormulaIdHelper.IsCanonical(formulaId))
-                return formulaId;
-            string newId = FormulaIdHelper.NewId();
-            try { shape.Name = $"LSNO_{newId}"; }
-            catch (Exception ex) { OfficeOperationLog.Failure("write-shape-name", "excel", newId, ex); }
-            OfficeOperationLog.Event("reassign-copied-formula-id", "excel", newId);
-            return newId;
-        }
-
-        private FormulaPayload ReconcileCopiedFormulaIdentity(dynamic shape, FormulaPayload payload, dynamic? automation)
-        {
-            string actualId = ExtractFormulaIdFromShapeName(shape.Name as string)
-                ?? ExtractFormulaIdFromShapeMetadata(shape)
-                ?? "";
-            int exactMatches = 0;
-            var sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
-            if (sheet != null)
+            Microsoft.Office.Interop.Excel.Worksheet? sheet = null;
+            Microsoft.Office.Interop.Excel.Workbook? workbook = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
+            try
             {
-                foreach (Microsoft.Office.Interop.Excel.Shape candidate in sheet.Shapes)
-                    if (ShapeMatchesFormulaId(candidate, payload.FormulaId)) exactMatches++;
+                sheet = HostIdentityReconciliation.FindOwner<Microsoft.Office.Interop.Excel.Worksheet>(shape);
+                workbook = (Microsoft.Office.Interop.Excel.Workbook)sheet.Parent; parts = workbook.CustomXMLParts;
+                return HostIdentityReconciliation.ReconcileShape(parts, shape, payload, "excel",
+                    "excel:" + workbook.FullName, workbook.ReadOnly,
+                    (entries, id) => ManifestDiagnostics.ReadShapeInventory(workbook, false, entries).Count(value => value == id), automation);
             }
-            if (string.Equals(actualId, payload.FormulaId, StringComparison.Ordinal) && exactMatches <= 1)
-                return payload;
-
-            string previousId = payload.FormulaId;
-            payload.FormulaId = FormulaIdHelper.NewId();
-            payload.Revision = 0;
-            if (automation != null && !OleFormulaInterop.ReplacePayloadJson(automation, payload))
+            catch (HostIdentityReconciliationException) { throw; }
+            catch (Exception error) { throw new HostIdentityReconciliationException("HOST_IDENTITY_RECONCILE_FAILED", error); }
+            finally
             {
-                payload.FormulaId = previousId;
-                throw new InvalidOperationException("Failed to persist a reassigned formulaId to the copied OLE object.");
+                if (parts != null) Marshal.ReleaseComObject(parts); if (workbook != null) Marshal.ReleaseComObject(workbook);
+                if (sheet != null) Marshal.ReleaseComObject(sheet);
             }
-            WriteShapeIdentity(shape, payload);
-            OfficeOperationLog.Event("reassign-copied-formula-id", "excel", payload.FormulaId);
-            return payload;
         }
 
         /// <summary>

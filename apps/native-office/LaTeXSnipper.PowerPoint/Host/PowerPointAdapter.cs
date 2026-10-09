@@ -172,6 +172,8 @@ namespace LaTeXSnipper.PowerPoint.Host
             if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
             {
                 var shapeRange = sel.ShapeRange;
+                if (shapeRange != null && shapeRange.Count != 1)
+                    throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS", new InvalidOperationException("Select one formula object."));
                 if (shapeRange != null && shapeRange.Count > 0)
                 {
                     var shape = shapeRange[1];
@@ -195,6 +197,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                             }
                         }
                     }
+                    catch (HostIdentityReconciliationException) { throw; }
                     catch (Exception ex)
                     {
                         OfficeOperationLog.Failure("read-ole-selection", "powerpoint", formulaId, ex);
@@ -205,24 +208,32 @@ namespace LaTeXSnipper.PowerPoint.Host
                     var altText = shape.AlternativeText as string;
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO_FORMULA:"))
                     {
-                        return new FormulaPayload
+                        return ReconcileCopiedFormulaIdentity(shape, new FormulaPayload
                         {
-                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
+                            FormulaId = formulaId ?? "",
                             Latex = altText.Substring("LSNO_FORMULA:".Length),
-                            Display = "inline"
-                        };
+                            Display = "inline", StorageMode = HostPictureSnapshot.IsPicture(shape) ? "image" : "ole"
+                        }, null);
                     }
 
                     // Layer 1c: v3 alt text format
                     if (!string.IsNullOrEmpty(altText) && altText.StartsWith("LSNO:v3:"))
                     {
-                        return new FormulaPayload
+                        Microsoft.Office.Interop.PowerPoint.Slide? owner = null;
+                        Microsoft.Office.Interop.PowerPoint.Presentation? presentation = null; Microsoft.Office.Core.CustomXMLParts? parts = null;
+                        try
                         {
-                            FormulaId = EnsureShapeFormulaId(shape, formulaId),
-                            Latex = "",
-                            Display = "inline",
-                            StorageMode = "ole"
-                        };
+                            owner = HostIdentityReconciliation.FindOwner<Microsoft.Office.Interop.PowerPoint.Slide>(shape);
+                            presentation = (Microsoft.Office.Interop.PowerPoint.Presentation)owner.Parent; parts = presentation.CustomXMLParts;
+                            return ReconcileCopiedFormulaIdentity(shape, HostIdentityReconciliation.ReadLegacyReference(parts, altText, formulaId), null);
+                        }
+                        catch (HostIdentityReconciliationException) { throw; }
+                        catch (Exception error) { throw new HostIdentityReconciliationException("HOST_IDENTITY_SOURCE_UNAVAILABLE", error); }
+                        finally
+                        {
+                            if (parts != null) Marshal.ReleaseComObject(parts); if (presentation != null) Marshal.ReleaseComObject(presentation);
+                            if (owner != null) Marshal.ReleaseComObject(owner);
+                        }
                     }
 
                     // Layer 1c: JSON-based alt text format
@@ -235,6 +246,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                             if (jsonPayload != null && !string.IsNullOrEmpty(jsonPayload.FormulaId))
                                 return ReconcileCopiedFormulaIdentity(shape, jsonPayload, null);
                         }
+                        catch (HostIdentityReconciliationException) { throw; }
                         catch (Exception ex) { OfficeOperationLog.Failure("read-ole-payload", "powerpoint", formulaId, ex); }
                     }
                 }
@@ -418,42 +430,26 @@ namespace LaTeXSnipper.PowerPoint.Host
             return null;
         }
 
-        private string EnsureShapeFormulaId(dynamic shape, string? formulaId)
+        internal FormulaPayload ReconcileCopiedFormulaIdentity(object shape, FormulaPayload payload, object? automation)
         {
-            if (!string.IsNullOrEmpty(formulaId) && FormulaIdHelper.IsCanonical(formulaId))
-                return formulaId;
-            string newId = FormulaIdHelper.NewId();
-            shape.Name = $"LSNO_{newId}";
-            OfficeOperationLog.Event("reassign-copied-formula-id", "powerpoint", newId);
-            return newId;
-        }
-
-        private FormulaPayload ReconcileCopiedFormulaIdentity(dynamic shape, FormulaPayload payload, dynamic? automation)
-        {
-            string expectedName = $"LSNO_{payload.FormulaId}";
-            string actualName = shape.Name as string ?? "";
-            int exactMatches = 0;
-            var slide = _application.ActiveWindow?.View?.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
-            if (slide != null)
+            Microsoft.Office.Interop.PowerPoint.Slide? slide = null;
+            Microsoft.Office.Interop.PowerPoint.Presentation? presentation = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
+            try
             {
-                foreach (Microsoft.Office.Interop.PowerPoint.Shape candidate in slide.Shapes)
-                    if (string.Equals(candidate.Name, expectedName, StringComparison.Ordinal)) exactMatches++;
+                slide = HostIdentityReconciliation.FindOwner<Microsoft.Office.Interop.PowerPoint.Slide>(shape);
+                presentation = (Microsoft.Office.Interop.PowerPoint.Presentation)slide.Parent; parts = presentation.CustomXMLParts;
+                return HostIdentityReconciliation.ReconcileShape(parts, shape, payload, "powerpoint",
+                    "powerpoint:" + presentation.FullName, presentation.ReadOnly == Microsoft.Office.Core.MsoTriState.msoTrue,
+                    (entries, id) => ManifestDiagnostics.ReadShapeInventory(presentation, true, entries).Count(value => value == id), automation);
             }
-            if (string.Equals(actualName, expectedName, StringComparison.Ordinal) && exactMatches <= 1)
-                return payload;
-
-            string previousId = payload.FormulaId;
-            payload.FormulaId = FormulaIdHelper.NewId();
-            payload.Revision = 0;
-            if (automation != null && !OleFormulaInterop.ReplacePayloadJson(automation, payload))
+            catch (HostIdentityReconciliationException) { throw; }
+            catch (Exception error) { throw new HostIdentityReconciliationException("HOST_IDENTITY_RECONCILE_FAILED", error); }
+            finally
             {
-                payload.FormulaId = previousId;
-                throw new InvalidOperationException("Failed to persist a reassigned formulaId to the copied OLE object.");
+                if (parts != null) Marshal.ReleaseComObject(parts); if (presentation != null) Marshal.ReleaseComObject(presentation);
+                if (slide != null) Marshal.ReleaseComObject(slide);
             }
-            shape.Name = $"LSNO_{payload.FormulaId}";
-            shape.AlternativeText = System.Text.Json.JsonSerializer.Serialize(payload);
-            OfficeOperationLog.Event("reassign-copied-formula-id", "powerpoint", payload.FormulaId);
-            return payload;
         }
 
         public bool DeleteCurrent()

@@ -33,6 +33,7 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="CrossHostManifestAcceptance.cs" />
+    <Compile Include="CopiedIdentityAcceptance.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LaTeXSnipper.Shared\LaTeXSnipper.Shared.csproj">

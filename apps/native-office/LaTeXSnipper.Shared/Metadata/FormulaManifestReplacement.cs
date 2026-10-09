@@ -87,11 +87,15 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         internal static string BuildReplacement(IFormulaManifestReplacementStore store, FormulaPayload payload, string host)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
+            return BuildReplacementFromXml(store.ReadOriginal(), payload, host);
+        }
+
+        internal static string BuildReplacementFromXml(string? original, FormulaPayload payload, string host)
+        {
             if (host != "word" && host != "excel" && host != "powerpoint")
                 throw new InvalidOperationException("MANIFEST_HOST_INVALID");
             if (payload == null || string.IsNullOrWhiteSpace(payload.FormulaId) || payload.FormulaId.Length > 256)
                 throw new InvalidOperationException("MANIFEST_PAYLOAD_ID_INVALID");
-            string? original = store.ReadOriginal();
             var root = original == null ? new XElement(XName.Get("manifest", NamespaceUri)) : Parse(original);
             if (root.Name != XName.Get("manifest", NamespaceUri))
                 throw new InvalidOperationException("MANIFEST_ROOT_INVALID");

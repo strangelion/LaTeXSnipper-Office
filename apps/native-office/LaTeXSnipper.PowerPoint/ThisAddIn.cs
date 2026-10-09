@@ -225,12 +225,17 @@ namespace LaTeXSnipper.PowerPoint
                 }
                 case DesktopRequestReadSelection readCmd:
                 {
-                    var formula = _adapter.ReadSelection();
-                    _ = _pipeClient.SendAsync(new VstoReadSelection
+                    try
                     {
-                        RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
-                        Formula = formula, RangeXml = formula?.Omml
-                    });
+                        var formula = _adapter.ReadSelection();
+                        _ = _pipeClient.SendAsync(new VstoReadSelection { RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
+                            Formula = formula, RangeXml = formula?.Omml });
+                    }
+                    catch (HostIdentityReconciliationException error)
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoHostError { RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
+                            ErrorCode = error.ErrorCode, Error = error.Message });
+                    }
                     break;
                 }
                 case DesktopDeleteCurrent delCmd:

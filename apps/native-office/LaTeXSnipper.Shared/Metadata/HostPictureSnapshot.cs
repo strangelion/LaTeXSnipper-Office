@@ -14,6 +14,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         private float Left, Top, Width, Height, Rotation, CandidateWidth, CandidateHeight;
         private int ZOrder, Type, HorizontalFlip, VerticalFlip, Aspect, Visible;
         private int? Placement;
+        public string OriginalName => Name;
+        public string OriginalAlternativeText => AlternativeText;
 
         public static bool IsPicture(object value)
         {
@@ -75,8 +77,13 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         public bool Matches(object value)
         {
             dynamic shape = value;
-            return shape.Id == Id && shape.Name == Name && (shape.AlternativeText ?? "") == AlternativeText &&
-                (int)shape.Type == Type && Near(shape.Left, Left) && Near(shape.Top, Top) &&
+            return shape.Name == Name && (shape.AlternativeText ?? "") == AlternativeText && MatchesLayout(value);
+        }
+
+        public bool MatchesLayout(object value)
+        {
+            dynamic shape = value;
+            return shape.Id == Id && (int)shape.Type == Type && Near(shape.Left, Left) && Near(shape.Top, Top) &&
                 Near(shape.Width, Width) && Near(shape.Height, Height) && Near(shape.Rotation, Rotation) &&
                 shape.ZOrderPosition == ZOrder && (int)shape.HorizontalFlip == HorizontalFlip &&
                 (int)shape.VerticalFlip == VerticalFlip && (int)shape.LockAspectRatio == Aspect &&

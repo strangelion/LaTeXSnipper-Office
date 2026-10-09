@@ -68,6 +68,7 @@
     <Compile Include="Metadata\HostManifestInsertion.cs" />
     <Compile Include="Metadata\HostImageReplacement.cs" />
     <Compile Include="Metadata\HostFormulaDeletion.cs" />
+    <Compile Include="Metadata\HostIdentityReconciliation.cs" />
     <Compile Include="Metadata\HostPictureSnapshot.cs" />
     <Compile Include="OleFormulaInterop.cs" />
     <Compile Include="OleStorageIdentity.cs" />

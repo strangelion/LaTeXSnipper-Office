@@ -48,6 +48,7 @@
     <Compile Include="ManifestDeletionTests.cs" />
     <Compile Include="HostManifestInsertionTests.cs" />
     <Compile Include="HostImageReplacementTests.cs" />
+    <Compile Include="HostIdentityReconciliationTests.cs" />
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OleOwnershipTests.cs" />

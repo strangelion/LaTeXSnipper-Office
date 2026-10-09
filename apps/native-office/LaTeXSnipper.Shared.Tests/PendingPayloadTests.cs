@@ -296,6 +296,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             if (args.Length == 1 && args[0] == "--manifest-delete") return ManifestDeletionTests.Run() == 0 ? 0 : 1;
             if (args.Length == 1 && args[0] == "--host-manifest") return HostManifestInsertionTests.Run() == 0 ? 0 : 1;
             if (args.Length == 1 && args[0] == "--image-replacement") return HostImageReplacementTests.Run() == 0 ? 0 : 1;
+            if (args.Length == 1 && args[0] == "--copied-identity") return HostIdentityReconciliationTests.Run() == 0 ? 0 : 1;
 
             Console.WriteLine("RUN TestCrossThreadRead");
             TestCrossThreadRead();
@@ -351,6 +352,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += ManifestDeletionTests.Run();
             failures += HostManifestInsertionTests.Run();
             failures += HostImageReplacementTests.Run();
+            failures += HostIdentityReconciliationTests.Run();
             Console.WriteLine("RUN FormulaIdTests");
             string formulaId = FormulaIdHelper.NewId();
             Expect(FormulaIdHelper.IsCanonical(formulaId), "generated formulaId is not canonical");
