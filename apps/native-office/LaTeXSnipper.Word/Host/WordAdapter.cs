@@ -1410,7 +1410,8 @@ namespace LaTeXSnipper.Word.Host
                     mode);
                 if (styleFailure != null) return styleFailure;
 
-                FormulaDocumentManifest.Write(doc, payload);
+                var metadataFailure = CommitNativeManifestOrRollback(doc, candidate, payload);
+                if (metadataFailure != null) return metadataFailure;
                 var committedRange = candidate.Range.Duplicate;
 
                 return new InsertResult
@@ -1492,29 +1493,8 @@ namespace LaTeXSnipper.Word.Host
                         InsertMode.Inline));
                     if (styleFailure != null) return styleFailure;
 
-                    try
-                    {
-                        MeasureBatchStage("manifest-write", () =>
-                        {
-                            if (_manifestAppendSession != null) _manifestAppendSession.WriteNew(doc, payload);
-                            else FormulaDocumentManifest.Write(doc, payload);
-                            return true;
-                        });
-                    }
-                    catch (Exception metadataError)
-                    {
-                        // Metadata must persist before the executor deletes the source.
-                        // Remove this exact candidate, not a lookup of a colliding ID.
-                        try
-                        {
-                            candidate.LockContents = false;
-                            candidate.LockContentControl = false;
-                            candidate.Delete(true);
-                        }
-                        catch (Exception cleanup) { OfficeOperationLog.Failure("batch-metadata-candidate-cleanup", "word", payload.FormulaId, cleanup); }
-                        return new InsertResult { Success = false, ErrorCode = "BATCH_MANIFEST_WRITE_FAILED",
-                            Error = metadataError.Message };
-                    }
+                    var metadataFailure = CommitNativeManifestOrRollback(doc, candidate, payload);
+                    if (metadataFailure != null) return metadataFailure;
                     var committedRange = candidate.Range.Duplicate;
 
                     return new InsertResult
@@ -1538,6 +1518,36 @@ namespace LaTeXSnipper.Word.Host
             {
                 System.Diagnostics.Debug.WriteLine($"[WordAdapter] InsertWordInlineNative error: {ex.Message}");
                 return new InsertResult { Success = false, Error = $"Inline formula insert failed: {ex.Message}" };
+            }
+        }
+
+        private InsertResult? CommitNativeManifestOrRollback(
+            Microsoft.Office.Interop.Word.Document document,
+            Microsoft.Office.Interop.Word.ContentControl candidate,
+            FormulaPayload payload)
+        {
+            try
+            {
+                MeasureBatchStage("manifest-write", () =>
+                {
+                    if (_manifestAppendSession != null) _manifestAppendSession.WriteNew(document, payload);
+                    else FormulaDocumentManifest.Write(document, payload);
+                    return true;
+                });
+                return null;
+            }
+            catch (Exception metadataError)
+            {
+                // Metadata must persist before the executor deletes the source.
+                // Remove this exact candidate, not a lookup of a colliding ID.
+                try
+                {
+                    candidate.LockContents = false;
+                    candidate.LockContentControl = false;
+                    candidate.Delete(true);
+                }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("metadata-candidate-cleanup", "word", payload.FormulaId, cleanup); }
+                return new InsertResult { Success = false, ErrorCode = "BATCH_MANIFEST_WRITE_FAILED", Error = metadataError.Message };
             }
         }
 
@@ -2623,7 +2633,17 @@ namespace LaTeXSnipper.Word.Host
                     }
                 }
 
-                FormulaDocumentManifest.Write(doc, payload);
+                try { FormulaDocumentManifest.Write(doc, payload); }
+                catch
+                {
+                    try
+                    {
+                        if (cc != null) { cc.LockContents = false; cc.LockContentControl = false; cc.Delete(true); }
+                        else oleShape.Delete();
+                    }
+                    catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-ole-metadata-failure", "word", payload.FormulaId, cleanup); }
+                    throw;
+                }
 
                 return new InsertResult
                 {

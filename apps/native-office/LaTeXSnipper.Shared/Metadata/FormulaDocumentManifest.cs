@@ -29,28 +29,14 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                dynamic existing = FindOrCreatePart(doc);
-                var existingXml = (string?)GetPartXml(existing);
-                var xdoc = ParseOrCreate(existingXml);
-
-                // Remove old entry for this formulaId, then add new one
-                var root = xdoc.Root!;
-                var oldEntry = root.Elements()
-                    .FirstOrDefault(e => (string?)e.Attribute("id") == payload.FormulaId);
-                if (oldEntry != null)
-                    oldEntry.Remove();
-
-                root.Add(BuildWordEntryElement(payload));
-
-                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
-
-                // Add new part BEFORE deleting old one (protect against Add failure)
-                doc.CustomXMLParts.Add(newXml);
-                existing.Delete();
+                using var store = new WordManifestReplacementStore(doc);
+                FormulaManifestReplacement.Write(store, payload);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Write failed: {ex.Message}");
+                OfficeOperationLog.Failure("write-word-manifest", "word", payload?.FormulaId, ex);
+                throw;
             }
         }
 
@@ -203,16 +189,6 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         }
 
         // ── Private helpers ──
-
-        private static dynamic FindOrCreatePart(Microsoft.Office.Interop.Word.Document doc)
-        {
-            var existing = FindPart(doc);
-            if (existing != null) return existing;
-
-            var emptyXml = $"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />";
-            doc.CustomXMLParts.Add(emptyXml);
-            return FindPart(doc)!;
-        }
 
         private static string? GetPartXml(object part)
         {

@@ -63,6 +63,7 @@
     <Compile Include="SpreadsheetTablePayload.cs" />
     <Compile Include="Metadata\FormulaDocumentManifest.cs" />
     <Compile Include="Metadata\FormulaManifestAppendSession.cs" />
+    <Compile Include="Metadata\FormulaManifestReplacement.cs" />
     <Compile Include="OleFormulaInterop.cs" />
     <Compile Include="OleStorageIdentity.cs" />
     <Compile Include="WordPngSourceReader.cs" />

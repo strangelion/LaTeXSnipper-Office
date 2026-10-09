@@ -29,6 +29,7 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
   </ItemGroup>
   <ItemGroup>
@@ -43,6 +44,7 @@
   <ItemGroup>
     <Compile Include="PendingPayloadTests.cs" />
     <Compile Include="ManifestAppendTests.cs" />
+    <Compile Include="ManifestReplacementTests.cs" />
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OleOwnershipTests.cs" />

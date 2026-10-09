@@ -21,6 +21,7 @@ namespace LaTeXSnipper.Word.HostTests
             try
             {
                 const string ns = "urn:latexsnipper:office:objects:v3";
+                foreach (bool incremental in new[] { false, true })
                 foreach (bool ambiguous in new[] { true, false })
                 {
                     string source = $"Before ${fixture.Latex}$ After\r";
@@ -35,7 +36,7 @@ namespace LaTeXSnipper.Word.HostTests
                     try
                     {
                         var candidate = new WordBatchLatexScanner(app, doc).Scan().Single();
-                        var result = new WordBatchConversionExecutor(app, targetDocument: doc, useIncrementalManifest: true).Execute("manifest-conflict", new List<BatchConversionItem> {
+                        var result = new WordBatchConversionExecutor(app, targetDocument: doc, useIncrementalManifest: incremental).Execute("manifest-conflict", new List<BatchConversionItem> {
                             new BatchConversionItem { SourceId = candidate.Id, SourceText = candidate.Source,
                                 NormalizedLatex = candidate.NormalizedLatex, SourceHash = candidate.SourceHash,
                                 Locator = candidate.Locator, Omml = fixture.Omml, Status = "converted" }
@@ -49,8 +50,24 @@ namespace LaTeXSnipper.Word.HostTests
                                 equations = doc.OMaths.Count, controls = doc.ContentControls.Count,
                                 firstUnchanged = first.XML == firstXml, secondUnchanged = second == null || second.XML == secondXml
                             }));
-                        checks.Add(new { kind = ambiguous ? "duplicate-part" : "wrong-root", originalSourcePreserved = true,
+                        checks.Add(new { kind = ambiguous ? "duplicate-part" : "wrong-root", incremental, originalSourcePreserved = true,
                             candidatesRemoved = true, existingPartsUnchanged = true, result });
+                        if (!incremental)
+                        {
+                            var insertionPoint = doc.Range(doc.Content.End - 1, doc.Content.End - 1);
+                            try { insertionPoint.Select(); }
+                            finally { Marshal.ReleaseComObject(insertionPoint); }
+                            var block = new WordAdapter(app).InsertFormula(new FormulaPayload {
+                                FormulaId = FormulaIdHelper.NewId(), Latex = fixture.Latex, Omml = fixture.Omml,
+                                StorageMode = "native-omml", Display = "display"
+                            }, InsertMode.Display);
+                            if (block.Success || block.ErrorCode != "BATCH_MANIFEST_WRITE_FAILED" ||
+                                !doc.Content.Text.Contains(source.TrimEnd('\r')) || doc.OMaths.Count != 0 ||
+                                doc.ContentControls.Count != 0 || first.XML != firstXml)
+                                throw new InvalidOperationException("Block metadata failure left a committed candidate.");
+                            checks.Add(new { kind = "block-metadata-failure", ambiguous, candidatesRemoved = true,
+                                originalTextPreserved = true, block.ErrorCode });
+                        }
                     }
                     finally
                     {
