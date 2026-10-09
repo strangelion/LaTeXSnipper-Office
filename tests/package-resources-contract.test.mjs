@@ -8,14 +8,26 @@ const manifest = JSON.parse(
 );
 const gitlink = execFileSync(
   "git",
-  ["ls-tree", "HEAD", "--", "src-tauri/latexsnipper-core"],
+  ["ls-files", "--stage", "--", "src-tauri/latexsnipper-core"],
   { encoding: "utf8" },
 ).trim();
 const submoduleSha = gitlink.match(
-  /^160000 commit ([0-9a-f]{40})\tsrc-tauri\/latexsnipper-core$/,
+  /^160000 ([0-9a-f]{40}) 0\tsrc-tauri\/latexsnipper-core$/,
 )?.[1];
-assert.ok(submoduleSha, "Core submodule gitlink is missing from Office HEAD");
+assert.ok(submoduleSha, "Core submodule gitlink is missing from Office index");
 assert.equal(submoduleSha, manifest.coreSubmoduleSha);
+if (existsSync("src-tauri/latexsnipper-core/.git")) {
+  const checkoutSha = execFileSync(
+    "git",
+    ["-C", "src-tauri/latexsnipper-core", "rev-parse", "HEAD"],
+    { encoding: "utf8" },
+  ).trim();
+  assert.equal(
+    checkoutSha,
+    submoduleSha,
+    "Core checkout differs from pinned gitlink",
+  );
+}
 const skippedSubmoduleFiles = [];
 for (const [file, expected] of Object.entries(manifest.files)) {
   if (!existsSync(file)) {

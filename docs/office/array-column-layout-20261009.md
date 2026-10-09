@@ -45,6 +45,10 @@ MSBuild 宿主构建、共享 C# 全套（warnings-as-errors）、前端 433 项
 本地安装 staging 为旧提交，来源一致性门禁明确拒绝；未改 provenance 绕过，也未升级安装载荷。
 本轮是直接生产适配器结构验收，不是安装版 Ribbon/Tauri 管道、Word 截图/字体观感、所有 DPI、x86 或完整 array 排版验收。
 
+后续 CI `37917588642` 的资源契约失败确认是 `contracts/resources.v1.json` 漏同步 Core SHA，
+不是冻结缺失或进程超时。已同步为上列 pin；本地契约改为同时比较暂存 gitlink 与实际检出，
+避免旧 HEAD 掩盖待提交的 pin 不一致。资源文件哈希检查和未初始化子模块的延迟检查保持不变。
+
 ## 复现
 
 先用 `scripts/prepare-word-native-host-fixture.mjs` 将
