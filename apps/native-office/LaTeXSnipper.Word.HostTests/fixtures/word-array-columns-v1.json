@@ -7,6 +7,8 @@
     { "name": "short-row-padding", "latex": "\\begin{array}{lcr}1&2&3\\\\4&5\\end{array}" },
     { "name": "nested-columns", "latex": "\\begin{array}{lc}\\begin{array}{r}1\\\\2\\end{array}&\\frac{a}{b}\\end{array}" },
     { "name": "outer-delimiters", "latex": "\\left(\\begin{array}{lr}a&b\\\\c&d\\end{array}\\right)" },
-    { "name": "fraction-owner", "latex": "\\frac{\\begin{array}{lr}a&b\\\\c&d\\end{array}}{n}" }
+    { "name": "fraction-owner", "latex": "\\frac{\\begin{array}{lr}a&b\\\\c&d\\end{array}}{n}" },
+    { "name": "commented-boundaries", "latex": "\\begin{array}{l% RAW }\r\nc}a&b% FAKE & \\\\ \\end{array}\r\n\\\\c&d\\end{array}" },
+    { "name": "percent-and-text-literals", "latex": "\\begin{array}{lc}50\\%&\\text{a\\%b\\&c}\\\\\\alpha% FAKE \\beta\nx&\\text{literal \\backslash{}frac^~}\\end{array}" }
   ]
 }

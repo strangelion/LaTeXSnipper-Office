@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Xml.Linq;
 using LaTeXSnipper.NativeOffice.Shared;
@@ -194,11 +195,48 @@ namespace LaTeXSnipper.Word.Host
             }
         }
 
-        private static string MathText(string xml)
+        internal static string MathText(string xml)
         {
             XNamespace m = "http://schemas.openxmlformats.org/officeDocument/2006/math";
-            return JsonSerializer.Serialize(ParseIdentityXml(xml).Descendants(m + "t").Select(element => element.Value).ToArray());
+            var records = new List<Tuple<int, string, string, StringBuilder>>();
+            int mathIndex = 0;
+            foreach (var math in ParseIdentityXml(xml).Descendants(m + "oMath"))
+            {
+                XElement? previousOwner = null;
+                string? previousStyle = null;
+                foreach (var text in math.Descendants(m + "t"))
+                {
+                    var run = text.Parent;
+                    var owner = run?.Name == m + "r" ? run.Parent : run;
+                    if (owner == null) throw new InvalidOperationException("OMML text has no owner.");
+                    string path = string.Join("/", owner.AncestorsAndSelf().TakeWhile(node => node != math).Reverse()
+                        .Select(node => node.Name + "[" + node.ElementsBeforeSelf(node.Name).Count() + "]"));
+                    var properties = run?.Element(m + "rPr");
+                    string style = properties == null ? "" : JsonSerializer.Serialize(MathPropertyIdentity(properties));
+                    // Word coalesces adjacent runs with equal math properties. Keep
+                    // operand/cell ownership and style boundaries, not run count.
+                    if (previousOwner == owner && previousStyle == style)
+                        records[records.Count - 1].Item4.Append(text.Value);
+                    else
+                        records.Add(Tuple.Create(mathIndex, path, style, new StringBuilder(text.Value)));
+                    previousOwner = owner;
+                    previousStyle = style;
+                }
+                mathIndex++;
+            }
+            return JsonSerializer.Serialize(records.Select(record => new {
+                math = record.Item1, owner = record.Item2, style = record.Item3, text = record.Item4.ToString()
+            }).ToArray());
         }
+
+        private static object MathPropertyIdentity(XElement property) => new {
+            name = property.Name.ToString(),
+            attributes = property.Attributes().Where(attribute => !attribute.IsNamespaceDeclaration)
+                .OrderBy(attribute => attribute.Name.ToString(), StringComparer.Ordinal)
+                .Select(attribute => new { name = attribute.Name.ToString(), value = attribute.Value }).ToArray(),
+            children = property.Elements().Select(MathPropertyIdentity).ToArray(),
+            text = string.Concat(property.Nodes().OfType<XText>().Select(value => value.Value))
+        };
 
         private static int CountWordControlIds(W.Document document, string id)
         {

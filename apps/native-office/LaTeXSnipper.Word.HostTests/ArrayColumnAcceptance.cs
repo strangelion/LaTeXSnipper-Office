@@ -24,6 +24,24 @@ namespace LaTeXSnipper.Word.HostTests
             Check(fingerprint == WordAdapter.DeleteSourceFingerprint(xml.Replace("00112233", "44556677")), "Generated row revision stamp changed identity.");
             foreach (string changed in new[] { xml.Replace("w:w='800'", "w:w='801'"), xml.Replace("m:val='left'", "m:val='right'"), xml.Replace("<m:t>a", "<m:t>b"), xml.Replace("w:rsidTr=", "w:customIdentity=") })
                 Check(fingerprint != WordAdapter.DeleteSourceFingerprint(changed), "Real geometry, column layout, content or unknown identity disappeared from fingerprint.");
+            const string prefix = "<m:oMath xmlns:m='http://schemas.openxmlformats.org/officeDocument/2006/math'>";
+            const string suffix = "</m:oMath>";
+            const string alpha = "<m:r><m:t>α</m:t></m:r>", x = "<m:r><m:t>x</m:t></m:r>";
+            string separate = prefix + alpha + x + suffix;
+            string merged = prefix + "<m:r><m:t>αx</m:t></m:r>" + suffix;
+            Check(WordAdapter.MathText(separate) == WordAdapter.MathText(merged), "Equal-property run coalescing changed text identity.");
+            foreach (string changed in new[] {
+                merged.Replace("αx", "αy"),
+                prefix + alpha + "<m:r><m:rPr><m:nor/></m:rPr><m:t>x</m:t></m:r>" + suffix,
+                prefix + "<m:f><m:num>" + alpha + "</m:num><m:den>" + x + "</m:den></m:f>" + suffix
+            }) Check(WordAdapter.MathText(separate) != WordAdapter.MathText(changed), "Content, math style or operand ownership disappeared from text identity.");
+            string fraction = prefix + "<m:f><m:num>" + alpha + "</m:num><m:den>" + x + "</m:den></m:f>" + suffix;
+            string moved = prefix + "<m:f><m:num>" + alpha + x + "</m:num><m:den/></m:f>" + suffix;
+            Check(WordAdapter.MathText(fraction) != WordAdapter.MathText(moved), "Moving text between fraction operands was accepted.");
+            string cells = prefix + "<m:m><m:mr><m:e>" + alpha + "</m:e><m:e>" + x + "</m:e></m:mr></m:m>" + suffix;
+            string movedCell = prefix + "<m:m><m:mr><m:e>" + alpha + x + "</m:e><m:e/></m:mr></m:m>" + suffix;
+            Check(WordAdapter.MathText(cells) != WordAdapter.MathText(movedCell), "Moving text between array cells was accepted.");
+            Check(WordAdapter.MathText(separate) != WordAdapter.MathText("<root>" + prefix + alpha + suffix + prefix + x + suffix + "</root>"), "Moving text between math objects was accepted.");
         }
 
         // Word may coalesce adjacent columns with equal justification. Compare expanded groups.
@@ -50,7 +68,7 @@ namespace LaTeXSnipper.Word.HostTests
             }));
         }
 
-        private static string ReadLayout(W.Document document, WordAdapter adapter, string id, string source)
+        private static string ReadLayout(W.Document document, WordAdapter adapter, string id, string source, string expectedOmml, string directory)
         {
             var controls = document.SelectContentControlsByTag("latexsnipper:formula:" + id);
             W.ContentControl control = null; W.Range range = null;
@@ -58,8 +76,18 @@ namespace LaTeXSnipper.Word.HostTests
             {
                 Check(controls.Count == 1, "Managed array identity is missing or ambiguous.");
                 control = controls[1]; range = control.Range;
-                var payload = adapter.ReadFormulaById(id);
+                FormulaPayload payload;
+                try { payload = adapter.ReadFormulaById(id); }
+                catch
+                {
+                    File.WriteAllText(Path.Combine(directory, "native-source-expected.xml"), expectedOmml);
+                    File.WriteAllText(Path.Combine(directory, "native-source-observed.xml"), range.WordOpenXML);
+                    throw;
+                }
                 Check(payload != null && payload.Latex == source && payload.StorageMode == "native-omml", "Array source or storage identity changed.");
+                string expectedText = string.Concat(XDocument.Parse(expectedOmml).Descendants(Math + "t").Select(text => text.Value));
+                string actualText = string.Concat(XDocument.Parse(range.WordOpenXML).Descendants(Math + "t").Select(text => text.Value));
+                Check(actualText == expectedText, "Host mathematical text differs from the retained Core payload.");
                 return Layout(range.WordOpenXML);
             }
             finally { Release(range); Release(control); Release(controls); }
@@ -95,7 +123,7 @@ namespace LaTeXSnipper.Word.HostTests
                     }
                     finally { Release(end); Release(content); }
                     Program.RequireHiddenWord(application);
-                    string actual = ReadLayout(document, adapter, id, fixture.Latex);
+                    string actual = ReadLayout(document, adapter, id, fixture.Latex, fixture.Omml, directory);
                     Check(actual == expected, "Inserted array column layout differs from Core output: " + fixture.Name + "/" + mode);
                     inserted.Add(Tuple.Create(fixture, id, mode.ToString(), expected));
                 }
@@ -108,10 +136,10 @@ namespace LaTeXSnipper.Word.HostTests
                 adapter = new WordAdapter(application);
                 foreach (var item in inserted)
                 {
-                    string actual = ReadLayout(document, adapter, item.Item2, item.Item1.Latex);
+                    string actual = ReadLayout(document, adapter, item.Item2, item.Item1.Latex, item.Item1.Omml, directory);
                     Check(actual == item.Item4, "Saved array layout differs: " + item.Item1.Name + "/" + item.Item3);
                     records.Add(new { name = item.Item1.Name, mode = item.Item3, expected = item.Item4, observed = actual,
-                        sourcePreserved = true, savedReadonlyReopen = true });
+                        sourcePreserved = true, mathematicalTextPreserved = true, savedReadonlyReopen = true });
                 }
                 W.Range boundary = document.Content;
                 try { Check(boundary.Text.Contains("Array acceptance boundary before") && boundary.Text.Contains("Array acceptance boundary after"), "Surrounding text changed."); }
