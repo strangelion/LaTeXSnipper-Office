@@ -167,10 +167,24 @@ namespace LaTeXSnipper.Word.Host
 
         public FormulaPayload? ReadSelection()
         {
+            Microsoft.Office.Interop.Word.Selection? selection = null;
+            Microsoft.Office.Interop.Word.Range? range = null;
             try
             {
-                var range = _application.Selection.Range;
+                selection = _application.Selection;
+                range = selection.Range;
                 if (range == null) return null;
+                var managed = ReadManagedFormulaSelection(range);
+                if (managed != null) return managed;
+                managed = ReadManagedAdjacentSelection(range);
+                if (managed != null) return managed;
+                var selectedShapes = range.InlineShapes;
+                try
+                {
+                    if (selectedShapes.Count > 1) throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_AMBIGUOUS",
+                        new InvalidOperationException("Select one formula object."));
+                }
+                finally { ReleaseLocalComObject(selectedShapes); }
 
                 // Layer 0: OLE InlineShape — read full payload via COM automation
                 try
@@ -269,19 +283,11 @@ namespace LaTeXSnipper.Word.Host
                 // Find formulaId from ContentControl tag first
                 var existingFormulaId = Metadata.FormulaMetadata.FindFormulaIdAtRange(range);
 
-                // If we have a formulaId, try to read from manifest
+                // Managed identities must be resolved before reconstruction fallbacks.
                 if (!string.IsNullOrEmpty(existingFormulaId))
                 {
-                    var doc = range.Document;
-                    var fromManifest = FormulaDocumentManifest.Read(doc, existingFormulaId);
-                    if (fromManifest != null)
-                    {
-                        if (fromManifest.Source?.WordSvgBinding != null &&
-                            !VerifyManagedSvgSelection(doc, range, fromManifest)) return null;
-                        // Also read fresh OMML from the document for latest state
-                        fromManifest.FormulaId = existingFormulaId;
-                        return fromManifest;
-                    }
+                    throw new HostIdentityReconciliationException("HOST_IDENTITY_SELECTION_UNVERIFIED",
+                        new InvalidOperationException("Managed identity was not resolved to one captured control."));
                 }
 
                 // Layer 1: OMath collection (cursor inside math zone)
@@ -358,11 +364,13 @@ namespace LaTeXSnipper.Word.Host
                     catch (Exception ex) { OfficeOperationLog.Failure("read-selection-image", "word", existingFormulaId, ex); }
                 }
             }
+            catch (HostIdentityReconciliationException) { throw; }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[WordAdapter] ReadSelection error: {ex.Message}");
             }
+            finally { ReleaseLocalComObject(range); ReleaseLocalComObject(selection); }
 
             return null;
         }
@@ -577,6 +585,12 @@ namespace LaTeXSnipper.Word.Host
             foreach (var attribute in document.Descendants().SelectMany(element => element.Attributes()).Where(value => value.Name.Namespace == w &&
                 revisionAttributes.Contains(value.Name.LocalName)).ToList()) attribute.Remove();
             foreach (var stamps in document.Descendants(w + "rsids").ToList()) stamps.Remove();
+            // Word recreates these inline-only export stamps on consecutive
+            // PNG range exports. Keep docPr identity, geometry and binary parts.
+            System.Xml.Linq.XNamespace wp = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+            System.Xml.Linq.XNamespace wp14 = "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing";
+            foreach (var inline in document.Descendants(wp + "inline"))
+            { inline.Attribute(wp14 + "anchorId")?.Remove(); inline.Attribute(wp14 + "editId")?.Remove(); }
             System.Xml.Linq.XNamespace pkg = "http://schemas.microsoft.com/office/2006/xmlPackage";
             var parts = document.Descendants(pkg + "part").Where(part =>
             {
@@ -880,16 +894,35 @@ namespace LaTeXSnipper.Word.Host
         public FormulaPayload? ReadFormulaById(string formulaId)
         {
             if (string.IsNullOrWhiteSpace(formulaId)) return null;
+            Microsoft.Office.Interop.Word.Document? doc = null;
             try
             {
-                var doc = _application.ActiveDocument;
+                doc = _application.ActiveDocument;
                 if (doc == null) return null;
 
                 var manifest = FormulaDocumentManifest.Read(doc, formulaId);
                 if (manifest != null)
-                    return manifest.Source?.WordSvgBinding == null || VerifyManagedSvgSelection(doc, null, manifest)
-                        ? manifest : null;
+                {
+                    var matching = doc.SelectContentControlsByTag(FormulaTagPrefix + formulaId);
+                    Microsoft.Office.Interop.Word.ContentControl? captured = null;
+                    try
+                    {
+                        if (matching.Count != 1 || !FormulaIdHelper.IsCanonical(formulaId))
+                            throw new HostIdentityReconciliationException("HOST_IDENTITY_TARGET_AMBIGUOUS_OR_MISSING",
+                                new InvalidOperationException("Read by ID requires one canonical managed object."));
+                        captured = matching[1];
+                        return ReconcileWordControlIdentity(doc, captured, manifest);
+                    }
+                    finally { ReleaseLocalComObject(captured); ReleaseLocalComObject(matching); }
+                }
 
+                var legacyMatches = doc.SelectContentControlsByTag(FormulaTagPrefix + formulaId);
+                try
+                {
+                    if (legacyMatches.Count > 1) throw new HostIdentityReconciliationException("HOST_IDENTITY_TARGET_AMBIGUOUS_OR_MISSING",
+                        new InvalidOperationException("Legacy read by ID requires one object."));
+                }
+                finally { ReleaseLocalComObject(legacyMatches); }
                 var control = FindFormulaContentControl(doc, formulaId);
                 if (control == null) return null;
                 foreach (Microsoft.Office.Interop.Word.InlineShape shape in control.Range.InlineShapes)
@@ -911,11 +944,13 @@ namespace LaTeXSnipper.Word.Host
                     ? null
                     : new FormulaPayload { FormulaId = formulaId, Omml = omml, StorageMode = "native-omml" };
             }
+            catch (HostIdentityReconciliationException) { throw; }
             catch (Exception ex)
             {
                 OfficeOperationLog.Failure("read-formula-by-id", "word", formulaId, ex);
                 return null;
             }
+            finally { ReleaseLocalComObject(doc); }
         }
 
         private static InsertMode ParseInsertMode(string display)

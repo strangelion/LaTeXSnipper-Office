@@ -108,7 +108,8 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             bool added = false, mutationStarted = false, commitStarted = false;
             try
             {
-                if (host != "excel" && host != "powerpoint" || actualMode != "image" && actualMode != "ole")
+                if (host != "excel" && host != "powerpoint" && host != "word" ||
+                    actualMode != "image" && actualMode != "ole" && !(host == "word" && actualMode == "native-omml"))
                     throw new InvalidOperationException("HOST_IDENTITY_HOST_OR_MODE_INVALID");
                 string? original = store.ReadOriginal();
                 var entries = FormulaManifestReader.ReadAll(original);

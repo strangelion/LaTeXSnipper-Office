@@ -50,7 +50,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             string compact = OleFormulaInterop.CreateHostMetadataJson(full, "image");
             string originalXml = "<lsno:manifest xmlns:lsno='urn:latexsnipper:office:objects:v3'><formula id='" + oldId +
                 "'><payload>" + Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(full))) + "</payload></formula></lsno:manifest>";
-            foreach (string host in new[] { "excel", "powerpoint" })
+            foreach (string host in new[] { "excel", "powerpoint", "word" })
             foreach (string fault in new[] { "none", "add-before", "unknown-add", "readback", "original-changed", "prepared-changed",
                 "mutate-before", "mutate-after", "verify", "restore", "commit-before", "commit-after" })
             {
@@ -59,7 +59,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 bool wrote = false, restored = false; FormulaPayload result = null; string errorCode = null;
                 try
                 {
-                    result = HostIdentityReconciliation.Reconcile(store, selected, host, "image", host + ":authored", false,
+                    result = HostIdentityReconciliation.Reconcile(store, selected, host, host == "word" ? "native-omml" : "image", host + ":authored", false,
                         (entries, id) => (id == oldId ? 1 : 0) + (current.FormulaId == id ? 1 : 0),
                         () => current.FormulaId == oldId, metadata => {
                             wrote = true;
@@ -102,7 +102,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 catch (HostIdentityReconciliationException) { blocked = true; }
                 expect(blocked == missing && store.Adds == 0, "read-only adoption changed metadata");
             }
-            foreach (string host in new[] { "excel", "powerpoint" })
+            foreach (string host in new[] { "excel", "powerpoint", "word" })
             foreach (string fault in new[] { "source-conflict", "new-id-conflict", "absent-target", "inventory-changed" })
             {
                 var selected = JsonSerializer.Deserialize<FormulaPayload>(compact);

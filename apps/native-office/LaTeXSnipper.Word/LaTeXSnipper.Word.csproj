@@ -203,6 +203,7 @@
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Host\WordSvgUpdate.cs" />
+    <Compile Include="Host\WordCopiedIdentity.cs" />
     <Compile Include="Host\ConversationImporter.cs" />
     <Compile Include="Metadata\FormulaMetadata.cs">
       <SubType>Code</SubType>

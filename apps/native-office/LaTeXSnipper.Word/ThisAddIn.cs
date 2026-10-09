@@ -318,28 +318,34 @@ namespace LaTeXSnipper.Word
 
                 case DesktopRequestReadSelection readCmd:
                 {
-                    var formula = _adapter.ReadSelection();
-                    _pipeClient.SendOnlyAsync(new VstoReadSelection
+                    try
                     {
-                        RequestId = readCmd.RequestId,
-                        SessionId = readCmd.SessionId,
-                        Formula = formula,
-                        RangeXml = formula?.Omml
-                    });
+                        var formula = _adapter.ReadSelection();
+                        _pipeClient.SendOnlyAsync(new VstoReadSelection { RequestId = readCmd.RequestId,
+                            SessionId = readCmd.SessionId, Formula = formula, RangeXml = formula?.Omml });
+                    }
+                    catch (HostIdentityReconciliationException error)
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoHostError { RequestId = readCmd.RequestId, SessionId = readCmd.SessionId,
+                            ErrorCode = error.ErrorCode, Error = error.Message });
+                    }
                     break;
                 }
 
                 case DesktopRequestReadFormula readFormulaCmd:
                 {
-                    var formula = _adapter.ReadFormulaById(readFormulaCmd.FormulaId);
-                    _pipeClient.SendOnlyAsync(new VstoFormulaSnapshot
+                    try
                     {
-                        RequestId = readFormulaCmd.RequestId,
-                        SessionId = readFormulaCmd.SessionId,
-                        Formula = formula,
-                        ErrorCode = formula == null ? "FORMULA_NOT_FOUND" : null,
-                        Error = formula == null ? "Formula was not found in the active document" : null
-                    });
+                        var formula = _adapter.ReadFormulaById(readFormulaCmd.FormulaId);
+                        _pipeClient.SendOnlyAsync(new VstoFormulaSnapshot { RequestId = readFormulaCmd.RequestId,
+                            SessionId = readFormulaCmd.SessionId, Formula = formula, ErrorCode = formula == null ? "FORMULA_NOT_FOUND" : null,
+                            Error = formula == null ? "Formula was not found in the active document" : null });
+                    }
+                    catch (HostIdentityReconciliationException error)
+                    {
+                        _pipeClient.SendOnlyAsync(new VstoFormulaSnapshot { RequestId = readFormulaCmd.RequestId,
+                            SessionId = readFormulaCmd.SessionId, ErrorCode = error.ErrorCode, Error = error.Message });
+                    }
                     break;
                 }
 

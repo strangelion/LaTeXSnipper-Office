@@ -15,6 +15,11 @@ namespace LaTeXSnipper.Word.HostTests
         [DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
         private static T Clone<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value));
         private static void Require(bool value, string error) { if (!value) throw new InvalidOperationException(error); }
+        private static bool Rejected(Func<FormulaPayload> read)
+        {
+            try { return read() == null; }
+            catch (HostIdentityReconciliationException error) { return error.ErrorCode.StartsWith("HOST_IDENTITY_", StringComparison.Ordinal); }
+        }
         private static W.ContentControl Control(W.Document document, string id)
         {
             var controls = document.SelectContentControlsByTag("latexsnipper:formula:" + id);
@@ -156,7 +161,7 @@ namespace LaTeXSnipper.Word.HostTests
                 {
                     var corrupt = Clone(first); corrupt.Latex = "stale-source";
                     FormulaDocumentManifest.Write(document, corrupt); range.Select();
-                    Require(adapter.ReadSelection() == null && adapter.ReadFormulaById(first.FormulaId) == null,
+                    Require(Rejected(() => adapter.ReadSelection()) && Rejected(() => adapter.ReadFormulaById(first.FormulaId)),
                         "Changed source passed binding verification.");
                     FormulaDocumentManifest.Write(document, first);
                     Check(document, adapter, first, "restored-source", checks);
@@ -181,7 +186,7 @@ namespace LaTeXSnipper.Word.HostTests
                     try
                     {
                         duplicate.Tag = "latexsnipper:formula:" + first.FormulaId; range.Select();
-                        Require(adapter.ReadSelection() == null && adapter.ReadFormulaById(first.FormulaId) == null,
+                        Require(Rejected(() => adapter.ReadSelection()) && Rejected(() => adapter.ReadFormulaById(first.FormulaId)),
                             "Duplicate object ID passed binding verification.");
                     }
                     finally { duplicate.Delete(false); Marshal.ReleaseComObject(duplicate); }
@@ -206,7 +211,7 @@ namespace LaTeXSnipper.Word.HostTests
                     Marshal.ReleaseComObject(replaced); Marshal.ReleaseComObject(shapes); Marshal.ReleaseComObject(point);
                     Marshal.ReleaseComObject(range); range = control.Range;
                     range.Select();
-                    Require(adapter.ReadSelection() == null && adapter.ReadFormulaById(first.FormulaId) == null,
+                    Require(Rejected(() => adapter.ReadSelection()) && Rejected(() => adapter.ReadFormulaById(first.FormulaId)),
                         "Replaced Word picture returned the old source.");
                     var rejected = adapter.ReplaceFormula(first.FormulaId, Clone(first));
                     Require(!rejected.Success && rejected.ErrorCode == "OFFICE_TARGET_CHANGED", "Changed carrier was overwritten.");
