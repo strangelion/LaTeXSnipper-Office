@@ -77,8 +77,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             }
             Expect(store.Disposed && store.Entries.ContainsKey(second.FormulaId), "dispose deleted committed entries");
             var disposed = new FormulaManifestAppendSession(document, new Store()); disposed.Dispose();
-            try { disposed.WriteNew(document, Payload()); Expect(false, "disposed write accepted"); }
-            catch (ObjectDisposedException) { }
+            bool disposedRejected = false;
+            try { disposed.WriteNew(document, Payload()); }
+            catch (ObjectDisposedException) { disposedRejected = true; }
+            Expect(disposedRejected, "disposed write accepted");
 
             foreach (string fault in new[] { "before", "after", "mismatch", "dtd", "changed" })
             {
