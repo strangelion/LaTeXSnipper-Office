@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
+using LaTeXSnipper.Word.Metadata;
 using OmmlValidationResult = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidationResult;
 using OmmlValidator = LaTeXSnipper.NativeOffice.Shared.Omml.OmmlValidator;
 
@@ -433,37 +434,51 @@ namespace LaTeXSnipper.Word.Host
 
         public InsertResult DeleteCurrent()
         {
+            Microsoft.Office.Interop.Word.Document? doc = null;
+            Microsoft.Office.Interop.Word.ContentControl? control = null;
+            Microsoft.Office.Interop.Word.Selection? selection = null;
+            Microsoft.Office.Interop.Word.Range? selectedRange = null;
+            Microsoft.Office.Interop.Word.ContentControls? selectedControls = null;
+            Microsoft.Office.Interop.Word.OMaths? selectedMath = null;
             try
             {
-                var doc = _application.ActiveDocument;
+                doc = _application.ActiveDocument;
                 if (doc == null)
                     return new InsertResult { Success = false, Error = "No active document" };
 
-                var sel = _application.Selection;
+                selection = _application.Selection;
+                var sel = selection;
                 if (sel == null)
                     return new InsertResult { Success = false, Error = "No selection" };
 
                 // Check if current selection is inside a LaTeXSnipper Content Control
-                var cc = sel.Range.ContentControls;
+                selectedRange = sel.Range;
+                selectedControls = selectedRange.ContentControls;
+                var cc = selectedControls;
                 if (cc != null && cc.Count > 0)
                 {
-                    var control = cc[1];
+                    control = cc[1];
                     var tag = control.Tag as string;
-                    if (!string.IsNullOrEmpty(tag) && tag.StartsWith("latexsnipper:"))
+                    string? id = FormulaMetadata.ExtractFormulaIdFromTag(tag);
+                    if (!string.IsNullOrEmpty(id) && cc.Count == 1)
                     {
-                        control.Delete(true);
-                        return new InsertResult { Success = true };
+                        return DeleteFormulaInDocument(doc, id!);
                     }
                 }
 
                 // Also check OMath inside LSNO content control (for deep cursor positions)
-                if (sel.OMaths.Count > 0)
+                selectedMath = sel.OMaths;
+                if (selectedMath.Count > 0)
                 {
-                    var parentCc = FindParentLsnContentControl(sel.Range);
+                    var parentCc = FindParentLsnContentControl(selectedRange);
                     if (parentCc != null)
                     {
-                        parentCc.Delete(true);
-                        return new InsertResult { Success = true };
+                        try
+                        {
+                            string? id = FormulaMetadata.ExtractFormulaIdFromTag(parentCc.Tag);
+                            if (!string.IsNullOrEmpty(id)) return DeleteFormulaInDocument(doc, id!);
+                        }
+                        finally { ReleaseLocalComObject(parentCc); }
                     }
                 }
 
@@ -473,6 +488,11 @@ namespace LaTeXSnipper.Word.Host
             {
                 return new InsertResult { Success = false, Error = ex.Message };
             }
+            finally
+            {
+                ReleaseLocalComObject(control); ReleaseLocalComObject(selectedMath); ReleaseLocalComObject(selectedControls);
+                ReleaseLocalComObject(selectedRange); ReleaseLocalComObject(selection); ReleaseLocalComObject(doc);
+            }
         }
 
         /// <summary>
@@ -480,29 +500,96 @@ namespace LaTeXSnipper.Word.Host
         /// </summary>
         public InsertResult DeleteFormula(string formulaId)
         {
+            var doc = _application.ActiveDocument;
+            try { return doc == null ? new InsertResult { Error = "No active document" } : DeleteFormulaInDocument(doc, formulaId); }
+            finally { ReleaseLocalComObject(doc); }
+        }
+
+        internal InsertResult DeleteFormulaInDocument(Microsoft.Office.Interop.Word.Document doc, string formulaId)
+        {
+            Microsoft.Office.Interop.Word.ContentControl? target = null;
+            Microsoft.Office.Interop.Word.ContentControls? controls = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
             try
             {
-                var doc = _application.ActiveDocument;
-                if (doc == null)
-                    return new InsertResult { Success = false, Error = "No active document" };
-
                 string targetTag = $"latexsnipper:formula:{formulaId}";
-                foreach (Microsoft.Office.Interop.Word.ContentControl cc in doc.ContentControls)
+                FormulaDocumentManifest.ReadAll(doc);
+                controls = doc.SelectContentControlsByTag(targetTag);
+                if (controls.Count != 1) throw new InvalidOperationException("HOST_DELETE_TARGET_AMBIGUOUS_OR_MISSING");
+                target = controls[1];
+                var captured = target;
+                string id = captured.ID;
+                var range = captured.Range;
+                int start, end; Microsoft.Office.Interop.Word.WdStoryType story;
+                string snapshot;
+                try { start = range.Start; end = range.End; story = range.StoryType; snapshot = DeleteSourceFingerprint(range.WordOpenXML); }
+                finally { ReleaseLocalComObject(range); }
+                bool lockedContents = captured.LockContents, lockedControl = captured.LockContentControl;
+                parts = doc.CustomXMLParts;
+                using (var store = FormulaDocumentManifest.OpenReplacementStore(parts))
                 {
-                    var tag = cc.Tag as string;
-                    if (string.Equals(tag, targetTag, StringComparison.Ordinal))
+                    var result = HostFormulaDeletion.Delete(store, formulaId, "word", () =>
                     {
-                        cc.Delete(true);
-                        return new InsertResult { Success = true };
-                    }
+                        var matching = doc.SelectContentControlsByTag(targetTag);
+                        var currentRange = captured.Range;
+                        try
+                        {
+                            bool identity = !doc.ReadOnly && matching.Count == 1 && captured.ID == id && captured.Tag == targetTag;
+                            bool locks = captured.LockContents == lockedContents && captured.LockContentControl == lockedControl;
+                            bool position = currentRange.Start == start && currentRange.End == end && currentRange.StoryType == story;
+                            string current = DeleteSourceFingerprint(currentRange.WordOpenXML);
+                            if (!identity || !locks || !position || current != snapshot)
+                                throw new InvalidOperationException($"HOST_DELETE_TARGET_CHANGED: identity={identity}, locks={locks}, position={position}, source={current == snapshot}");
+                            return true;
+                        }
+                        finally { ReleaseLocalComObject(currentRange); ReleaseLocalComObject(matching); }
+                    }, () =>
+                    {
+                        captured.LockContents = false; captured.LockContentControl = false;
+                        captured.Delete(true);
+                        var remaining = doc.SelectContentControlsByTag(targetTag);
+                        try { if (remaining.Count != 0) throw new InvalidOperationException("HOST_DELETE_OBJECT_UNVERIFIED"); }
+                        finally { ReleaseLocalComObject(remaining); }
+                    });
+                    return new InsertResult { Success = result.Success, FormulaId = formulaId, ErrorCode = result.ErrorCode, Error = result.Error };
                 }
-
-                return new InsertResult { Success = false, Error = $"Formula {formulaId} not found" };
             }
             catch (Exception ex)
             {
-                return new InsertResult { Success = false, Error = ex.Message };
+                return new InsertResult { Success = false, ErrorCode = "HOST_DELETE_FAILED", Error = ex.Message };
             }
+            finally { ReleaseLocalComObject(target); ReleaseLocalComObject(controls); ReleaseLocalComObject(parts); }
+        }
+
+        internal static string DeleteSourceFingerprint(string xml)
+        {
+            if (xml.Length > 64 * 1024 * 1024) throw new InvalidOperationException("HOST_DELETE_SOURCE_BUDGET_EXCEEDED");
+            var settings = new System.Xml.XmlReaderSettings { DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                XmlResolver = null, MaxCharactersInDocument = 64 * 1024 * 1024 };
+            System.Xml.Linq.XDocument document;
+            using (var reader = System.Xml.XmlReader.Create(new System.IO.StringReader(xml), settings))
+                document = System.Xml.Linq.XDocument.Load(reader);
+            // Range exports create temporary package revision stamps. Compare
+            // real content/formatting/media, not these generated rsid values.
+            System.Xml.Linq.XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+            var revisionAttributes = new HashSet<string>(StringComparer.Ordinal)
+                { "rsidR", "rsidRPr", "rsidRDefault", "rsidP", "rsidDel", "rsidSect" };
+            foreach (var attribute in document.Descendants().SelectMany(element => element.Attributes()).Where(value => value.Name.Namespace == w &&
+                revisionAttributes.Contains(value.Name.LocalName)).ToList()) attribute.Remove();
+            foreach (var stamps in document.Descendants(w + "rsids").ToList()) stamps.Remove();
+            System.Xml.Linq.XNamespace pkg = "http://schemas.microsoft.com/office/2006/xmlPackage";
+            var parts = document.Descendants(pkg + "part").Where(part =>
+            {
+                string name = (string?)part.Attribute(pkg + "name") ?? "";
+                return !name.StartsWith("/customXml/", StringComparison.OrdinalIgnoreCase) &&
+                    !name.Contains("/_rels/") && !name.StartsWith("/docProps/", StringComparison.OrdinalIgnoreCase);
+            });
+            var values = parts.OrderBy(part => (string?)part.Attribute(pkg + "name"), StringComparer.Ordinal)
+                .Select(part => (string?)part.Attribute(pkg + "name") + ":" +
+                    (part.Element(pkg + "xmlData")?.ToString(System.Xml.Linq.SaveOptions.DisableFormatting) ?? part.Element(pkg + "binaryData")?.Value ?? ""))
+                .ToList();
+            if (values.Count == 0) throw new InvalidOperationException("HOST_DELETE_SOURCE_UNVERIFIED");
+            return string.Join("\n", values);
         }
 
         private static Microsoft.Office.Interop.Word.ContentControl FindParentLsnContentControl(

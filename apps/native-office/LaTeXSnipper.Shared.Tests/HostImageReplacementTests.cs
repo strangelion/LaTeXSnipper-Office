@@ -22,6 +22,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             }
             public string ReadReplacement() => Fault == "readback" ? "<bad/>" : Added;
             public bool IsPreparedUnchanged() => Fault != "manifest-changed";
+            public bool IsOriginalUnchanged() => Fault != "manifest-changed";
             public void CommitReplacement()
             {
                 if (Fault == "commit") throw new InvalidOperationException("authored commit fault");

@@ -91,23 +91,23 @@ namespace LaTeXSnipper.Office.SampleHostTests
             }
         }
 
-        public static int Run(string directory, bool imageReplacement = false)
+        public static int Run(string directory, bool imageReplacement = false, bool deletion = false)
         {
             Directory.CreateDirectory(directory);
             var checks = new List<object>(); string error = null;
             uint clipboard = GetClipboardSequenceNumber();
-            try { ExcelCase(directory, checks, imageReplacement); PowerPointCase(directory, checks, imageReplacement); }
+            try { ExcelCase(directory, checks, imageReplacement, deletion); PowerPointCase(directory, checks, imageReplacement, deletion); }
             catch (Exception failure) { error = failure.ToString(); Console.Error.WriteLine(error); }
             File.WriteAllText(Path.Combine(directory, "cross-host-manifest-evidence.json"), JsonSerializer.Serialize(new {
                 schemaVersion = 1, checks, error, status = error == null ? "passed" : "failed",
                 clipboardUnchanged = GetClipboardSequenceNumber() == clipboard, pipeVerified = false,
-                imageReplacement,
+                imageReplacement, deletion,
                 scope = "Authored PNG insertion/replacement, metadata faults, layout and save/reopen. No OLE activation, installed add-in, UI or formula-to-image fidelity claim."
             }, new JsonSerializerOptions { WriteIndented = true }));
             return error == null ? 0 : 1;
         }
 
-        private static void ExcelCase(string directory, List<object> checks, bool imageReplacement)
+        private static void ExcelCase(string directory, List<object> checks, bool imageReplacement, bool deletion)
         {
             InteropExcel.Application app = null; InteropExcel.Workbook book = null; InteropExcel.Worksheet sheet = null;
             OfficeCore.CustomXMLParts parts = null;
@@ -143,7 +143,16 @@ namespace LaTeXSnipper.Office.SampleHostTests
                             0, 0, 36, 18), checks, "excel"); }
                     finally { Marshal.ReleaseComObject(original); }
                 }
-                string snapshot = Snapshot(parts); ValidatePayload(snapshot, payload, "excel");
+                if (deletion)
+                {
+                    var original = sheet.Shapes.Item("LSNO_" + payload.FormulaId);
+                    try { DeleteImageCase(original, payload, parts, () => adapter.DeleteFormulaDetailed(payload.FormulaId),
+                        () => ManifestDiagnostics.ValidateExcel(book), () => ManifestDiagnostics.ValidateExcel(book, repairOrphans: true),
+                        () => sheet.Shapes.Count, checks, "excel"); }
+                    finally { Marshal.ReleaseComObject(original); }
+                }
+                string snapshot = Snapshot(parts);
+                if (!deletion) ValidatePayload(snapshot, payload, "excel");
                 ValidatePayload(snapshot, secondPayload, "excel");
                 Marshal.ReleaseComObject(parts); parts = null;
                 Marshal.ReleaseComObject(sheet); sheet = null;
@@ -154,11 +163,13 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 string originalText;
                 try { originalText = (string)cell.Value2; }
                 finally { Marshal.ReleaseComObject(cell); }
-                Check(Snapshot(parts) == snapshot && sheet.Shapes.Count == 2 && originalText == "keep source text",
+                Check(Snapshot(parts) == snapshot && sheet.Shapes.Count == (deletion ? 1 : 2) && originalText == "keep source text",
                     "Excel persisted shape, source or manifest changed.");
+                if (deletion) Check(adapter.DeleteFormulaDetailed(secondPayload.FormulaId).ErrorCode == "HOST_DELETE_DOCUMENT_READ_ONLY" &&
+                    sheet.Shapes.Count == 1 && Snapshot(parts) == snapshot, "Read-only Excel deletion changed remaining data.");
                 if (imageReplacement) VerifyUpdatedPicture(sheet.Shapes.Item("LSNO_" + payload.FormulaId), payload);
                 checks.Add(new { host = "excel", kind = "image-success", actualMode = result.ActualStorageMode,
-                    fullPayloadVerified = true, priorEntryPreserved = true, objectCount = 2,
+                    fullPayloadVerified = true, priorEntryPreserved = true, objectCount = deletion ? 1 : 2,
                     saveReopenVerified = true, originalTextPreserved = true, version = app.Version });
             }
             finally
@@ -170,7 +181,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
             }
         }
 
-        private static void PowerPointCase(string directory, List<object> checks, bool imageReplacement)
+        private static void PowerPointCase(string directory, List<object> checks, bool imageReplacement, bool deletion)
         {
             Ppt.Application app = null; Ppt.Presentation presentation = null; Ppt.Slide slide = null;
             OfficeCore.CustomXMLParts parts = null;
@@ -214,7 +225,16 @@ namespace LaTeXSnipper.Office.SampleHostTests
                             0, 0, 36, 18), checks, "powerpoint"); }
                     finally { Marshal.ReleaseComObject(original); }
                 }
-                string snapshot = Snapshot(parts); ValidatePayload(snapshot, payload, "powerpoint");
+                if (deletion)
+                {
+                    var original = slide.Shapes["LSNO_" + payload.FormulaId];
+                    try { DeleteImageCase(original, payload, parts, () => adapter.DeleteFormulaDetailed(payload.FormulaId),
+                        () => ManifestDiagnostics.ValidatePowerPoint(presentation), () => ManifestDiagnostics.ValidatePowerPoint(presentation, repairOrphans: true),
+                        () => slide.Shapes.Count, checks, "powerpoint"); }
+                    finally { Marshal.ReleaseComObject(original); }
+                }
+                string snapshot = Snapshot(parts);
+                if (!deletion) ValidatePayload(snapshot, payload, "powerpoint");
                 ValidatePayload(snapshot, secondPayload, "powerpoint");
                 Marshal.ReleaseComObject(parts); parts = null; Marshal.ReleaseComObject(slide); slide = null;
                 string path = Path.Combine(directory, "manifest-powerpoint.pptx");
@@ -222,11 +242,17 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 presentation.Close(); Marshal.ReleaseComObject(presentation); presentation = null;
                 presentation = app.Presentations.Open(path, ReadOnly: OfficeCore.MsoTriState.msoTrue, WithWindow: OfficeCore.MsoTriState.msoFalse);
                 slide = presentation.Slides[1]; parts = presentation.CustomXMLParts;
-                Check(Snapshot(parts) == snapshot && slide.Shapes.Count == 2 && app.Visible != OfficeCore.MsoTriState.msoTrue,
+                Check(Snapshot(parts) == snapshot && slide.Shapes.Count == (deletion ? 1 : 2) && app.Visible != OfficeCore.MsoTriState.msoTrue,
                     "PowerPoint persisted shape/manifest changed or test became visible.");
+                if (deletion)
+                {
+                    var reopened = new PowerPointAdapter(app, targetPresentation: presentation, targetSlide: slide);
+                    Check(reopened.DeleteFormulaDetailed(secondPayload.FormulaId).ErrorCode == "HOST_DELETE_DOCUMENT_READ_ONLY" &&
+                        slide.Shapes.Count == 1 && Snapshot(parts) == snapshot, "Read-only PowerPoint deletion changed remaining data.");
+                }
                 if (imageReplacement) VerifyUpdatedPicture(slide.Shapes["LSNO_" + payload.FormulaId], payload);
                 checks.Add(new { host = "powerpoint", kind = "image-success", actualMode = result.ActualStorageMode,
-                    fullPayloadVerified = true, priorEntryPreserved = true, objectCount = 2,
+                    fullPayloadVerified = true, priorEntryPreserved = true, objectCount = deletion ? 1 : 2,
                     saveReopenVerified = true, version = app.Version });
             }
             finally
@@ -236,6 +262,47 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 if (presentation != null) { presentation.Close(); Marshal.ReleaseComObject(presentation); }
                 if (app != null) { app.Quit(); Marshal.ReleaseComObject(app); }
             }
+        }
+
+        private static void DeleteImageCase(object original, FormulaPayload payload, OfficeCore.CustomXMLParts parts,
+            Func<HostDeletionResult> delete, Func<ManifestValidationReport> diagnostic, Func<ManifestValidationReport> repair,
+            Func<int> count, List<object> checks, string host)
+        {
+            string source = Snapshot(parts);
+            var state = HostPictureSnapshot.Capture(original, host == "excel");
+            var report = diagnostic();
+            Check(report.IsConsistent && report.ObjectsFound == 2 && report.TotalEntries == 2 && report.RepairedCount == 0 && Snapshot(parts) == source,
+                host + " diagnostic used wrong container or mutated read-only scan.");
+            string orphanId = FormulaIdHelper.NewId();
+            FormulaDocumentManifest.WriteEntry(parts, new FormulaPayload { FormulaId = orphanId, Latex = "orphan", StorageMode = "image" }, host);
+            string orphanSnapshot = Snapshot(parts);
+            var orphan = diagnostic();
+            Check(orphan.OrphanEntries == 1 && orphan.RepairedCount == 0 && Snapshot(parts) == orphanSnapshot,
+                host + " default diagnostic erased orphan source.");
+            var repaired = repair();
+            Check(repaired.IsConsistent && repaired.RepairedCount == 1 && !FormulaDocumentManifest.ReadAllEntries(parts).ContainsKey(orphanId),
+                host + " explicit orphan repair was not verified.");
+            source = Snapshot(parts);
+            var matching = parts.SelectByNamespace(Ns);
+            try { var part = matching[1]; try { part.Delete(); } finally { Marshal.ReleaseComObject(part); } }
+            finally { Marshal.ReleaseComObject(matching); }
+            try
+            {
+                RejectFaultParts(parts, () => {
+                    var result = delete(); var failedScan = diagnostic();
+                    Check(!result.Success && state.Matches(original) && !failedScan.IsConsistent && failedScan.HasErrors &&
+                        !failedScan.ScanComplete && failedScan.RepairedCount == 0, host + " bad metadata deleted source or falsely passed scan.");
+                    return result.Success;
+                }, count, checks, host + "-delete");
+            }
+            finally { var restored = parts.Add(source); Marshal.ReleaseComObject(restored); }
+            var deleted = delete();
+            Check(deleted.Success && count() == 1 && !FormulaDocumentManifest.ReadAllEntries(parts).ContainsKey(payload.FormulaId) && diagnostic().IsConsistent,
+                host + " explicit image deletion failed: " + deleted.ErrorCode + ": " + deleted.Error);
+            string after = Snapshot(parts);
+            Check(!delete().Success && count() == 1 && Snapshot(parts) == after, host + " repeated missing deletion mutated remaining data.");
+            checks.Add(new { host, kind = "image-delete", badMetadataPreservesOriginal = true, noImplicitRepair = true,
+                explicitOrphanRepairVerified = true, deletedMetadataAbsent = true, otherEntryRetained = true, repeatedMissingIsReadOnly = true });
         }
 
         private static FormulaPayload ReplaceImageCase(object original, FormulaPayload payload, OfficeCore.CustomXMLParts parts,

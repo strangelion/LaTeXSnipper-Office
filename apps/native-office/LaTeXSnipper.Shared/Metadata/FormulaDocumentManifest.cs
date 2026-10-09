@@ -5,6 +5,8 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Linq;
+using System.Runtime.InteropServices;
+using Office = Microsoft.Office.Core;
 
 namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 {
@@ -67,33 +69,14 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                dynamic? part = FindPart(doc);
-                if (part == null) return null;
-
-                var xml = (string?)GetPartXml(part);
-                if (string.IsNullOrEmpty(xml)) return null;
-
-                var xdoc = XDocument.Parse(xml);
-                var entry = xdoc.Root?.Elements()
-                    .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
-                if (entry == null) return null;
-
-                return DeserializeFromEntry(entry, formulaId)
-                    ?? new FormulaPayload
-                    {
-                        FormulaId = formulaId,
-                        Latex = entry.Element("latex")?.Value ?? "",
-                        Display = entry.Element("display")?.Value ?? "inline",
-                        Revision = (int?)entry.Attribute("revision") ?? 0,
-                        StorageMode = (string?)entry.Attribute("storageMode"),
-                        SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
-                        Omml = DecodeOmml(entry.Element("omml")),
-                    };
+                using var store = new CustomXmlManifestReplacementStore(doc.CustomXMLParts, ownsParts: true);
+                return FormulaManifestReader.Read(store.ReadOriginal(), formulaId);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Read({formulaId}) failed: {ex.Message}");
-                return null;
+                OfficeOperationLog.Failure("read-word-manifest", "word", formulaId, ex);
+                throw;
             }
         }
 
@@ -102,38 +85,17 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// </summary>
         public static Dictionary<string, FormulaPayload> ReadAll(Microsoft.Office.Interop.Word.Document doc)
         {
-            var result = new Dictionary<string, FormulaPayload>();
             try
             {
-                var part = FindPart(doc);
-                if (part == null) return result;
-
-                var xml = GetPartXml(part);
-                if (string.IsNullOrEmpty(xml)) return result;
-
-                var xdoc = XDocument.Parse(xml);
-                foreach (var entry in xdoc.Root?.Elements() ?? Enumerable.Empty<XElement>())
-                {
-                    var id = (string?)entry.Attribute("id");
-                    if (string.IsNullOrEmpty(id)) continue;
-
-                    result[id!] = DeserializeFromEntry(entry, id)
-                        ?? new FormulaPayload
-                        {
-                            FormulaId = id!,
-                            Latex = entry.Element("latex")?.Value ?? "",
-                            Display = entry.Element("display")?.Value ?? "inline",
-                            Revision = (int?)entry.Attribute("revision") ?? 0,
-                            StorageMode = (string?)entry.Attribute("storageMode"),
-                            SchemaVersion = (int?)entry.Attribute("schemaVersion") ?? 3,
-                        };
-                }
+                using var store = new CustomXmlManifestReplacementStore(doc.CustomXMLParts, ownsParts: true);
+                return FormulaManifestReader.ReadAll(store.ReadOriginal());
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] ReadAll failed: {ex.Message}");
+                OfficeOperationLog.Failure("read-all-word-manifest", "word", null, ex);
+                throw;
             }
-            return result;
         }
 
         /// <summary>
@@ -143,26 +105,14 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                dynamic? part = FindPart(doc);
-                if (part == null) return;
-
-                var xml = (string?)GetPartXml(part);
-                if (string.IsNullOrEmpty(xml)) return;
-
-                var xdoc = XDocument.Parse(xml);
-                var entry = xdoc.Root?.Elements()
-                    .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
-                if (entry == null) return;
-
-                entry.Remove();
-
-                var newXml = xdoc.ToString(SaveOptions.DisableFormatting);
-                doc.CustomXMLParts.Add(newXml);
-                part.Delete();
+                using var store = new CustomXmlManifestReplacementStore(doc.CustomXMLParts, ownsParts: true);
+                FormulaManifestReplacement.Remove(store, formulaId);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] Remove failed: {ex.Message}");
+                OfficeOperationLog.Failure("remove-word-manifest", "word", formulaId, ex);
+                throw;
             }
         }
 
@@ -171,40 +121,12 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// </summary>
         public static dynamic? FindPart(Microsoft.Office.Interop.Word.Document doc)
         {
-            try
-            {
-                for (int i = doc.CustomXMLParts.Count; i >= 1; i--)
-                {
-                    dynamic part = doc.CustomXMLParts[i];
-                    try
-                    {
-                        if ((string?)part.NamespaceURI == NamespaceUri)
-                            return part;
-                    }
-                    catch (Exception ex) { OfficeOperationLog.Failure("read-word-custom-xml-part", "word", null, ex); }
-                }
-            }
-            catch (Exception ex) { OfficeOperationLog.Failure("find-word-manifest", "word", null, ex); }
-            return null;
+            var parts = doc.CustomXMLParts;
+            try { return FindUniquePart(parts); }
+            finally { Marshal.ReleaseComObject(parts); }
         }
 
         // ── Private helpers ──
-
-        private static string? GetPartXml(object part)
-        {
-            try { return (string?)part.GetType().GetProperty("XML")?.GetValue(part); }
-            catch (Exception ex) { OfficeOperationLog.Failure("read-manifest-xml", "shared", null, ex); return null; }
-        }
-
-        private static XDocument ParseOrCreate(string? xml)
-        {
-            if (!string.IsNullOrEmpty(xml))
-            {
-                try { return XDocument.Parse(xml); }
-                catch (Exception ex) { OfficeOperationLog.Failure("parse-manifest", "shared", null, ex); }
-            }
-            return XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
-        }
 
         private static string ChooseStorageMode(FormulaPayload payload)
         {
@@ -220,42 +142,6 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
         }
 
-        private static string DecodeOmml(XElement? ommlEl)
-        {
-            if (ommlEl == null) return "";
-            try
-            {
-                return Encoding.UTF8.GetString(Convert.FromBase64String(ommlEl.Value));
-            }
-            catch (Exception ex) { OfficeOperationLog.Failure("decode-manifest-omml", "shared", null, ex); return ""; }
-        }
-
-        /// <summary>
-        /// Deserialize a FormulaPayload from the entry's &lt;payload&gt; element (base64 canonical JSON).
-        /// Returns null if no valid payload element exists.
-        /// </summary>
-        private static FormulaPayload? DeserializeFromEntry(XElement entry, string formulaId)
-        {
-            var payloadEl = entry.Element("payload");
-            if (payloadEl == null || string.IsNullOrEmpty(payloadEl.Value))
-                return null;
-
-            try
-            {
-                var json = Encoding.UTF8.GetString(Convert.FromBase64String(payloadEl.Value));
-                var result = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(json,
-                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                if (result != null && result.FormulaId == formulaId)
-                    return result;
-                // Payload formulaId mismatch — fall back to entry-level data
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
         // ── Excel/PowerPoint manifest helpers (via document-level CustomXML) ──
 
         /// <summary>
@@ -263,22 +149,9 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// </summary>
         public static object? FindPartWorksheet(dynamic workbook)
         {
-            try
-            {
-                var parts = workbook.CustomXMLParts;
-                for (int i = parts.Count; i >= 1; i--)
-                {
-                    dynamic part = parts[i];
-                    try
-                    {
-                        if ((string?)part.NamespaceURI == NamespaceUri)
-                            return part;
-                    }
-                    catch (Exception ex) { OfficeOperationLog.Failure("read-excel-custom-xml-part", "excel", null, ex); }
-                }
-            }
-            catch (Exception ex) { OfficeOperationLog.Failure("find-excel-manifest", "excel", null, ex); }
-            return null;
+            Office.CustomXMLParts parts = workbook.CustomXMLParts;
+            try { return FindUniquePart(parts); }
+            finally { Marshal.ReleaseComObject(parts); }
         }
 
         /// <summary>
@@ -286,22 +159,24 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// </summary>
         public static object? FindPartPresentation(dynamic presentation)
         {
+            return FindPartWorksheet(presentation);
+        }
+
+        private static Office.CustomXMLPart? FindUniquePart(Office.CustomXMLParts parts)
+        {
+            var matches = parts.SelectByNamespace(NamespaceUri);
             try
             {
-                var parts = presentation.CustomXMLParts;
-                for (int i = parts.Count; i >= 1; i--)
-                {
-                    dynamic part = parts[i];
-                    try
-                    {
-                        if ((string?)part.NamespaceURI == NamespaceUri)
-                            return part;
-                    }
-                    catch (Exception ex) { OfficeOperationLog.Failure("read-powerpoint-custom-xml-part", "powerpoint", null, ex); }
-                }
+                if (matches.Count > 1) throw new InvalidOperationException("MANIFEST_PART_AMBIGUOUS");
+                return matches.Count == 0 ? null : matches[1];
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("find-powerpoint-manifest", "powerpoint", null, ex); }
-            return null;
+            finally { Marshal.ReleaseComObject(matches); }
+        }
+
+        public static Dictionary<string, FormulaPayload> ReadAllEntries(Office.CustomXMLParts parts)
+        {
+            using var store = new CustomXmlManifestReplacementStore(parts);
+            return FormulaManifestReader.ReadAll(store.ReadOriginal());
         }
 
         /// <summary>
@@ -329,43 +204,18 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         /// <summary>
         /// Remove a formula entry from the manifest on a Workbook/Presentation.
         /// </summary>
-        public static void RemoveEntry(dynamic customXmlParts, string formulaId)
+        public static void RemoveEntry(dynamic customXmlParts, string formulaId, string host = "excel")
         {
             try
             {
-                for (int i = customXmlParts.Count; i >= 1; i--)
-                {
-                    dynamic part = customXmlParts[i];
-                    try
-                    {
-                        if ((string?)part.NamespaceURI != NamespaceUri)
-                            continue;
-
-                        string existingXml;
-                        try { existingXml = part.GetType().GetProperty("XML")?.GetValue(part) as string ?? ""; }
-                        catch (Exception ex) { OfficeOperationLog.Failure("read-existing-manifest", "shared", formulaId, ex); existingXml = ""; }
-
-                        if (string.IsNullOrEmpty(existingXml))
-                            continue;
-
-                        var xdoc = XDocument.Parse(existingXml);
-                        var entry = xdoc.Root?.Elements()
-                            .FirstOrDefault(e => (string?)e.Attribute("id") == formulaId);
-                        if (entry == null)
-                            return;
-
-                        entry.Remove();
-
-                        try { part.Delete(); } catch (Exception ex) { OfficeOperationLog.Failure("delete-old-manifest", "shared", formulaId, ex); }
-                        customXmlParts.Add(xdoc.ToString(SaveOptions.DisableFormatting));
-                        return;
-                    }
-                    catch (Exception ex) { OfficeOperationLog.Failure("remove-manifest-entry", "shared", formulaId, ex); }
-                }
+                using var store = new CustomXmlManifestReplacementStore((Office.CustomXMLParts)customXmlParts);
+                FormulaManifestReplacement.Remove(store, formulaId, host);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] RemoveEntry failed: {ex.Message}");
+                OfficeOperationLog.Failure("remove-manifest", host, formulaId, ex);
+                throw;
             }
         }
 

@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
@@ -649,55 +650,61 @@ namespace LaTeXSnipper.Excel.Host
         }
 
         public bool DeleteCurrent()
+            => DeleteCurrentDetailed().Success;
+
+        public HostDeletionResult DeleteCurrentDetailed()
         {
+            object? selection = null;
             try
             {
-                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
-                if (excelSheet == null) return false;
-
-                // Check if a shape is currently selected
-                var sel = _application.Selection;
-                if (sel is Microsoft.Office.Interop.Excel.ShapeRange shapeRange)
+                selection = _application.Selection;
+                if (selection is Microsoft.Office.Interop.Excel.ShapeRange shapeRange && shapeRange.Count == 1)
                 {
                     var shape = shapeRange.Item(1);
-                    if (IsManagedShape(shape))
+                    try
                     {
-                        shape.Delete();
-                        return true;
+                        string? id = ExtractFormulaIdFromShapeMetadata(shape) ?? ExtractFormulaIdFromShapeName(shape.Name);
+                        if (!string.IsNullOrWhiteSpace(id)) return DeleteFormulaDetailed(id!);
                     }
-                    return false;
+                    finally { Marshal.ReleaseComObject(shape); }
                 }
-
-                // NO cell-overlap fallback: never scan all shapes looking for LSNO_.
-                // Doing so could delete a formula in an overlapping cell that the user
-                // didn't intend to delete. Require explicit shape selection.
-                return false;
+                return new HostDeletionResult { ErrorCode = "HOST_DELETE_SELECTION_AMBIGUOUS_OR_MISSING" };
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("delete-selected-formula", "excel", null, ex); }
-            return false;
+            catch (Exception ex) { return new HostDeletionResult { ErrorCode = "HOST_DELETE_FAILED", Error = ex.Message }; }
+            finally { if (selection != null && Marshal.IsComObject(selection)) Marshal.ReleaseComObject(selection); }
         }
 
         /// <summary>
         /// Delete a formula by exact FormulaId. Scans all shapes for matching LSNO_ name.
         /// </summary>
         public bool DeleteFormula(string formulaId)
+            => DeleteFormulaDetailed(formulaId).Success;
+
+        public HostDeletionResult DeleteFormulaDetailed(string formulaId)
         {
+            Microsoft.Office.Interop.Excel.Worksheet? sheet = null;
+            Microsoft.Office.Interop.Excel.Workbook? book = null;
+            Microsoft.Office.Interop.Excel.Shapes? shapes = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
             try
             {
-                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
-                if (excelSheet == null) return false;
-                for (int i = excelSheet.Shapes.Count; i >= 1; i--)
-                {
-                    var shape = excelSheet.Shapes.Item(i);
-                    if (ShapeMatchesFormulaId(shape, formulaId))
-                    {
-                        shape.Delete();
-                        return true;
-                    }
-                }
+                sheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (sheet == null) return new HostDeletionResult { ErrorCode = "HOST_DELETE_TARGET_MISSING" };
+                book = (Microsoft.Office.Interop.Excel.Workbook)sheet.Parent;
+                if (book.ReadOnly) return new HostDeletionResult { ErrorCode = "HOST_DELETE_DOCUMENT_READ_ONLY" };
+                shapes = sheet.Shapes; parts = book.CustomXMLParts;
+                var entries = FormulaDocumentManifest.ReadAllEntries(parts);
+                return HostFormulaDeletion.DeleteShape(parts, shapes, formulaId, "excel", value => ShapeMatchesFormulaId(value, formulaId),
+                    () => ManifestDiagnostics.ReadShapeInventory(book, false, entries).Count(id => id == formulaId) == 1);
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "excel", formulaId, ex); }
-            return false;
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "excel", formulaId, ex); return new HostDeletionResult { ErrorCode = "HOST_DELETE_FAILED", Error = ex.Message }; }
+            finally
+            {
+                if (shapes != null) Marshal.ReleaseComObject(shapes);
+                if (parts != null) Marshal.ReleaseComObject(parts);
+                if (book != null) Marshal.ReleaseComObject(book);
+                if (sheet != null) Marshal.ReleaseComObject(sheet);
+            }
         }
 
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)

@@ -351,23 +351,10 @@ namespace LaTeXSnipper.Word
                         result = _adapter.DeleteFormula(formulaId);
                     else
                         result = _adapter.DeleteCurrent();
-                    if (result.Success && !string.IsNullOrEmpty(formulaId))
-                    {
-                        try
-                        {
-                            var doc = Application.ActiveDocument;
-                            if (doc != null)
-                                FormulaDocumentManifest.Remove(doc, formulaId);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Word] Manifest cleanup error: {ex.Message}");
-                        }
-                    }
                     _pipeClient.SendOnlyAsync(new VstoDeleteResult
                     {
                         RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
-                        Success = result.Success, Error = result.Error
+                        Success = result.Success, Error = result.Success ? null : result.ErrorCode + ": " + result.Error
                     });
                     break;
                 }

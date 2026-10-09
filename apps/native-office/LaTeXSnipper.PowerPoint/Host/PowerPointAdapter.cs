@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
 using LaTeXSnipper.NativeOffice.Shared.Metadata;
@@ -456,59 +457,71 @@ namespace LaTeXSnipper.PowerPoint.Host
         }
 
         public bool DeleteCurrent()
+            => DeleteCurrentDetailed().Success;
+
+        public HostDeletionResult DeleteCurrentDetailed()
         {
+            Microsoft.Office.Interop.PowerPoint.Selection? selection = null;
+            Microsoft.Office.Interop.PowerPoint.ShapeRange? range = null;
             try
             {
-                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
-                if (slide == null) return false;
-
-                // Check if a shape is selected in the current selection
-                var sel = _application.ActiveWindow.Selection;
-                if (sel.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
+                selection = _application.ActiveWindow.Selection;
+                if (selection.Type == Microsoft.Office.Interop.PowerPoint.PpSelectionType.ppSelectionShapes)
                 {
-                    var shapeRange = sel.ShapeRange;
-                    if (shapeRange != null && shapeRange.Count > 0)
+                    range = selection.ShapeRange;
+                    if (range != null && range.Count == 1)
                     {
-                        var shape = shapeRange[1];
-                        if (shape.Name?.StartsWith("LSNO_") == true)
+                        var shape = range[1];
+                        try
                         {
-                            shape.Delete();
-                            return true;
+                            string text = shape.AlternativeText ?? "";
+                            string? id = text.StartsWith("{", StringComparison.Ordinal)
+                                ? System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(text)?.FormulaId : null;
+                            if (string.IsNullOrEmpty(id)) id = ExtractFormulaIdFromShapeName(shape.Name);
+                            if (!string.IsNullOrEmpty(id)) return DeleteFormulaDetailed(id!);
                         }
+                        finally { Marshal.ReleaseComObject(shape); }
                     }
                 }
-
-                // NO fallback scan: never iterate all shapes looking for LSNO_ to delete.
-                // Doing so could delete a different formula than the user intended.
-                // The user must explicitly select the formula shape first.
-                return false;
+                return new HostDeletionResult { ErrorCode = "HOST_DELETE_SELECTION_AMBIGUOUS_OR_MISSING" };
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("delete-selected-formula", "powerpoint", null, ex); }
-            return false;
+            catch (Exception ex) { return new HostDeletionResult { ErrorCode = "HOST_DELETE_FAILED", Error = ex.Message }; }
+            finally { if (range != null) Marshal.ReleaseComObject(range); if (selection != null) Marshal.ReleaseComObject(selection); }
         }
 
         /// <summary>
         /// Delete a formula by exact FormulaId. Scans all shapes for matching LSNO_ name.
         /// </summary>
         public bool DeleteFormula(string formulaId)
+            => DeleteFormulaDetailed(formulaId).Success;
+
+        public HostDeletionResult DeleteFormulaDetailed(string formulaId)
         {
+            Microsoft.Office.Interop.PowerPoint.Shapes? shapes = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
+            Microsoft.Office.Interop.PowerPoint.Presentation? presentation = null;
+            Microsoft.Office.Interop.PowerPoint.Slide? slide = null;
             try
             {
-                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
-                if (slide == null) return false;
-                string targetName = $"LSNO_{formulaId}";
-                for (int i = slide.Shapes.Count; i >= 1; i--)
-                {
-                    var shape = slide.Shapes[i];
-                    if (string.Equals(shape.Name, targetName, StringComparison.Ordinal))
-                    {
-                        shape.Delete();
-                        return true;
-                    }
-                }
+                presentation = _targetPresentation ?? _application.ActivePresentation;
+                slide = _targetSlide ?? _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
+                if (slide == null || presentation == null) return new HostDeletionResult { ErrorCode = "HOST_DELETE_TARGET_MISSING" };
+                if (presentation.ReadOnly == Microsoft.Office.Core.MsoTriState.msoTrue)
+                    return new HostDeletionResult { ErrorCode = "HOST_DELETE_DOCUMENT_READ_ONLY" };
+                shapes = slide.Shapes; parts = presentation.CustomXMLParts;
+                var entries = FormulaDocumentManifest.ReadAllEntries(parts);
+                return HostFormulaDeletion.DeleteShape(parts, shapes, formulaId, "powerpoint",
+                    value => ShapeMatchesFormulaId((Microsoft.Office.Interop.PowerPoint.Shape)value, formulaId),
+                    () => ManifestDiagnostics.ReadShapeInventory(presentation, true, entries).Count(id => id == formulaId) == 1);
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "powerpoint", formulaId, ex); }
-            return false;
+            catch (Exception ex) { OfficeOperationLog.Failure("delete-formula", "powerpoint", formulaId, ex); return new HostDeletionResult { ErrorCode = "HOST_DELETE_FAILED", Error = ex.Message }; }
+            finally
+            {
+                if (shapes != null) Marshal.ReleaseComObject(shapes);
+                if (parts != null) Marshal.ReleaseComObject(parts);
+                if (slide != null && _targetSlide == null) Marshal.ReleaseComObject(slide);
+                if (presentation != null && _targetPresentation == null) Marshal.ReleaseComObject(presentation);
+            }
         }
 
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)

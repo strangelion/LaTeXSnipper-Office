@@ -15,6 +15,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         void AddReplacement(string xml);
         string ReadReplacement();
         bool IsPreparedUnchanged();
+        bool IsOriginalUnchanged();
         void CommitReplacement();
         bool RollbackReplacement();
     }
@@ -28,6 +29,17 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         public static void Write(IFormulaManifestReplacementStore store, FormulaPayload payload, string host = "word")
         {
             string xml = BuildReplacement(store, payload, host);
+            CommitXml(store, xml, payload.FormulaId, host);
+        }
+
+        public static void Remove(IFormulaManifestReplacementStore store, string formulaId, string host = "word")
+        {
+            string? xml = BuildRemoval(store, formulaId, host);
+            if (xml != null) CommitXml(store, xml, formulaId, host);
+        }
+
+        private static void CommitXml(IFormulaManifestReplacementStore store, string xml, string formulaId, string host)
+        {
             try
             {
                 store.AddReplacement(xml);
@@ -39,11 +51,37 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             {
                 bool restored = false;
                 try { restored = store.RollbackReplacement(); }
-                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-manifest", host, payload.FormulaId, cleanup); }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-manifest", host, formulaId, cleanup); }
                 if (!restored)
                     throw new InvalidOperationException("MANIFEST_STATE_UNCERTAIN: replacement was not proven rolled back; no automatic retry.", error);
                 throw;
             }
+        }
+
+        internal static string? BuildRemoval(IFormulaManifestReplacementStore store, string formulaId, string host)
+        {
+            if (store == null) throw new ArgumentNullException(nameof(store));
+            if (host != "word" && host != "excel" && host != "powerpoint")
+                throw new InvalidOperationException("MANIFEST_HOST_INVALID");
+            if (string.IsNullOrWhiteSpace(formulaId) || formulaId.Length > 256)
+                throw new InvalidOperationException("MANIFEST_PAYLOAD_ID_INVALID");
+            string? original = store.ReadOriginal();
+            if (original == null) return null;
+            var root = ParseRoot(original);
+            var matching = root.Elements().Where(entry => (string?)entry.Attribute("id") == formulaId).ToList();
+            if (matching.Count > 1 || matching.Any(entry => entry.Name != XName.Get("formula")))
+                throw new InvalidOperationException("MANIFEST_ENTRY_AMBIGUOUS");
+            if (matching.Count == 0) return null;
+            matching[0].Remove();
+            return root.ToString(SaveOptions.DisableFormatting);
+        }
+
+        internal static XElement ParseRoot(string xml)
+        {
+            var root = Parse(xml);
+            if (root.Name != XName.Get("manifest", NamespaceUri))
+                throw new InvalidOperationException("MANIFEST_ROOT_INVALID");
+            return root;
         }
 
         internal static string BuildReplacement(IFormulaManifestReplacementStore store, FormulaPayload payload, string host)
@@ -132,6 +170,20 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         }
         public string ReadReplacement() => _replacement?.XML ?? "";
         public bool IsPreparedUnchanged() => AttachedAndUnchanged();
+        public bool IsOriginalUnchanged()
+        {
+            Office.CustomXMLParts? matches = null;
+            Office.CustomXMLPart? current = null;
+            try
+            {
+                matches = _parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
+                if (_original == null) return matches.Count == 0;
+                if (matches.Count != 1) return false;
+                current = matches[1];
+                return current.Id == _originalId && current.XML == _originalXml;
+            }
+            finally { Release(current); Release(matches); }
+        }
 
         public void CommitReplacement()
         {
@@ -160,7 +212,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             if (_replacement == null) return true;
             if (!AttachedAndUnchanged()) return false;
             _replacement.Delete();
-            return true;
+            return IsOriginalUnchanged();
         }
 
         private bool AttachedAndUnchanged()

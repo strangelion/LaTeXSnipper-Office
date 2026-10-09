@@ -293,6 +293,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             if (args.Length == 1 && args[0] == "--child") return ChildMain();
             if (args.Length == 1 && args[0] == "--manifest-append") return ManifestAppendTests.Run() == 0 ? 0 : 1;
             if (args.Length == 1 && args[0] == "--manifest-replacement") return ManifestReplacementTests.Run() == 0 ? 0 : 1;
+            if (args.Length == 1 && args[0] == "--manifest-delete") return ManifestDeletionTests.Run() == 0 ? 0 : 1;
             if (args.Length == 1 && args[0] == "--host-manifest") return HostManifestInsertionTests.Run() == 0 ? 0 : 1;
             if (args.Length == 1 && args[0] == "--image-replacement") return HostImageReplacementTests.Run() == 0 ? 0 : 1;
 
@@ -347,6 +348,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             failures += FormulaPresentationStyleTests.Run();
             failures += ManifestAppendTests.Run();
             failures += ManifestReplacementTests.Run();
+            failures += ManifestDeletionTests.Run();
             failures += HostManifestInsertionTests.Run();
             failures += HostImageReplacementTests.Run();
             Console.WriteLine("RUN FormulaIdTests");

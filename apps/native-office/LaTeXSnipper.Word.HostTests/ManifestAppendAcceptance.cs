@@ -14,6 +14,102 @@ namespace LaTeXSnipper.Word.HostTests
 {
     internal static class ManifestAppendAcceptance
     {
+        public static int RunDeletion(InteropWord.Application app, ref InteropWord.Document doc, AcceptanceCase fixture, string directory)
+        {
+            var checks = new List<object>(); string error = null;
+            try
+            {
+                var adapter = new WordAdapter(app);
+                doc.Content.Text = "Before After\r";
+                var payload = new FormulaPayload { FormulaId = FormulaIdHelper.NewId(), Latex = fixture.Latex, Omml = fixture.Omml,
+                    StorageMode = "native-omml", Display = "inline" };
+                var anchor = doc.Range(7, 7);
+                try { if (!adapter.InsertNativeInlineAt(doc, anchor, payload).Success) throw new InvalidOperationException("Native fixture insert failed."); }
+                finally { Marshal.ReleaseComObject(anchor); }
+                string before = doc.Content.Text;
+                var originalPart = (Office.CustomXMLPart)FormulaDocumentManifest.FindPart(doc);
+                string originalXml;
+                try { originalXml = originalPart.XML; originalPart.Delete(); }
+                finally { Marshal.ReleaseComObject(originalPart); }
+                try
+                {
+                    foreach (bool duplicate in new[] { true, false })
+                    {
+                        const string ns = "urn:latexsnipper:office:objects:v3";
+                        var first = doc.CustomXMLParts.Add(duplicate ? $"<lsno:manifest xmlns:lsno='{ns}'/>" : $"<lsno:wrong xmlns:lsno='{ns}'/>");
+                        var second = duplicate ? doc.CustomXMLParts.Add($"<lsno:manifest xmlns:lsno='{ns}'/>") : null;
+                        try
+                        {
+                            var result = adapter.DeleteFormulaInDocument(doc, payload.FormulaId);
+                            var diagnostic = ManifestDiagnostics.ValidateWord(doc, repairOrphans: true);
+                            if (result.Success || doc.Content.Text != before || doc.OMaths.Count != 1 || diagnostic.IsConsistent ||
+                                diagnostic.RepairedCount != 0 || diagnostic.ScanComplete || first.XML.Length == 0)
+                                throw new InvalidOperationException("Invalid manifest deleted Word source or diagnostic repaired incomplete scan.");
+                            checks.Add(new { kind = duplicate ? "duplicate-part" : "wrong-root", originalPreserved = true, noRepair = true });
+                        }
+                        finally { first.Delete(); Marshal.ReleaseComObject(first); if (second != null) { second.Delete(); Marshal.ReleaseComObject(second); } }
+                    }
+                }
+                finally { var restored = doc.CustomXMLParts.Add(originalXml); Marshal.ReleaseComObject(restored); }
+                var header = doc.Sections[1].Headers[InteropWord.WdHeaderFooterIndex.wdHeaderFooterPrimary];
+                string headerId = FormulaIdHelper.NewId();
+                try
+                {
+                    var range = header.Range; range.Text = "Header source";
+                    var control = doc.ContentControls.Add(InteropWord.WdContentControlType.wdContentControlRichText, range);
+                    try { control.Tag = "latexsnipper:formula:" + headerId; }
+                    finally { Marshal.ReleaseComObject(control); Marshal.ReleaseComObject(range); }
+                    FormulaDocumentManifest.Write(doc, new FormulaPayload { FormulaId = headerId, Latex = "h", StorageMode = "native-omml" });
+                }
+                finally { Marshal.ReleaseComObject(header); }
+                var inventory = ManifestDiagnostics.ValidateWord(doc);
+                if (!inventory.IsConsistent || inventory.TotalEntries != 2 || inventory.ObjectsFound != 2)
+                    throw new InvalidOperationException("Word body/header inventory not complete: " + JsonSerializer.Serialize(inventory));
+                string orphanId = FormulaIdHelper.NewId();
+                FormulaDocumentManifest.Write(doc, new FormulaPayload { FormulaId = orphanId, Latex = "orphan", StorageMode = "native-omml" });
+                var orphanReport = ManifestDiagnostics.ValidateWord(doc);
+                if (orphanReport.OrphanEntries != 1 || orphanReport.RepairedCount != 0 || FormulaDocumentManifest.Read(doc, orphanId) == null)
+                    throw new InvalidOperationException("Read-only Word diagnostic erased the orphan payload.");
+                var repair = ManifestDiagnostics.ValidateWord(doc, repairOrphans: true);
+                if (!repair.IsConsistent || repair.RepairedCount != 1 || FormulaDocumentManifest.Read(doc, orphanId) != null)
+                    throw new InvalidOperationException("Explicit Word orphan repair did not verify removal.");
+                var probeControls = doc.SelectContentControlsByTag("latexsnipper:formula:" + payload.FormulaId);
+                var probeRange = probeControls[1].Range;
+                try
+                {
+                    string first = probeRange.WordOpenXML, second = probeRange.WordOpenXML;
+                    string changed = first.Replace("<m:t>x</m:t>", "<m:t>z</m:t>");
+                    if (WordAdapter.DeleteSourceFingerprint(first) != WordAdapter.DeleteSourceFingerprint(second) ||
+                        changed == first || WordAdapter.DeleteSourceFingerprint(first) == WordAdapter.DeleteSourceFingerprint(changed))
+                        throw new InvalidOperationException("Source fingerprint ignored real math or retained generated revision stamps.");
+                    const string binary = "<pkg:package xmlns:pkg='http://schemas.microsoft.com/office/2006/xmlPackage'><pkg:part pkg:name='/word/media/image1.png'><pkg:binaryData>AAAA</pkg:binaryData></pkg:part></pkg:package>";
+                    if (WordAdapter.DeleteSourceFingerprint(binary) == WordAdapter.DeleteSourceFingerprint(binary.Replace("AAAA", "AAAB")))
+                        throw new InvalidOperationException("Source fingerprint ignored binary data.");
+                }
+                finally { Marshal.ReleaseComObject(probeRange); Marshal.ReleaseComObject(probeControls); }
+                var deletion = adapter.DeleteFormulaInDocument(doc, payload.FormulaId);
+                if (!deletion.Success || doc.OMaths.Count != 0 || !doc.Content.Text.Contains("Before After") ||
+                    FormulaDocumentManifest.Read(doc, payload.FormulaId) != null || FormulaDocumentManifest.Read(doc, headerId)?.Latex != "h")
+                    throw new InvalidOperationException("Word deletion failed: " + deletion.ErrorCode + ": " + deletion.Error);
+                var after = JsonSerializer.Serialize(FormulaDocumentManifest.ReadAll(doc));
+                string path = Path.Combine(directory, "manifest-delete.docx");
+                doc.SaveAs2(path, InteropWord.WdSaveFormat.wdFormatXMLDocument);
+                doc.Close(InteropWord.WdSaveOptions.wdDoNotSaveChanges); Marshal.ReleaseComObject(doc); doc = null;
+                doc = app.Documents.Open(path, ReadOnly: true, AddToRecentFiles: false, Visible: true); Program.RequireHiddenWord(app);
+                if (after != JsonSerializer.Serialize(FormulaDocumentManifest.ReadAll(doc)) || !ManifestDiagnostics.ValidateWord(doc).IsConsistent)
+                    throw new InvalidOperationException("Word deleted entry or header inventory changed after reopen.");
+                checks.Add(new { kind = "native-delete", sourceAroundPreserved = true, deletedMetadataAbsent = true,
+                    headerRetained = true, storyInventoryVerified = true, explicitOrphanRepairVerified = true,
+                    generatedStampsExcludedButMathAndBinaryGuarded = true, saveReopenVerified = true });
+            }
+            catch (Exception failure) { error = failure.ToString(); Console.Error.WriteLine(error); }
+            File.WriteAllText(Path.Combine(directory, "manifest-delete-evidence.json"), JsonSerializer.Serialize(new {
+                schemaVersion = 1, host = "word", checks, error, status = error == null ? "passed" : "failed", pipeVerified = false,
+                scope = "Authored native/body and header carriers, metadata faults and direct deletion. No installed add-in or OLE fault claim."
+            }, new JsonSerializerOptions { WriteIndented = true }));
+            return error == null ? 0 : 1;
+        }
+
         public static int Run(InteropWord.Application app, ref InteropWord.Document doc, AcceptanceCase fixture, string directory)
         {
             var checks = new List<object>();

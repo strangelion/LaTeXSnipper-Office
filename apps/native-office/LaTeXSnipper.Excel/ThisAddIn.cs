@@ -247,33 +247,12 @@ namespace LaTeXSnipper.Excel
                 {
                     var formulaId = delCmd.FormulaId;
 
-                    // If no formulaId provided, try to extract from selection
-                    if (string.IsNullOrEmpty(formulaId))
-                        formulaId = ExtractFormulaIdFromSelection();
-
-                    var ok = false;
-                    if (!string.IsNullOrEmpty(formulaId))
-                        ok = _adapter.DeleteFormula(formulaId);
-                    else
-                        ok = _adapter.DeleteCurrent();
-
-                    if (ok && !string.IsNullOrEmpty(formulaId))
-                    {
-                        try
-                        {
-                            var wb = Application.ActiveWorkbook;
-                            if (wb != null)
-                                FormulaDocumentManifest.RemoveEntry(wb.CustomXMLParts, formulaId);
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Excel] Manifest cleanup error: {ex.Message}");
-                        }
-                    }
+                    var result = !string.IsNullOrEmpty(formulaId)
+                        ? _adapter.DeleteFormulaDetailed(formulaId!) : _adapter.DeleteCurrentDetailed();
                     _ = _pipeClient.SendAsync(new VstoDeleteResult
                     {
                         RequestId = delCmd.RequestId, SessionId = delCmd.SessionId,
-                        Success = ok
+                        Success = result.Success, Error = result.Success ? null : result.ErrorCode + ": " + result.Error
                     });
                     break;
                 }

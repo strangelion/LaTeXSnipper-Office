@@ -74,6 +74,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
         {
             if (args.Length == 2 && args[1] == "--manifest") return CrossHostManifestAcceptance.Run(Path.GetFullPath(args[0]));
             if (args.Length == 2 && args[1] == "--image-replacement") return CrossHostManifestAcceptance.Run(Path.GetFullPath(args[0]), imageReplacement: true);
+            if (args.Length == 2 && args[1] == "--manifest-delete") return CrossHostManifestAcceptance.Run(Path.GetFullPath(args[0]), deletion: true);
             bool editableMediaMode = args.Length == 3 &&
                 string.Equals(args[2], "--editable-media", StringComparison.OrdinalIgnoreCase);
             if ((args.Length != 2 && !editableMediaMode) || !Directory.Exists(args[0]))

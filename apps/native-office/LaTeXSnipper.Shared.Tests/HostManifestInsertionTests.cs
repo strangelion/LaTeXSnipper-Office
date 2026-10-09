@@ -53,6 +53,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             public void AddReplacement(string xml) { Xml = xml; }
             public string ReadReplacement() => Xml;
             public bool IsPreparedUnchanged() => true;
+            public bool IsOriginalUnchanged() => true;
             public void CommitReplacement() { }
             public bool RollbackReplacement() => true;
             public void Dispose() { }
