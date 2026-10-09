@@ -52,6 +52,7 @@
     <Compile Include="BatchAcceptance.cs" />
     <Compile Include="ManifestAppendAcceptance.cs" />
     <Compile Include="CopiedIdentityAcceptance.cs" />
+    <Compile Include="ArrayColumnAcceptance.cs" />
     <Compile Include="StandardBatchAcceptance.cs" />
     <Compile Include="BatchStoriesAcceptance.cs" />
     <Compile Include="SelectionLatexAcceptance.cs" />

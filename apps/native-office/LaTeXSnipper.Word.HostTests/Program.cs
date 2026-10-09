@@ -21,6 +21,7 @@ namespace LaTeXSnipper.Word.HostTests
         public int SchemaVersion { get; set; }
         public List<string> Modes { get; set; }
         public List<AcceptanceCase> Cases { get; set; }
+        public string GeneratedByCoreCommit { get; set; }
     }
 
     internal sealed class AcceptanceCase
@@ -176,6 +177,7 @@ namespace LaTeXSnipper.Word.HostTests
             bool manifestSafetyMode = args.Length == 3 && string.Equals(args[2], "--manifest-safety", StringComparison.OrdinalIgnoreCase);
             bool manifestDeleteMode = args.Length == 3 && string.Equals(args[2], "--manifest-delete", StringComparison.OrdinalIgnoreCase);
             bool copiedIdentityMode = args.Length == 3 && string.Equals(args[2], "--copied-identity", StringComparison.OrdinalIgnoreCase);
+            bool arrayColumnMode = args.Length == 3 && string.Equals(args[2], "--array-columns", StringComparison.OrdinalIgnoreCase);
             bool batchMode = (args.Length == 3 || args.Length == 4) &&
                 (string.Equals(args[2], "--batch", StringComparison.OrdinalIgnoreCase) || baselineBatchMode || selectionBatchMode || manifestBatchMode);
             int batchCount = 250;
@@ -207,14 +209,14 @@ namespace LaTeXSnipper.Word.HostTests
                     StringComparison.OrdinalIgnoreCase);
             if (args.Length < 2 || !File.Exists(args[0]) ||
                 (args.Length > 2 && !oleMode && !imageMode && !caseMode &&
-                    !copiedIdentityMode && !manifestDeleteMode && !manifestSafetyMode && !managedSvgMode && !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
+                    !arrayColumnMode && !copiedIdentityMode && !manifestDeleteMode && !manifestSafetyMode && !managedSvgMode && !svgSourceMode && !pngSourceMode && !ownedOleReadMode && !standardMode && !styleMode && !fieldRefreshMode && !batchMode && !batchStoriesMode && !scratchReuseMode && !selectionLatexMode && !documentTargetsMode && !formatConversionMode && !selectionMediaMode && !skipPreflight) ||
                 ((formatConversionMode || selectionMediaMode) && !File.Exists(args[3])) ||
                 ((oleMode || imageMode) && !Directory.Exists(args[3])))
             {
                 Console.Error.WriteLine(
                     "Usage: LaTeXSnipper.Word.HostTests.exe <fixtures.json> <evidence-dir> " +
                     "[--ole <mathjax-svg-dir> | --editable-image <svg-dir> | " +
-                    "--case <fixture-name> | --png-source | --svg-source | --managed-svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-manifest [count] | --batch-manifest-legacy [count] | --manifest-safety | --copied-identity | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
+                    "--case <fixture-name> | --array-columns | --png-source | --svg-source | --managed-svg-source | --owned-ole-read <input.docx> | --format-conversion <render.json> | --selection-media <render.json> | --style | --field-refresh | --batch [count] | --batch-baseline [count] | --batch-selection [count] | --batch-manifest [count] | --batch-manifest-legacy [count] | --manifest-safety | --copied-identity | --batch-scratch | --standard <input.docx> | --batch-stories | --selection-latex | --document-targets | --skip-preflight]");
                 return 2;
             }
 
@@ -256,14 +258,14 @@ namespace LaTeXSnipper.Word.HostTests
             {
                 application = new InteropWord.Application
                 {
-                    Visible = !(copiedIdentityMode || manifestDeleteMode || pngSourceMode || svgSourceMode || managedSvgMode || manifestBatchMode || manifestSafetyMode),
+                    Visible = !(arrayColumnMode || copiedIdentityMode || manifestDeleteMode || pngSourceMode || svgSourceMode || managedSvgMode || manifestBatchMode || manifestSafetyMode),
                     DisplayAlerts = InteropWord.WdAlertLevel.wdAlertsNone
                 };
                 // Word InsertXML needs an active internal document window. The
                 // application stays hidden; verify the OS window is not shown.
                 document = application.Documents.Add(Visible: manifestDeleteMode || manifestBatchMode || manifestSafetyMode ||
                     !(pngSourceMode || svgSourceMode || managedSvgMode));
-                if (copiedIdentityMode || manifestDeleteMode || manifestBatchMode || manifestSafetyMode) RequireHiddenWord(application);
+                if (arrayColumnMode || copiedIdentityMode || manifestDeleteMode || manifestBatchMode || manifestSafetyMode) RequireHiddenWord(application);
                 int? oleServerProcessId = oleMode || formatConversionMode || selectionMediaMode || ownedOleReadMode
                     ? GetOfficeProcessId(application)
                     : (int?)null;
@@ -274,6 +276,7 @@ namespace LaTeXSnipper.Word.HostTests
                         $"hwnd={application.ActiveWindow.Hwnd}");
                 }
                 var adapter = new WordAdapter(application, oleServerProcessId);
+                if (arrayColumnMode) return ArrayColumnAcceptance.Run(application, ref document, activeCases, evidenceDirectory, contract.GeneratedByCoreCommit);
                 if (copiedIdentityMode) return CopiedIdentityAcceptance.Run(application, ref document, activeCases.First(), evidenceDirectory);
                 if (manifestDeleteMode) return ManifestAppendAcceptance.RunDeletion(application, ref document, activeCases.First(), evidenceDirectory);
                 if (manifestSafetyMode)

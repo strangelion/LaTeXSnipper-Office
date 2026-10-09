@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "modes": ["inline", "display", "displayNumbered"],
+  "cases": [
+    { "name": "left-center-right", "latex": "\\begin{array}{lcr}a&bb&ccc\\\\dddd&e&f\\end{array}" },
+    { "name": "repeated-columns", "latex": "\\begin{array}{*{2}{cr}}1&2&3&4\\\\5&6&7&8\\end{array}" },
+    { "name": "short-row-padding", "latex": "\\begin{array}{lcr}1&2&3\\\\4&5\\end{array}" },
+    { "name": "nested-columns", "latex": "\\begin{array}{lc}\\begin{array}{r}1\\\\2\\end{array}&\\frac{a}{b}\\end{array}" },
+    { "name": "outer-delimiters", "latex": "\\left(\\begin{array}{lr}a&b\\\\c&d\\end{array}\\right)" },
+    { "name": "fraction-owner", "latex": "\\frac{\\begin{array}{lr}a&b\\\\c&d\\end{array}}{n}" }
+  ]
+}

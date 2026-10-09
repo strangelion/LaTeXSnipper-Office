@@ -579,9 +579,10 @@ namespace LaTeXSnipper.Word.Host
                 document = System.Xml.Linq.XDocument.Load(reader);
             // Range exports create temporary package revision stamps. Compare
             // real content/formatting/media, not these generated rsid values.
+            // Numbered table rows also regenerate rsidTr on consecutive exports.
             System.Xml.Linq.XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
             var revisionAttributes = new HashSet<string>(StringComparer.Ordinal)
-                { "rsidR", "rsidRPr", "rsidRDefault", "rsidP", "rsidDel", "rsidSect" };
+                { "rsidR", "rsidRPr", "rsidRDefault", "rsidP", "rsidDel", "rsidSect", "rsidTr" };
             foreach (var attribute in document.Descendants().SelectMany(element => element.Attributes()).Where(value => value.Name.Namespace == w &&
                 revisionAttributes.Contains(value.Name.LocalName)).ToList()) attribute.Remove();
             foreach (var stamps in document.Descendants(w + "rsids").ToList()) stamps.Remove();
