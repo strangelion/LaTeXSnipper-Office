@@ -1,7 +1,9 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 using PowerPointApp = Microsoft.Office.Interop.PowerPoint.Application;
 
 namespace LaTeXSnipper.PowerPoint.Host
@@ -10,31 +12,56 @@ namespace LaTeXSnipper.PowerPoint.Host
     {
         private readonly PowerPointApp _application;
         private readonly int? _oleServerProcessId;
+        private readonly Microsoft.Office.Interop.PowerPoint.Presentation? _targetPresentation;
+        private readonly Microsoft.Office.Interop.PowerPoint.Slide? _targetSlide;
 
         public PowerPointAdapter(
             PowerPointApp application,
-            int? oleServerProcessId = null)
+            int? oleServerProcessId = null,
+            Microsoft.Office.Interop.PowerPoint.Presentation? targetPresentation = null,
+            Microsoft.Office.Interop.PowerPoint.Slide? targetSlide = null)
         {
             _application = application;
             _oleServerProcessId = oleServerProcessId;
+            if ((targetPresentation == null) != (targetSlide == null))
+                throw new ArgumentException("Explicit PowerPoint insertion requires both presentation and slide.");
+            if (targetSlide != null)
+            {
+                object parent = targetSlide.Parent;
+                IntPtr parentIdentity = IntPtr.Zero, targetIdentity = IntPtr.Zero;
+                try
+                {
+                    parentIdentity = Marshal.GetIUnknownForObject(parent);
+                    targetIdentity = Marshal.GetIUnknownForObject(targetPresentation!);
+                    if (parentIdentity != targetIdentity)
+                        throw new ArgumentException("Explicit slide does not belong to the target presentation.");
+                }
+                finally
+                {
+                    if (parentIdentity != IntPtr.Zero) Marshal.Release(parentIdentity);
+                    if (targetIdentity != IntPtr.Zero) Marshal.Release(targetIdentity);
+                    Marshal.ReleaseComObject(parent);
+                }
+            }
+            _targetPresentation = targetPresentation; _targetSlide = targetSlide;
         }
 
         public string HostType => "powerpoint";
 
         public string GetCurrentContextId()
         {
-            var pres = _application.ActivePresentation;
+            var pres = _targetPresentation ?? _application.ActivePresentation;
             if (pres == null) return "powerpoint:unsaved:none";
             return "powerpoint:" + (pres.FullName ?? pres.Name);
         }
 
         public InsertResult InsertFormula(FormulaPayload payload, InsertMode mode)
         {
-            var pres = _application.ActivePresentation;
+            var pres = _targetPresentation ?? _application.ActivePresentation;
             if (pres == null)
                 return new InsertResult { Success = false, Error = "No active presentation" };
 
-            var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
+            var slide = _targetSlide ?? _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
             if (slide == null)
                 return new InsertResult { Success = false, Error = "No active slide" };
 
@@ -44,7 +71,7 @@ namespace LaTeXSnipper.PowerPoint.Host
 
                 if (storageMode == "ole")
                 {
-                    var oleResult = TryInsertOle(slide, payload);
+                    var oleResult = TryInsertOle(slide, payload, pres);
                     if (oleResult != null && oleResult.Success)
                         return oleResult;
                     // P1-3: Return the actual error from TryInsertOle, not a generic message.
@@ -55,8 +82,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                 string? oleFallbackReason = null;
                 if (storageMode == "auto")
                 {
-                    var oleResult = TryInsertOle(slide, payload);
+                    var oleResult = TryInsertOle(slide, payload, pres);
                     if (oleResult?.Success == true) return oleResult;
+                    if (HostManifestInsertion.IsFailure(oleResult?.ErrorCode)) return oleResult!;
                     oleFallbackReason = $"{oleResult?.ErrorCode ?? "OLE_AUTOMATION_UNAVAILABLE"}: {oleResult?.Error ?? "unknown OLE failure"}";
                 }
 
@@ -122,7 +150,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                     // Clean up temp file after successful insertion
                     try { if (File.Exists(tempPath)) File.Delete(tempPath); }
                     catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "powerpoint", payload.FormulaId, ex); }
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId, ActualStorageMode = "image", FallbackReason = oleFallbackReason };
+                    var imageResult = CommitManifest(pres, payload, "image", () => shape.Delete());
+                    imageResult.FallbackReason = oleFallbackReason;
+                    return imageResult;
                 }
                 return new InsertResult { Success = false, ErrorCode = "OLE_RASTER_FALLBACK_FAILED", Error = "No SVG or PNG render data is available." };
             }
@@ -229,7 +259,24 @@ namespace LaTeXSnipper.PowerPoint.Host
         /// <summary>
         /// Try to insert formula as an OLE object. Returns null if OLE is unavailable.
         /// </summary>
-        private InsertResult? TryInsertOle(Microsoft.Office.Interop.PowerPoint.Slide slide, FormulaPayload payload)
+        private static void PersistManifest(Microsoft.Office.Interop.PowerPoint.Presentation presentation, FormulaPayload payload)
+        {
+            var parts = presentation.CustomXMLParts;
+            try { FormulaDocumentManifest.WriteEntry(parts, payload, "powerpoint"); }
+            finally { Marshal.ReleaseComObject(parts); }
+        }
+
+        private static InsertResult CommitManifest(Microsoft.Office.Interop.PowerPoint.Presentation presentation,
+            FormulaPayload payload, string mode, Action rollback)
+        {
+            var failure = HostManifestInsertion.Commit(payload.FormulaId, payload, "powerpoint", mode,
+                metadata => PersistManifest(presentation, metadata), rollback);
+            return new InsertResult { Success = failure == null, FormulaId = payload.FormulaId, ActualStorageMode = mode,
+                ErrorCode = failure?.ErrorCode, Error = failure?.Error };
+        }
+
+        private InsertResult? TryInsertOle(Microsoft.Office.Interop.PowerPoint.Slide slide, FormulaPayload payload,
+            Microsoft.Office.Interop.PowerPoint.Presentation presentation)
         {
             try
             {
@@ -246,7 +293,7 @@ namespace LaTeXSnipper.PowerPoint.Host
                 // Do not pass Width/Height here.
                 // The native OLE object exposes its padded natural extent through GetExtent().
 
-                float slideWidth = _application.ActivePresentation.PageSetup.SlideWidth;
+                float slideWidth = presentation.PageSetup.SlideWidth;
                 float top = 100f;
 
                 using (PendingPayloadLease payloadLease = _oleServerProcessId.HasValue
@@ -344,13 +391,9 @@ namespace LaTeXSnipper.PowerPoint.Host
                     shape.AlternativeText = OleFormulaInterop.CreateHostMetadataJson(payload);
 
                     System.Diagnostics.Debug.WriteLine($"[PPTAdapter] OLE object inserted and initialized: name={shape.Name}");
-                    return new InsertResult
-                    {
-                        Success = true,
-                        FormulaId = payload.FormulaId,
-                        ActualStorageMode = "ole",
-                        FallbackReason = extentFallbackReason,
-                    };
+                    var result = CommitManifest(presentation, payload, "ole", () => shape.Delete());
+                    result.FallbackReason = extentFallbackReason;
+                    return result;
                 }
             }
             catch (Exception ex)

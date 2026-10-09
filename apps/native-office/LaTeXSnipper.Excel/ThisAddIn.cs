@@ -192,19 +192,8 @@ namespace LaTeXSnipper.Excel
                 {
                     ResolveStorageMode(cmd);
                     var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
-                    if (result.Success && !string.IsNullOrEmpty(result.FormulaId))
-                    {
-                        try
-                        {
-                            var wb = Application.ActiveWorkbook;
-                            if (wb != null)
-                                FormulaDocumentManifest.WriteEntry(wb.CustomXMLParts, cmd.Formula, "excel");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.Excel] Manifest write error: {ex.Message}");
-                        }
-                    }
+                    // The adapter commits metadata against the insertion's own
+                    // workbook before returning success, including direct calls.
                     _ = _pipeClient.SendAsync(new VstoInsertResult
                     {
                         RequestId = cmd.RequestId, SessionId = cmd.SessionId,

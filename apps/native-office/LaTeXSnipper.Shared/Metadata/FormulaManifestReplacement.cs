@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using System.Xml;
 using System.Xml.Linq;
 using Office = Microsoft.Office.Core;
-using InteropWord = Microsoft.Office.Interop.Word;
 
 namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 {
@@ -25,9 +24,11 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         public const int MaximumCharacters = 32 * 1024 * 1024;
         internal const string NamespaceUri = "urn:latexsnipper:office:objects:v3";
 
-        public static void Write(IFormulaManifestReplacementStore store, FormulaPayload payload)
+        public static void Write(IFormulaManifestReplacementStore store, FormulaPayload payload, string host = "word")
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
+            if (host != "word" && host != "excel" && host != "powerpoint")
+                throw new InvalidOperationException("MANIFEST_HOST_INVALID");
             if (payload == null || string.IsNullOrWhiteSpace(payload.FormulaId) || payload.FormulaId.Length > 256)
                 throw new InvalidOperationException("MANIFEST_PAYLOAD_ID_INVALID");
             string? original = store.ReadOriginal();
@@ -37,7 +38,9 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             var matching = root.Elements().Where(entry => (string?)entry.Attribute("id") == payload.FormulaId).ToList();
             if (matching.Count > 1 || matching.Any(entry => entry.Name != XName.Get("formula")))
                 throw new InvalidOperationException("MANIFEST_ENTRY_AMBIGUOUS");
-            var added = FormulaDocumentManifest.BuildWordEntryElement(payload);
+            var added = host == "word" ? FormulaDocumentManifest.BuildWordEntryElement(payload) :
+                FormulaDocumentManifest.BuildEntryElement(payload, FormulaObjectLocator.FromFormulaId(host, payload.FormulaId,
+                    string.IsNullOrEmpty(payload.StorageMode) ? "native-omml" : payload.StorageMode!));
             if (string.IsNullOrEmpty(added.Element("payload")?.Value))
                 throw new InvalidOperationException("MANIFEST_SERIALIZATION_FAILED");
             matching.SingleOrDefault()?.Remove();
@@ -55,7 +58,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             {
                 bool restored = false;
                 try { restored = store.RollbackReplacement(); }
-                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-word-manifest", "word", payload.FormulaId, cleanup); }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-manifest", host, payload.FormulaId, cleanup); }
                 if (!restored)
                     throw new InvalidOperationException("MANIFEST_STATE_UNCERTAIN: replacement was not proven rolled back; no automatic retry.", error);
                 throw;
@@ -84,9 +87,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         }
     }
 
-    internal sealed class WordManifestReplacementStore : IFormulaManifestReplacementStore
+    internal sealed class CustomXmlManifestReplacementStore : IFormulaManifestReplacementStore
     {
-        private readonly InteropWord.Document _document;
+        private readonly Office.CustomXMLParts _parts;
+        private readonly bool _ownsParts;
         private Office.CustomXMLPart? _original;
         private Office.CustomXMLPart? _replacement;
         private string? _originalId;
@@ -94,30 +98,30 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         private string? _replacementXml;
         private bool _commitStarted;
         private bool _addAttempted;
-        public WordManifestReplacementStore(InteropWord.Document document) { _document = document; }
+        public CustomXmlManifestReplacementStore(Office.CustomXMLParts parts, bool ownsParts = false)
+        {
+            _parts = parts ?? throw new ArgumentNullException(nameof(parts)); _ownsParts = ownsParts;
+        }
 
         public string? ReadOriginal()
         {
-            Office.CustomXMLParts? parts = null, matches = null;
+            Office.CustomXMLParts? matches = null;
             try
             {
-                parts = _document.CustomXMLParts;
-                matches = parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
+                matches = _parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
                 if (matches.Count > 1) throw new InvalidOperationException("MANIFEST_PART_AMBIGUOUS");
                 if (matches.Count == 0) return null;
                 _original = matches[1]; _originalId = _original.Id;
                 return _originalXml = _original.XML;
             }
-            finally { Release(matches); Release(parts); }
+            finally { Release(matches); }
         }
 
         public void AddReplacement(string xml)
         {
             _replacementXml = xml;
             _addAttempted = true;
-            Office.CustomXMLParts? parts = null;
-            try { parts = _document.CustomXMLParts; _replacement = parts.Add(xml); }
-            finally { Release(parts); }
+            _replacement = _parts.Add(xml);
         }
         public string ReadReplacement() => _replacement?.XML ?? "";
 
@@ -126,19 +130,18 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             if (!AttachedAndUnchanged()) throw new InvalidOperationException("MANIFEST_CHANGED_BEFORE_COMMIT");
             _commitStarted = true;
             _original?.Delete();
-            Office.CustomXMLParts? parts = null, matches = null;
+            Office.CustomXMLParts? matches = null;
             Office.CustomXMLPart? current = null;
             try
             {
-                parts = _document.CustomXMLParts;
-                matches = parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
+                matches = _parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
                 if (matches.Count != 1) throw new InvalidOperationException("MANIFEST_COMMIT_UNVERIFIED");
                 current = matches[1];
                 if (_replacement == null || current.Id != _replacement.Id ||
                     !FormulaManifestReplacement.Equivalent(_replacementXml!, current.XML))
                     throw new InvalidOperationException("MANIFEST_COMMIT_UNVERIFIED");
             }
-            finally { Release(current); Release(matches); Release(parts); }
+            finally { Release(current); Release(matches); }
         }
 
         public bool RollbackReplacement()
@@ -154,11 +157,10 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
 
         private bool AttachedAndUnchanged()
         {
-            Office.CustomXMLParts? parts = null, matches = null;
+            Office.CustomXMLParts? matches = null;
             try
             {
-                parts = _document.CustomXMLParts;
-                matches = parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
+                matches = _parts.SelectByNamespace(FormulaManifestReplacement.NamespaceUri);
                 if (_replacement == null || matches.Count != (_original == null ? 1 : 2)) return false;
                 bool oldFound = _original == null, newFound = false;
                 for (int index = 1; index <= matches.Count; index++)
@@ -174,12 +176,13 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
                 }
                 return oldFound && newFound;
             }
-            finally { Release(matches); Release(parts); }
+            finally { Release(matches); }
         }
 
         public void Dispose()
         {
-            try { Release(_replacement); } finally { Release(_original); }
+            try { Release(_replacement); }
+            finally { try { Release(_original); } finally { if (_ownsParts) Release(_parts); } }
         }
         private static void Release(object? value)
         {

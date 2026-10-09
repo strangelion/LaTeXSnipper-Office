@@ -209,19 +209,8 @@ namespace LaTeXSnipper.PowerPoint
                 {
                     ResolveStorageMode(cmd);
                     var result = _adapter.InsertFormula(cmd.Formula, cmd.Mode);
-                    if (result.Success && !string.IsNullOrEmpty(result.FormulaId))
-                    {
-                        try
-                        {
-                            var pres = Application.ActivePresentation;
-                            if (pres != null)
-                                FormulaDocumentManifest.WriteEntry(pres.CustomXMLParts, cmd.Formula, "powerpoint");
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[LaTeXSnipper.PowerPoint] Manifest write error: {ex.Message}");
-                        }
-                    }
+                    // The adapter commits metadata against the insertion's own
+                    // presentation before returning success, including direct calls.
                     _ = _pipeClient.SendAsync(new VstoInsertResult
                     {
                         RequestId = cmd.RequestId, SessionId = cmd.SessionId,

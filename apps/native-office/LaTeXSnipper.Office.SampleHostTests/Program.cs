@@ -72,6 +72,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
         [STAThread]
         private static int Main(string[] args)
         {
+            if (args.Length == 2 && args[1] == "--manifest") return CrossHostManifestAcceptance.Run(Path.GetFullPath(args[0]));
             bool editableMediaMode = args.Length == 3 &&
                 string.Equals(args[2], "--editable-media", StringComparison.OrdinalIgnoreCase);
             if ((args.Length != 2 && !editableMediaMode) || !Directory.Exists(args[0]))

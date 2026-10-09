@@ -29,7 +29,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                using var store = new WordManifestReplacementStore(doc);
+                using var store = new CustomXmlManifestReplacementStore(doc.CustomXMLParts, ownsParts: true);
                 FormulaManifestReplacement.Write(store, payload);
             }
             catch (Exception ex)
@@ -311,55 +311,15 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         {
             try
             {
-                dynamic? existing = null;
-                for (int i = customXmlParts.Count; i >= 1; i--)
-                {
-                    dynamic part = customXmlParts[i];
-                    try
-                    {
-                        if ((string?)part.NamespaceURI == NamespaceUri)
-                        {
-                            existing = part;
-                            break;
-                        }
-                    }
-                    catch (Exception ex) { OfficeOperationLog.Failure("read-custom-xml-part", host, payload.FormulaId, ex); }
-                }
-
-                string xml;
-                var locator = FormulaObjectLocator.FromFormulaId(host, payload.FormulaId, ChooseStorageMode(payload));
-                if (existing != null)
-                {
-                    string existingXml;
-                    try { existingXml = existing.GetType().GetProperty("XML")?.GetValue(existing) as string ?? ""; }
-                    catch (Exception ex) { OfficeOperationLog.Failure("read-existing-manifest", host, payload.FormulaId, ex); existingXml = ""; }
-
-                    var xdoc = ParseOrCreate(existingXml);
-                    var root = xdoc.Root!;
-                    var oldEntry = root.Elements()
-                        .FirstOrDefault(e => (string?)e.Attribute("id") == payload.FormulaId);
-                    if (oldEntry != null)
-                        oldEntry.Remove();
-
-                    root.Add(BuildEntryElement(payload, locator));
-
-                    xml = xdoc.ToString(SaveOptions.DisableFormatting);
-
-                    // Add new Part first, then delete old Part (avoid orphan on failure)
-                    customXmlParts.Add(xml);
-                    try { existing.Delete(); } catch (Exception ex) { OfficeOperationLog.Failure("delete-old-manifest", host, payload.FormulaId, ex); }
-                }
-                else
-                {
-                    var xdoc = XDocument.Parse($"<?xml version=\"1.0\" encoding=\"UTF-8\"?><lsno:manifest xmlns:lsno=\"{NamespaceUri}\" />");
-                    xdoc.Root!.Add(BuildEntryElement(payload, locator));
-                    xml = xdoc.ToString(SaveOptions.DisableFormatting);
-                    customXmlParts.Add(xml);
-                }
+                // The caller retains ownership of this supplied collection.
+                using var store = new CustomXmlManifestReplacementStore((Microsoft.Office.Core.CustomXMLParts)customXmlParts);
+                FormulaManifestReplacement.Write(store, payload, host);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[FormulaManifest] WriteEntry failed: {ex.Message}");
+                OfficeOperationLog.Failure("write-manifest", host, payload?.FormulaId, ex);
+                throw;
             }
         }
 
@@ -406,7 +366,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             }
         }
 
-        private static XElement BuildEntryElement(FormulaPayload payload, FormulaObjectLocator? locator = null)
+        internal static XElement BuildEntryElement(FormulaPayload payload, FormulaObjectLocator? locator = null)
         {
             locator ??= FormulaObjectLocator.FromFormulaId("word", payload.FormulaId, ChooseStorageMode(payload));
             return new XElement("formula",

@@ -1,7 +1,9 @@
 #nullable enable
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using LaTeXSnipper.NativeOffice.Shared;
+using LaTeXSnipper.NativeOffice.Shared.Metadata;
 
 namespace LaTeXSnipper.Excel.Host
 {
@@ -37,13 +39,15 @@ namespace LaTeXSnipper.Excel.Host
             if (cell == null)
                 return new InsertResult { Success = false, Error = "No active cell" };
 
+            Microsoft.Office.Interop.Excel.Workbook? workbook = null;
             try
             {
+                workbook = (Microsoft.Office.Interop.Excel.Workbook)sheet.Parent;
                 string storageMode = payload.StorageMode ?? "auto";
 
                 if (storageMode == "ole")
                 {
-                    var oleResult = TryInsertOle(sheet, cell, payload);
+                    var oleResult = TryInsertOle(sheet, cell, payload, workbook);
                     if (oleResult != null && oleResult.Success)
                         return oleResult;
                     // P1-3: Return the actual error from TryInsertOle, not a generic message.
@@ -55,9 +59,10 @@ namespace LaTeXSnipper.Excel.Host
                 string? oleFallbackReason = null;
                 if (storageMode == "auto")
                 {
-                    var oleResult = TryInsertOle(sheet, cell, payload);
+                    var oleResult = TryInsertOle(sheet, cell, payload, workbook);
                     if (oleResult?.Success == true)
                         return oleResult;
+                    if (HostManifestInsertion.IsFailure(oleResult?.ErrorCode)) return oleResult!;
                     oleFallbackReason = $"{oleResult?.ErrorCode ?? "OLE_AUTOMATION_UNAVAILABLE"}: {oleResult?.Error ?? "unknown OLE failure"}";
                 }
 
@@ -69,7 +74,7 @@ namespace LaTeXSnipper.Excel.Host
                 // Image / text fallback - PNG-first (Raw MathJax SVG renders blank in Office)
                 if (payload.Render?.Png != null)
                 {
-                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Png, ".png");
+                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Png, ".png", workbook);
                     imageResult.ActualStorageMode = "image";
                     imageResult.FallbackReason = oleFallbackReason ?? "OLE unavailable; used high-DPI PNG";
                     return imageResult;
@@ -77,7 +82,7 @@ namespace LaTeXSnipper.Excel.Host
 
                 if (payload.Render?.Svg != null)
                 {
-                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg");
+                    var imageResult = InsertImage(sheet, cell, payload, payload.Render.Svg, ".svg", workbook);
                     imageResult.ActualStorageMode = "image";
                     imageResult.FallbackReason = oleFallbackReason ?? "PNG unavailable; used SVG";
                     return imageResult;
@@ -90,6 +95,7 @@ namespace LaTeXSnipper.Excel.Host
                 System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] Insert error: {ex.Message}");
                 return new InsertResult { Success = false, Error = ex.Message };
             }
+            finally { if (workbook != null) Marshal.ReleaseComObject(workbook); }
         }
 
         private InsertResult InsertImage(
@@ -97,7 +103,8 @@ namespace LaTeXSnipper.Excel.Host
             Microsoft.Office.Interop.Excel.Range cell,
             FormulaPayload payload,
             string data,
-            string ext)
+            string ext,
+            Microsoft.Office.Interop.Excel.Workbook workbook)
         {
             var isPng = ext == ".png";
             var tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{payload.FormulaId}{ext}");
@@ -129,7 +136,7 @@ namespace LaTeXSnipper.Excel.Host
                 shape.Placement = Microsoft.Office.Interop.Excel.XlPlacement.xlMove;
                 shape.AlternativeText = OleFormulaInterop.CreateHostMetadataJson(payload, "image");
 
-                return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                return CommitManifest(workbook, payload, "image", () => shape.Delete());
             }
             finally
             {
@@ -496,10 +503,27 @@ namespace LaTeXSnipper.Excel.Host
         /// <summary>
         /// Try to insert formula as an OLE object. Returns null if OLE is unavailable.
         /// </summary>
+        private static void PersistManifest(Microsoft.Office.Interop.Excel.Workbook workbook, FormulaPayload payload)
+        {
+            var parts = workbook.CustomXMLParts;
+            try { FormulaDocumentManifest.WriteEntry(parts, payload, "excel"); }
+            finally { Marshal.ReleaseComObject(parts); }
+        }
+
+        private static InsertResult CommitManifest(Microsoft.Office.Interop.Excel.Workbook workbook,
+            FormulaPayload payload, string mode, Action rollback)
+        {
+            var failure = HostManifestInsertion.Commit(payload.FormulaId, payload, "excel", mode,
+                metadata => PersistManifest(workbook, metadata), rollback);
+            return new InsertResult { Success = failure == null, FormulaId = payload.FormulaId, ActualStorageMode = mode,
+                ErrorCode = failure?.ErrorCode, Error = failure?.Error };
+        }
+
         private InsertResult? TryInsertOle(
             Microsoft.Office.Interop.Excel.Worksheet sheet,
             Microsoft.Office.Interop.Excel.Range cell,
-            FormulaPayload payload)
+            FormulaPayload payload,
+            Microsoft.Office.Interop.Excel.Workbook workbook)
         {
             string stage = "normalize";
             try
@@ -608,7 +632,7 @@ namespace LaTeXSnipper.Excel.Host
                     WriteShapeIdentity(hostShape, payload);
 
                     System.Diagnostics.Debug.WriteLine($"[ExcelAdapter] OLE object inserted and initialized: name={ole.Name}");
-                    return new InsertResult { Success = true, FormulaId = payload.FormulaId };
+                    return CommitManifest(workbook, payload, "ole", () => ole.Delete());
                 }
             }
             catch (Exception ex)
