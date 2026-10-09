@@ -108,6 +108,34 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
             expect(report.DuplicateObjectIds == 1 && report.HasErrors && repairs == 0, "ambiguous scan repaired entries");
             report = ManifestDiagnostics.ValidateInventory(entries, new[] { "keep" }, true, _ => repairs++);
             expect(report.ScanComplete && report.RepairedCount == 1 && repairs == 1 && report.IsConsistent, "explicit verified repair failed");
+            expect(ManifestDiagnostics.InventoryUnchanged(new[] { "one", "two", "one" }, new[] { "two", "one", "one" }) &&
+                !ManifestDiagnostics.InventoryUnchanged(new[] { "one", "two" }, new[] { "one", "one" }),
+                "repair inventory must preserve duplicate counts, not enumeration order");
+            foreach (string host in new[] { "word", "excel", "powerpoint" })
+            foreach (string fault in new[] { "none", "stale-manifest", "preflight-inventory", "staged-inventory", "partial-rescan" })
+            {
+                var store = new Store(); bool failed = false; string after = null;
+                try
+                {
+                    after = FormulaManifestReplacement.RemoveGuarded(store, "remove", host,
+                        fault == "stale-manifest" ? Original.Replace("<latex>x</latex>", "<latex>z</latex>") : Original,
+                        () => {
+                            if (fault == "partial-rescan") return ManifestDiagnostics.InventoryUnchanged(new[] { "keep" }, IncompleteInventory());
+                            return fault != "preflight-inventory" && (fault != "staged-inventory" || store.Adds == 0);
+                        });
+                }
+                catch (Exception) { failed = true; }
+                if (fault == "none")
+                {
+                    expect(!failed && after == store.Xml && store.Committed, host + " guarded repair failed");
+                    var second = new Store { Xml = after };
+                    var empty = FormulaManifestReplacement.RemoveGuarded(second, "keep", host, after, () => true);
+                    expect(second.Committed && FormulaManifestReader.ReadAll(empty).Count == 0 && XElement.Parse(empty).Element("foreign").Value == "keep",
+                        host + " sequential repairs lost expected snapshot or extension");
+                }
+                else expect(failed && !store.CommitStarted && store.Xml == Original && store.Added == null &&
+                    store.Adds == (fault == "staged-inventory" ? 1 : 0), host + " unsafe orphan repair " + fault);
+            }
             Console.WriteLine("Manifest deletion/read tests " + (failures == 0 ? "passed" : "failed"));
             return failures;
         }

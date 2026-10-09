@@ -38,13 +38,31 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             if (xml != null) CommitXml(store, xml, formulaId, host);
         }
 
-        private static void CommitXml(IFormulaManifestReplacementStore store, string xml, string formulaId, string host)
+        public static string? RemoveGuarded(IFormulaManifestReplacementStore store, string formulaId, string host,
+            string? expectedOriginal, Func<bool> inventoryUnchanged)
+        {
+            string? original = store.ReadOriginal();
+            if (original != expectedOriginal || !store.IsOriginalUnchanged() || !inventoryUnchanged())
+                throw new InvalidOperationException("MANIFEST_REPAIR_SNAPSHOT_CHANGED");
+            string? xml = BuildRemovalFromXml(original, formulaId, host);
+            if (xml == null) return original;
+            string? committedXml = null;
+            CommitXml(store, xml, formulaId, host, () => {
+                if (!inventoryUnchanged()) throw new InvalidOperationException("MANIFEST_REPAIR_INVENTORY_CHANGED");
+                committedXml = store.ReadReplacement();
+            });
+            return committedXml;
+        }
+
+        private static void CommitXml(IFormulaManifestReplacementStore store, string xml, string formulaId, string host,
+            Action? beforeCommit = null)
         {
             try
             {
                 store.AddReplacement(xml);
                 if (!Equivalent(xml, store.ReadReplacement()))
                     throw new InvalidOperationException("MANIFEST_READBACK_MISMATCH");
+                beforeCommit?.Invoke();
                 store.CommitReplacement();
             }
             catch (Exception error)
@@ -61,11 +79,15 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         internal static string? BuildRemoval(IFormulaManifestReplacementStore store, string formulaId, string host)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
+            return BuildRemovalFromXml(store.ReadOriginal(), formulaId, host);
+        }
+
+        private static string? BuildRemovalFromXml(string? original, string formulaId, string host)
+        {
             if (host != "word" && host != "excel" && host != "powerpoint")
                 throw new InvalidOperationException("MANIFEST_HOST_INVALID");
             if (string.IsNullOrWhiteSpace(formulaId) || formulaId.Length > 256)
                 throw new InvalidOperationException("MANIFEST_PAYLOAD_ID_INVALID");
-            string? original = store.ReadOriginal();
             if (original == null) return null;
             var root = ParseRoot(original);
             var matching = root.Elements().Where(entry => (string?)entry.Attribute("id") == formulaId).ToList();

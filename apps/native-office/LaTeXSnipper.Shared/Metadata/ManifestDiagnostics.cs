@@ -29,50 +29,58 @@ public static class ManifestDiagnostics
     public static ManifestValidationReport ValidateWord(Word.Document doc, bool repairOrphans = false)
     {
         var report = new ManifestValidationReport();
+        Office.CustomXMLParts? parts = null;
         try
         {
-            var entries = FormulaDocumentManifest.ReadAll(doc);
-            var ids = new List<string>();
-            var seenControls = new HashSet<string>(StringComparer.Ordinal);
-            Word.StoryRanges? stories = null;
-            try
-            {
-                stories = doc.StoryRanges;
-                foreach (Word.Range first in stories)
-                {
-                    Word.Range? story = first;
-                    try
-                    {
-                        while (story != null)
-                        {
-                            var controls = story.ContentControls;
-                            try
-                            {
-                                for (int index = 1; index <= controls.Count; index++)
-                                {
-                                    var control = controls[index];
-                                    try
-                                    {
-                                        if (!seenControls.Add(control.ID)) continue;
-                                        string tag = control.Tag ?? "";
-                                        const string prefix = "latexsnipper:formula:";
-                                        if (tag.StartsWith(prefix, StringComparison.Ordinal)) ids.Add(tag.Substring(prefix.Length));
-                                    }
-                                    finally { Release(control); }
-                                }
-                            }
-                            finally { Release(controls); }
-                            var next = story.NextStoryRange; Release(story); story = next;
-                        }
-                    }
-                    finally { Release(story); }
-                }
-            }
-            finally { Release(stories); }
-            Complete(report, entries, ids, repairOrphans, id => FormulaDocumentManifest.Remove(doc, id));
+            parts = doc.CustomXMLParts;
+            ValidateCaptured(report, parts, "word", () => doc.ReadOnly,
+                _ => ReadWordInventory(doc), repairOrphans);
         }
         catch (Exception error) { Fail(report, error); }
+        finally { Release(parts); }
         return report;
+    }
+
+    private static List<string> ReadWordInventory(Word.Document doc)
+    {
+        var ids = new List<string>();
+        var seenControls = new HashSet<string>(StringComparer.Ordinal);
+        Word.StoryRanges? stories = null;
+        try
+        {
+            stories = doc.StoryRanges;
+            foreach (Word.Range first in stories)
+            {
+                Word.Range? story = first;
+                try
+                {
+                    while (story != null)
+                    {
+                        var controls = story.ContentControls;
+                        try
+                        {
+                            for (int index = 1; index <= controls.Count; index++)
+                            {
+                                var control = controls[index];
+                                try
+                                {
+                                    if (!seenControls.Add(control.ID)) continue;
+                                    string tag = control.Tag ?? "";
+                                    const string prefix = "latexsnipper:formula:";
+                                    if (tag.StartsWith(prefix, StringComparison.Ordinal)) ids.Add(tag.Substring(prefix.Length));
+                                }
+                                finally { Release(control); }
+                            }
+                        }
+                        finally { Release(controls); }
+                        var next = story.NextStoryRange; Release(story); story = next;
+                    }
+                }
+                finally { Release(story); }
+            }
+        }
+        finally { Release(stories); }
+        return ids;
     }
 
     public static ManifestValidationReport ValidateExcel(dynamic workbook, string host = "excel", bool repairOrphans = false)
@@ -89,13 +97,34 @@ public static class ManifestDiagnostics
         {
             if (host != (powerpoint ? "powerpoint" : "excel")) throw new InvalidOperationException("MANIFEST_HOST_INVALID");
             parts = document.CustomXMLParts;
-            var entries = FormulaDocumentManifest.ReadAllEntries(parts);
-            List<string> ids = ReadShapeInventory((object)document, powerpoint, entries);
-            Complete(report, entries, ids, repairOrphans, id => FormulaDocumentManifest.RemoveEntry(parts, id, host));
+            ValidateCaptured(report, parts, host,
+                () => powerpoint ? Convert.ToInt32(document.ReadOnly) != (int)Office.MsoTriState.msoFalse : (bool)document.ReadOnly,
+                entries => ReadShapeInventory((object)document, powerpoint, entries), repairOrphans);
         }
         catch (Exception error) { Fail(report, error); }
         finally { Release(parts); }
         return report;
+    }
+
+    private static void ValidateCaptured(ManifestValidationReport report, Office.CustomXMLParts parts, string host,
+        Func<bool> readOnly, Func<Dictionary<string, FormulaPayload>, List<string>> inventory, bool repair)
+    {
+        string? expectedXml;
+        using (var initial = FormulaDocumentManifest.OpenReplacementStore(parts)) expectedXml = initial.ReadOriginal();
+        var entries = FormulaManifestReader.ReadAll(expectedXml);
+        var ids = inventory(entries);
+        Complete(report, entries, ids, repair, id => {
+            using (var store = FormulaDocumentManifest.OpenReplacementStore(parts))
+                expectedXml = FormulaManifestReplacement.RemoveGuarded(store, id, host, expectedXml,
+                    () => !readOnly() && InventoryUnchanged(ids, inventory(entries)));
+        });
+    }
+
+    public static bool InventoryUnchanged(IEnumerable<string> expected, IEnumerable<string> actual)
+    {
+        // Complete enumeration is required; iterator failures propagate.
+        return expected.OrderBy(id => id, StringComparer.Ordinal).SequenceEqual(
+            actual.OrderBy(id => id, StringComparer.Ordinal), StringComparer.Ordinal);
     }
 
     public static List<string> ReadShapeInventory(dynamic document, bool powerpoint, Dictionary<string, FormulaPayload> entries)

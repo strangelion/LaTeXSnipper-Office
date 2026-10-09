@@ -281,7 +281,7 @@ namespace LaTeXSnipper.Office.SampleHostTests
                 host + " default diagnostic erased orphan source.");
             var repaired = repair();
             Check(repaired.IsConsistent && repaired.RepairedCount == 1 && !FormulaDocumentManifest.ReadAllEntries(parts).ContainsKey(orphanId),
-                host + " explicit orphan repair was not verified.");
+                host + " explicit orphan repair was not verified: " + string.Join("; ", repaired.Issues));
             source = Snapshot(parts);
             var matching = parts.SelectByNamespace(Ns);
             try { var part = matching[1]; try { part.Delete(); } finally { Marshal.ReleaseComObject(part); } }
