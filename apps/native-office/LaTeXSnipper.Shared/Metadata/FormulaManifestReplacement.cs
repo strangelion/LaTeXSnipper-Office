@@ -14,6 +14,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         string? ReadOriginal();
         void AddReplacement(string xml);
         string ReadReplacement();
+        bool IsPreparedUnchanged();
         void CommitReplacement();
         bool RollbackReplacement();
     }
@@ -25,6 +26,27 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
         internal const string NamespaceUri = "urn:latexsnipper:office:objects:v3";
 
         public static void Write(IFormulaManifestReplacementStore store, FormulaPayload payload, string host = "word")
+        {
+            string xml = BuildReplacement(store, payload, host);
+            try
+            {
+                store.AddReplacement(xml);
+                if (!Equivalent(xml, store.ReadReplacement()))
+                    throw new InvalidOperationException("MANIFEST_READBACK_MISMATCH");
+                store.CommitReplacement();
+            }
+            catch (Exception error)
+            {
+                bool restored = false;
+                try { restored = store.RollbackReplacement(); }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-manifest", host, payload.FormulaId, cleanup); }
+                if (!restored)
+                    throw new InvalidOperationException("MANIFEST_STATE_UNCERTAIN: replacement was not proven rolled back; no automatic retry.", error);
+                throw;
+            }
+        }
+
+        internal static string BuildReplacement(IFormulaManifestReplacementStore store, FormulaPayload payload, string host)
         {
             if (store == null) throw new ArgumentNullException(nameof(store));
             if (host != "word" && host != "excel" && host != "powerpoint")
@@ -47,22 +69,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             root.Add(added);
             string xml = root.ToString(SaveOptions.DisableFormatting);
             if (xml.Length > MaximumCharacters) throw new InvalidOperationException("MANIFEST_BUDGET_EXCEEDED");
-            try
-            {
-                store.AddReplacement(xml);
-                if (!Equivalent(xml, store.ReadReplacement()))
-                    throw new InvalidOperationException("MANIFEST_READBACK_MISMATCH");
-                store.CommitReplacement();
-            }
-            catch (Exception error)
-            {
-                bool restored = false;
-                try { restored = store.RollbackReplacement(); }
-                catch (Exception cleanup) { OfficeOperationLog.Failure("rollback-manifest", host, payload.FormulaId, cleanup); }
-                if (!restored)
-                    throw new InvalidOperationException("MANIFEST_STATE_UNCERTAIN: replacement was not proven rolled back; no automatic retry.", error);
-                throw;
-            }
+            return xml;
         }
 
         internal static bool Equivalent(string expected, string actual)
@@ -124,6 +131,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             _replacement = _parts.Add(xml);
         }
         public string ReadReplacement() => _replacement?.XML ?? "";
+        public bool IsPreparedUnchanged() => AttachedAndUnchanged();
 
         public void CommitReplacement()
         {

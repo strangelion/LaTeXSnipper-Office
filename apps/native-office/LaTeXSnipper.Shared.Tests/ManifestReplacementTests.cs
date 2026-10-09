@@ -31,6 +31,7 @@ namespace LaTeXSnipper.NativeOffice.Shared.Tests
                 if (Fault == "add-after") throw new InvalidOperationException("ADD_FAILED");
             }
             public string ReadReplacement() => Fault == "readback" ? Added.Replace("x^2", "corrupted") : Added;
+            public bool IsPreparedUnchanged() => Fault != "changed";
             public void CommitReplacement()
             {
                 if (Fault == "changed") throw new InvalidOperationException("ORIGINAL_CHANGED");

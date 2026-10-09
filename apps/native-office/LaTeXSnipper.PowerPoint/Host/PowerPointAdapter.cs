@@ -513,115 +513,108 @@ namespace LaTeXSnipper.PowerPoint.Host
 
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)
         {
+            LastReplacementResult = ReplaceFormulaDetailed(formulaId, payload);
+            return LastReplacementResult.Success;
+        }
+
+        public HostImageReplacementResult ReplaceFormulaDetailed(string formulaId, FormulaPayload payload)
+        {
+            var result = new HostImageReplacementResult { ErrorCode = "HOST_REPLACE_TARGET_MISSING" };
+            Microsoft.Office.Interop.PowerPoint.Shape? original = null, candidate = null;
+            Microsoft.Office.Interop.PowerPoint.Shapes? shapes = null;
+            Microsoft.Office.Interop.PowerPoint.Slide? slide = null;
+            Microsoft.Office.Interop.PowerPoint.Presentation? presentation = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
+            string? tempPath = null;
             try
             {
-                var slide = _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
-                if (slide == null) return false;
-
-                foreach (Microsoft.Office.Interop.PowerPoint.Shape shape in slide.Shapes)
+                if (string.IsNullOrWhiteSpace(formulaId) || payload.FormulaId != formulaId)
+                    throw new InvalidOperationException("HOST_REPLACE_ID_MISMATCH");
+                presentation = _targetPresentation ?? _application.ActivePresentation;
+                slide = _targetSlide ?? _application.ActiveWindow.View.Slide as Microsoft.Office.Interop.PowerPoint.Slide;
+                if (slide == null || presentation == null) return result;
+                shapes = slide.Shapes;
+                int matches = 0;
+                for (int index = 1; index <= shapes.Count; index++)
                 {
-                    if (shape.Name == $"LSNO_{formulaId}")
+                    var shape = shapes[index];
+                    if (ShapeMatchesFormulaId(shape, formulaId))
                     {
-                        // OLE path: replace payload in-place via COM automation
-                        try
-                        {
-                            var oleObj = shape.OLEFormat?.Object;
-                            if (oleObj != null)
-                            {
-                                bool replaced = OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
-                                if (replaced)
-                                {
-                                    // Update shape dimensions to match new extent and re-center
-                                    if (OleFormulaInterop.TryGetExtentPoints(oleObj, out var newExtent))
-                                    {
-                                        shape.Width = newExtent.DisplayWidthPt;
-                                        shape.Height = newExtent.DisplayHeightPt;
-                                    }
-                                    float slideWidth2 = _application.ActivePresentation.PageSetup.SlideWidth;
-                                    shape.Left = (slideWidth2 - shape.Width) / 2f;
-                                }
-                                return replaced;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            OfficeOperationLog.Failure("replace-ole-fallback-image", "powerpoint", formulaId, ex);
-                            // Not an OLE object, fall through to image path
-                        }
-
-                        // Guard: without render data, refuse to delete the old shape
-                        bool hasRender = payload.Render?.Svg != null || payload.Render?.Png != null;
-                        if (!hasRender)
-                            return false;
-
-                        // Preserve properties before deleting
-                        float oldLeft = shape.Left;
-                        float oldTop = shape.Top;
-                        float oldWidth = shape.Width;
-                        float oldHeight = shape.Height;
-                        float oldRotation = shape.Rotation;
-                        string oldAltText = shape.AlternativeText ?? "";
-                        int oldZOrder = 0;
-                        try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "powerpoint", formulaId, ex); }
-                        string imageId = Guid.NewGuid().ToString("N");
-                        bool replacingWithPng = !string.IsNullOrWhiteSpace(payload.Render?.Png);
-                        string tempPath;
-                        if (replacingWithPng)
-                        {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageId}.png");
-                            System.IO.File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
-                        }
-                        else
-                        {
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageId}.svg");
-                            File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
-                        }
-                        float w = payload.Render.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
-                        float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                        Microsoft.Office.Interop.PowerPoint.Shape newShape;
-                        try
-                        {
-                            newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                        }
-                        catch (Exception ex) when (replacingWithPng && !string.IsNullOrWhiteSpace(payload.Render?.Svg))
-                        {
-                            OfficeOperationLog.Failure("replace-png-fallback-svg", "powerpoint", formulaId, ex);
-                            tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}.svg");
-                            File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
-                            newShape = slide.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                        }
-                        shape.Delete();
-                        newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                        newShape.Name = $"LSNO_{formulaId}";
-                        newShape.AlternativeText = $"LSNO_FORMULA:{payload.Latex}";
-
-                        // Restore preserved properties
-                        if (Math.Abs(oldRotation) > 0.01f)
-                        {
-                            try { newShape.Rotation = oldRotation; } catch (Exception ex) { OfficeOperationLog.Failure("restore-rotation", "powerpoint", formulaId, ex); }
-                        }
-                        if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
-                        {
-                            try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "powerpoint", formulaId, ex); }
-                        }
-                        // Restore z-order
-                        if (oldZOrder > 1)
-                        {
-                            try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "powerpoint", formulaId, ex); }
-                        }
-
-                        // Clean up temp file
-                        try { if (File.Exists(tempPath)) File.Delete(tempPath); }
-                        catch (Exception ex) { OfficeOperationLog.Failure("delete-temp", "powerpoint", formulaId, ex); }
-
-                        return true;
+                        matches++;
+                        if (original == null) original = shape;
+                        else Marshal.ReleaseComObject(shape);
                     }
+                    else Marshal.ReleaseComObject(shape);
                 }
+                if (matches != 1) throw new InvalidOperationException("HOST_REPLACE_TARGET_AMBIGUOUS_OR_MISSING");
+                var target = original!;
+                if (!HostPictureSnapshot.IsPicture(target))
+                {
+                    // Do not turn an uncertain OLE mutation into a second route.
+                    var automation = target.OLEFormat?.Object;
+                    bool replaced = automation != null && OleFormulaInterop.ReplacePayloadJson(automation, payload);
+                    if (replaced && OleFormulaInterop.TryGetExtentPoints(automation!, out var extent))
+                    { target.Width = extent.DisplayWidthPt; target.Height = extent.DisplayHeightPt; }
+                    result = new HostImageReplacementResult { Success = replaced, ActualStorageMode = "ole",
+                        ErrorCode = replaced ? null : "HOST_OLE_REPLACE_FAILED" };
+                    return result;
+                }
+                var snapshot = HostPictureSnapshot.Capture(target, excel: false, expectedFormulaId: formulaId);
+                bool png = !string.IsNullOrWhiteSpace(payload.Render?.Png);
+                if (!png && string.IsNullOrWhiteSpace(payload.Render?.Svg))
+                    throw new InvalidOperationException("HOST_IMAGE_REPLACE_RENDER_MISSING");
+                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}." + (png ? "png" : "svg"));
+                if (png) File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
+                else File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
+                parts = presentation.CustomXMLParts;
+                using (var store = FormulaDocumentManifest.OpenReplacementStore(parts))
+                    result = HostImageReplacement.Replace(formulaId, payload, "powerpoint", store,
+                        () => candidate = shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, target.Left, target.Top, target.Width, target.Height),
+                        (value, metadata) => snapshot.Prepare(value, metadata), value => snapshot.Verify(value),
+                        () => snapshot.Matches(target) && HostPictureSnapshot.CountTargets(shapes,
+                            value => ShapeMatchesFormulaId((Microsoft.Office.Interop.PowerPoint.Shape)value, formulaId),
+                            candidate == null ? (int?)null : HostPictureSnapshot.GetId(candidate)) == 1,
+                        () => HostPictureSnapshot.DeleteAndVerify(target, shapes), value => snapshot.Promote(value, formulaId),
+                        value => HostPictureSnapshot.DeleteAndVerify(value, shapes));
+                return result;
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("replace-formula", "powerpoint", formulaId, ex); }
-            return false;
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("replace-formula", "powerpoint", formulaId, ex);
+                return new HostImageReplacementResult { ErrorCode = "HOST_REPLACE_FAILED", Error = ex.Message };
+            }
+            finally
+            {
+                if (candidate != null) Marshal.ReleaseComObject(candidate);
+                if (original != null) Marshal.ReleaseComObject(original);
+                if (parts != null) Marshal.ReleaseComObject(parts);
+                if (shapes != null) Marshal.ReleaseComObject(shapes);
+                if (slide != null && _targetSlide == null) Marshal.ReleaseComObject(slide);
+                if (presentation != null && _targetPresentation == null) Marshal.ReleaseComObject(presentation);
+                try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("delete-temp", "powerpoint", formulaId, cleanup); }
+            }
+        }
+
+        public HostImageReplacementResult? LastReplacementResult { get; private set; }
+
+        private static bool ShapeMatchesFormulaId(Microsoft.Office.Interop.PowerPoint.Shape shape, string formulaId)
+        {
+            if (shape.Name == "LSNO_" + formulaId) return true;
+            string text = shape.AlternativeText ?? "";
+            if (!text.StartsWith("{", StringComparison.Ordinal)) return false;
+            try
+            {
+                var metadata = System.Text.Json.JsonSerializer.Deserialize<FormulaPayload>(text,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                return metadata?.FormulaId == formulaId;
+            }
+            catch (System.Text.Json.JsonException error)
+            {
+                OfficeOperationLog.Failure("read-image-identity", "powerpoint", formulaId, error);
+                return false;
+            }
         }
 
         // ══════════════════════════════════════════════════════════════�?

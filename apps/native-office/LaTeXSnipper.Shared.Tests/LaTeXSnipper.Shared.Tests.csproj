@@ -46,6 +46,7 @@
     <Compile Include="ManifestAppendTests.cs" />
     <Compile Include="ManifestReplacementTests.cs" />
     <Compile Include="HostManifestInsertionTests.cs" />
+    <Compile Include="HostImageReplacementTests.cs" />
     <Compile Include="StrictBase64Tests.cs" />
     <Compile Include="OleExtentTests.cs" />
     <Compile Include="OleOwnershipTests.cs" />

@@ -702,127 +702,91 @@ namespace LaTeXSnipper.Excel.Host
 
         public bool ReplaceFormula(string formulaId, FormulaPayload payload)
         {
+            LastReplacementResult = ReplaceFormulaDetailed(formulaId, payload);
+            return LastReplacementResult.Success;
+        }
+
+        public HostImageReplacementResult ReplaceFormulaDetailed(string formulaId, FormulaPayload payload)
+        {
+            var result = new HostImageReplacementResult { ErrorCode = "HOST_REPLACE_TARGET_MISSING" };
+            Microsoft.Office.Interop.Excel.Shape? original = null, candidate = null;
+            Microsoft.Office.Interop.Excel.Workbook? workbook = null;
+            Microsoft.Office.Interop.Excel.Worksheet? excelSheet = null;
+            Microsoft.Office.Interop.Excel.Shapes? shapes = null;
+            Microsoft.Office.Core.CustomXMLParts? parts = null;
+            string? tempPath = null;
             try
             {
-                var excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
-                if (excelSheet == null) return false;
-
-                foreach (Microsoft.Office.Interop.Excel.Shape shape in excelSheet.Shapes)
+                if (string.IsNullOrWhiteSpace(formulaId) || payload.FormulaId != formulaId)
+                    throw new InvalidOperationException("HOST_REPLACE_ID_MISMATCH");
+                excelSheet = _application.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                if (excelSheet == null) return result;
+                shapes = excelSheet.Shapes;
+                int matches = 0;
+                for (int index = 1; index <= shapes.Count; index++)
                 {
+                    var shape = shapes.Item(index);
                     if (ShapeMatchesFormulaId(shape, formulaId))
                     {
-                        // OLE path: replace payload in-place via COM automation
-                        try
-                        {
-                            var oleObj = shape.OLEFormat?.Object;
-                            if (oleObj != null)
-                            {
-                                bool replaced = OleFormulaInterop.ReplacePayloadJson(oleObj, payload);
-                                if (replaced)
-                                {
-                                    // Update shape dimensions to match new extent
-                                    if (OleFormulaInterop.TryGetExtentPoints(oleObj, out var newExtent))
-                                    {
-                                        shape.Width = newExtent.DisplayWidthPt;
-                                        shape.Height = newExtent.DisplayHeightPt;
-                                    }
-                                }
-                                return replaced;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            OfficeOperationLog.Failure("replace-ole-fallback-image", "excel", formulaId, ex);
-                            // Not an OLE object, fall through to image path
-                        }
-
-                        // Guard: without render data, refuse to delete the old shape
-                        bool hasRender = payload.Render?.Svg != null || payload.Render?.Png != null;
-                        if (!hasRender)
-                            return false;
-
-                        // Preserve properties before deleting
-                        float oldLeft = 0, oldTop = 0, oldWidth = 120f, oldHeight = 30f;
-                        try { oldLeft = (float)Convert.ToDouble(shape.Left); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-left", "excel", formulaId, ex); }
-                        try { oldTop = (float)Convert.ToDouble(shape.Top); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-top", "excel", formulaId, ex); }
-                        try { oldWidth = (float)Convert.ToDouble(shape.Width); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-width", "excel", formulaId, ex); }
-                        try { oldHeight = (float)Convert.ToDouble(shape.Height); } catch (Exception ex) { OfficeOperationLog.Failure("read-shape-height", "excel", formulaId, ex); }
-                        string oldAltText = "";
-                        try { oldAltText = shape.AlternativeText ?? ""; } catch (Exception ex) { OfficeOperationLog.Failure("read-alt-text", "excel", formulaId, ex); }
-                        int oldZOrder = 0;
-                        try { oldZOrder = shape.ZOrderPosition; } catch (Exception ex) { OfficeOperationLog.Failure("read-z-order", "excel", formulaId, ex); }
-                        int oldPlacement = -1;
-                        try { oldPlacement = (int)shape.Placement; } catch (Exception ex) { OfficeOperationLog.Failure("read-placement", "excel", formulaId, ex); }
-
-                        string imageToken = Guid.NewGuid().ToString("N");
-                        bool replacingWithPng = !string.IsNullOrWhiteSpace(payload.Render?.Png);
-                        string? tempPath = null;
-
-                        try
-                        {
-                            if (replacingWithPng)
-                            {
-                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageToken}.png");
-                                File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
-                            }
-                            else if (!string.IsNullOrWhiteSpace(payload.Render?.Svg))
-                            {
-                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{imageToken}.svg");
-                                File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
-                            }
-                            else
-                            {
-                                return false;
-                            }
-
-                            float w = payload.Render!.WidthPt > 0 ? payload.Render.WidthPt : oldWidth;
-                            float h = payload.Render.HeightPt > 0 ? payload.Render.HeightPt : oldHeight;
-                            Microsoft.Office.Interop.Excel.Shape newShape;
-                            try
-                            {
-                                newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                    Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                            }
-                            catch (Exception ex) when (replacingWithPng && !string.IsNullOrWhiteSpace(payload.Render?.Svg))
-                            {
-                                OfficeOperationLog.Failure("replace-png-fallback-svg", "excel", formulaId, ex);
-                                try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
-                                catch (Exception cleanupError) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, cleanupError); }
-                                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}.svg");
-                                File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
-                                newShape = excelSheet.Shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
-                                    Microsoft.Office.Core.MsoTriState.msoTrue, oldLeft, oldTop, w, h);
-                            }
-                            shape.Delete();
-                            newShape.LockAspectRatio = Microsoft.Office.Core.MsoTriState.msoTrue;
-                            newShape.Name = $"LSNO_{formulaId}";
-                            newShape.AlternativeText = $"{{\"kind\":\"latexsnipper.formula\",\"schemaVersion\":3,\"formulaId\":\"{formulaId}\",\"latex\":{System.Text.Json.JsonSerializer.Serialize(payload.Latex)},\"storageMode\":\"image\"}}";
-
-                            if (oldPlacement >= 0)
-                            {
-                                try { newShape.Placement = (Microsoft.Office.Interop.Excel.XlPlacement)oldPlacement; } catch (Exception ex) { OfficeOperationLog.Failure("restore-placement", "excel", formulaId, ex); }
-                            }
-                            if (!string.IsNullOrEmpty(oldAltText) && !oldAltText.StartsWith("LSNO_"))
-                            {
-                                try { newShape.AlternativeText = oldAltText; } catch (Exception ex) { OfficeOperationLog.Failure("restore-alt-text", "excel", formulaId, ex); }
-                            }
-                            if (oldZOrder > 1)
-                            {
-                                try { newShape.ZOrder(Microsoft.Office.Core.MsoZOrderCmd.msoSendBackward); } catch (Exception ex) { OfficeOperationLog.Failure("restore-z-order", "excel", formulaId, ex); }
-                            }
-                            return true;
-                        }
-                        finally
-                        {
-                            try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
-                            catch (Exception cleanupError) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, cleanupError); }
-                        }
+                        matches++;
+                        if (original == null) original = shape;
+                        else Marshal.ReleaseComObject(shape);
                     }
+                    else Marshal.ReleaseComObject(shape);
                 }
+                if (matches != 1) throw new InvalidOperationException("HOST_REPLACE_TARGET_AMBIGUOUS_OR_MISSING");
+                var target = original!;
+                if (!HostPictureSnapshot.IsPicture(target))
+                {
+                    // An OLE replacement failure is not permission to delete it
+                    // and silently insert a picture. Keep the existing route.
+                    var automation = target.OLEFormat?.Object;
+                    bool replaced = automation != null && OleFormulaInterop.ReplacePayloadJson(automation, payload);
+                    if (replaced && OleFormulaInterop.TryGetExtentPoints(automation!, out var extent))
+                    { target.Width = extent.DisplayWidthPt; target.Height = extent.DisplayHeightPt; }
+                    result = new HostImageReplacementResult { Success = replaced, ActualStorageMode = "ole",
+                        ErrorCode = replaced ? null : "HOST_OLE_REPLACE_FAILED" };
+                    return result;
+                }
+                var snapshot = HostPictureSnapshot.Capture(target, excel: true, expectedFormulaId: formulaId);
+                bool png = !string.IsNullOrWhiteSpace(payload.Render?.Png);
+                if (!png && string.IsNullOrWhiteSpace(payload.Render?.Svg))
+                    throw new InvalidOperationException("HOST_IMAGE_REPLACE_RENDER_MISSING");
+                tempPath = Path.Combine(Path.GetTempPath(), $"lsno_{Guid.NewGuid():N}." + (png ? "png" : "svg"));
+                if (png) File.WriteAllBytes(tempPath, FormulaImagePayload.DecodePng(payload.Render!.Png!));
+                else File.WriteAllText(tempPath, payload.Render!.Svg!, new System.Text.UTF8Encoding(false));
+                workbook = (Microsoft.Office.Interop.Excel.Workbook)excelSheet.Parent;
+                parts = workbook.CustomXMLParts;
+                using (var store = FormulaDocumentManifest.OpenReplacementStore(parts))
+                    result = HostImageReplacement.Replace(formulaId, payload, "excel", store,
+                        () => candidate = shapes.AddPicture(tempPath, Microsoft.Office.Core.MsoTriState.msoFalse,
+                            Microsoft.Office.Core.MsoTriState.msoTrue, target.Left, target.Top, target.Width, target.Height),
+                        (value, metadata) => snapshot.Prepare(value, metadata), value => snapshot.Verify(value),
+                        () => snapshot.Matches(target) && HostPictureSnapshot.CountTargets(shapes,
+                            value => ShapeMatchesFormulaId(value, formulaId), candidate == null ? (int?)null : HostPictureSnapshot.GetId(candidate)) == 1,
+                        () => HostPictureSnapshot.DeleteAndVerify(target, shapes), value => snapshot.Promote(value, formulaId),
+                        value => HostPictureSnapshot.DeleteAndVerify(value, shapes));
+                return result;
             }
-            catch (Exception ex) { OfficeOperationLog.Failure("replace-formula", "excel", formulaId, ex); }
-            return false;
+            catch (Exception ex)
+            {
+                OfficeOperationLog.Failure("replace-formula", "excel", formulaId, ex);
+                return new HostImageReplacementResult { ErrorCode = "HOST_REPLACE_FAILED", Error = ex.Message };
+            }
+            finally
+            {
+                if (candidate != null) Marshal.ReleaseComObject(candidate);
+                if (original != null) Marshal.ReleaseComObject(original);
+                if (parts != null) Marshal.ReleaseComObject(parts);
+                if (workbook != null) Marshal.ReleaseComObject(workbook);
+                if (shapes != null) Marshal.ReleaseComObject(shapes);
+                if (excelSheet != null) Marshal.ReleaseComObject(excelSheet);
+                try { if (tempPath != null && File.Exists(tempPath)) File.Delete(tempPath); }
+                catch (Exception cleanup) { OfficeOperationLog.Failure("delete-temp", "excel", formulaId, cleanup); }
+            }
         }
+
+        public HostImageReplacementResult? LastReplacementResult { get; private set; }
 
         // ====================================================================
         // ICommandHostAdapter implementation

@@ -794,3 +794,7 @@ PGFPlots 不受支持的 clipPath、真实 Office.js、10000 多样语料不由�
 SHA-256 `261B3A7E028BBEFFACE8417F48AE5332B3FF4959A960D302360ACBADA40F342D`。
 样例检查与新建/重开分开计数；该 harness 未逐对象核对实际 handler 路径/哈希，
 不作为新 DLL 的跨宿主尺寸、任意字体或端到端安装验收。
+
+2026-10-09 的后续专项：[跨宿主清单提交](cross-host-manifest-20261009.md)与
+[PNG 图片替换事务](image-replacement-20261009.md)。这些直接适配器证据不关闭安装版管道、
+完整 OLE 更新或所有字体/绘图保真门禁。

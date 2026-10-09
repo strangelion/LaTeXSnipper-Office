@@ -323,6 +323,9 @@ namespace LaTeXSnipper.NativeOffice.Shared.Metadata
             }
         }
 
+        public static IFormulaManifestReplacementStore OpenReplacementStore(Microsoft.Office.Core.CustomXMLParts parts)
+            => new CustomXmlManifestReplacementStore(parts);
+
         /// <summary>
         /// Remove a formula entry from the manifest on a Workbook/Presentation.
         /// </summary>

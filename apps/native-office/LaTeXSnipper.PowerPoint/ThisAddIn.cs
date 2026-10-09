@@ -269,12 +269,14 @@ namespace LaTeXSnipper.PowerPoint
                 }
                 case DesktopReplaceFormula repCmd:
                 {
-                    var ok = _adapter.ReplaceFormula(repCmd.FormulaId, repCmd.Formula);
+                    var result = _adapter.ReplaceFormulaDetailed(repCmd.FormulaId, repCmd.Formula);
                     _ = _pipeClient.SendAsync(new VstoReplaceResult
                     {
                         RequestId = repCmd.RequestId, SessionId = repCmd.SessionId,
-                        Success = ok,
-                        ActualStorageMode = repCmd.Formula.StorageMode ?? "auto"
+                        Success = result.Success,
+                        ActualStorageMode = result.Success ? result.ActualStorageMode : null,
+                        ErrorCode = result.ErrorCode,
+                        Error = result.Error
                     });
                     break;
                 }
