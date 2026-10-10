@@ -1,14 +1,16 @@
 # Word 数组列布局与源读入
 
-更新：2026-10-09。当前 Core pin `dfbc1ac00165ec7fc538b472b2e34bb611a54040`。
+更新：2026-10-10。当前 Core pin `beff6a8a775453a512b847057ba44f21cac92376`。
 
 ## 已验证范围
 
 隐藏 x64 Word 16.0 使用生产 `WordAdapter` 插入 Core CLI 生成的 OMML。
-8 个自编样例分别通过行内、显示、编号三种入口，共 24 项：
-逐列左/中/右对齐、重复列规格、短行补空、嵌套数组、外层定界符、分式内数组、注释伪边界与字面字符。
+11 个自编样例分别通过行内、显示、编号三种入口，共 33 项：
+逐列左/中/右对齐、重复列规格、短行补空、嵌套数组、外层定界符、分式内数组、注释伪边界、字面字符、
+命名嵌套定界符、不可见侧和同时/显式分组上下标。
 插入后及 `.docx` 保存/只读重开后，列组展开、行/单元格数、数学文字和源码身份均一致，边界文字保留。
 比较展开后的列组，允许 Word 合并相邻相同对齐列，不要求原 XML 字面完全相同。
+新增定界符 glyph 与脚本/操作数祖先结构比较，插入及重开均验证；缺省圆括号与显式不可见侧区分。
 
 新增 `--array-columns` 隐藏宿主专项及源码 fixture；测试不触碰现有 Word 文档，不修改注册表/信任。
 Core 新列规格分别保存在数学内容之外，相关有限映射边界见
@@ -40,8 +42,11 @@ Core 新列规格分别保存在数学内容之外，相关有限映射边界见
 | `comment-arrays-20261009-07/array-column-evidence.json` | `2d512991c785ee21654921af3a60ec8f20aafabc1e20abdb05d7f604d0b55414` |
 | `comment-copy-20261009-02/fixture.generated.json` | `6804c16ef1e2ab9dc508f5ce391a1d7b5158941f59173d059e79f19be11278c0` |
 | `comment-copy-20261009-02/evidence/word-copied-identity-evidence.json` | `888fa6848796453e541349796740582d82f5e3b09986569ce3dc8a8b3fd820db` |
+| `scalable-arrays-20261010-01/fixture.generated.json` | `5cd496fa17ce5a620b662c2178fde4f3f2b153860ef3357fe355795932e2300e` |
+| `scalable-arrays-20261010-01/evidence/array-column-evidence.json` | `9cccb1709469ad280fc91666b36caaa3ce67b664be279c012e2c295f5fa7974f` |
 
-前三项为 Core `61a9136` 的历史 18/18 验收；后四项绑定当前 Core，数组证据包含 24/24 计数及每例预期/实际布局和数学文字检查。
+前三项为 Core `61a9136` 的历史 18/18 验收；comment 四项绑定 `dfbc1ac`，为历史 24/24 验收。
+最后两项绑定当前 Core，数组证据包含 33/33 计数及每例预期/实际布局、数学文字、源码和定界符/脚本结构检查。
 复制专项输出只包含通用布尔检查，绑定本轮输入须同时查看上列 fixture 哈希，不能仅用相同输出哈希识别数据集。
 MSBuild 宿主构建、共享 C# 全套（warnings-as-errors）、前端 433 项、源码卫生、协议生成检查、
 桌面 Rust 默认功能 `cargo check --locked` 通过。VSTO 原有 nullable 警告未据此宣称清零。
@@ -68,6 +73,16 @@ MSBuild 宿主构建、共享 C# 全套（warnings-as-errors）、前端 433 项
 后续 CI `37951657835` 的 Rust 库测试仍期待 XML→LaTeX 输出裸 `&`，与新的字面字符保护契约不符。
 更新断言为转义 `\&`，保留空白、Unicode、非法实体拒绝，并补百分号与字面 `\frac` 不误成活动分式的回归。
 没有删除测试或放宽转换门禁；本地同一 `cargo test --locked --lib` 命令通过（Windows 147 项，另 5 项需手动环境）。
+修复提交 `92f6e2e` 的远端 CI `38011285941` 已通过。
+
+## 可伸缩定界符与脚本回归
+
+Core `beff6a8` 的常用命名/嵌套/不可见定界符和组合脚本修复通过新生成的 11 例 fixture 进入真实 Word。
+包含尖括号外层数组、分母方括号、floor/norm、单侧竖线、外层及数组单元格上下标、显式 `{x_i}^2` 与尾部表达式。
+33 项插入、保存/只读重开均通过，原始源码和数学文字保持，定界符 glyph、脚本类型和相关祖先结构未变化。
+Core 详细支持/拒绝范围见 [定界符报告](https://github.com/strangelion/latexsnipper-core/blob/main/docs/formats/scalable-delimiters.md)。
+资源清单 SHA 与暂存 gitlink 同步；源码卫生、协议、资源契约、前端 433 项、桌面 Rust 库 147 项通过。
+这不是 Word 图片/字体观感或安装版加载项验收，也没有关闭高级 array、middle 或固定大小定界符。
 
 ## 复现
 

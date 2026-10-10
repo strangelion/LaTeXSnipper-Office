@@ -9,6 +9,9 @@
     { "name": "outer-delimiters", "latex": "\\left(\\begin{array}{lr}a&b\\\\c&d\\end{array}\\right)" },
     { "name": "fraction-owner", "latex": "\\frac{\\begin{array}{lr}a&b\\\\c&d\\end{array}}{n}" },
     { "name": "commented-boundaries", "latex": "\\begin{array}{l% RAW }\r\nc}a&b% FAKE & \\\\ \\end{array}\r\n\\\\c&d\\end{array}" },
-    { "name": "percent-and-text-literals", "latex": "\\begin{array}{lc}50\\%&\\text{a\\%b\\&c}\\\\\\alpha% FAKE \\beta\nx&\\text{literal \\backslash{}frac^~}\\end{array}" }
+    { "name": "percent-and-text-literals", "latex": "\\begin{array}{lc}50\\%&\\text{a\\%b\\&c}\\\\\\alpha% FAKE \\beta\nx&\\text{literal \\backslash{}frac^~}\\end{array}" },
+    { "name": "named-nested-delimiters", "latex": "\\left\\langle\\begin{array}{lr}\\frac{a}{\\left[b\\right]}&\\left\\lfloor x\\right\\rfloor\\\\\\left\\lVert y\\right\\rVert&z\\end{array}\\right\\rangle" },
+    { "name": "invisible-side", "latex": "\\left.\\begin{array}{lc}a&b\\\\c&d\\end{array}\\right|+z" },
+    { "name": "array-simultaneous-and-grouped-scripts", "latex": "\\left(\\begin{array}{lr}x_i^2&{x_i}^2\\\\x^2_i&\\left[y\\right]_j^3\\end{array}\\right)_k^4+z" }
   ]
 }

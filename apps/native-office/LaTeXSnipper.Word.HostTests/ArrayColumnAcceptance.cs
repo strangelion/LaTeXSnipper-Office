@@ -68,6 +68,22 @@ namespace LaTeXSnipper.Word.HostTests
             }));
         }
 
+        private static string FenceAndScripts(string xml)
+        {
+            var structures = new[] { "d", "sSub", "sSup", "sSubSup", "f", "m", "mr", "e", "num", "den", "sub", "sup" };
+            return string.Join("|", XDocument.Parse(xml).Descendants().Where(element =>
+                element.Name.Namespace == Math && new[] { "d", "sSub", "sSup", "sSubSup" }.Contains(element.Name.LocalName))
+                .Select(element => {
+                    string path = string.Join("/", element.Ancestors().Reverse().Where(owner =>
+                        owner.Name.Namespace == Math && structures.Contains(owner.Name.LocalName)).Select(owner => owner.Name.LocalName));
+                    if (element.Name.LocalName != "d") return path + "/" + element.Name.LocalName;
+                    var properties = element.Element(Math + "dPr");
+                    string left = (string)properties?.Element(Math + "begChr")?.Attribute(Math + "val") ?? "(";
+                    string right = (string)properties?.Element(Math + "endChr")?.Attribute(Math + "val") ?? ")";
+                    return path + "/d:" + JsonSerializer.Serialize(new[] { left, right });
+                }));
+        }
+
         private static string ReadLayout(W.Document document, WordAdapter adapter, string id, string source, string expectedOmml, string directory)
         {
             var controls = document.SelectContentControlsByTag("latexsnipper:formula:" + id);
@@ -88,6 +104,7 @@ namespace LaTeXSnipper.Word.HostTests
                 string expectedText = string.Concat(XDocument.Parse(expectedOmml).Descendants(Math + "t").Select(text => text.Value));
                 string actualText = string.Concat(XDocument.Parse(range.WordOpenXML).Descendants(Math + "t").Select(text => text.Value));
                 Check(actualText == expectedText, "Host mathematical text differs from the retained Core payload.");
+                Check(FenceAndScripts(range.WordOpenXML) == FenceAndScripts(expectedOmml), "Host delimiter glyphs or script ownership differs from Core output.");
                 return Layout(range.WordOpenXML);
             }
             finally { Release(range); Release(control); Release(controls); }
@@ -139,7 +156,8 @@ namespace LaTeXSnipper.Word.HostTests
                     string actual = ReadLayout(document, adapter, item.Item2, item.Item1.Latex, item.Item1.Omml, directory);
                     Check(actual == item.Item4, "Saved array layout differs: " + item.Item1.Name + "/" + item.Item3);
                     records.Add(new { name = item.Item1.Name, mode = item.Item3, expected = item.Item4, observed = actual,
-                        sourcePreserved = true, mathematicalTextPreserved = true, savedReadonlyReopen = true });
+                        sourcePreserved = true, mathematicalTextPreserved = true, delimiterAndScriptStructurePreserved = true,
+                        fenceAndScripts = FenceAndScripts(item.Item1.Omml), savedReadonlyReopen = true });
                 }
                 W.Range boundary = document.Content;
                 try { Check(boundary.Text.Contains("Array acceptance boundary before") && boundary.Text.Contains("Array acceptance boundary after"), "Surrounding text changed."); }
