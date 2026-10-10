@@ -65,6 +65,10 @@ MSBuild 宿主构建、共享 C# 全套（warnings-as-errors）、前端 433 项
 原生/auto/PNG/受管 SVG 复制专项改用含百分号、字面反斜杠和注释控制词的样例也通过。
 源码及修复前后的诊断 XML 留在忽略产物中，不将机器路径写入仓库。
 
+后续 CI `37951657835` 的 Rust 库测试仍期待 XML→LaTeX 输出裸 `&`，与新的字面字符保护契约不符。
+更新断言为转义 `\&`，保留空白、Unicode、非法实体拒绝，并补百分号与字面 `\frac` 不误成活动分式的回归。
+没有删除测试或放宽转换门禁；本地同一 `cargo test --locked --lib` 命令通过（Windows 147 项，另 5 项需手动环境）。
+
 ## 复现
 
 先用 `scripts/prepare-word-native-host-fixture.mjs` 将

@@ -132,9 +132,17 @@ mod tests {
     #[test]
     fn core_readback_keeps_xml_references_and_rejects_invalid_text() {
         let mathml = r#"<math><mtext> 输入 &amp; &#x4E2D; </mtext></math>"#;
-        assert!(mathml_to_latex_str(mathml).unwrap().contains(" 输入 & 中 "));
+        assert!(mathml_to_latex_str(mathml)
+            .unwrap()
+            .contains(r" 输入 \& 中 "));
         let omml = r#"<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>A&lt;B&amp;C</m:t></m:r></m:oMath>"#;
-        assert!(omml_to_latex_str(omml).unwrap().contains("A<B&C"));
+        assert!(omml_to_latex_str(omml).unwrap().contains(r"A<B\&C"));
+        let literal = r#"<math><mtext>50%+x\frac</mtext></math>"#;
+        let source = mathml_to_latex_str(literal).unwrap();
+        assert!(source.contains(r"50\%+x\backslash{}frac"), "{source}");
+        let preview = convert_formula(source, "mathml".into()).unwrap();
+        assert!(preview.contains(r"50%+x\frac"), "{preview}");
+        assert!(!preview.contains("<mfrac>"), "{preview}");
         assert!(mathml_to_latex_str("<math><mtext>&unknown;</mtext></math>").is_err());
         assert!(omml_to_latex_str("<m:oMath><m:r><m:t>&#0;</m:t></m:r></m:oMath>").is_err());
     }
